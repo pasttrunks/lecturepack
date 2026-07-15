@@ -568,3 +568,103 @@ def test_re_export_skips_processing_stages(tmp_path, qtbot):
         # Verify transcription and detection stages were not reset to running or pending
         assert job.get_stage_status(STAGE_TRANSCRIBE) != "running"
         assert job.get_stage_status(STAGE_DETECT_SLIDES) != "running"
+
+
+# 11. Test SlideDetectorWorker produces adaptive detection metadata fields
+def test_adaptive_detection_metadata_structure(tmp_path):
+    from lecturepack.infrastructure.cv_engine import SlideDetectorWorker
+    from lecturepack.constants import PRESETS
+    
+    video_path = os.path.abspath("tests/fixtures/synthetic_lecture.mp4")
+    assert os.path.exists(video_path)
+    
+    job_paths = FileManager.init_job_dir(str(tmp_path), "test_job_metadata")
+    preset = PRESETS["balanced"].copy()
+    crop_region = {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}
+    
+    worker = SlideDetectorWorker(
+        video_path=video_path,
+        crop_region=crop_region,
+        ignore_masks=[],
+        preset_settings=preset,
+        job_paths=job_paths,
+        start_time=0.0,
+        end_time=10.0
+    )
+    
+    results = []
+    worker.finished.connect(lambda success, error, candidates: results.append((success, error, candidates)))
+    worker.run()
+    
+    success, error, candidates = results[0]
+    assert success
+    assert len(candidates) > 0
+    
+    # Check new v0.4.0 adaptive fields
+    first_cand = candidates[0]
+    assert "detector_path" in first_cand
+    assert "combined_score" in first_cand
+    assert "rolling_baseline_score" in first_cand
+    assert "component_scores" in first_cand
+    assert "stability_result" in first_cand
+    assert "changed_area_ratio" in first_cand
+
+
+# 12. Test DetectionPreviewDialog launches, parses start/end range, and cleans up
+def test_preview_dialog_integration(tmp_path, qtbot):
+    from lecturepack.ui.main_window import DetectionPreviewDialog
+    
+    video_path = os.path.abspath("tests/fixtures/synthetic_lecture.mp4")
+    assert os.path.exists(video_path)
+    
+    job_paths = FileManager.init_job_dir(str(tmp_path), "test_job_preview")
+    crop_region = {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}
+    
+    dialog = DetectionPreviewDialog(
+        parent=None,
+        video_path=video_path,
+        crop_region=crop_region,
+        ignore_masks=[],
+        current_preset="balanced",
+        job_paths=job_paths
+    )
+    qtbot.addWidget(dialog)
+    
+    # Set custom time fields
+    dialog.start_edit.setText("1.0")
+    dialog.end_edit.setText("10.0")
+    dialog.preset_combo.setCurrentText("Balanced")
+    
+    # Execute preview run (blocking call to test thread synchronously)
+    dialog.run_preview()
+    
+    # Wait for work to complete in background thread
+    qtbot.waitUntil(lambda: dialog.run_btn.isEnabled(), timeout=10000)
+    
+    # Verify results populated in dialog table
+    assert dialog.table.rowCount() > 0
+    
+    # Close dialog and check preview directories are cleaned up
+    dialog.close()
+    preview_dir = os.path.join(job_paths["root"], "preview_candidates")
+    assert not os.path.exists(preview_dir)
+
+
+# 13. Test legacy preset mapping fallback in job model
+def test_legacy_preset_fallback(tmp_path):
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    data_dir = tmp_path / "data"
+    
+    # Test job initialization with legacy preset "standard_lecture"
+    job = Job(str(data_dir), video_path=os.path.abspath("tests/fixtures/synthetic_lecture.mp4"))
+    job.settings["preset"] = "standard_lecture"
+    job.save()
+    
+    # Reopen and check legacy mapping
+    reopened = Job(str(data_dir), job_id=job.job_id)
+    preset_settings = reopened.get_preset_settings()
+    assert preset_settings is not None
+    # balanced preset has specific values
+    from lecturepack.constants import PRESETS
+    assert preset_settings == PRESETS["balanced"]
+

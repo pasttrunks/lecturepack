@@ -78,7 +78,7 @@ def main():
     print(f"Transcription finished in {transcription_time:.2f}s. Exit code: {res_w.returncode}")
     
     print("\n--- 4. Slide Detection ---")
-    preset = PRESETS["standard_lecture"]
+    preset = PRESETS["balanced"]
     
     # Run slide detection
     worker = SlideDetectorWorker(

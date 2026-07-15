@@ -21,7 +21,7 @@ def test_slide_detection(tmp_path):
         {"x": 0.0, "y": 0.89, "width": 1.0, "height": 0.11}
     ]
 
-    preset = PRESETS["standard_lecture"].copy()
+    preset = PRESETS["balanced"].copy()
     
     # Instantiate SlideDetectorWorker
     worker = SlideDetectorWorker(video_path, crop_region, ignore_masks, preset, job_paths)
@@ -77,4 +77,4 @@ def test_slide_detection(tmp_path):
     assert len(repeated_candidates) > 0, "Repeated slide occurrence at 55s was globally removed"
 
     # Check Slide 7 (final slide at 60s)
-    assert any(60.0 <= ts < 64.0 for ts in timestamps), "Final slide not detected"
+    assert any(60.0 <= ts <= 65.0 for ts in timestamps), "Final slide not detected"

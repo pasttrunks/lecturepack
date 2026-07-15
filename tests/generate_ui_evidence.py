@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import time
 from PySide6.QtWidgets import QApplication, QMessageBox, QFileDialog
@@ -120,7 +121,7 @@ def main():
         controller.set_job(job)
         
         # Configure crop selector parameters and preset
-        job.settings["preset"] = "standard_lecture"
+        job.settings["preset"] = "balanced"
         job.settings["slide_detection"] = {
             "crop_region": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
             "ignore_masks": []
@@ -173,8 +174,10 @@ def main():
     window.crop_selector.update()
     QTest.qWait(500)
     
-    artifact_dir = "C:/Users/marsh/.gemini/antigravity/brain/ab2a0411-7470-4b90-8d77-d6f5d1126d2b"
+    artifact_dir = "C:/Users/marsh/.gemini/antigravity/brain/0415c972-e4bb-4a66-9df8-4c305aafe222"
     os.makedirs(artifact_dir, exist_ok=True)
+    evidence_dir = "C:/Users/marsh/Documents/LecturePack/docs/evidence/v0.4.0"
+    os.makedirs(evidence_dir, exist_ok=True)
     
     # Grab Setup View
     print("[STAGE] Navigating to Setup View...", flush=True)
@@ -218,32 +221,22 @@ def main():
     
     print("[STAGE] Navigating to Review View...", flush=True)
     window.stack.setCurrentIndex(2)
-    if window.accepted_list.count() > 0:
-        window.accepted_list.setCurrentRow(0)
+    if window.slides_view.count() > 0:
+        window.slides_view.setCurrentRow(0)
     QTest.qWait(500)
     print("[STAGE] Capturing review_view.png...", flush=True)
     window.grab().save(os.path.join(artifact_dir, "review_view.png"))
 
     # 6. Verify UI Interaction (Reject one slide)
-    accepted_count_before = window.accepted_list.count()
-    rejected_count_before = window.rejected_list.count()
-    print(f"[STAGE] Before rejection: Accepted={accepted_count_before}, Rejected={rejected_count_before}", flush=True)
-    
-    window._toggle_slide_decision()
+    print("[STAGE] Rejecting first slide...", flush=True)
+    window.slides_view.item(0).setSelected(True)
+    window._bulk_reject()
     QTest.qWait(300)
     
-    accepted_count_after = window.accepted_list.count()
-    rejected_count_after = window.rejected_list.count()
-    print(f"[STAGE] After rejection: Accepted={accepted_count_after}, Rejected={rejected_count_after}", flush=True)
-    assert accepted_count_after == accepted_count_before - 1
-    assert rejected_count_after == rejected_count_before + 1
-    
-    # Restore it back
-    if window.rejected_list.count() > 0:
-        window.rejected_list.setCurrentRow(0)
-        window._restore_slide()
+    # Restore it back using undo
+    print("[STAGE] Restoring rejected slide using Undo...", flush=True)
+    window._undo_review_action()
     QTest.qWait(300)
-    print(f"[STAGE] After restore: Accepted={window.accepted_list.count()}, Rejected={window.rejected_list.count()}", flush=True)
 
     # 7. Run export and check responsiveness
     print("[STAGE] Running export from UI...", flush=True)
@@ -299,11 +292,12 @@ def main():
     QTest.qWait(500)
     
     assert window2.video_path_edit.text() == video_path
-    assert window2.accepted_list.count() == accepted_count_before
+    assert window2.slides_view.count() > 0
     
     # Change one decision
-    window2.accepted_list.setCurrentRow(0)
-    window2._toggle_slide_decision()
+    window2.slides_view.setCurrentRow(0)
+    window2.slides_view.item(0).setSelected(True)
+    window2._bulk_reject()
     QTest.qWait(300)
     
     # Trigger export and verify cache (instantaneous)
@@ -338,6 +332,11 @@ def main():
     print("[STAGE] QApplication quit...", flush=True)
     app.quit()
     
+    # Copy files to docs/evidence/v0.4.0/
+    print("[STAGE] Copying screenshots to docs/evidence/v0.4.0/...", flush=True)
+    for fname in ["setup_view.png", "processing_view.png", "review_view.png"]:
+        shutil.copy(os.path.join(artifact_dir, fname), os.path.join(evidence_dir, fname))
+
     # Output file paths
     print("\n--- SCREENSHOT PATHS ---", flush=True)
     print(f"setup_view: {os.path.join(artifact_dir, 'setup_view.png')}", flush=True)

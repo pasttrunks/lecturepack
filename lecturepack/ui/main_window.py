@@ -320,11 +320,17 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(whisper_grp)
 
         # Preset group
-        preset_grp = QGroupBox("Slide Change Preset")
+        preset_grp = QGroupBox("Slide Detection Sensitivity")
         preset_layout = QVBoxLayout(preset_grp)
         self.preset_combo = QComboBox()
-        self.preset_combo.addItems(["Standard Lecture Slides", "Slides with Webcam", "Handwritten / Whiteboard", "Software Demonstration"])
+        self.preset_combo.addItems(["Conservative", "Balanced", "Detailed"])
         preset_layout.addWidget(self.preset_combo)
+        
+        self.preview_btn = QPushButton("Preview Detection")
+        self.preview_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 5px;")
+        self.preview_btn.clicked.connect(self._run_detection_preview)
+        preset_layout.addWidget(self.preview_btn)
+        
         left_layout.addWidget(preset_grp)
 
         # Diagnostics bar
@@ -704,10 +710,14 @@ class MainWindow(QMainWindow):
         self.vad_sil_spin.setValue(w_settings.get("vad_min_silence_duration_ms", 100))
         
         # Load presets
-        preset = self.current_job.settings.get("preset", "standard_lecture")
-        idx = self.preset_combo.findText(preset.replace("_", " ").title())
+        preset = self.current_job.settings.get("preset", "balanced")
+        if preset in ["standard_lecture", "webcam_lecture", "whiteboard_lecture", "software_demo"]:
+            preset = "balanced"
+        idx = self.preset_combo.findText(preset.title())
         if idx >= 0:
             self.preset_combo.setCurrentIndex(idx)
+        else:
+            self.preset_combo.setCurrentIndex(1) # Default to Balanced
 
         # Restore crop selector geometry
         sd = self.current_job.settings.get("slide_detection", {})
@@ -808,6 +818,34 @@ class MainWindow(QMainWindow):
         
         # Start pipeline
         self.controller.run_pipeline()
+
+    def _run_detection_preview(self):
+        if not self.current_job:
+            QMessageBox.warning(self, "No video", "Please select a lecture video first.")
+            return
+
+        crop_region = {
+            "x": self.crop_selector.crop_rect.x(),
+            "y": self.crop_selector.crop_rect.y(),
+            "width": self.crop_selector.crop_rect.width(),
+            "height": self.crop_selector.crop_rect.height()
+        }
+        ignore_masks = [
+            {"x": r.x(), "y": r.y(), "width": r.width(), "height": r.height()}
+            for r in self.crop_selector.ignore_rects
+        ]
+        
+        current_preset = self.preset_combo.currentText().lower()
+        
+        dialog = DetectionPreviewDialog(
+            parent=self,
+            video_path=self.current_job.manifest["source"]["original_path"],
+            crop_region=crop_region,
+            ignore_masks=ignore_masks,
+            current_preset=current_preset,
+            job_paths=self.current_job.paths
+        )
+        dialog.exec()
 
     def _cancel_processing(self):
         self.controller.cancel()
@@ -1749,4 +1787,172 @@ class MainWindow(QMainWindow):
         if self.current_job:
             exports_dir = self.current_job.paths["exports"]
             os.startfile(exports_dir)
+
+
+class DetectionPreviewDialog(QDialog):
+    def __init__(self, parent, video_path, crop_region, ignore_masks, current_preset, job_paths):
+        super().__init__(parent)
+        self.setWindowTitle("Preview Detection")
+        self.resize(750, 600)
+        self.setMinimumSize(600, 500)
+        
+        self.video_path = video_path
+        self.crop_region = crop_region
+        self.ignore_masks = ignore_masks
+        self.current_preset = current_preset
+        self.job_paths = job_paths
+        self.worker = None
+
+        layout = QVBoxLayout(self)
+
+        # Time range selection layout
+        inputs_layout = QHBoxLayout()
+        inputs_layout.addWidget(QLabel("Start (s):"))
+        self.start_edit = QLineEdit("1758.0")
+        self.start_edit.setToolTip("Start time in seconds or MM:SS format")
+        inputs_layout.addWidget(self.start_edit)
+        
+        inputs_layout.addWidget(QLabel("End (s):"))
+        self.end_edit = QLineEdit("2121.0")
+        self.end_edit.setToolTip("End time in seconds or MM:SS format")
+        inputs_layout.addWidget(self.end_edit)
+        
+        inputs_layout.addWidget(QLabel("Sensitivity:"))
+        self.preset_combo = QComboBox()
+        self.preset_combo.addItems(["Conservative", "Balanced", "Detailed"])
+        idx = self.preset_combo.findText(current_preset.title())
+        if idx >= 0:
+            self.preset_combo.setCurrentIndex(idx)
+        else:
+            self.preset_combo.setCurrentIndex(1)
+        inputs_layout.addWidget(self.preset_combo)
+
+        self.run_btn = QPushButton("Run Preview")
+        self.run_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        self.run_btn.clicked.connect(self.run_preview)
+        inputs_layout.addWidget(self.run_btn)
+        
+        layout.addLayout(inputs_layout)
+
+        # Progress bar
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        layout.addWidget(self.progress)
+
+        from PySide6.QtWidgets import QTableWidget, QHeaderView
+        
+        # Results table
+        self.table = QTableWidget()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["Thumbnail", "Timestamp", "Reason", "Confidence", "Changed Ratio"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        layout.addWidget(self.table)
+
+        # Summary label
+        self.summary_lbl = QLabel("Total candidates: 0")
+        self.summary_lbl.setStyleSheet("font-weight: bold; font-size: 13px;")
+        layout.addWidget(self.summary_lbl)
+
+    def run_preview(self):
+        try:
+            start_str = self.start_edit.text().strip()
+            end_str = self.end_edit.text().strip()
+            
+            def parse_time(s):
+                if ":" in s:
+                    parts = s.split(":")
+                    if len(parts) == 2:
+                        return float(parts[0]) * 60 + float(parts[1])
+                    elif len(parts) == 3:
+                        return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+                return float(s)
+            
+            start_val = parse_time(start_str) if start_str else 0.0
+            end_val = parse_time(end_str) if end_str else None
+        except Exception:
+            QMessageBox.critical(self, "Invalid Time Format", "Please enter valid times in seconds or HH:MM:SS format.")
+            return
+
+        self.run_btn.setEnabled(False)
+        self.table.setRowCount(0)
+        self.progress.setValue(0)
+
+        from lecturepack.constants import PRESETS
+        preset_name = self.preset_combo.currentText().lower()
+        preset_settings = PRESETS.get(preset_name, PRESETS["balanced"])
+
+        from lecturepack.infrastructure.cv_engine import SlideDetectorWorker
+        
+        # Create a preview candidates subdirectory
+        import os
+        preview_candidates_dir = os.path.join(self.job_paths["root"], "preview_candidates")
+        os.makedirs(preview_candidates_dir, exist_ok=True)
+        preview_job_paths = self.job_paths.copy()
+        preview_job_paths["candidates"] = preview_candidates_dir
+        
+        self.worker = SlideDetectorWorker(
+            video_path=self.video_path,
+            crop_region=self.crop_region,
+            ignore_masks=self.ignore_masks,
+            preset_settings=preset_settings,
+            job_paths=preview_job_paths,
+            start_time=start_val,
+            end_time=end_val
+        )
+        
+        self.worker.progress.connect(self.progress.setValue)
+        self.worker.finished.connect(lambda success, error, candidates: self.on_detection_finished(success, error, candidates, preview_candidates_dir))
+        self.worker.start()
+
+    def on_detection_finished(self, success, error, candidates, preview_candidates_dir):
+        self.run_btn.setEnabled(True)
+        if not success:
+            QMessageBox.critical(self, "Preview Failed", f"Slide detection failed: {error}")
+            return
+
+        self.table.setRowCount(len(candidates))
+        self.summary_lbl.setText(f"Total candidates: {len(candidates)}")
+
+        for i, c in enumerate(candidates):
+            self.table.setRowHeight(i, 90)
+            
+            # 1. Thumbnail
+            img_path = os.path.join(preview_candidates_dir, c["image_filename"])
+            pm = QPixmap(img_path)
+            if not pm.isNull():
+                pm_scaled = pm.scaled(120, 90, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                lbl_img = QLabel()
+                lbl_img.setPixmap(pm_scaled)
+                lbl_img.setAlignment(Qt.AlignCenter)
+                self.table.setCellWidget(i, 0, lbl_img)
+            else:
+                self.table.setItem(i, 0, QTableWidgetItem("No Image"))
+                
+            # 2. Timestamp
+            self.table.setItem(i, 1, QTableWidgetItem(f"{c['timestamp_formatted']}\n({c['timestamp_seconds']:.2f}s)"))
+            
+            # 3. Reason
+            self.table.setItem(i, 2, QTableWidgetItem(f"{c['detector_path']}\n({c['decision_reason']})"))
+            
+            # 4. Confidence / Combined Score
+            self.table.setItem(i, 3, QTableWidgetItem(f"Score: {c.get('combined_score', 0.0):.3f}\nBaseline: {c.get('rolling_baseline_score', 0.0):.3f}"))
+            
+            # 5. Changed Area Ratio
+            self.table.setItem(i, 4, QTableWidgetItem(f"{c.get('changed_area_ratio', 0.0)*100:.1f}%"))
+
+    def closeEvent(self, event):
+        if self.worker and self.worker.isRunning():
+            self.worker.cancel()
+            self.worker.wait()
+            
+        import shutil
+        preview_candidates_dir = os.path.join(self.job_paths["root"], "preview_candidates")
+        if os.path.exists(preview_candidates_dir):
+            try:
+                shutil.rmtree(preview_candidates_dir, ignore_errors=True)
+            except Exception:
+                pass
+        super().closeEvent(event)
 

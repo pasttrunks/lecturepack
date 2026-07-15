@@ -1,7 +1,7 @@
 import os
 
 APP_NAME = "Lecture Pack"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 # Supported video file extensions (case-insensitive)
 SUPPORTED_VIDEO_EXTENSIONS = ('.mp4', '.avi', '.mkv', '.mov', '.m4v', '.webm')
@@ -28,70 +28,39 @@ STAGES = [
 # Default directories
 DEFAULT_DATA_DIR = os.path.expanduser(os.path.join("~", "LecturePackData"))
 
-# Processing Presets (From section 4 of IMPLEMENTATION_PLAN.md)
+# Adaptive Processing Presets (Conservative, Balanced, Detailed)
 PRESETS = {
-    "standard_lecture": {
+    "conservative": {
         "sample_fps": 1.0,
-        "dhash_reject": 2,
-        "dhash_accept": 20,
-        "ssim_reject": 0.98,
-        "ssim_accept": 0.75,
-        "hist_bhatt_accept": 0.04,
-        "pixel_diff_accept": 0.008,
+        "gaussian_blur_kernel": 3,
+        "major_threshold": 0.18,
+        "minor_threshold": 0.05,
+        "stability_window_sec": 1.5,
+        "stability_ssim": 0.98,
+        "stability_max_wait_sec": 5.0,
+        "min_time_between_slides": 8.0,
+        "dedup_phash_threshold": 8,
+    },
+    "balanced": {
+        "sample_fps": 1.0,
+        "gaussian_blur_kernel": 3,
+        "major_threshold": 0.12,
+        "minor_threshold": 0.02,
         "stability_window_sec": 1.5,
         "stability_ssim": 0.97,
         "stability_max_wait_sec": 5.0,
+        "min_time_between_slides": 5.0,
         "dedup_phash_threshold": 8,
-        "build_spatial_threshold": 0.08,
-        "temporal_median_frames": 5,
-        "gaussian_blur_kernel": 3,
     },
-    "webcam_lecture": {
-        "sample_fps": 1.0,
-        "dhash_reject": 2,
-        "dhash_accept": 20,
-        "ssim_reject": 0.98,
-        "ssim_accept": 0.75,
-        "hist_bhatt_accept": 0.04,
-        "pixel_diff_accept": 0.008,
-        "stability_window_sec": 1.5,
-        "stability_ssim": 0.97,
-        "stability_max_wait_sec": 5.0,
-        "dedup_phash_threshold": 8,
-        "build_spatial_threshold": 0.08,
-        "temporal_median_frames": 5,
-        "gaussian_blur_kernel": 3,
-    },
-    "whiteboard_lecture": {
+    "detailed": {
         "sample_fps": 2.0,
-        "dhash_reject": 2,
-        "dhash_accept": 12,
-        "ssim_reject": 0.95,
-        "ssim_accept": 0.80,
-        "hist_bhatt_accept": 0.15,
-        "pixel_diff_accept": 0.08,
-        "stability_window_sec": 2.0,
-        "stability_ssim": 0.96,
-        "stability_max_wait_sec": 8.0,
-        "dedup_phash_threshold": 12,
-        "build_spatial_threshold": 0.04,
-        "temporal_median_frames": 3,
         "gaussian_blur_kernel": 3,
-    },
-    "software_demo": {
-        "sample_fps": 3.0,
-        "dhash_reject": 2,
-        "dhash_accept": 8,
-        "ssim_reject": 0.88,
-        "ssim_accept": 0.82,
-        "hist_bhatt_accept": 0.10,
-        "pixel_diff_accept": 0.05,
-        "stability_window_sec": 0.75,
-        "stability_ssim": 0.95,
-        "stability_max_wait_sec": 3.0,
+        "major_threshold": 0.08,
+        "minor_threshold": 0.01,
+        "stability_window_sec": 1.0,
+        "stability_ssim": 0.96,
+        "stability_max_wait_sec": 4.0,
+        "min_time_between_slides": 2.0,
         "dedup_phash_threshold": 6,
-        "build_spatial_threshold": 0.02,
-        "temporal_median_frames": 1,
-        "gaussian_blur_kernel": 0,
     }
 }

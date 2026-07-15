@@ -81,6 +81,36 @@ def run_packaged_validation(app):
     assert info["duration"] > 0.0, "m4v duration parse failed"
     print(f"Loaded m4v metadata. Duration: {info['duration']:.2f}s")
     
+    # 5b. Run Detection Preview on the Egypt lecture excerpt from 29:18 to 35:21
+    print("Running Detection Preview on Egypt lecture excerpt from 29:18 to 35:21...")
+    from lecturepack.ui.main_window import DetectionPreviewDialog
+    crop_region = {"x": 0.02, "y": 0.05, "width": 0.96, "height": 0.85}
+    preview_dialog = DetectionPreviewDialog(
+        parent=window2,
+        video_path=m4v_path,
+        crop_region=crop_region,
+        ignore_masks=[],
+        current_preset="balanced",
+        job_paths=window2.current_job.paths
+    )
+    preview_dialog.start_edit.setText("29:18")
+    preview_dialog.end_edit.setText("35:21")
+    preview_dialog.run_preview()
+    
+    import time
+    start_wait = time.time()
+    # Wait for the preview worker thread to finish (max 150 seconds)
+    while not preview_dialog.run_btn.isEnabled() and time.time() - start_wait < 150:
+        QApplication.processEvents()
+        time.sleep(0.1)
+        
+    assert preview_dialog.table.rowCount() > 0, "No preview candidates detected"
+    # The evaluation output showed 54 candidates for Egypt Excerpt
+    assert preview_dialog.table.rowCount() == 54, f"Expected 54 candidates, got {preview_dialog.table.rowCount()}"
+    print(f"Preview Dialog validated successfully! Detected {preview_dialog.table.rowCount()} candidates.")
+    preview_dialog.close()
+    QApplication.processEvents()
+    
     # 6. Check for orphaned processes
     print("Verifying no orphaned processes remain...")
     window.whisper_detector.cancel()

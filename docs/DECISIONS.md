@@ -4,6 +4,21 @@ Record of major technical decisions. Newest entries at the top.
 
 ---
 
+## AD-9: Adaptive Baseline and Two-Path Slide Detection (v0.4.0)
+
+**Date:** 2026-07-15 (Phase 4)  
+**Status:** Accepted  
+
+**Context:** The slide detection engine needs to handle animated builds, transitions, and noise without producing excessive false slide candidates, while ensuring real slides and small persistent additions (progressive builds/handwriting) are correctly captured.
+
+**Decision:** Replace the single-threshold slide change cascade with two explicit detection paths:
+1. **Major Slide-Change Path**: Evaluates frame changes against a rolling local baseline of recent frame-to-frame changes. A change is accepted only if it stands significantly above this baseline and stabilizes.
+2. **Progressive-Build Path**: Identifies small persistent localized additions using contour analysis on the difference image, filtering out pointer-sized or caption-sized regions, and verifying spatial persistence in subsequent frames.
+
+Expose a single simple sensitivity control ("Conservative", "Balanced", "Detailed") in the UI that internally configures thresholds and window metrics.
+
+---
+
 ## AD-8: PyInstaller over Nuitka for Initial Packaging
 
 **Date:** 2026-07-15 (Phase 0)  
