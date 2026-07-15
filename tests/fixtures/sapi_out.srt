@@ -1,0 +1,20 @@
+1
+00:00:00,000 --> 00:00:06,320
+ Hello and welcome to Lecture Pack. In today's session, we are going to explore module two of
+
+2
+00:00:06,320 --> 00:00:13,360
+ our computer science series, focusing on algorithms and BIGO complexity. We will analyze the performance
+
+3
+00:00:13,360 --> 00:00:19,840
+ of nested loops and explain why two loops result in a quadratic runtime of O(n) squared, which contains
+
+4
+00:00:19,840 --> 00:00:22,160
+ exactly 4 stages.
+
+5
+00:00:22,160 --> 00:00:23,280
+ Thank you for listening.
+

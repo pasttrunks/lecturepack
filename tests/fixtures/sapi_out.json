@@ -1,0 +1,87 @@
+{
+	"systeminfo": "WHISPER : COREML = 0 | OPENVINO = 0 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | OPENMP = 1 | REPACK = 1 | ",
+	"model": {
+		"type": "base",
+		"multilingual": false,
+		"vocab": 51864,
+		"audio": {
+			"ctx": 1500,
+			"state": 512,
+			"head": 8,
+			"layer": 6
+		},
+		"text": {
+			"ctx": 448,
+			"state": 512,
+			"head": 8,
+			"layer": 6
+		},
+		"mels": 80,
+		"ftype": 1
+	},
+	"params": {
+		"model": "models\\ggml-base.en.bin",
+		"language": "en",
+		"translate": false
+	},
+	"result": {
+		"language": "en"
+	},
+	"transcription": [
+		{
+			"timestamps": {
+				"from": "00:00:00,000",
+				"to": "00:00:06,320"
+			},
+			"offsets": {
+				"from": 0,
+				"to": 6320
+			},
+			"text": " Hello and welcome to Lecture Pack. In today's session, we are going to explore module two of"
+		},
+		{
+			"timestamps": {
+				"from": "00:00:06,320",
+				"to": "00:00:13,360"
+			},
+			"offsets": {
+				"from": 6320,
+				"to": 13360
+			},
+			"text": " our computer science series, focusing on algorithms and BIGO complexity. We will analyze the performance"
+		},
+		{
+			"timestamps": {
+				"from": "00:00:13,360",
+				"to": "00:00:19,840"
+			},
+			"offsets": {
+				"from": 13360,
+				"to": 19840
+			},
+			"text": " of nested loops and explain why two loops result in a quadratic runtime of O(n) squared, which contains"
+		},
+		{
+			"timestamps": {
+				"from": "00:00:19,840",
+				"to": "00:00:22,160"
+			},
+			"offsets": {
+				"from": 19840,
+				"to": 22160
+			},
+			"text": " exactly 4 stages."
+		},
+		{
+			"timestamps": {
+				"from": "00:00:22,160",
+				"to": "00:00:23,280"
+			},
+			"offsets": {
+				"from": 22160,
+				"to": 23280
+			},
+			"text": " Thank you for listening."
+		}
+	]
+}

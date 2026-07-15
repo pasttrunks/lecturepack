@@ -1,0 +1,5 @@
+ Hello and welcome to Lecture Pack. In today's session, we are going to explore module two of
+ our computer science series, focusing on algorithms and BIGO complexity. We will analyze the performance
+ of nested loops and explain why two loops result in a quadratic runtime of O(n) squared, which contains
+ exactly 4 stages.
+ Thank you for listening.
