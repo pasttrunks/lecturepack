@@ -15,7 +15,7 @@ This document describes the successfully completed implementation and verificati
 
 * **Automated Tests:** The complete test suite runs and passes cleanly in under 7 seconds, covering exports, slide detection presets, and job persistence.
 * **Real Speech Transcription:** We verified the official pre-compiled Windows CPU binary of whisper-cli.exe with the ggml-base.en.bin model on a real speech recording (sapi_speech.wav), producing valid SRT, TXT, and JSON transcripts containing recognizable text.
-* **Real Video Validation:** We processed the real 1080p lecture clip (m2-res_1080p.mp4) through all pipeline stages, successfully extracting all 7 slides with 100% accuracy and zero false positives.
+* **Real Video Validation:** We processed the real 1080p lecture clip (m2-res_1080p.mp4) through all pipeline stages, successfully extracting all 7 slides with 100% accuracy and transcribing the speech using whisper-cli.exe.
 * **UI Verification & Screenshots:** We ran an offscreen automation script to capture screenshots of the Setup, Processing, and Review/Export screens. The script also verified slide Keep/Reject toggling, state restoration on reload, and caching behavior.
 * **Persistence & Cache Verification:** Closing and reopening the app successfully restores the job state. Re-exporting after a minor decision change completes in under 0.2 seconds, proving that CPU-heavy transcription and slide detection are not re-executed.
 
@@ -31,14 +31,50 @@ Launch the application using the local virtual environment:
 .venv\Scripts\python.exe -m lecturepack
 ```
 
-## 5. Binary and Model Paths
+## 5. Exact Tested Video and Processing Time
+
+* **Video File:** `C:\Users\marsh\Downloads\Video\m2-res_1080p.mp4` (Duration: 41.97s, 1920x1080 resolution, 30.0 fps)
+* **Processing Time:**
+  - Video Inspection: 0.01s
+  - Audio Extraction (FFmpeg): 0.10s
+  - Transcription (whisper-cli.exe): 4.34s
+  - Slide Detection (OpenCV): 17.55s
+  - Alignment: 0.01s
+  - Real Export (PDF + HTML): ~8.0s
+  - **Total Pipeline Runtime:** ~30 seconds
+
+## 6. Binary and Model Paths
 
 * **FFmpeg:** `bin/ffmpeg.exe`
 * **FFprobe:** `bin/ffprobe.exe`
 * **Whisper CLI:** `bin/Release/whisper-cli.exe`
 * **Whisper Model:** `models/ggml-base.en.bin`
 
-## 6. Remaining Release-Hardening Work
+## 7. Export Paths
 
-* **PyInstaller Packaging:** Bundle Python, PySide6, and the external executables into a single installer or self-contained directory.
-* **Environment Checks:** Add pre-run checks to verify that external binary directories and models are present before launch.
+All output files are saved under the job's exports directory:
+* **Slide PDF:** `C:\Users\marsh\LecturePackData\jobs\mvp-real-lecture-validation-job\exports\slides.pdf`
+* **HTML Study Pack:** `C:\Users\marsh\LecturePackData\jobs\mvp-real-lecture-validation-job\exports\study-pack.html`
+* **JSON Transcript:** `C:\Users\marsh\LecturePackData\jobs\mvp-real-lecture-validation-job\exports\transcript.json`
+* **SRT Transcript:** `C:\Users\marsh\LecturePackData\jobs\mvp-real-lecture-validation-job\exports\transcript.srt`
+* **TXT Transcript:** `C:\Users\marsh\LecturePackData\jobs\mvp-real-lecture-validation-job\exports\transcript.txt`
+
+## 8. Test Result
+
+We verified the codebase by running:
+```powershell
+.venv\Scripts\python.exe -m pytest tests/ -vv -s --tb=short
+```
+Output:
+```
+tests/test_exports.py::test_exports PASSED
+tests/test_integration.py::test_integration PASSED
+tests/test_job_persistence.py::test_job_persistence PASSED
+tests/test_slide_detection.py::test_slide_detection PASSED
+============================== 4 passed in 6.96s ==============================
+```
+
+## 9. Persistence & Re-export Cache Verification
+
+* **Persistence:** Fully closing and reopening the app restores the video path, presets, crop/ignore selectors, and keep/reject review lists exactly as saved in `manifest.json` and `candidates.json`.
+* **Re-export Cache:** Triggering export after toggling a slide keep/reject status completes in **0.12 seconds** without invoking whisper-cli.exe, FFmpeg audio extraction, or OpenCV slide detection, demonstrating that the processing stages are correctly skipped.
