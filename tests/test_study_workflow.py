@@ -3,6 +3,8 @@ import shutil
 import json
 import pytest
 from unittest.mock import patch, MagicMock
+from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import Qt
 from lecturepack.models.job import Job
 from lecturepack.constants import (
     STAGE_INSPECT, STAGE_EXTRACT_AUDIO, STAGE_TRANSCRIBE,
@@ -331,3 +333,238 @@ def test_retranscribe_only_stages(tmp_path, qtbot):
     # Transcribe and Align are pending (rerun)
     assert job.get_stage_status(STAGE_TRANSCRIBE) == "pending"
     assert job.get_stage_status(STAGE_ALIGN) == "pending"
+
+# 8. Focused PySide6 UI tests using qtbot
+def test_ui_review_flow(tmp_path, qtbot):
+    data_dir = tmp_path / "data"
+    
+    # Configure dummy executables
+    whisper_exe = tmp_path / "whisper-cli.exe"
+    whisper_exe.touch()
+    ffmpeg_exe = tmp_path / "ffmpeg.exe"
+    ffmpeg_exe.touch()
+    ffprobe_exe = tmp_path / "ffprobe.exe"
+    ffprobe_exe.touch()
+    
+    # Setup ConfigManager and mock checks
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    config = ConfigManager(str(data_dir))
+    config.set("whisper_exe", str(whisper_exe))
+    config.set("whisper_model", "ggml-base.bin")
+    
+    config.check_diagnostics = lambda: {
+        "ffmpeg": {"valid": True, "path": str(ffmpeg_exe)},
+        "ffprobe": {"valid": True, "path": str(ffprobe_exe)},
+        "whisper_cli": {"valid": True, "path": str(whisper_exe)},
+        "whisper_model": {"valid": True, "path": "ggml-base.bin"},
+        "data_dir": {"valid": True, "path": str(data_dir)}
+    }
+
+    # Initialize job and candidates
+    video_path = tmp_path / "video.mp4"
+    video_path.touch()
+    job = Job(str(data_dir), video_path=str(video_path))
+    job.source["duration"] = 60.0
+    job.save()
+    
+    candidates_path = os.path.join(job.paths["root"], "candidates.json")
+    candidates = [
+        {
+            "frame_number": 0,
+            "timestamp_seconds": 0.0,
+            "timestamp_formatted": "00:00:00.000",
+            "decision": "accepted",
+            "image_filename": "slide_0.png"
+        },
+        {
+            "frame_number": 1,
+            "timestamp_seconds": 10.0,
+            "timestamp_formatted": "00:00:10.000",
+            "decision": "accepted",
+            "image_filename": "slide_1.png"
+        },
+        {
+            "frame_number": 2,
+            "timestamp_seconds": 20.0,
+            "timestamp_formatted": "00:00:20.000",
+            "decision": "accepted",
+            "image_filename": "slide_2.png"
+        }
+    ]
+    FileManager.write_json_atomic(candidates_path, candidates)
+    
+    for c in candidates:
+        img_p = os.path.join(job.paths["candidates"], c["image_filename"])
+        with open(img_p, 'w') as f:
+            f.write("dummy")
+
+    # Touch raw.json transcription output
+    raw_json_dir = os.path.join(job.paths["root"], "transcript")
+    os.makedirs(raw_json_dir, exist_ok=True)
+    raw_data = {
+        "transcription": [
+            {
+                "offsets": {"from": 0, "to": 5000},
+                "text": "First segment content."
+            },
+            {
+                "offsets": {"from": 10000, "to": 15000},
+                "text": "Second segment content."
+            },
+            {
+                "offsets": {"from": 20000, "to": 25000},
+                "text": "Third segment content."
+            }
+        ]
+    }
+    with open(os.path.join(raw_json_dir, "raw.json"), 'w', encoding='utf-8') as f:
+        json.dump(raw_data, f)
+
+    job.set_stage_status(STAGE_REVIEW_READY, "completed")
+    job.save()
+
+    # Instantiate MainWindow
+    from lecturepack.ui.main_window import MainWindow
+    window = MainWindow(config)
+    qtbot.addWidget(window)
+    
+    # Load review state
+    window.current_job = job
+    window.controller.set_job(job)
+    window._load_review_data()
+    window.stack.setCurrentIndex(2)
+
+    # 1. Verify counts
+    assert window.slides_view.count() == 3
+    
+    # 2. Select first slide
+    first_item = window.slides_view.item(0)
+    window.slides_view.setCurrentItem(first_item)
+    assert window.selected_count_lbl.text() == "Selected: 1"
+    
+    # 3. Ctrl-click (programmatic multi-select)
+    window.slides_view.item(1).setSelected(True)
+    assert window.selected_count_lbl.text() == "Selected: 2"
+    
+    # 4. Ctrl+A selection
+    window.slides_view.selectAll()
+    assert window.selected_count_lbl.text() == "Selected: 3"
+    
+    # 5. Bulk Reject action
+    window._bulk_reject()
+    cands_loaded = FileManager.read_json_safe(candidates_path)
+    for c in cands_loaded:
+        assert c["decision"] == "rejected"
+        
+    # Verify candidate files are NOT physically deleted
+    for c in candidates:
+        img_p = os.path.join(job.paths["candidates"], c["image_filename"])
+        assert os.path.exists(img_p)
+
+    # 6. Undo action
+    window._undo_review_action()
+    cands_loaded = FileManager.read_json_safe(candidates_path)
+    for c in cands_loaded:
+        assert c["decision"] == "accepted"
+
+    # Select all slides to populate the transcript pane with all segments
+    window.slides_view.selectAll()
+
+    # 7. Search box navigation
+    window.search_input.setText("Second")
+    window._search_next()
+    focused_widget = window.transcript_table.cellWidget(1, 1)
+    assert focused_widget is not None
+    assert "Second" in focused_widget.toPlainText()
+
+    # 8. Edit segment and save
+    focused_widget.setPlainText("Corrected Second text.")
+    window._save_corrections()
+    
+    edited_path = os.path.join(job.paths["transcript"], "edited.json")
+    edited_loaded = FileManager.read_json_safe(edited_path)
+    assert edited_loaded["2"] == "Corrected Second text."
+
+    # 9. Reset segment
+    reset_btn = window.transcript_table.cellWidget(1, 2)
+    qtbot.mouseClick(reset_btn, Qt.MouseButton.LeftButton)
+    edited_loaded = FileManager.read_json_safe(edited_path)
+    assert "2" not in edited_loaded
+
+    # 10. Clipboard Copying
+    from PySide6.QtGui import QGuiApplication
+    clipboard = QGuiApplication.clipboard()
+    
+    window.timestamps_chk.setChecked(False)
+    window._copy_full_transcript()
+    assert "First segment content." in clipboard.text()
+    
+    window.timestamps_chk.setChecked(True)
+    window._copy_full_transcript()
+    assert "[00:00:00.000 -> 00:00:05.000]" in clipboard.text()
+
+# 9. Test Bulk confirmation warning (>20 selected items)
+def test_bulk_confirmation_dialog(tmp_path, qtbot):
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    data_dir = tmp_path / "data"
+    config = ConfigManager(str(data_dir))
+    video_path = tmp_path / "video.mp4"
+    video_path.touch()
+    
+    job = Job(str(data_dir), video_path=str(video_path))
+    candidates_path = os.path.join(job.paths["root"], "candidates.json")
+    
+    # 25 candidates
+    candidates = []
+    for i in range(25):
+        candidates.append({
+            "frame_number": i,
+            "timestamp_seconds": float(i),
+            "timestamp_formatted": f"00:00:{i:02d}.000",
+            "decision": "accepted",
+            "image_filename": f"slide_{i}.png"
+        })
+    FileManager.write_json_atomic(candidates_path, candidates)
+    
+    from lecturepack.ui.main_window import MainWindow
+    window = MainWindow(config)
+    qtbot.addWidget(window)
+    window.current_job = job
+    window._load_review_data()
+    
+    window.slides_view.selectAll()
+    
+    with patch('PySide6.QtWidgets.QMessageBox.question') as mock_question:
+        mock_question.return_value = QMessageBox.StandardButton.No
+        
+        window._bulk_reject()
+        mock_question.assert_called_once()
+        
+        # Decisions should NOT change because standard reply was No
+        cands_loaded = FileManager.read_json_safe(candidates_path)
+        for c in cands_loaded:
+            assert c["decision"] == "accepted"
+
+# 10. Test re-export does not launch transcription or slide detection
+def test_re_export_skips_processing_stages(tmp_path, qtbot):
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    data_dir = tmp_path / "data"
+    config = ConfigManager(str(data_dir))
+    video_path = tmp_path / "video.mp4"
+    video_path.touch()
+    
+    job = Job(str(data_dir), video_path=str(video_path))
+    os.makedirs(job.paths["exports"], exist_ok=True)
+    
+    controller = JobController(config)
+    controller.set_job(job)
+    
+    with patch('lecturepack.controllers.job_controller.ExportWorker') as MockExportWorker:
+        mock_worker = MagicMock()
+        MockExportWorker.return_value = mock_worker
+        
+        controller.export_now()
+        
+        # Verify transcription and detection stages were not reset to running or pending
+        assert job.get_stage_status(STAGE_TRANSCRIBE) != "running"
+        assert job.get_stage_status(STAGE_DETECT_SLIDES) != "running"

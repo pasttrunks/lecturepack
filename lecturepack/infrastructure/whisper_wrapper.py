@@ -13,34 +13,18 @@ class WhisperWrapper(QObject):
         self.process = None
 
     def get_supported_flags(self):
-        """Queries whisper-cli.exe --help synchronously to find supported options."""
-        import subprocess
+        """Retrieves supported options from WhisperCapabilityDetector cache or fallback."""
+        from lecturepack.infrastructure.whisper_detector import WhisperCapabilityDetector
         if not self.whisper_exe_path or not os.path.exists(self.whisper_exe_path):
-            return set()
+            return {"-oj", "-osrt", "-otxt"}
         try:
-            if self.whisper_exe_path.lower().endswith(".py"):
-                cmd = [sys.executable, self.whisper_exe_path, "--help"]
-            else:
-                cmd = [self.whisper_exe_path, "--help"]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5, encoding='utf-8', errors='ignore')
-            help_text = res.stdout + res.stderr
-            flags = set()
-            for word in help_text.split():
-                if word.startswith("-"):
-                    cleaned = word.strip("[],.:()")
-                    if "/" in cleaned:
-                        flags.update(cleaned.split("/"))
-                    else:
-                        flags.add(cleaned)
-            # Exact matches for multi-word flags or options
-            for flag in ["--output-json-full", "-ojf", "--vad", "--vad-model", "-vm", "--vad-threshold", "-vt",
-                         "--vad-min-speech-duration-ms", "-vspd", "--vad-min-silence-duration-ms", "-vsd",
-                         "--prompt", "--carry-initial-prompt", "--threads", "-t"]:
-                if flag in help_text:
-                    flags.add(flag)
-            return flags
+            stat = os.stat(self.whisper_exe_path)
+            key = (self.whisper_exe_path, stat.st_size, stat.st_mtime)
+            if key in WhisperCapabilityDetector._cache:
+                return WhisperCapabilityDetector._cache[key]["flags"]
         except Exception:
-            return set()
+            pass
+        return {"-oj", "-osrt", "-otxt"}
 
     def start_transcription(self, audio_path, model_path, output_prefix, glossary=None, threads=8, vad_settings=None):
         """Asynchronously runs the transcription using QProcess."""

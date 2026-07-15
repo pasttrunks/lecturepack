@@ -20,35 +20,7 @@ from lecturepack.controllers.job_controller import JobController
 from lecturepack.infrastructure.file_manager import FileManager
 from lecturepack.services.export_service import datetime_from_seconds
 
-def detect_whisper_version(whisper_exe):
-    import subprocess
-    if not whisper_exe or not os.path.exists(whisper_exe):
-        return "Unknown"
-    try:
-        res = subprocess.run([whisper_exe, "--version"], capture_output=True, text=True, timeout=3, encoding='utf-8', errors='ignore')
-        for line in (res.stdout + res.stderr).splitlines():
-            if "whisper.cpp version:" in line:
-                return line.split("whisper.cpp version:")[1].strip()
-    except Exception:
-        pass
-    return "Unknown"
 
-def detect_whisper_backend(whisper_exe):
-    import subprocess
-    if not whisper_exe or not os.path.exists(whisper_exe):
-        return "CPU"
-    try:
-        res = subprocess.run([whisper_exe, "--version"], capture_output=True, text=True, timeout=3, encoding='utf-8', errors='ignore')
-        output = res.stdout + res.stderr
-        if "loaded CPU backend" in output:
-            return "CPU"
-        elif "loaded Vulkan backend" in output or "Vulkan" in output:
-            return "Vulkan"
-        elif "loaded CUDA backend" in output or "CUDA" in output:
-            return "CUDA"
-    except Exception:
-        pass
-    return "CPU"
 
 class RestoreDialog(QDialog):
     def __init__(self, data_dir, parent=None):
@@ -122,6 +94,12 @@ class MainWindow(QMainWindow):
         self.edited_data = {}
         self.aligned_data = []
         self.current_search_match = -1
+        
+        # Async capability detection
+        from lecturepack.infrastructure.whisper_detector import WhisperCapabilityDetector
+        self.whisper_detector = WhisperCapabilityDetector(self)
+        self.whisper_detector.finished.connect(self._on_whisper_detection_finished)
+        self.current_whisper_caps = None
 
         from lecturepack import __version__
         self.setWindowTitle(f"Lecture Pack v{__version__}")
@@ -855,10 +833,6 @@ class MainWindow(QMainWindow):
         self.diag_ffprobe_lbl.setText(text)
         self.diag_ffprobe_lbl.setStyleSheet(style)
 
-        text, style = _fmt("whisper_cli", "Whisper", diag)
-        self.diag_whisper_lbl.setText(text)
-        self.diag_whisper_lbl.setStyleSheet(style)
-
         text, style = _fmt("whisper_model", "Model", diag)
         self.diag_model_lbl.setText(text)
         self.diag_model_lbl.setStyleSheet(style)
@@ -867,30 +841,61 @@ class MainWindow(QMainWindow):
         self.diag_data_lbl.setText(text)
         self.diag_data_lbl.setStyleSheet(style)
 
-        # Update whisper model info panel
         w_exe = self.whisper_exe_edit.text().strip()
-        w_model = self.whisper_model_edit.text().strip()
         
+        # Disable buttons temporarily during checks
+        self.start_btn.setEnabled(False)
+        self.retranscribe_btn.setEnabled(False)
+        self.start_btn.setStyleSheet("background-color: #999; color: #666; font-weight: bold; font-size: 14px; padding: 10px;")
+
+        if not w_exe or not os.path.exists(w_exe):
+            self.diag_whisper_lbl.setText("Whisper: not found")
+            self.diag_whisper_lbl.setStyleSheet(miss_style)
+            self._on_whisper_detection_finished(w_exe, {
+                "version": "Unknown",
+                "backend": "CPU",
+                "flags": {"-oj", "-osrt", "-otxt"}
+            })
+        else:
+            self.diag_whisper_lbl.setText("Whisper: checking...")
+            self.diag_whisper_lbl.setStyleSheet("font-size: 11px; padding: 2px 6px; color: #2196F3;")
+            self.whisper_detector.detect(w_exe)
+
+    def _on_whisper_detection_finished(self, exe_path, caps):
+        self.current_whisper_caps = caps
+        
+        if exe_path != self.whisper_exe_edit.text().strip():
+            return
+
+        diag = self.config_manager.check_diagnostics()
+        ok_style = "font-size: 11px; padding: 2px 6px; color: #4CAF50;"
+        miss_style = "font-size: 11px; padding: 2px 6px; color: #f44336; font-weight: bold;"
+
+        if diag["whisper_cli"]["valid"]:
+            self.diag_whisper_lbl.setText("Whisper: OK")
+            self.diag_whisper_lbl.setStyleSheet(ok_style)
+        else:
+            short = os.path.basename(exe_path) if exe_path else "not found"
+            self.diag_whisper_lbl.setText(f"Whisper: {short}")
+            self.diag_whisper_lbl.setStyleSheet(miss_style)
+
+        w_model = self.whisper_model_edit.text().strip()
         m_name = os.path.basename(w_model) if w_model else "None selected"
         m_size = "missing"
         if w_model and os.path.exists(w_model):
             m_size = f"{os.path.getsize(w_model) / (1024*1024):.1f} MB"
             
-        w_version = detect_whisper_version(w_exe) if w_exe else "Unknown"
-        w_backend = detect_whisper_backend(w_exe) if w_exe else "CPU"
+        w_version = caps["version"]
+        w_backend = caps["backend"]
         threads = self.threads_spin.value()
         
         self.whisper_model_info_lbl.setText(
             f"Model: {m_name} ({m_size}) | whisper.cpp v{w_version} ({w_backend}) | Threads: {threads}"
         )
 
-        # Validate VAD
         self._validate_vad_model()
 
-        # Enable/disable start button based on required deps
         deps_ok = diag["ffmpeg"]["valid"] and diag["whisper_cli"]["valid"] and diag["whisper_model"]["valid"]
-        
-        # Disable start if VAD is enabled but missing VAD model file
         if self.vad_chk.isChecked():
             v_model = self.vad_model_edit.text().strip()
             if not v_model or not os.path.exists(v_model):
@@ -1543,21 +1548,58 @@ class MainWindow(QMainWindow):
         FileManager.write_json_atomic(candidates_path, candidates)
         self._load_review_data()
 
+    def _find_model_file(self, filename):
+        paths = [
+            os.path.join(self.config_manager.app_dir, "models", filename),
+            os.path.join(os.path.dirname(self.config_manager.app_dir), "models", filename),
+            os.path.join(self.config_manager.data_dir, "models", filename),
+        ]
+        for p in paths:
+            if os.path.exists(p):
+                return os.path.abspath(p)
+        return None
+
     def _on_profile_changed(self, index):
         if index == 0:  # Fast
-            model_path = os.path.join(self.config_manager.app_dir, "models", "ggml-base.en.bin")
-            if not os.path.exists(model_path):
-                model_path = os.path.join(os.path.dirname(self.config_manager.app_dir), "models", "ggml-base.en.bin")
-            self.whisper_model_edit.setText(model_path)
             self.threads_spin.setValue(4)
-            self.vad_chk.setChecked(False)
+            rec_name = "ggml-base.en.bin"
+            rec_path = self._find_model_file(rec_name)
+            if rec_path:
+                current_model = self.whisper_model_edit.text().strip()
+                if not current_model or os.path.basename(current_model) != rec_name:
+                    reply = QMessageBox.question(
+                        self, "Select Recommended Model",
+                        f"Fast profile recommends '{rec_name}'. A matching model file was found.\nWould you like to select it?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self.whisper_model_edit.setText(rec_path)
+            else:
+                self.whisper_model_info_lbl.setText(
+                    f"Recommendation: Please download and select '{rec_name}' for Fast profile."
+                )
         elif index == 1:  # Accurate
-            model_path = os.path.join(self.config_manager.app_dir, "models", "ggml-small.en.bin")
-            if not os.path.exists(model_path):
-                model_path = os.path.join(os.path.dirname(self.config_manager.app_dir), "models", "ggml-small.en.bin")
-            self.whisper_model_edit.setText(model_path)
             self.threads_spin.setValue(8)
-            self.vad_chk.setChecked(True)
+            rec_name = "ggml-small.en.bin"
+            rec_path = self._find_model_file(rec_name)
+            if rec_path:
+                current_model = self.whisper_model_edit.text().strip()
+                if not current_model or os.path.basename(current_model) != rec_name:
+                    reply = QMessageBox.question(
+                        self, "Select Recommended Model",
+                        f"Accurate profile recommends '{rec_name}'. A matching model file was found.\nWould you like to select it?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self.whisper_model_edit.setText(rec_path)
+            else:
+                self.whisper_model_info_lbl.setText(
+                    f"Recommendation: Please download and select '{rec_name}' for Accurate profile."
+                )
+
+    def closeEvent(self, event):
+        self.whisper_detector.cancel()
+        super().closeEvent(event)
 
     def _on_vad_toggled(self, checked):
         self.vad_model_label.setEnabled(checked)
