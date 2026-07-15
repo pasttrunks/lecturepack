@@ -50,7 +50,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'tkinter', 'unittest', 'test', 'pydoc', 'pdb',
+        'tkinter', 'test', 'pdb',
         'IPython', 'jupyter', 'notebook',
     ],
     noarchive=False,

@@ -55,8 +55,11 @@ This release was validated against a real 71.7-minute lecture recording (CL100 -
 
 ### Slide Detection
 - **Dense transition clusters** - When many slides appear in rapid succession (< 1.5s apart), the detector may count each individual transition as a separate candidate
-- **Validation finding:** 61 of 128 candidates fell in a 6-minute dense cluster (29:06-35:21); 48/59 consecutive pairs show distinct pixel changes but may represent micro-animations rather than new slides
-- **Recommendation:** Review candidates visually and reject false positives in the Review UI
+- **Validation finding (CL100):** 128 candidates were produced from a 71.7-minute lecture; a dense cluster exists around 29:18–35:21 where 61 candidates appeared in ~6 minutes
+- **Programmatic analysis:** Frame-difference analysis found substantial visual activity in the dense cluster, but it could not determine whether each occurrence was a distinct slide, progressive build, animation, transition, or video content
+- **No thresholds were changed** to produce fewer candidates — the dense cluster reflects genuine frame-to-frame differences
+- **Manual review remains recommended** — no claim can be made about an optimal candidate count without human visual inspection of each transition
+- **Validation finding (m2-res_1080p):** 7 candidates from a 42-second video, all visually distinct frames correctly detected
 
 ### Platform
 - **Windows only** - This is a Windows x64 build
@@ -75,7 +78,7 @@ This release was validated against a real 71.7-minute lecture recording (CL100 -
 | whisper.dll | 1.3 MB |
 | ggml-base.dll | 0.6 MB |
 | ggml-cpu-*.dll (9 variants) | ~0.8 MB each |
-| **Total ZIP** | ~270 MB (estimated) |
+| **Total ZIP** | ~340 MB |
 
 ---
 
@@ -85,8 +88,13 @@ This release was validated against a real 71.7-minute lecture recording (CL100 -
 - **PyInstaller:** 6.21.0
 - **PySide6:** 6.11.1
 - **FFmpeg:** 7.0.1 (gyan.dev essentials, GPL build)
-- **whisper.cpp:** Latest release build
+- **whisper.cpp:** Latest release build (CPU-only, no Vulkan/CUDA)
 - **Platform:** Windows 10/11 x64
+- **Whisper CPU backends:** 9 variants bundled (alderlake, cannonlake, cascadelake, haswell, icelake, sandybridge, skylakex, sse42, x64). whisper.cpp auto-selects the optimal variant at runtime based on CPU features. On the validation machine (i7-9700F / Coffee Lake), `ggml-cpu-haswell.dll` was loaded. All variants are retained for cross-CPU compatibility; removing specific variants risks breaking on different processors.
+
+### Packaging fix (v0.2.1)
+- Removed `unittest` and `pydoc` from PyInstaller excludes — scipy/numpy require these at runtime
+- The initial v0.2.0 build crashed on launch with `ModuleNotFoundError: No module named 'unittest'`
 
 ---
 

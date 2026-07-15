@@ -1,7 +1,7 @@
 import os
 
 APP_NAME = "Lecture Pack"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 
 # Stages definitions
 STAGE_INSPECT = "Inspect"

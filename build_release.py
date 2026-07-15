@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LecturePack v0.2.0 - Build & Package Script
+LecturePack v0.2.1 - Build & Package Script
 Builds a PyInstaller onedir distribution and creates a portable ZIP.
 
 Usage:
@@ -25,7 +25,7 @@ DIST_DIR = os.path.join(PROJECT_ROOT, "dist")
 BUILD_DIR = os.path.join(PROJECT_ROOT, "build")
 RELEASE_DIR = os.path.join(PROJECT_ROOT, "dist-release")
 APP_NAME = "LecturePack"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 # Binaries to include from bin/Release/ (whisper runtime)
 WHISPER_BINS = [
