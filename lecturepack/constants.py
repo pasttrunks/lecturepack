@@ -1,7 +1,10 @@
 import os
 
 APP_NAME = "Lecture Pack"
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.2.2"
+
+# Supported video file extensions (case-insensitive)
+SUPPORTED_VIDEO_EXTENSIONS = ('.mp4', '.avi', '.mkv', '.mov', '.m4v', '.webm')
 
 # Stages definitions
 STAGE_INSPECT = "Inspect"

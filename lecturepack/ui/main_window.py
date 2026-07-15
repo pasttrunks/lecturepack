@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt, QSize, QRectF
 from lecturepack.constants import (
     STAGE_INSPECT, STAGE_EXTRACT_AUDIO, STAGE_TRANSCRIBE,
     STAGE_DETECT_SLIDES, STAGE_ALIGN, STAGE_REVIEW_READY, STAGE_EXPORT,
-    STAGES, DEFAULT_DATA_DIR
+    STAGES, DEFAULT_DATA_DIR, SUPPORTED_VIDEO_EXTENSIONS
 )
 from lecturepack.models.job import Job
 from lecturepack.controllers.job_controller import JobController
@@ -81,7 +81,7 @@ class MainWindow(QMainWindow):
         urls = event.mimeData().urls()
         if urls:
             file_path = urls[0].toLocalFile()
-            if file_path.lower().endswith(('.mp4', '.avi', '.mkv', '.mov', '.webm')):
+            if file_path.lower().endswith(SUPPORTED_VIDEO_EXTENSIONS):
                 self.video_path_edit.setText(file_path)
                 self._on_video_selected(file_path)
 
@@ -359,7 +359,7 @@ class MainWindow(QMainWindow):
 
     # 4. VIEW SLOTS & LOGIC
     def _browse_video(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Lecture Video", "", "Video Files (*.mp4 *.avi *.mkv *.mov *.webm)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Lecture Video", "", f"Video Files (*{' *'.join(SUPPORTED_VIDEO_EXTENSIONS)})")
         if file_path:
             self.video_path_edit.setText(file_path)
             self._on_video_selected(file_path)
