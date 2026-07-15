@@ -31,3 +31,7 @@ LecturePackData/
 !pytest.ini
 !lecturepack/**/*.py
 !tests/**/*.py
+
+# Test outputs
+tests/fixtures/m2_job/
+tests/fixtures/m2_temp/
