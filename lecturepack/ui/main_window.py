@@ -45,7 +45,8 @@ class MainWindow(QMainWindow):
         self.controller = JobController(config_manager)
         self.current_job = None
 
-        self.setWindowTitle("Lecture Pack - MVP")
+        from lecturepack import __version__
+        self.setWindowTitle(f"Lecture Pack v{__version__}")
         self.resize(1280, 800)
         self.setAcceptDrops(True)
 
@@ -65,8 +66,11 @@ class MainWindow(QMainWindow):
         self.controller.pipeline_completed.connect(self._on_pipeline_completed)
         self.controller.pipeline_failed.connect(self._on_pipeline_failed)
 
-        # Scan for existing jobs
+        # Autodetect dependencies and scan jobs
+        self.config_manager.autodetect_ffmpeg()
+        self.config_manager.autodetect_whisper()
         self._reload_recent_jobs()
+        self._refresh_diagnostics()
 
     # Drag and drop support
     def dragEnterEvent(self, event):
@@ -127,6 +131,7 @@ class MainWindow(QMainWindow):
         exe_layout.addWidget(QLabel("Whisper Exe:"))
         self.whisper_exe_edit = QLineEdit(self.config_manager.get("whisper_exe", ""))
         self.whisper_exe_edit.textChanged.connect(lambda t: self.config_manager.set("whisper_exe", t))
+        self.whisper_exe_edit.textChanged.connect(self._refresh_diagnostics)
         browse_exe_btn = QPushButton("Browse")
         browse_exe_btn.clicked.connect(self._browse_whisper_exe)
         exe_layout.addWidget(self.whisper_exe_edit)
@@ -137,6 +142,7 @@ class MainWindow(QMainWindow):
         model_layout.addWidget(QLabel("Model Path:"))
         self.whisper_model_edit = QLineEdit(self.config_manager.get("whisper_model", ""))
         self.whisper_model_edit.textChanged.connect(lambda t: self.config_manager.set("whisper_model", t))
+        self.whisper_model_edit.textChanged.connect(self._refresh_diagnostics)
         browse_model_btn = QPushButton("Browse")
         browse_model_btn.clicked.connect(self._browse_whisper_model)
         model_layout.addWidget(self.whisper_model_edit)
@@ -158,6 +164,19 @@ class MainWindow(QMainWindow):
         self.preset_combo.addItems(["Standard Lecture Slides", "Slides with Webcam", "Handwritten / Whiteboard", "Software Demonstration"])
         preset_layout.addWidget(self.preset_combo)
         left_layout.addWidget(preset_grp)
+
+        # Diagnostics bar
+        diag_grp = QGroupBox("Diagnostics")
+        diag_layout = QHBoxLayout(diag_grp)
+        self.diag_ffmpeg_lbl = QLabel("FFmpeg: ...")
+        self.diag_ffprobe_lbl = QLabel("FFprobe: ...")
+        self.diag_whisper_lbl = QLabel("Whisper: ...")
+        self.diag_model_lbl = QLabel("Model: ...")
+        self.diag_data_lbl = QLabel("Data Dir: ...")
+        for lbl in [self.diag_ffmpeg_lbl, self.diag_ffprobe_lbl, self.diag_whisper_lbl, self.diag_model_lbl, self.diag_data_lbl]:
+            lbl.setStyleSheet("font-size: 11px; padding: 2px 6px;")
+            diag_layout.addWidget(lbl)
+        left_layout.addWidget(diag_grp)
 
         # Action Buttons
         self.start_btn = QPushButton("Start Processing")
@@ -501,6 +520,46 @@ class MainWindow(QMainWindow):
     def _cancel_processing(self):
         self.controller.cancel()
         self.stack.setCurrentIndex(0)
+
+    def _refresh_diagnostics(self):
+        diag = self.config_manager.check_diagnostics()
+        ok_style = "font-size: 11px; padding: 2px 6px; color: #4CAF50;"
+        miss_style = "font-size: 11px; padding: 2px 6px; color: #f44336; font-weight: bold;"
+
+        def _fmt(key, label, d):
+            entry = d[key]
+            if entry["valid"]:
+                return f"{label}: OK", ok_style
+            short = os.path.basename(entry["path"]) if entry["path"] else "not found"
+            return f"{label}: {short}", miss_style
+
+        text, style = _fmt("ffmpeg", "FFmpeg", diag)
+        self.diag_ffmpeg_lbl.setText(text)
+        self.diag_ffmpeg_lbl.setStyleSheet(style)
+
+        text, style = _fmt("ffprobe", "FFprobe", diag)
+        self.diag_ffprobe_lbl.setText(text)
+        self.diag_ffprobe_lbl.setStyleSheet(style)
+
+        text, style = _fmt("whisper_cli", "Whisper", diag)
+        self.diag_whisper_lbl.setText(text)
+        self.diag_whisper_lbl.setStyleSheet(style)
+
+        text, style = _fmt("whisper_model", "Model", diag)
+        self.diag_model_lbl.setText(text)
+        self.diag_model_lbl.setStyleSheet(style)
+
+        text, style = _fmt("data_dir", "Data Dir", diag)
+        self.diag_data_lbl.setText(text)
+        self.diag_data_lbl.setStyleSheet(style)
+
+        # Enable/disable start button based on required deps
+        deps_ok = diag["ffmpeg"]["valid"] and diag["whisper_cli"]["valid"]
+        self.start_btn.setEnabled(deps_ok)
+        if deps_ok:
+            self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; font-size: 14px; padding: 10px;")
+        else:
+            self.start_btn.setStyleSheet("background-color: #999; color: #666; font-weight: bold; font-size: 14px; padding: 10px;")
 
     # 5. CONTROLLER SIGNAL HANDLERS
     def _on_stage_started(self, stage):

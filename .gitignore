@@ -12,7 +12,7 @@ ENV/
 # Build and IDEs
 build/
 dist/
-*.spec
+dist-release/
 .idea/
 .vscode/
 

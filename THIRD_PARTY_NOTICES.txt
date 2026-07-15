@@ -1,0 +1,190 @@
+================================================================================
+THIRD-PARTY NOTICES FOR LecturePack v0.2.0
+================================================================================
+
+This software includes or depends on the following third-party components:
+
+--------------------------------------------------------------------------------
+FFmpeg (ffmpeg.exe, ffprobe.exe)
+--------------------------------------------------------------------------------
+License:       GNU General Public License v2 (GPL-2.0) or later
+Source:        https://ffmpeg.org
+Binary:        gyan.dev "essentials" build (FFmpeg 7.0.1)
+Configuration: --enable-gpl --enable-version3
+
+FFmpeg is free software; you can redistribute it and/or modify it under the
+terms of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any later
+version.
+
+FFmpeg is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+Source code for this build is available at: https://www.gyan.dev/ffmpeg/builds/
+Under the GPL requirement, source code may also be obtained from:
+https://ffmpeg.org/download.html
+
+--------------------------------------------------------------------------------
+whisper.cpp (whisper-cli.exe, whisper.dll, ggml*.dll)
+--------------------------------------------------------------------------------
+License:       MIT License
+Source:        https://github.com/ggerganov/whisper.cpp
+
+Copyright (c) 2023 Georgi Gerganov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+PySide6 (Qt for Python)
+--------------------------------------------------------------------------------
+License:       GNU Lesser General Public License v3 (LGPL-3.0)
+Source:        https://doc.qt.io/qtforpython-6
+
+Copyright (C) 2022 The Qt Company Ltd.
+
+PySide6 is free software: you can redistribute it and/or modify it under the
+terms of the GNU Lesser General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+--------------------------------------------------------------------------------
+OpenCV (opencv-python-headless)
+--------------------------------------------------------------------------------
+License:       Apache License 2.0
+Source:        https://github.com/opencv/opencv
+
+Copyright (C) 2000-2024, Intel Corporation, all rights reserved.
+Copyright (C) 2009-2011, Willow Garage Inc., all rights reserved.
+Copyright (C) 2009-2016, NVIDIA Corporation, all rights reserved.
+Copyright (C) 2010-2013, Advanced Micro Devices, Inc., all rights reserved.
+Copyright (C) 2015-2016, OpenCV Foundation, all rights reserved.
+Copyright (C) 2015-2016, Itseez Inc., all rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License.
+
+--------------------------------------------------------------------------------
+scikit-image
+--------------------------------------------------------------------------------
+License:       BSD 3-Clause License
+Source:        https://github.com/scikit-image/scikit-image
+
+Copyright (c) 2009-2024, scikit-image developers. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  1. Redistributions of source code must retain the above copyright notice, this
+     list of conditions and the following disclaimer.
+  2. Redistributions in binary form must reproduce the above copyright notice,
+     this list of conditions and the following disclaimer in the documentation
+     and/or other materials provided with the distribution.
+  3. Neither the name of the copyright holder nor the names of its contributors
+     may be used to endorse or promote products derived from this software
+     without specific prior written permission.
+
+--------------------------------------------------------------------------------
+Pillow
+--------------------------------------------------------------------------------
+License:       Historical Permission Notice and Disclaimer (HPND)
+Source:        https://github.com/python-pillow/Pillow
+
+Copyright (c) 1997-2011 by Secret Labs AB
+Copyright (c) 1995-2011 by Fredrik Lundh
+Copyright (c) 2010-2024 by Alex Clark and contributors
+
+Like PIL, Pillow is licensed under the open source HPND License:
+By obtaining, using, and/or copying this software and/or its associated
+documentation, you agree that you have read, understood, and will comply with
+the terms and conditions of this license.
+
+--------------------------------------------------------------------------------
+imagehash
+--------------------------------------------------------------------------------
+License:       BSD 3-Clause License
+Source:        https://github.com/JohannesBuchner/imagehash
+
+Copyright (c) 2011-2024, Johannes Buchner. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+--------------------------------------------------------------------------------
+ReportLab
+--------------------------------------------------------------------------------
+License:       BSD 3-Clause License (with some proprietary components)
+Source:        https://www.reportlab.com
+
+Copyright (c) 2000-2024, ReportLab Inc. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+--------------------------------------------------------------------------------
+Jinja2
+--------------------------------------------------------------------------------
+License:       BSD 3-Clause License
+Source:        https://github.com/pallets/jinja
+
+Copyright 2007 Pallets
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+--------------------------------------------------------------------------------
+img2pdf
+--------------------------------------------------------------------------------
+License:       GNU General Public License v3 (GPL-3.0)
+Source:        https://github.com/josie86/img2pdf
+
+Copyright (C) 2016-2024, Johannes Budach
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+================================================================================
+END OF THIRD-PARTY NOTICES
+================================================================================
