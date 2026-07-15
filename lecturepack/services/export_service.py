@@ -58,8 +58,11 @@ class ExportService:
         # Parse segments
         raw_segments = []
         if isinstance(transcript_data, dict):
-            # whisper.cpp json format
+            # whisper.cpp json format (check both nested and root level)
             transcription = transcript_data.get("result", {}).get("transcription", [])
+            if not transcription and "transcription" in transcript_data:
+                transcription = transcript_data["transcription"]
+                
             for i, seg in enumerate(transcription):
                 offsets = seg.get("offsets", {})
                 start_sec = offsets.get("from", 0) / 1000.0
