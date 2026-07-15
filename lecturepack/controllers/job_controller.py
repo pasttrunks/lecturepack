@@ -47,6 +47,7 @@ class JobController(QObject):
         self.slide_worker = None
         self.align_worker = None
         self.export_worker = None
+        self.retranscribe_only = False
 
         # Connect ffmpeg signals
         self.ffmpeg_wrapper.progress.connect(self._handle_ffmpeg_log)
@@ -115,7 +116,11 @@ class JobController(QObject):
         if not next_stage:
             # All processing stages completed
             self.current_stage = None
-            self.pipeline_completed.emit()
+            if self.retranscribe_only:
+                self.retranscribe_only = False
+                self.export_now()
+            else:
+                self.pipeline_completed.emit()
             return
 
         self.current_stage = next_stage
@@ -185,10 +190,24 @@ class JobController(QObject):
         
         # Output file prefix inside job transcript folder
         output_prefix = os.path.join(self.job.paths["transcript"], "raw")
-        glossary = self.job.settings.get("whisper", {}).get("glossary", "")
+        
+        whisper_settings = self.job.settings.get("whisper", {})
+        glossary = whisper_settings.get("glossary", "")
+        threads = whisper_settings.get("threads", 8)
+        
+        vad_settings = {
+            "enabled": whisper_settings.get("vad_enabled", False),
+            "model_path": whisper_settings.get("vad_model", ""),
+            "threshold": whisper_settings.get("vad_threshold", 0.50),
+            "min_speech_duration_ms": whisper_settings.get("vad_min_speech_duration_ms", 250),
+            "min_silence_duration_ms": whisper_settings.get("vad_min_silence_duration_ms", 100)
+        }
 
         self.stage_log.emit(STAGE_TRANSCRIBE, f"Starting transcription using model: {model_path}...\n")
-        self.whisper_wrapper.start_transcription(audio_wav, model_path, output_prefix, glossary)
+        self.whisper_wrapper.start_transcription(
+            audio_wav, model_path, output_prefix,
+            glossary=glossary, threads=threads, vad_settings=vad_settings
+        )
 
     def _handle_whisper_log(self, data):
         self.stage_log.emit(STAGE_TRANSCRIBE, data)
@@ -276,3 +295,35 @@ class JobController(QObject):
             self.stage_log.emit(STAGE_EXPORT, f"Export generation failed: {error_msg}\n")
             self.job.set_stage_status(STAGE_EXPORT, "failed", error_msg)
             self.stage_finished.emit(STAGE_EXPORT, False, error_msg)
+
+    def run_retranscribe_only(self):
+        """Runs the retranscription workflow, skipping inspection, slide detection, and candidate decisions."""
+        if not self.job:
+            self.pipeline_failed.emit("No job loaded.")
+            return
+
+        self.retranscribe_only = True
+        
+        # Set stages status:
+        self.job.set_stage_status(STAGE_INSPECT, "completed")
+        
+        # Check audio WAV file validity (exists and not empty)
+        audio_path = os.path.join(self.job.paths["audio"], "lecture-16khz-mono.wav")
+        if os.path.exists(audio_path) and os.path.getsize(audio_path) > 1000:
+            self.job.set_stage_status(STAGE_EXTRACT_AUDIO, "completed")
+        else:
+            self.job.set_stage_status(STAGE_EXTRACT_AUDIO, "pending")
+            
+        self.job.set_stage_status(STAGE_TRANSCRIBE, "pending")
+        self.job.set_stage_status(STAGE_DETECT_SLIDES, "completed")
+        self.job.set_stage_status(STAGE_ALIGN, "pending")
+        self.job.set_stage_status(STAGE_REVIEW_READY, "completed")
+        self.job.set_stage_status(STAGE_EXPORT, "pending")
+        
+        # Make sure settings are clean on start
+        for s in STAGES:
+            status = self.job.get_stage_status(s)
+            if status in ["failed", "cancelled", "interrupted"]:
+                self.job.set_stage_status(s, "pending")
+
+        self.run_next_stage()

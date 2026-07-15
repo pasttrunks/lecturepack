@@ -1,12 +1,14 @@
 import os
+import datetime
+import shutil
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFileDialog, QComboBox, QRadioButton, QButtonGroup,
     QStackedWidget, QProgressBar, QTextEdit, QListWidget, QListWidgetItem,
-    QCheckBox, QMessageBox, QGroupBox, QSplitter
+    QCheckBox, QMessageBox, QGroupBox, QSplitter, QDialog, QTableWidgetItem
 )
-from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtCore import Qt, QSize, QRectF
+from PySide6.QtGui import QIcon, QPixmap, QBrush, QColor, QKeySequence, QShortcut
+from PySide6.QtCore import Qt, QSize, QRectF, QTimer
 
 from lecturepack.constants import (
     STAGE_INSPECT, STAGE_EXTRACT_AUDIO, STAGE_TRANSCRIBE,
@@ -16,6 +18,77 @@ from lecturepack.constants import (
 from lecturepack.models.job import Job
 from lecturepack.controllers.job_controller import JobController
 from lecturepack.infrastructure.file_manager import FileManager
+from lecturepack.services.export_service import datetime_from_seconds
+
+def detect_whisper_version(whisper_exe):
+    import subprocess
+    if not whisper_exe or not os.path.exists(whisper_exe):
+        return "Unknown"
+    try:
+        res = subprocess.run([whisper_exe, "--version"], capture_output=True, text=True, timeout=3, encoding='utf-8', errors='ignore')
+        for line in (res.stdout + res.stderr).splitlines():
+            if "whisper.cpp version:" in line:
+                return line.split("whisper.cpp version:")[1].strip()
+    except Exception:
+        pass
+    return "Unknown"
+
+def detect_whisper_backend(whisper_exe):
+    import subprocess
+    if not whisper_exe or not os.path.exists(whisper_exe):
+        return "CPU"
+    try:
+        res = subprocess.run([whisper_exe, "--version"], capture_output=True, text=True, timeout=3, encoding='utf-8', errors='ignore')
+        output = res.stdout + res.stderr
+        if "loaded CPU backend" in output:
+            return "CPU"
+        elif "loaded Vulkan backend" in output or "Vulkan" in output:
+            return "Vulkan"
+        elif "loaded CUDA backend" in output or "CUDA" in output:
+            return "CUDA"
+    except Exception:
+        pass
+    return "CPU"
+
+class RestoreDialog(QDialog):
+    def __init__(self, data_dir, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Restore Archived Job")
+        self.resize(400, 300)
+        layout = QVBoxLayout(self)
+        
+        self.list_widget = QListWidget()
+        layout.addWidget(QLabel("Select an archived job to restore:"))
+        layout.addWidget(self.list_widget)
+        
+        self.archive_dir = os.path.join(data_dir, "archive")
+        self.archived_jobs = []
+        
+        if os.path.exists(self.archive_dir):
+            for job_id in os.listdir(self.archive_dir):
+                manifest_p = os.path.join(self.archive_dir, job_id, "manifest.json")
+                if os.path.exists(manifest_p):
+                    man = FileManager.read_json_safe(manifest_p)
+                    if isinstance(man, dict):
+                        title = man.get("title", job_id)
+                        self.list_widget.addItem(f"{title} ({job_id[:8]})")
+                        self.archived_jobs.append(job_id)
+                        
+        buttons = QHBoxLayout()
+        restore_btn = QPushButton("Restore")
+        restore_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        
+        buttons.addWidget(restore_btn)
+        buttons.addWidget(cancel_btn)
+        layout.addLayout(buttons)
+        
+    def get_selected_job_id(self):
+        row = self.list_widget.currentRow()
+        if row >= 0 and row < len(self.archived_jobs):
+            return self.archived_jobs[row]
+        return None
 
 # Easy preview extractor
 def extract_preview(video_path, out_path):
@@ -44,6 +117,11 @@ class MainWindow(QMainWindow):
         self.config_manager = config_manager
         self.controller = JobController(config_manager)
         self.current_job = None
+        self.undo_stack = []
+        self.raw_segments = []
+        self.edited_data = {}
+        self.aligned_data = []
+        self.current_search_match = -1
 
         from lecturepack import __version__
         self.setWindowTitle(f"Lecture Pack v{__version__}")
@@ -57,6 +135,7 @@ class MainWindow(QMainWindow):
         self._init_setup_view()
         self._init_processing_view()
         self._init_review_view()
+        self._init_shortcuts()
 
         # Connect controller signals
         self.controller.stage_started.connect(self._on_stage_started)
@@ -99,6 +178,20 @@ class MainWindow(QMainWindow):
         self.recent_jobs_combo = QComboBox()
         self.recent_jobs_combo.currentIndexChanged.connect(self._on_recent_job_changed)
         job_layout.addWidget(self.recent_jobs_combo)
+        
+        # Job archiving / restoring actions
+        job_actions = QHBoxLayout()
+        self.archive_btn = QPushButton("Archive Job")
+        self.archive_btn.clicked.connect(self._archive_current_job)
+        self.restore_btn_job = QPushButton("Restore Job...")
+        self.restore_btn_job.clicked.connect(self._restore_archived_job)
+        self.export_archive_btn = QPushButton("Export Archive...")
+        self.export_archive_btn.clicked.connect(self._export_job_archive)
+        job_actions.addWidget(self.archive_btn)
+        job_actions.addWidget(self.restore_btn_job)
+        job_actions.addWidget(self.export_archive_btn)
+        job_layout.addLayout(job_actions)
+        
         left_layout.addWidget(job_grp)
 
         # Video select group
@@ -124,7 +217,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(video_grp)
 
         # Whisper Settings Group
-        whisper_grp = QGroupBox("Whisper Settings")
+        whisper_grp = QGroupBox("Whisper Settings & Transcription Quality")
         whisper_layout = QVBoxLayout(whisper_grp)
         
         exe_layout = QHBoxLayout()
@@ -148,6 +241,97 @@ class MainWindow(QMainWindow):
         model_layout.addWidget(self.whisper_model_edit)
         model_layout.addWidget(browse_model_btn)
         whisper_layout.addLayout(model_layout)
+
+        # Profile selection
+        profile_layout = QHBoxLayout()
+        profile_layout.addWidget(QLabel("Profile:"))
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItems(["Fast", "Accurate", "Custom"])
+        self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
+        profile_layout.addWidget(self.profile_combo)
+        
+        # Thread count
+        profile_layout.addWidget(QLabel("Threads:"))
+        from PySide6.QtWidgets import QSpinBox
+        self.threads_spin = QSpinBox()
+        self.threads_spin.setRange(1, 32)
+        self.threads_spin.setValue(8)
+        self.threads_spin.valueChanged.connect(self._refresh_diagnostics)
+        profile_layout.addWidget(self.threads_spin)
+        whisper_layout.addLayout(profile_layout)
+
+        # Dynamic Model Info display
+        self.whisper_model_info_lbl = QLabel("Model Info: -")
+        self.whisper_model_info_lbl.setStyleSheet("font-size: 11px; color: #555;")
+        whisper_layout.addWidget(self.whisper_model_info_lbl)
+
+        # VAD Setup
+        vad_layout = QVBoxLayout()
+        self.vad_chk = QCheckBox("Enable Voice Activity Detection (VAD)")
+        self.vad_chk.toggled.connect(self._on_vad_toggled)
+        vad_layout.addWidget(self.vad_chk)
+
+        vad_path_layout = QHBoxLayout()
+        self.vad_model_label = QLabel("VAD Model:")
+        self.vad_model_edit = QLineEdit()
+        self.vad_model_edit.setPlaceholderText("Select VAD model (.bin)...")
+        self.vad_model_edit.textChanged.connect(self._validate_vad_model)
+        self.vad_browse_btn = QPushButton("Browse")
+        self.vad_browse_btn.clicked.connect(self._browse_vad_model)
+        vad_path_layout.addWidget(self.vad_model_label)
+        vad_path_layout.addWidget(self.vad_model_edit)
+        vad_path_layout.addWidget(self.vad_browse_btn)
+        vad_layout.addLayout(vad_path_layout)
+
+        # Warning / Missing VAD model label
+        self.vad_warning_lbl = QLabel("")
+        self.vad_warning_lbl.setStyleSheet("color: #f44336; font-weight: bold; font-size: 11px;")
+        self.vad_warning_lbl.setVisible(False)
+        vad_layout.addWidget(self.vad_warning_lbl)
+
+        # Advanced VAD Settings Toggle & Layout
+        self.advanced_vad_btn = QPushButton("Show Advanced VAD Settings")
+        self.advanced_vad_btn.setCheckable(True)
+        self.advanced_vad_btn.toggled.connect(self._toggle_advanced_vad)
+        vad_layout.addWidget(self.advanced_vad_btn)
+
+        self.advanced_vad_widget = QWidget()
+        advanced_vad_layout = QVBoxLayout(self.advanced_vad_widget)
+        
+        # Threshold SpinBox
+        thresh_layout = QHBoxLayout()
+        thresh_layout.addWidget(QLabel("VAD Threshold (0.01-1.0):"))
+        from PySide6.QtWidgets import QDoubleSpinBox
+        self.vad_thresh_spin = QDoubleSpinBox()
+        self.vad_thresh_spin.setRange(0.01, 1.0)
+        self.vad_thresh_spin.setSingleStep(0.05)
+        self.vad_thresh_spin.setValue(0.50)
+        thresh_layout.addWidget(self.vad_thresh_spin)
+        advanced_vad_layout.addLayout(thresh_layout)
+
+        # Min Speech Duration ms
+        spd_layout = QHBoxLayout()
+        spd_layout.addWidget(QLabel("Min Speech Duration (ms):"))
+        self.vad_spd_spin = QSpinBox()
+        self.vad_spd_spin.setRange(10, 5000)
+        self.vad_spd_spin.setSingleStep(50)
+        self.vad_spd_spin.setValue(250)
+        spd_layout.addWidget(self.vad_spd_spin)
+        advanced_vad_layout.addLayout(spd_layout)
+
+        # Min Silence Duration ms
+        sil_layout = QHBoxLayout()
+        sil_layout.addWidget(QLabel("Min Silence Duration (ms):"))
+        self.vad_sil_spin = QSpinBox()
+        self.vad_sil_spin.setRange(10, 5000)
+        self.vad_sil_spin.setSingleStep(50)
+        self.vad_sil_spin.setValue(100)
+        sil_layout.addWidget(self.vad_sil_spin)
+        advanced_vad_layout.addLayout(sil_layout)
+
+        self.advanced_vad_widget.setVisible(False)
+        vad_layout.addWidget(self.advanced_vad_widget)
+        whisper_layout.addLayout(vad_layout)
         
         glossary_layout = QHBoxLayout()
         glossary_layout.addWidget(QLabel("Course Glossary:"))
@@ -179,10 +363,19 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(diag_grp)
 
         # Action Buttons
+        actions_layout = QHBoxLayout()
         self.start_btn = QPushButton("Start Processing")
         self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; font-size: 14px; padding: 10px;")
         self.start_btn.clicked.connect(self._start_processing)
-        left_layout.addWidget(self.start_btn)
+        
+        self.retranscribe_btn = QPushButton("Retranscribe Only")
+        self.retranscribe_btn.setStyleSheet("background-color: #ff9800; color: white; font-weight: bold; font-size: 14px; padding: 10px;")
+        self.retranscribe_btn.clicked.connect(self._retranscribe_only_workflow)
+        self.retranscribe_btn.setEnabled(False)
+        
+        actions_layout.addWidget(self.start_btn)
+        actions_layout.addWidget(self.retranscribe_btn)
+        left_layout.addLayout(actions_layout)
 
         layout.addLayout(left_layout, 1)
 
@@ -262,55 +455,127 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        # Horizontal splitter to divide slides list from the preview/transcript pane
         splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # Left pane: accepted slides list
+        # Left pane: all slides list (unified)
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
-        left_layout.addWidget(QLabel("Accepted Slides (Timeline)"))
-        self.accepted_list = QListWidget()
-        self.accepted_list.setViewMode(QListWidget.ViewMode.IconMode)
-        self.accepted_list.setIconSize(QSize(160, 120))
-        self.accepted_list.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self.accepted_list.itemClicked.connect(self._on_accepted_clicked)
-        left_layout.addWidget(self.accepted_list)
+        left_layout.addWidget(QLabel("Slides Timeline (Click, Shift-Click, Ctrl-Click to Select)"))
+        
+        self.slides_view = QListWidget()
+        self.slides_view.setViewMode(QListWidget.ViewMode.IconMode)
+        self.slides_view.setIconSize(QSize(160, 120))
+        self.slides_view.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.slides_view.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self.slides_view.itemSelectionChanged.connect(self._on_slides_selection_changed)
+        left_layout.addWidget(self.slides_view)
         splitter.addWidget(left_widget)
 
-        # Center pane: Large preview & controls
-        center_widget = QWidget()
-        center_layout = QVBoxLayout(center_widget)
+        # Right panel: vertical splitter split into Preview/Controls (top) and Transcript Pane (bottom)
+        right_splitter = QSplitter(Qt.Orientation.Vertical)
+        
+        # Top child: Slide preview & Controls
+        preview_panel = QWidget()
+        preview_layout = QVBoxLayout(preview_panel)
+        
         self.preview_lbl = QLabel("Select a slide to preview")
         self.preview_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_lbl.setStyleSheet("background: #222; border: 1px solid #555;")
-        center_layout.addWidget(self.preview_lbl, 1)
+        self.preview_lbl.setStyleSheet("background: #222; border: 1px solid #555; min-height: 240px;")
+        preview_layout.addWidget(self.preview_lbl, 1)
 
         self.slide_info_lbl = QLabel("Timestamp: -")
         self.slide_info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.slide_info_lbl.setStyleSheet("font-weight: bold; font-size: 14px;")
-        center_layout.addWidget(self.slide_info_lbl)
+        self.slide_info_lbl.setStyleSheet("font-weight: bold; font-size: 13px;")
+        preview_layout.addWidget(self.slide_info_lbl)
 
-        self.keep_reject_btn = QPushButton("Reject Slide")
-        self.keep_reject_btn.setStyleSheet("background-color: #f44336; color: white; padding: 8px;")
-        self.keep_reject_btn.clicked.connect(self._toggle_slide_decision)
-        center_layout.addWidget(self.keep_reject_btn)
-        splitter.addWidget(center_widget)
-
-        # Right pane: Rejected candidates list
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.addWidget(QLabel("Rejected Candidates"))
-        self.rejected_list = QListWidget()
-        self.rejected_list.setViewMode(QListWidget.ViewMode.IconMode)
-        self.rejected_list.setIconSize(QSize(160, 120))
-        self.rejected_list.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self.rejected_list.itemClicked.connect(self._on_rejected_clicked)
-        right_layout.addWidget(self.rejected_list)
+        # Selected count & Bulk actions
+        controls_layout = QHBoxLayout()
+        self.selected_count_lbl = QLabel("Selected: 0")
+        self.selected_count_lbl.setStyleSheet("font-weight: bold; color: #2196F3;")
+        controls_layout.addWidget(self.selected_count_lbl)
         
-        self.restore_btn = QPushButton("Restore Slide")
-        self.restore_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px;")
-        self.restore_btn.clicked.connect(self._restore_slide)
-        right_layout.addWidget(self.restore_btn)
-        splitter.addWidget(right_widget)
+        self.bulk_keep_btn = QPushButton("Keep Selected")
+        self.bulk_keep_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 6px;")
+        self.bulk_keep_btn.clicked.connect(self._bulk_keep)
+        
+        self.bulk_reject_btn = QPushButton("Reject Selected (Del)")
+        self.bulk_reject_btn.setStyleSheet("background-color: #f44336; color: white; font-weight: bold; padding: 6px;")
+        self.bulk_reject_btn.clicked.connect(self._bulk_reject)
+
+        self.bulk_restore_btn = QPushButton("Restore Selected (R)")
+        self.bulk_restore_btn.setStyleSheet("background-color: #ff9800; color: white; font-weight: bold; padding: 6px;")
+        self.bulk_restore_btn.clicked.connect(self._bulk_restore)
+
+        controls_layout.addWidget(self.bulk_keep_btn)
+        controls_layout.addWidget(self.bulk_reject_btn)
+        controls_layout.addWidget(self.bulk_restore_btn)
+        preview_layout.addLayout(controls_layout)
+        
+        right_splitter.addWidget(preview_panel)
+
+        # Bottom child: Transcript pane
+        transcript_panel = QWidget()
+        transcript_layout = QVBoxLayout(transcript_panel)
+        transcript_layout.addWidget(QLabel("Aligned Transcript Segment(s)"))
+
+        # Search layout
+        search_layout = QHBoxLayout()
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search transcript (Ctrl+F, F3/Shift+F3)...")
+        self.search_input.textChanged.connect(self._on_search_text_changed)
+        self.search_prev_btn = QPushButton("Prev")
+        self.search_prev_btn.clicked.connect(self._search_prev)
+        self.search_next_btn = QPushButton("Next")
+        self.search_next_btn.clicked.connect(self._search_next)
+        self.timestamps_chk = QCheckBox("Include Timestamps")
+        
+        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.search_prev_btn)
+        search_layout.addWidget(self.search_next_btn)
+        search_layout.addWidget(self.timestamps_chk)
+        transcript_layout.addLayout(search_layout)
+
+        # Copy buttons
+        copy_layout = QHBoxLayout()
+        self.copy_current_btn = QPushButton("Copy Slide Transcript")
+        self.copy_current_btn.clicked.connect(self._copy_current_transcript)
+        self.copy_selected_btn = QPushButton("Copy Selected Transcripts")
+        self.copy_selected_btn.clicked.connect(self._copy_selected_transcripts)
+        self.copy_full_btn = QPushButton("Copy Full Transcript")
+        self.copy_full_btn.clicked.connect(self._copy_full_transcript)
+        
+        copy_layout.addWidget(self.copy_current_btn)
+        copy_layout.addWidget(self.copy_selected_btn)
+        copy_layout.addWidget(self.copy_full_btn)
+        transcript_layout.addLayout(copy_layout)
+
+        # Transcript table
+        from PySide6.QtWidgets import QTableWidget, QHeaderView
+        self.transcript_table = QTableWidget()
+        self.transcript_table.setColumnCount(3)
+        self.transcript_table.setHorizontalHeaderLabels(["Time Range", "Segment Text (Editable)", "Action"])
+        self.transcript_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.transcript_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.transcript_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.transcript_table.verticalHeader().setVisible(False)
+        transcript_layout.addWidget(self.transcript_table, 1)
+
+        # Save/status row
+        save_layout = QHBoxLayout()
+        self.save_corrections_btn = QPushButton("Save Corrections (Ctrl+S)")
+        self.save_corrections_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 6px;")
+        self.save_corrections_btn.clicked.connect(self._save_corrections)
+        
+        self.transcript_status_lbl = QLabel("")
+        self.transcript_status_lbl.setStyleSheet("font-weight: bold; color: #4CAF50;")
+        
+        save_layout.addWidget(self.save_corrections_btn)
+        save_layout.addWidget(self.transcript_status_lbl)
+        transcript_layout.addLayout(save_layout)
+        
+        right_splitter.addWidget(transcript_panel)
+        splitter.addWidget(right_splitter)
 
         layout.addWidget(splitter, 1)
 
@@ -381,11 +646,9 @@ class MainWindow(QMainWindow):
         if not os.path.exists(video_path):
             return
         
-        # Instantiate new job
         self.current_job = Job(self.config_manager.data_dir, video_path=video_path)
         self.controller.set_job(self.current_job)
 
-        # Inspect video using ffprobe synchronously for metadata & generate preview
         try:
             self.controller.ffmpeg_wrapper.detect_binaries()
             meta = self.controller.ffmpeg_wrapper.inspect_video(video_path)
@@ -398,7 +661,6 @@ class MainWindow(QMainWindow):
                 f"FPS: {meta['fps']:.2f} | Video Codec: {meta['video_codec']}"
             )
             
-            # Extract preview frame
             preview_png = os.path.join(self.current_job.paths["logs"], "preview.png")
             if extract_preview(video_path, preview_png):
                 self.crop_selector.set_preview_image(preview_png)
@@ -408,6 +670,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Inspection Error", f"Failed to inspect video: {str(e)}")
             self.metadata_lbl.setText("Failed to inspect video.")
+
+        # Enable/Disable Retranscribe button
+        is_completed = self.current_job.get_stage_status(STAGE_REVIEW_READY) == "completed"
+        self.retranscribe_btn.setEnabled(is_completed)
 
     def _reload_recent_jobs(self):
         self.recent_jobs_combo.clear()
@@ -428,15 +694,36 @@ class MainWindow(QMainWindow):
 
     def _on_recent_job_changed(self, index):
         if index <= 0:
+            self.retranscribe_btn.setEnabled(False)
             return
         
         job_id, source_path = self.recent_jobs_combo.itemData(index)
         self.current_job = Job(self.config_manager.data_dir, job_id=job_id)
         self.controller.set_job(self.current_job)
+        self.undo_stack = [] # Reset undo stack on job load
         
         # Load source path to edit
         self.video_path_edit.setText(source_path)
-        self.glossary_edit.setText(self.current_job.settings.get("whisper", {}).get("glossary", ""))
+        
+        # Load Whisper Settings
+        w_settings = self.current_job.settings.get("whisper", {})
+        self.glossary_edit.setText(w_settings.get("glossary", ""))
+        
+        # Set profile
+        profile = w_settings.get("profile", "fast")
+        p_idx = self.profile_combo.findText(profile.title())
+        if p_idx >= 0:
+            self.profile_combo.setCurrentIndex(p_idx)
+            
+        # Set threads
+        self.threads_spin.setValue(w_settings.get("threads", 8))
+        
+        # Set VAD settings
+        self.vad_chk.setChecked(w_settings.get("vad_enabled", False))
+        self.vad_model_edit.setText(w_settings.get("vad_model", ""))
+        self.vad_thresh_spin.setValue(w_settings.get("vad_threshold", 0.50))
+        self.vad_spd_spin.setValue(w_settings.get("vad_min_speech_duration_ms", 250))
+        self.vad_sil_spin.setValue(w_settings.get("vad_min_silence_duration_ms", 100))
         
         # Load presets
         preset = self.current_job.settings.get("preset", "standard_lecture")
@@ -474,8 +761,12 @@ class MainWindow(QMainWindow):
         else:
             self.metadata_lbl.setText("No metadata available.")
 
+        # Enable/Disable Retranscribe button
+        is_completed = self.current_job.get_stage_status(STAGE_REVIEW_READY) == "completed"
+        self.retranscribe_btn.setEnabled(is_completed)
+
         # If already review ready, jump directly to Review view!
-        if self.current_job.get_stage_status(STAGE_REVIEW_READY) == "completed":
+        if is_completed:
             self._load_review_data()
             self.stack.setCurrentIndex(2)
 
@@ -494,10 +785,29 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Whisper Model", "Please select a valid Whisper model path.")
             return
 
+        # VAD model check
+        if self.vad_chk.isChecked():
+            v_model = self.vad_model_edit.text().strip()
+            if not v_model or not os.path.exists(v_model):
+                QMessageBox.warning(self, "VAD Model", "VAD is enabled, but the VAD model file is missing.")
+                return
+
         # Save settings first
         preset_name = self.preset_combo.currentText().lower().replace(" / ", "_").replace(" ", "_")
         self.current_job.settings["preset"] = preset_name
-        self.current_job.settings["whisper"]["glossary"] = self.glossary_edit.text().strip()
+        
+        # Save Whisper settings
+        w_settings = self.current_job.settings["whisper"]
+        w_settings["glossary"] = self.glossary_edit.text().strip()
+        w_settings["model"] = w_model
+        w_settings["profile"] = self.profile_combo.currentText().lower()
+        w_settings["threads"] = self.threads_spin.value()
+        w_settings["vad_enabled"] = self.vad_chk.isChecked()
+        w_settings["vad_model"] = self.vad_model_edit.text().strip()
+        w_settings["vad_threshold"] = self.vad_thresh_spin.value()
+        w_settings["vad_min_speech_duration_ms"] = self.vad_spd_spin.value()
+        w_settings["vad_min_silence_duration_ms"] = self.vad_sil_spin.value()
+
         self.current_job.settings["slide_detection"]["crop_region"] = {
             "x": self.crop_selector.crop_rect.x(),
             "y": self.crop_selector.crop_rect.y(),
@@ -509,6 +819,10 @@ class MainWindow(QMainWindow):
             for r in self.crop_selector.ignore_rects
         ]
         self.current_job.save()
+
+        # Update config manager paths
+        self.config_manager.set("whisper_exe", w_exe)
+        self.config_manager.set("whisper_model", w_model)
 
         # Switch to processing stack
         self.log_text.clear()
@@ -553,9 +867,41 @@ class MainWindow(QMainWindow):
         self.diag_data_lbl.setText(text)
         self.diag_data_lbl.setStyleSheet(style)
 
+        # Update whisper model info panel
+        w_exe = self.whisper_exe_edit.text().strip()
+        w_model = self.whisper_model_edit.text().strip()
+        
+        m_name = os.path.basename(w_model) if w_model else "None selected"
+        m_size = "missing"
+        if w_model and os.path.exists(w_model):
+            m_size = f"{os.path.getsize(w_model) / (1024*1024):.1f} MB"
+            
+        w_version = detect_whisper_version(w_exe) if w_exe else "Unknown"
+        w_backend = detect_whisper_backend(w_exe) if w_exe else "CPU"
+        threads = self.threads_spin.value()
+        
+        self.whisper_model_info_lbl.setText(
+            f"Model: {m_name} ({m_size}) | whisper.cpp v{w_version} ({w_backend}) | Threads: {threads}"
+        )
+
+        # Validate VAD
+        self._validate_vad_model()
+
         # Enable/disable start button based on required deps
-        deps_ok = diag["ffmpeg"]["valid"] and diag["whisper_cli"]["valid"]
+        deps_ok = diag["ffmpeg"]["valid"] and diag["whisper_cli"]["valid"] and diag["whisper_model"]["valid"]
+        
+        # Disable start if VAD is enabled but missing VAD model file
+        if self.vad_chk.isChecked():
+            v_model = self.vad_model_edit.text().strip()
+            if not v_model or not os.path.exists(v_model):
+                deps_ok = False
+
         self.start_btn.setEnabled(deps_ok)
+        if self.current_job and self.current_job.get_stage_status(STAGE_REVIEW_READY) == "completed":
+            self.retranscribe_btn.setEnabled(deps_ok)
+        else:
+            self.retranscribe_btn.setEnabled(False)
+
         if deps_ok:
             self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; font-size: 14px; padding: 10px;")
         else:
@@ -564,10 +910,9 @@ class MainWindow(QMainWindow):
     # 5. CONTROLLER SIGNAL HANDLERS
     def _on_stage_started(self, stage):
         self.stage_lbl.setText(f"Stage: {stage}")
-        # Reset color highlight
         for s, lbl in self.stages_labels.items():
             if s == stage:
-                lbl.setStyleSheet("color: #2196F3; font-weight: bold; margin: 5px;") # Active blue
+                lbl.setStyleSheet("color: #2196F3; font-weight: bold; margin: 5px;")
             else:
                 lbl.setStyleSheet("color: #777; font-weight: bold; margin: 5px;")
         self.progress_bar.setValue(0)
@@ -577,22 +922,20 @@ class MainWindow(QMainWindow):
 
     def _on_stage_log(self, stage, msg):
         self.log_text.insertPlainText(msg)
-        # Scroll to bottom
         self.log_text.ensureCursorVisible()
 
     def _on_stage_finished(self, stage, success, error_msg):
         lbl = self.stages_labels.get(stage)
         if lbl:
             if success:
-                lbl.setStyleSheet("color: #4CAF50; font-weight: bold; margin: 5px;") # Completed Green
+                lbl.setStyleSheet("color: #4CAF50; font-weight: bold; margin: 5px;")
             else:
-                lbl.setStyleSheet("color: #f44336; font-weight: bold; margin: 5px;") # Failed Red
+                lbl.setStyleSheet("color: #f44336; font-weight: bold; margin: 5px;")
 
     def _on_pipeline_completed(self):
         QMessageBox.information(self, "Success", "Slide detection & transcription finished successfully.")
         self._load_review_data()
         self.stack.setCurrentIndex(2)
-        # Refresh combo
         self._reload_recent_jobs()
 
     def _on_pipeline_failed(self, error_msg):
@@ -600,12 +943,101 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(0)
 
     # 6. REVIEW & EXPORT VIEWS SLOTS
+    def _init_shortcuts(self):
+        # Global shortcuts for the Slide Review workspace
+        self.shortcut_delete = QShortcut(QKeySequence("Delete"), self)
+        self.shortcut_delete.activated.connect(self._on_delete_shortcut)
+        
+        self.shortcut_r = QShortcut(QKeySequence("R"), self)
+        self.shortcut_r.activated.connect(self._on_r_shortcut)
+        
+        self.shortcut_undo = QShortcut(QKeySequence("Ctrl+Z"), self)
+        self.shortcut_undo.activated.connect(self._undo_review_action)
+        
+        self.shortcut_copy = QShortcut(QKeySequence("Ctrl+C"), self)
+        self.shortcut_copy.activated.connect(self._on_ctrl_c_shortcut)
+        
+        self.shortcut_focus_search = QShortcut(QKeySequence("Ctrl+F"), self)
+        self.shortcut_focus_search.activated.connect(self._focus_search)
+        
+        self.shortcut_save_corrections = QShortcut(QKeySequence("Ctrl+S"), self)
+        self.shortcut_save_corrections.activated.connect(self._save_corrections)
+        
+        self.shortcut_f3 = QShortcut(QKeySequence("F3"), self)
+        self.shortcut_f3.activated.connect(self._search_next)
+        
+        self.shortcut_shift_f3 = QShortcut(QKeySequence("Shift+F3"), self)
+        self.shortcut_shift_f3.activated.connect(self._search_prev)
+
     def _load_review_data(self):
-        self.accepted_list.clear()
-        self.rejected_list.clear()
+        self.slides_view.clear()
         self.preview_lbl.setText("Select a slide to preview")
         self.slide_info_lbl.setText("Timestamp: -")
+        self.selected_count_lbl.setText("Selected: 0")
 
+        # Load raw segments
+        self.raw_segments = []
+        transcript_json_path = os.path.join(self.current_job.paths["root"], "transcript", "raw.json")
+        transcript_data = FileManager.read_json_safe(transcript_json_path, {})
+        if isinstance(transcript_data, dict):
+            transcription = transcript_data.get("result", {}).get("transcription", [])
+            if not transcription and "transcription" in transcript_data:
+                transcription = transcript_data["transcription"]
+                
+            for i, seg in enumerate(transcription):
+                offsets = seg.get("offsets", {})
+                start_sec = offsets.get("from", 0) / 1000.0
+                end_sec = offsets.get("to", 0) / 1000.0
+                text = seg.get("text", "").strip()
+                self.raw_segments.append({
+                    "id": i + 1,
+                    "start": start_sec,
+                    "end": end_sec,
+                    "text": text
+                })
+        
+        # Fallback to txt parsing if raw.json is empty
+        if not self.raw_segments:
+            raw_txt_path = os.path.join(self.current_job.paths["root"], "transcript", "raw.txt")
+            if os.path.exists(raw_txt_path):
+                with open(raw_txt_path, 'r', encoding='utf-8') as f:
+                    for i, line in enumerate(f):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if line.startswith("[") and "->" in line:
+                            try:
+                                parts = line.split("]", 1)
+                                ts_part = parts[0][1:]
+                                text_part = parts[1].strip()
+                                t1, t2 = ts_part.split("->")
+                                def to_sec(s):
+                                    s = s.strip()
+                                    h, m, sec = s.split(":")
+                                    return int(h)*3600 + int(m)*60 + float(sec)
+                                start_sec = to_sec(t1)
+                                end_sec = to_sec(t2)
+                                self.raw_segments.append({
+                                    "id": i + 1,
+                                    "start": start_sec,
+                                    "end": end_sec,
+                                    "text": text_part
+                                })
+                            except Exception:
+                                pass
+
+        # Sort segments
+        self.raw_segments.sort(key=lambda s: s["start"])
+
+        # Load corrected segments mapping
+        edited_path = os.path.join(self.current_job.paths["transcript"], "edited.json")
+        self.edited_data = FileManager.read_json_safe(edited_path, {})
+
+        # Load aligned segments
+        aligned_json_path = os.path.join(self.current_job.paths["root"], "transcript", "aligned.json")
+        self.aligned_data = FileManager.read_json_safe(aligned_json_path, [])
+
+        # Load candidates
         candidates_path = os.path.join(self.current_job.paths["root"], "candidates.json")
         candidates = FileManager.read_json_safe(candidates_path, [])
 
@@ -619,29 +1051,40 @@ class MainWindow(QMainWindow):
             if os.path.exists(img_p):
                 icon = QIcon(img_p)
 
-            ts_sec = cand.get("timestamp_seconds", 0.0)
             ts_formatted = cand.get("timestamp_formatted", "00:00:00.000")
-            item = QListWidgetItem(icon, f"@{ts_formatted}")
+            decision = cand.get("decision", "accepted")
+            
+            lbl_text = f"@{ts_formatted}"
+            if decision == "rejected":
+                lbl_text += " [Rejected]"
+                
+            item = QListWidgetItem(icon, lbl_text)
             item.setData(Qt.ItemDataRole.UserRole, cand)
 
-            if cand.get("decision") == "accepted":
-                self.accepted_list.addItem(item)
+            # Clearly distinguish accepted vs rejected slides
+            if decision == "rejected":
+                item.setBackground(QBrush(QColor(255, 235, 235)))
+                item.setForeground(QBrush(QColor(150, 0, 0)))
             else:
-                self.rejected_list.addItem(item)
+                item.setBackground(QBrush(QColor(235, 255, 235)))
+                item.setForeground(QBrush(QColor(0, 100, 0)))
 
-    def _on_accepted_clicked(self, item):
-        self.rejected_list.clearSelection()
-        cand = item.data(Qt.ItemDataRole.UserRole)
-        self._show_slide_preview(cand)
-        self.keep_reject_btn.setText("Reject Slide")
-        self.keep_reject_btn.setStyleSheet("background-color: #f44336; color: white; padding: 8px;")
+            self.slides_view.addItem(item)
 
-    def _on_rejected_clicked(self, item):
-        self.accepted_list.clearSelection()
-        cand = item.data(Qt.ItemDataRole.UserRole)
+    def _on_slides_selection_changed(self):
+        selected_items = self.slides_view.selectedItems()
+        self.selected_count_lbl.setText(f"Selected: {len(selected_items)}")
+        
+        if not selected_items:
+            self.preview_lbl.setText("Select a slide to preview")
+            self.slide_info_lbl.setText("Timestamp: -")
+            self.transcript_table.setRowCount(0)
+            return
+            
+        primary_item = selected_items[0]
+        cand = primary_item.data(Qt.ItemDataRole.UserRole)
         self._show_slide_preview(cand)
-        self.keep_reject_btn.setText("Keep Slide")
-        self.keep_reject_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px;")
+        self._update_transcript_for_selected_slides()
 
     def _show_slide_preview(self, cand):
         img_filename = cand.get("image_filename", "")
@@ -658,58 +1101,596 @@ class MainWindow(QMainWindow):
             f"Timestamp: {cand.get('timestamp_formatted', '00:00:00')} | Frame: {cand.get('frame_number', 0)}"
         )
 
-    def _toggle_slide_decision(self):
-        # Determine which list has selection
-        ac_items = self.accepted_list.selectedItems()
-        rj_items = self.rejected_list.selectedItems()
-
-        if not ac_items and not rj_items:
+    def _update_transcript_for_selected_slides(self):
+        selected_items = self.slides_view.selectedItems()
+        if not selected_items:
+            self.transcript_table.setRowCount(0)
             return
+
+        selected_cands = [item.data(Qt.ItemDataRole.UserRole) for item in selected_items]
+        selected_cands.sort(key=lambda c: c.get("timestamp_seconds", 0.0))
+        
+        video_duration = 0.0
+        if self.current_job and self.current_job.source:
+            video_duration = self.current_job.source.get("duration", 0.0)
+
+        # Get list of all accepted slides for interval boundaries
+        candidates_path = os.path.join(self.current_job.paths["root"], "candidates.json")
+        candidates = FileManager.read_json_safe(candidates_path, [])
+        accepted_slides = [c for c in candidates if c.get("decision") == "accepted"]
+        accepted_slides.sort(key=lambda s: s.get("timestamp_seconds", 0.0))
+        
+        intervals = []
+        for cand in selected_cands:
+            start = cand.get("timestamp_seconds", 0.0)
+            end = video_duration
+            for acc in accepted_slides:
+                if acc.get("timestamp_seconds", 0.0) > start:
+                    end = acc.get("timestamp_seconds", 0.0)
+                    break
+            intervals.append((start, max(start, end)))
+            
+        edited_path = os.path.join(self.current_job.paths["transcript"], "edited.json")
+        self.edited_data = FileManager.read_json_safe(edited_path, {})
+        
+        matched_segments = []
+        seen_seg_ids = set()
+        
+        for start, end in intervals:
+            for seg in self.raw_segments:
+                seg_start = seg["start"]
+                seg_end = seg["end"]
+                overlap = max(0.0, min(seg_end, end) - max(seg_start, start))
+                if overlap > 0.0 or (seg_start <= (start + end)/2.0 <= seg_end):
+                    if seg["id"] not in seen_seg_ids:
+                        seen_seg_ids.add(seg["id"])
+                        matched_segments.append(seg)
+                        
+        matched_segments.sort(key=lambda s: s["start"])
+        
+        self.transcript_table.setRowCount(len(matched_segments))
+        for row, seg in enumerate(matched_segments):
+            seg_id = seg["id"]
+            t1 = datetime_from_seconds(seg["start"])
+            t2 = datetime_from_seconds(seg["end"])
+            
+            # Non-editable timestamp item
+            self.transcript_table.setItem(row, 0, QTableWidgetItem(f"{t1} -> {t2}"))
+            
+            text_edit = QTextEdit()
+            text_edit.setAcceptRichText(False)
+            current_text = self.edited_data.get(str(seg_id), seg["text"])
+            text_edit.setPlainText(current_text)
+            text_edit.setMinimumHeight(40)
+            text_edit.setMaximumHeight(80)
+            text_edit.setProperty("segment_id", seg_id)
+            
+            is_edited = str(seg_id) in self.edited_data
+            self._style_segment_edit(text_edit, is_edited)
+            text_edit.textChanged.connect(self._on_segment_text_changed)
+            
+            self.transcript_table.setCellWidget(row, 1, text_edit)
+            
+            reset_btn = QPushButton("Reset")
+            reset_btn.setProperty("segment_id", seg_id)
+            reset_btn.setProperty("text_edit", text_edit)
+            reset_btn.clicked.connect(self._reset_segment_clicked)
+            self.transcript_table.setCellWidget(row, 2, reset_btn)
+            
+        for r in range(len(matched_segments)):
+            self.transcript_table.setRowHeight(r, 60)
+
+    def _style_segment_edit(self, widget, is_edited):
+        if is_edited:
+            widget.setStyleSheet("background-color: #e8f5e9; border: 1px solid #c8e6c9; color: #1b5e20; font-weight: bold;")
+        else:
+            widget.setStyleSheet("background-color: white; border: 1px solid #ccc; color: black; font-weight: normal;")
+
+    def _on_segment_text_changed(self):
+        text_edit = self.sender()
+        if not text_edit:
+            return
+        seg_id = text_edit.property("segment_id")
+        raw_text = ""
+        for seg in self.raw_segments:
+            if seg["id"] == seg_id:
+                raw_text = seg["text"]
+                break
+        current_text = text_edit.toPlainText().strip()
+        is_edited = (current_text != raw_text)
+        self._style_segment_edit(text_edit, is_edited)
+
+    def _reset_segment_clicked(self):
+        btn = self.sender()
+        if not btn:
+            return
+        seg_id = btn.property("segment_id")
+        text_edit = btn.property("text_edit")
+        if not text_edit:
+            return
+            
+        raw_text = ""
+        for seg in self.raw_segments:
+            if seg["id"] == seg_id:
+                raw_text = seg["text"]
+                break
+                
+        text_edit.setPlainText(raw_text)
+        self._style_segment_edit(text_edit, False)
+        
+        if str(seg_id) in self.edited_data:
+            del self.edited_data[str(seg_id)]
+            edited_path = os.path.join(self.current_job.paths["transcript"], "edited.json")
+            FileManager.write_json_atomic(edited_path, self.edited_data)
+            self.transcript_status_lbl.setText("Segment reset to original.")
+            QTimer.singleShot(2000, lambda: self.transcript_status_lbl.setText(""))
+
+    def _save_corrections(self):
+        if not self.current_job:
+            return
+            
+        for row in range(self.transcript_table.rowCount()):
+            text_edit = self.transcript_table.cellWidget(row, 1)
+            if not text_edit:
+                continue
+            seg_id = text_edit.property("segment_id")
+            text = text_edit.toPlainText().strip()
+            
+            raw_text = ""
+            for seg in self.raw_segments:
+                if seg["id"] == seg_id:
+                    raw_text = seg["text"]
+                    break
+                    
+            if text != raw_text:
+                self.edited_data[str(seg_id)] = text
+            else:
+                if str(seg_id) in self.edited_data:
+                    del self.edited_data[str(seg_id)]
+                    
+        edited_path = os.path.join(self.current_job.paths["transcript"], "edited.json")
+        FileManager.write_json_atomic(edited_path, self.edited_data)
+        
+        self.transcript_status_lbl.setText("Corrections saved successfully.")
+        QTimer.singleShot(3000, lambda: self.transcript_status_lbl.setText(""))
+
+    def _on_delete_shortcut(self):
+        if self.stack.currentIndex() == 2 and self.slides_view.hasFocus():
+            self._bulk_reject()
+
+    def _on_r_shortcut(self):
+        if self.stack.currentIndex() == 2 and self.slides_view.hasFocus():
+            self._bulk_restore()
+
+    def _on_ctrl_c_shortcut(self):
+        if self.stack.currentIndex() == 2:
+            focused = self.focusWidget()
+            if isinstance(focused, (QLineEdit, QTextEdit)):
+                if isinstance(focused, QLineEdit) and focused.hasSelectedText():
+                    return
+                if isinstance(focused, QTextEdit):
+                    cursor = focused.textCursor()
+                    if cursor.hasSelection():
+                        return
+            self._copy_current_transcript()
+
+    def _focus_search(self):
+        if self.stack.currentIndex() == 2:
+            self.search_input.setFocus()
+            self.search_input.selectAll()
+
+    def _on_search_text_changed(self):
+        self.current_search_match = -1
+
+    def _search_next(self):
+        self._do_search(forward=True)
+
+    def _search_prev(self):
+        self._do_search(forward=False)
+
+    def _do_search(self, forward=True):
+        if self.stack.currentIndex() != 2:
+            return
+        query = self.search_input.text().strip().lower()
+        if not query:
+            return
+
+        matches = []
+        for row in range(self.transcript_table.rowCount()):
+            text_edit = self.transcript_table.cellWidget(row, 1)
+            if text_edit and query in text_edit.toPlainText().lower():
+                matches.append(row)
+
+        if not matches:
+            return
+
+        if forward:
+            self.current_search_match += 1
+            if self.current_search_match >= len(matches) or self.current_search_match < 0:
+                self.current_search_match = 0
+        else:
+            self.current_search_match -= 1
+            if self.current_search_match < 0 or self.current_search_match >= len(matches):
+                self.current_search_match = len(matches) - 1
+
+        matched_row = matches[self.current_search_match]
+        self.transcript_table.scrollToItem(self.transcript_table.item(matched_row, 0))
+        
+        text_edit = self.transcript_table.cellWidget(matched_row, 1)
+        if text_edit:
+            text_edit.setFocus()
+            cursor = text_edit.textCursor()
+            full_text = text_edit.toPlainText().lower()
+            idx = full_text.find(query)
+            if idx >= 0:
+                cursor.setPosition(idx)
+                cursor.setPosition(idx + len(query), cursor.MoveMode.KeepAnchor)
+                text_edit.setTextCursor(cursor)
+
+    def _copy_current_transcript(self):
+        selected_items = self.slides_view.selectedItems()
+        if not selected_items:
+            return
+
+        selected_cands = [item.data(Qt.ItemDataRole.UserRole) for item in selected_items]
+        selected_cands.sort(key=lambda c: c.get("timestamp_seconds", 0.0))
+        cand = selected_cands[0]
+        start = cand.get("timestamp_seconds", 0.0)
+        
+        video_duration = 0.0
+        if self.current_job and self.current_job.source:
+            video_duration = self.current_job.source.get("duration", 0.0)
+
+        candidates_path = os.path.join(self.current_job.paths["root"], "candidates.json")
+        candidates = FileManager.read_json_safe(candidates_path, [])
+        accepted_slides = [c for c in candidates if c.get("decision") == "accepted"]
+        accepted_slides.sort(key=lambda s: s.get("timestamp_seconds", 0.0))
+        
+        end = video_duration
+        for acc in accepted_slides:
+            if acc.get("timestamp_seconds", 0.0) > start:
+                end = acc.get("timestamp_seconds", 0.0)
+                break
+                
+        text_lines = []
+        for seg in self.raw_segments:
+            seg_start = seg["start"]
+            seg_end = seg["end"]
+            overlap = max(0.0, min(seg_end, end) - max(seg_start, start))
+            if overlap > 0.0 or (seg_start <= (start + end)/2.0 <= seg_end):
+                text = self.edited_data.get(str(seg["id"]), seg["text"])
+                t_part = ""
+                if self.timestamps_chk.isChecked():
+                    t1 = datetime_from_seconds(seg["start"])
+                    t2 = datetime_from_seconds(seg["end"])
+                    t_part = f"[{t1} -> {t2}] "
+                text_lines.append(f"{t_part}{text}")
+
+        from PySide6.QtGui import QGuiApplication
+        QGuiApplication.clipboard().setText("\n".join(text_lines))
+        self.statusBar().showMessage("Current slide transcript copied to clipboard.", 2000)
+
+    def _copy_selected_transcripts(self):
+        selected_items = self.slides_view.selectedItems()
+        if not selected_items:
+            return
+
+        selected_cands = [item.data(Qt.ItemDataRole.UserRole) for item in selected_items]
+        selected_cands.sort(key=lambda c: c.get("timestamp_seconds", 0.0))
+        
+        video_duration = 0.0
+        if self.current_job and self.current_job.source:
+            video_duration = self.current_job.source.get("duration", 0.0)
+
+        candidates_path = os.path.join(self.current_job.paths["root"], "candidates.json")
+        candidates = FileManager.read_json_safe(candidates_path, [])
+        accepted_slides = [c for c in candidates if c.get("decision") == "accepted"]
+        accepted_slides.sort(key=lambda s: s.get("timestamp_seconds", 0.0))
+        
+        intervals = []
+        for cand in selected_cands:
+            start = cand.get("timestamp_seconds", 0.0)
+            end = video_duration
+            for acc in accepted_slides:
+                if acc.get("timestamp_seconds", 0.0) > start:
+                    end = acc.get("timestamp_seconds", 0.0)
+                    break
+            intervals.append((start, max(start, end)))
+            
+        matched_segments = []
+        seen_seg_ids = set()
+        for start, end in intervals:
+            for seg in self.raw_segments:
+                seg_start = seg["start"]
+                seg_end = seg["end"]
+                overlap = max(0.0, min(seg_end, end) - max(seg_start, start))
+                if overlap > 0.0 or (seg_start <= (start + end)/2.0 <= seg_end):
+                    if seg["id"] not in seen_seg_ids:
+                        seen_seg_ids.add(seg["id"])
+                        matched_segments.append(seg)
+                        
+        matched_segments.sort(key=lambda s: s["start"])
+        
+        text_lines = []
+        for seg in matched_segments:
+            text = self.edited_data.get(str(seg["id"]), seg["text"])
+            t_part = ""
+            if self.timestamps_chk.isChecked():
+                t1 = datetime_from_seconds(seg["start"])
+                t2 = datetime_from_seconds(seg["end"])
+                t_part = f"[{t1} -> {t2}] "
+            text_lines.append(f"{t_part}{text}")
+
+        from PySide6.QtGui import QGuiApplication
+        QGuiApplication.clipboard().setText("\n".join(text_lines))
+        self.statusBar().showMessage("Selected slides' transcripts copied to clipboard.", 2000)
+
+    def _copy_full_transcript(self):
+        text_lines = []
+        for seg in self.raw_segments:
+            text = self.edited_data.get(str(seg["id"]), seg["text"])
+            t_part = ""
+            if self.timestamps_chk.isChecked():
+                t1 = datetime_from_seconds(seg["start"])
+                t2 = datetime_from_seconds(seg["end"])
+                t_part = f"[{t1} -> {t2}] "
+            text_lines.append(f"{t_part}{text}")
+
+        from PySide6.QtGui import QGuiApplication
+        QGuiApplication.clipboard().setText("\n".join(text_lines))
+        self.statusBar().showMessage("Full transcript copied to clipboard.", 2000)
+
+    def _save_candidates_snapshot(self):
+        if not self.current_job:
+            return
+        candidates_path = os.path.join(self.current_job.paths["root"], "candidates.json")
+        snapshot_path = os.path.join(self.current_job.paths["root"], "candidates.json.snapshot")
+        if os.path.exists(candidates_path):
+            try:
+                shutil.copy2(candidates_path, snapshot_path)
+            except Exception:
+                pass
+
+    def _push_undo_state(self):
+        if not self.current_job:
+            return
+        candidates_path = os.path.join(self.current_job.paths["root"], "candidates.json")
+        candidates = FileManager.read_json_safe(candidates_path, [])
+        import copy
+        self.undo_stack.append(copy.deepcopy(candidates))
+
+    def _undo_review_action(self):
+        if not self.current_job or not self.undo_stack:
+            self.statusBar().showMessage("Nothing to undo.", 2000)
+            return
+        
+        previous_candidates = self.undo_stack.pop()
+        candidates_path = os.path.join(self.current_job.paths["root"], "candidates.json")
+        FileManager.write_json_atomic(candidates_path, previous_candidates)
+        
+        self._load_review_data()
+        self.statusBar().showMessage("Undo successful.", 2000)
+
+    def _bulk_keep(self):
+        selected_items = self.slides_view.selectedItems()
+        if not selected_items:
+            return
+
+        if len(selected_items) > 20:
+            reply = QMessageBox.question(self, "Confirm Bulk Keep", f"Keep selected {len(selected_items)} slides?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        self._save_candidates_snapshot()
+        self._push_undo_state()
 
         candidates_path = os.path.join(self.current_job.paths["root"], "candidates.json")
         candidates = FileManager.read_json_safe(candidates_path, [])
 
-        if ac_items:
-            item = ac_items[0]
-            cand = item.data(Qt.ItemDataRole.UserRole)
-            target_decision = "rejected"
-        else:
-            item = rj_items[0]
-            cand = item.data(Qt.ItemDataRole.UserRole)
-            target_decision = "accepted"
-
-        # Update in candidate metadata
+        selected_frames = [item.data(Qt.ItemDataRole.UserRole)["frame_number"] for item in selected_items]
         for c in candidates:
-            if c["frame_number"] == cand["frame_number"]:
-                c["decision"] = target_decision
-                break
+            if c["frame_number"] in selected_frames:
+                c["decision"] = "accepted"
 
         FileManager.write_json_atomic(candidates_path, candidates)
-        
-        # Reload UI lists and restore selection
         self._load_review_data()
 
-    def _restore_slide(self):
-        # Alias helper for Restore button in rejected pane
-        self._toggle_slide_decision()
+    def _bulk_reject(self):
+        selected_items = self.slides_view.selectedItems()
+        if not selected_items:
+            return
+
+        if len(selected_items) > 20:
+            reply = QMessageBox.question(self, "Confirm Bulk Reject", f"Reject selected {len(selected_items)} slides?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        self._save_candidates_snapshot()
+        self._push_undo_state()
+
+        candidates_path = os.path.join(self.current_job.paths["root"], "candidates.json")
+        candidates = FileManager.read_json_safe(candidates_path, [])
+
+        selected_frames = [item.data(Qt.ItemDataRole.UserRole)["frame_number"] for item in selected_items]
+        for c in candidates:
+            if c["frame_number"] in selected_frames:
+                c["decision"] = "rejected"
+
+        FileManager.write_json_atomic(candidates_path, candidates)
+        self._load_review_data()
+
+    def _bulk_restore(self):
+        selected_items = self.slides_view.selectedItems()
+        if not selected_items:
+            return
+
+        if len(selected_items) > 20:
+            reply = QMessageBox.question(self, "Confirm Bulk Restore", f"Restore selected {len(selected_items)} slides?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        self._save_candidates_snapshot()
+        self._push_undo_state()
+
+        candidates_path = os.path.join(self.current_job.paths["root"], "candidates.json")
+        candidates = FileManager.read_json_safe(candidates_path, [])
+
+        selected_frames = [item.data(Qt.ItemDataRole.UserRole)["frame_number"] for item in selected_items]
+        for c in candidates:
+            if c["frame_number"] in selected_frames:
+                c["decision"] = "accepted"
+
+        FileManager.write_json_atomic(candidates_path, candidates)
+        self._load_review_data()
+
+    def _on_profile_changed(self, index):
+        if index == 0:  # Fast
+            model_path = os.path.join(self.config_manager.app_dir, "models", "ggml-base.en.bin")
+            if not os.path.exists(model_path):
+                model_path = os.path.join(os.path.dirname(self.config_manager.app_dir), "models", "ggml-base.en.bin")
+            self.whisper_model_edit.setText(model_path)
+            self.threads_spin.setValue(4)
+            self.vad_chk.setChecked(False)
+        elif index == 1:  # Accurate
+            model_path = os.path.join(self.config_manager.app_dir, "models", "ggml-small.en.bin")
+            if not os.path.exists(model_path):
+                model_path = os.path.join(os.path.dirname(self.config_manager.app_dir), "models", "ggml-small.en.bin")
+            self.whisper_model_edit.setText(model_path)
+            self.threads_spin.setValue(8)
+            self.vad_chk.setChecked(True)
+
+    def _on_vad_toggled(self, checked):
+        self.vad_model_label.setEnabled(checked)
+        self.vad_model_edit.setEnabled(checked)
+        self.vad_browse_btn.setEnabled(checked)
+        self.advanced_vad_btn.setEnabled(checked)
+        if not checked:
+            self.vad_warning_lbl.setVisible(False)
+        else:
+            self._validate_vad_model()
+        self._refresh_diagnostics()
+
+    def _browse_vad_model(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select VAD Model", "", "Model files (*.bin)")
+        if file_path:
+            self.vad_model_edit.setText(file_path)
+
+    def _validate_vad_model(self):
+        if not self.vad_chk.isChecked():
+            self.vad_warning_lbl.setVisible(False)
+            return
+
+        v_model = self.vad_model_edit.text().strip()
+        if not v_model:
+            self.vad_warning_lbl.setText("Missing VAD Model path.")
+            self.vad_warning_lbl.setVisible(True)
+        elif not os.path.exists(v_model):
+            self.vad_warning_lbl.setText("VAD Model file not found.")
+            self.vad_warning_lbl.setVisible(True)
+        else:
+            self.vad_warning_lbl.setVisible(False)
+
+    def _toggle_advanced_vad(self, checked):
+        self.advanced_vad_widget.setVisible(checked)
+        self.advanced_vad_btn.setText("Hide Advanced VAD Settings" if checked else "Show Advanced VAD Settings")
+
+    def _archive_current_job(self):
+        if not self.current_job:
+            return
+        reply = QMessageBox.question(self, "Archive Job", f"Are you sure you want to archive job '{self.current_job.manifest.get('title')}'?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                FileManager.archive_job(self.config_manager.data_dir, self.current_job.job_id)
+                self.current_job = None
+                self.controller.set_job(None)
+                self.video_path_edit.clear()
+                self.glossary_edit.clear()
+                self.metadata_lbl.setText("No video loaded.")
+                self._reload_recent_jobs()
+                self.recent_jobs_combo.setCurrentIndex(0)
+                QMessageBox.information(self, "Archived", "Job archived successfully.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to archive job: {str(e)}")
+
+    def _restore_archived_job(self):
+        dlg = RestoreDialog(self.config_manager.data_dir, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            job_id = dlg.get_selected_job_id()
+            if job_id:
+                try:
+                    FileManager.restore_job(self.config_manager.data_dir, job_id)
+                    self._reload_recent_jobs()
+                    # Find and select the restored job
+                    for i in range(self.recent_jobs_combo.count()):
+                        data = self.recent_jobs_combo.itemData(i)
+                        if data and data[0] == job_id:
+                            self.recent_jobs_combo.setCurrentIndex(i)
+                            break
+                    QMessageBox.information(self, "Restored", "Job restored successfully.")
+                except Exception as e:
+                    QMessageBox.critical(self, "Error", f"Failed to restore job: {str(e)}")
+
+    def _export_job_archive(self):
+        if not self.current_job:
+            return
+        default_name = self.current_job.manifest.get("title", "job_archive") + "_archive.zip"
+        zip_path, _ = QFileDialog.getSaveFileName(self, "Export Job Archive", default_name, "Zip Files (*.zip)")
+        if zip_path:
+            try:
+                FileManager.export_job_archive(self.current_job.paths["root"], zip_path)
+                QMessageBox.information(self, "Success", "Job archive exported successfully.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to export archive: {str(e)}")
+
+    def _retranscribe_only_workflow(self):
+        if not self.current_job:
+            return
+            
+        t_dir = self.current_job.paths["transcript"]
+        edited_path = os.path.join(t_dir, "edited.json")
+        
+        if os.path.exists(edited_path):
+            reply = QMessageBox.question(self, "Overwrite Transcript Corrections", 
+                                         "An active corrected transcript exists. Overwriting it will replace it. Do you want to continue?",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            
+            # Versioned backup
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            try:
+                shutil.copy2(edited_path, os.path.join(t_dir, f"edited.bak.{timestamp}.json"))
+                os.remove(edited_path)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to backup existing transcript: {str(e)}")
+                return
+                
+        raw_json_path = os.path.join(t_dir, "raw.json")
+        if os.path.exists(raw_json_path):
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            try:
+                shutil.copy2(raw_json_path, os.path.join(t_dir, f"raw.bak.{timestamp}.json"))
+            except Exception:
+                pass
+                
+        # Switch to processing screen and run retranscribe only
+        self.log_text.clear()
+        self.stack.setCurrentIndex(1)
+        self.controller.run_retranscribe_only()
 
     def _export_outputs(self):
         if not self.current_job:
             return
 
-        # Trigger re-alignment & exports using controller
         self.log_text.clear()
-        self.stack.setCurrentIndex(1) # Switch to processing stack
+        self.stack.setCurrentIndex(1)
         
         self.controller.stage_started.connect(self._on_stage_started)
         self.controller.export_now()
-        
-        # Connect finished signal to return to review view
         self.controller.stage_finished.connect(self._on_export_stage_finished)
 
     def _on_export_stage_finished(self, stage, success, error_msg):
         if stage == STAGE_EXPORT:
-            # Disconnect so it doesn't trigger multiple times
             try:
                 self.controller.stage_finished.disconnect(self._on_export_stage_finished)
             except Exception:
@@ -720,9 +1701,10 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.critical(self, "Export Failed", f"Failed to export: {error_msg}")
             
-            self.stack.setCurrentIndex(2) # Return to Review/Export view
+            self.stack.setCurrentIndex(2)
 
     def _open_output_folder(self):
         if self.current_job:
             exports_dir = self.current_job.paths["exports"]
             os.startfile(exports_dir)
+

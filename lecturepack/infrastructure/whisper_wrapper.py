@@ -12,7 +12,37 @@ class WhisperWrapper(QObject):
         self.whisper_exe_path = whisper_exe_path
         self.process = None
 
-    def start_transcription(self, audio_path, model_path, output_prefix, glossary=None):
+    def get_supported_flags(self):
+        """Queries whisper-cli.exe --help synchronously to find supported options."""
+        import subprocess
+        if not self.whisper_exe_path or not os.path.exists(self.whisper_exe_path):
+            return set()
+        try:
+            if self.whisper_exe_path.lower().endswith(".py"):
+                cmd = [sys.executable, self.whisper_exe_path, "--help"]
+            else:
+                cmd = [self.whisper_exe_path, "--help"]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5, encoding='utf-8', errors='ignore')
+            help_text = res.stdout + res.stderr
+            flags = set()
+            for word in help_text.split():
+                if word.startswith("-"):
+                    cleaned = word.strip("[],.:()")
+                    if "/" in cleaned:
+                        flags.update(cleaned.split("/"))
+                    else:
+                        flags.add(cleaned)
+            # Exact matches for multi-word flags or options
+            for flag in ["--output-json-full", "-ojf", "--vad", "--vad-model", "-vm", "--vad-threshold", "-vt",
+                         "--vad-min-speech-duration-ms", "-vspd", "--vad-min-silence-duration-ms", "-vsd",
+                         "--prompt", "--carry-initial-prompt", "--threads", "-t"]:
+                if flag in help_text:
+                    flags.add(flag)
+            return flags
+        except Exception:
+            return set()
+
+    def start_transcription(self, audio_path, model_path, output_prefix, glossary=None, threads=8, vad_settings=None):
         """Asynchronously runs the transcription using QProcess."""
         if not self.whisper_exe_path:
             self.finished.emit(False, "Whisper executable path is not set.")
@@ -21,21 +51,77 @@ class WhisperWrapper(QObject):
         self.process = QProcess()
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
 
+        # Detect supported flags
+        supported_flags = self.get_supported_flags()
+
         # Build argument list
-        # Standard whisper.cpp arguments:
-        # whisper-cli -m model -f wav -oj -osrt -otxt -of output_prefix
         whisper_args = [
             "-m", model_path,
             "-f", audio_path,
-            "-oj",
-            "-osrt",
-            "-otxt",
             "-of", output_prefix
         ]
-        
-        # Add glossary prompt if present
+
+        # Use full JSON output if supported, otherwise standard JSON
+        if "--output-json-full" in supported_flags:
+            whisper_args.append("--output-json-full")
+        elif "-ojf" in supported_flags:
+            whisper_args.append("-ojf")
+        else:
+            whisper_args.append("-oj")
+
+        # Standard subtitle outputs
+        whisper_args.extend(["-osrt", "-otxt"])
+
+        # Thread count
+        if threads:
+            if "--threads" in supported_flags:
+                whisper_args.extend(["--threads", str(threads)])
+            elif "-t" in supported_flags:
+                whisper_args.extend(["-t", str(threads)])
+
+        # VAD Settings
+        if vad_settings and vad_settings.get("enabled"):
+            v_model = vad_settings.get("model_path", "")
+            if v_model and os.path.exists(v_model):
+                if "--vad" in supported_flags:
+                    whisper_args.append("--vad")
+                if "--vad-model" in supported_flags:
+                    whisper_args.extend(["--vad-model", v_model])
+                elif "-vm" in supported_flags:
+                    whisper_args.extend(["-vm", v_model])
+                
+                # Advanced VAD options if supported
+                v_threshold = vad_settings.get("threshold", 0.50)
+                if "--vad-threshold" in supported_flags:
+                    whisper_args.extend(["--vad-threshold", f"{v_threshold:.2f}"])
+                elif "-vt" in supported_flags:
+                    whisper_args.extend(["-vt", f"{v_threshold:.2f}"])
+
+                v_spd = vad_settings.get("min_speech_duration_ms", 250)
+                if "--vad-min-speech-duration-ms" in supported_flags:
+                    whisper_args.extend(["--vad-min-speech-duration-ms", str(v_spd)])
+                elif "-vspd" in supported_flags:
+                    whisper_args.extend(["-vspd", str(v_spd)])
+
+                v_sd = vad_settings.get("min_silence_duration_ms", 100)
+                if "--vad-min-silence-duration-ms" in supported_flags:
+                    whisper_args.extend(["--vad-min-silence-duration-ms", str(v_sd)])
+                elif "-vsd" in supported_flags:
+                    whisper_args.extend(["-vsd", str(v_sd)])
+
+        # Glossary Prompt
         if glossary:
-            whisper_args.extend(["--prompt", glossary])
+            sanitized = "".join(c for c in glossary if c.isalnum() or c in " ,.-_")
+            words = sanitized.split()
+            if len(words) > 150:
+                words = words[:150]
+            glossary_clean = " ".join(words)
+            
+            if glossary_clean:
+                if "--prompt" in supported_flags:
+                    whisper_args.extend(["--prompt", glossary_clean])
+                if "--carry-initial-prompt" in supported_flags:
+                    whisper_args.append("--carry-initial-prompt")
 
         # If the path is a python script, run sys.executable with script + args
         if self.whisper_exe_path.lower().endswith(".py"):
@@ -67,3 +153,4 @@ class WhisperWrapper(QObject):
             self.finished.emit(True, "")
         else:
             self.finished.emit(False, f"whisper-cli exited with status {exit_status} and code {exit_code}")
+

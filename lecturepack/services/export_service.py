@@ -105,6 +105,15 @@ class ExportService:
                             except Exception:
                                 pass
 
+        # Apply transcript corrections if edited.json exists
+        edited_json_path = os.path.join(self.job.paths["transcript"], "edited.json")
+        if os.path.exists(edited_json_path):
+            edited_data = FileManager.read_json_safe(edited_json_path, {})
+            for seg in raw_segments:
+                seg_id_str = str(seg["id"])
+                if seg_id_str in edited_data:
+                    seg["text"] = edited_data[seg_id_str]
+
         # Sort segments
         raw_segments.sort(key=lambda s: s["start"])
 

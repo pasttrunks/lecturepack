@@ -62,3 +62,37 @@ class FileManager:
             "exports": os.path.join(job_dir, "exports"),
             "logs": os.path.join(job_dir, "logs")
         }
+
+    @staticmethod
+    def archive_job(data_dir, job_id):
+        """Moves job from jobs/ to archive/ directory."""
+        job_dir = os.path.join(data_dir, "jobs", job_id)
+        archive_dir = os.path.join(data_dir, "archive", job_id)
+        if not os.path.exists(job_dir):
+            raise FileNotFoundError(f"Job directory not found: {job_dir}")
+        os.makedirs(os.path.dirname(archive_dir), exist_ok=True)
+        shutil.move(job_dir, archive_dir)
+
+    @staticmethod
+    def restore_job(data_dir, job_id):
+        """Moves job from archive/ back to jobs/ directory."""
+        archive_dir = os.path.join(data_dir, "archive", job_id)
+        job_dir = os.path.join(data_dir, "jobs", job_id)
+        if not os.path.exists(archive_dir):
+            raise FileNotFoundError(f"Archived job directory not found: {archive_dir}")
+        os.makedirs(os.path.dirname(job_dir), exist_ok=True)
+        shutil.move(archive_dir, job_dir)
+
+    @staticmethod
+    def export_job_archive(job_dir, zip_filepath):
+        """Zips the contents of job_dir into zip_filepath, excluding the source video by default."""
+        import zipfile
+        os.makedirs(os.path.dirname(zip_filepath), exist_ok=True)
+        with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(job_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    # Relpath for inside the ZIP archive
+                    arcname = os.path.relpath(file_path, job_dir)
+                    zipf.write(file_path, arcname)
+
