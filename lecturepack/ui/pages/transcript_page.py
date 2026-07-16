@@ -50,6 +50,21 @@ def _fmt_time(sec: float) -> str:
     return f"{h:d}:{m:02d}:{s:02d}"
 
 
+_SORT_ROLE = Qt.ItemDataRole.UserRole + 7
+
+
+class _NumericItem(QTableWidgetItem):
+    """Table item that sorts by a numeric key while displaying formatted text
+    (e.g. '0:01:05' sorted by 65.0 seconds; ids sorted as ints not strings)."""
+
+    def __lt__(self, other):
+        a = self.data(_SORT_ROLE)
+        b = other.data(_SORT_ROLE)
+        if a is not None and b is not None:
+            return a < b
+        return super().__lt__(other)
+
+
 class TranscriptPage(QWidget):
     """Owns the working segment layer for the current job."""
     seek_requested = Signal(float)         # timestamp seconds -> select slide
@@ -151,7 +166,9 @@ class TranscriptPage(QWidget):
         self.seg_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.seg_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.seg_table.setSortingEnabled(True)
-        self.seg_table.horizontalHeader().setSortIndicator(0, Qt.SortOrder.AscendingOrder)
+        # default: chronological (Start ascending) -- split/merge ids are not
+        # chronological, timestamps always are
+        self.seg_table.horizontalHeader().setSortIndicator(1, Qt.SortOrder.AscendingOrder)
         self.seg_table.setAlternatingRowColors(True)
         self.seg_table.itemSelectionChanged.connect(self._on_seg_selection)
         self.seg_table.currentCellChanged.connect(
@@ -372,15 +389,14 @@ class TranscriptPage(QWidget):
             vals = [str(seg["id"]), _fmt_time(seg["start"]), _fmt_time(seg["end"]),
                     f"{dur:.1f}s", f"{conf:.2f}" if conf is not None else "—",
                     status, seg["text"]]
+            sort_keys = [seg["id"], seg["start"], seg["end"], dur,
+                         conf if conf is not None else -1.0, None, None]
             for ccol, v in enumerate(vals):
-                item = QTableWidgetItem(v)
+                item = _NumericItem(v)
+                if sort_keys[ccol] is not None:
+                    item.setData(_SORT_ROLE, float(sort_keys[ccol]))
                 if ccol == 0:
                     item.setData(Qt.ItemDataRole.UserRole, seg["id"])
-                    # numeric sort for the id column
-                    item.setData(Qt.ItemDataRole.EditRole, seg["id"])
-                if ccol in (1, 2):
-                    item.setData(Qt.ItemDataRole.EditRole,
-                                 seg["start"] if ccol == 1 else seg["end"])
                 if ccol == 4 and conf is not None and conf < 0.6:
                     item.setForeground(QColor("#d97706"))
                 self.seg_table.setItem(r, ccol, item)

@@ -47,9 +47,11 @@ class ConfigManager:
         if os.path.exists(self.config_path):
             data = FileManager.read_json_safe(self.config_path)
             if isinstance(data, dict):
-                for k in self.DEFAULT_SETTINGS:
-                    if k in data:
-                        self.settings[k] = data[k]
+                # Merge EVERY stored key (not only the historical defaults) so
+                # v1.1 settings -- engine, vulkan_benchmark_ok,
+                # parallel_pipeline, ollama, dark_theme -- survive restarts.
+                for k, v in data.items():
+                    self.settings[k] = v
         else:
             os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
             self.save()
