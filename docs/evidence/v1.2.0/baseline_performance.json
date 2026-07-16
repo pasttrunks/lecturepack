@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "release_target": "v1.2.0-hybrid-study",
+  "recorded_at": "2026-07-16T17:52:20.2190583-04:00",
+  "description": "Controlled cold-cache baseline of the signed v1.1.0 packaged executable against the user's exact 4,479.9-second lecture. The package ran from a fresh extraction path containing spaces and wrote only to an isolated data directory outside LecturePackData.",
+  "provenance": {
+    "starting_commit": "9cfaad25069f346b95e64d54ae4a1f0c5f17304f",
+    "starting_release_tag": "v1.1.0-ui-speed-ollama",
+    "safety_tag": "safety/start-v1.2-hybrid-study",
+    "package_version": "1.1.0",
+    "package_zip": "dist-release/LecturePack-portable-1.1.0.zip",
+    "package_zip_sha256": "4017961e1a3c0865d4b33fcd687f0dcd7eea1cc49cde4ca47aebbd8ff51bea40",
+    "package_extraction_path": "C:/Users/marsh/AppData/Local/Temp/LecturePack V12 Baseline 20260716-173942/LecturePack",
+    "isolated_data_directory": "C:/Users/marsh/LecturePackV12BaselineData-20260716-174139",
+    "raw_evidence": [
+      "baseline_acceptance_v1.1.0.json",
+      "baseline_monitoring_summary.json",
+      "baseline_performance_samples.jsonl",
+      "baseline_acceptance_stdout.log"
+    ]
+  },
+  "safety": {
+    "jobs_backup_path": "C:/Users/marsh/LecturePackJobsBackup-v1.2-20260716-173647",
+    "jobs_backup_file_count": 815,
+    "jobs_backup_bytes": 1337278447,
+    "jobs_backup_mismatch_count": 0,
+    "original_video_sha256_before": "55ca9f4aede0315cd98846545b7f5ab86d61ba53c8ff63d3bf092a8b36c11c7a",
+    "original_video_sha256_after": "55ca9f4aede0315cd98846545b7f5ab86d61ba53c8ff63d3bf092a8b36c11c7a",
+    "original_video_unchanged": true,
+    "observed_owned_child_processes_remaining": 0,
+    "existing_lecturepack_jobs_modified": false
+  },
+  "media": {
+    "title": "CL100 - Day 3 - Mesopotamia and Babylon",
+    "filename": "CL100 - Day 3 - Mesopotamia and Babylon.m4v",
+    "duration_seconds": 4479.9,
+    "model": "ggml-small.en-q8_0.bin",
+    "product_mode": "study_pack",
+    "detector_preset": "balanced",
+    "detector_preset_note": "The v1.1 packaged acceptance driver creates new jobs with the Balanced detector. The user's existing normal-use job used Detailed; this controlled limitation is recorded rather than silently treating the settings as identical.",
+    "approved_names": [
+      "Mesopotamia",
+      "Babylon",
+      "Nebuchadnezzar",
+      "Hammurabi",
+      "Sumer"
+    ]
+  },
+  "backend": {
+    "requested_engine": "auto",
+    "actual_loaded_engine": "whisper.cpp Vulkan",
+    "actual_executable": "bin/vulkan/whisper-cli.exe",
+    "actual_loaded_backend_verified": true,
+    "evidence": [
+      "The monitored child process executable was the package's bin/vulkan/whisper-cli.exe.",
+      "Its command line used ggml-small.en-q8_0.bin and the isolated job audio WAV.",
+      "Windows GPU Engine counters attributed to the process tree peaked at 86.62 percent."
+    ],
+    "parallel_pipeline_enabled": true
+  },
+  "timings_seconds": {
+    "video_inspection": 1.01,
+    "audio_extraction": 5.44,
+    "local_transcription": 605.41,
+    "slide_detection": 523.47,
+    "alignment_and_export_combined": 7.39,
+    "alignment_only": null,
+    "export_only": null,
+    "review_ready": 0.01,
+    "ollama_context_repair": null,
+    "deterministic_context_repair": null,
+    "model_backend_load": null,
+    "required_pipeline_wall": 619.31,
+    "acceptance_process_wall": 635.05,
+    "post_pipeline_acceptance_checks": 15.74
+  },
+  "timing_notes": {
+    "alignment_export": "v1.1 executes ExportService.align_and_export inside its Align stage, so separate alignment and export timings cannot be recovered from the signed package.",
+    "context_repair": "The acceptance driver ran deterministic name-based Context Repair after pipeline_completed but did not time that operation separately. Ollama was not exercised in this baseline.",
+    "model_backend_load": "v1.1 includes model/backend load inside the Transcribe stage and exposes no separate timestamp in the packaged acceptance report.",
+    "overlap": "Transcribe and Detect Slides overlapped. Their stage work totals 1,128.88 seconds, while the required pipeline completed in 619.31 seconds; the critical parallel branch was transcription at 605.41 seconds.",
+    "optional_ai_blocking": "pipeline_completed was true before the deterministic Context Repair acceptance round began, so optional enrichment did not block the usable-job completion signal in this driver."
+  },
+  "resource_usage": {
+    "logical_processors": 12,
+    "sample_interval_seconds": 2,
+    "sample_count": 126,
+    "process_tree_cpu_percent_normalized": {
+      "average": 19.57,
+      "peak": 67.99
+    },
+    "system_cpu_percent": {
+      "average": 48.35,
+      "peak": 99.0
+    },
+    "gpu_engine_percent_sum": {
+      "samples_available": 26,
+      "peak": 86.62,
+      "note": "Sum of Windows GPU Engine utilization counters attributed to the monitored process tree, sampled every ten seconds."
+    },
+    "peak_working_set_bytes": 1658843136,
+    "peak_private_bytes": 3185405952
+  },
+  "cache": {
+    "run_type": "cold",
+    "cache_hits": 0,
+    "cacheable_stage_misses": 3,
+    "cacheable_stages": [
+      "Extract Audio",
+      "Transcribe",
+      "Detect Slides"
+    ],
+    "reexport_no_rerun": true
+  },
+  "pipeline_behavior": {
+    "transcription_and_detection_overlap": true,
+    "optional_ai_blocks_job_complete": false,
+    "required_processing_distinguished_from_optional_enrichment_in_driver": true,
+    "exporting_distinguished_from_alignment": false,
+    "cached_work_distinguished_in_driver": false
+  },
+  "results": {
+    "acceptance_ok": true,
+    "pipeline_completed": true,
+    "candidate_count": 167,
+    "transcript_segments": 575,
+    "ordered_segment_timestamps": true,
+    "context_repair_provider": "deterministic approved-name provider",
+    "context_repair_proposals": 51,
+    "context_repair_reversible": true,
+    "errors": [],
+    "stderr_empty": true
+  },
+  "automated_tests": {
+    "command": ".venv/Scripts/python.exe -m pytest -ra",
+    "result": "106 passed",
+    "duration_seconds": 120.14,
+    "authoritative_output": "baseline_pytest_output.txt",
+    "preliminary_harness_timeout_output": "baseline_pytest_output_timeout_120s.txt",
+    "preliminary_harness_timeout_note": "The first invocation used a 120-second shell limit and was terminated at 87 percent with all executed tests passing. No pytest process remained. The entire suite was then rerun from the beginning with a five-minute shell limit and passed."
+  },
+  "user_normal_use_reference": {
+    "observation_seconds_approximate": 600,
+    "existing_job_id": "a46399b8-ae2c-4b67-9ce5-a2e7a7b1dd83",
+    "existing_job_preset": "detailed",
+    "existing_job_engine": "whispercpp-vulkan",
+    "existing_job_model": "ggml-small.en-q8_0.bin",
+    "note": "The existing job confirms the user's real configuration and completed state but does not contain authoritative per-stage timestamps, CPU/GPU samples, or peak RAM. The controlled packaged run is therefore the performance baseline."
+  },
+  "known_v1_1_telemetry_gaps": [
+    "No separate model/backend load duration.",
+    "No separate alignment and export durations.",
+    "No separately timed Context Repair or Ollama duration.",
+    "The packaged driver does not emit stage-cache hit signals into its report.",
+    "The packaged driver does not persist backend_info signal text; actual backend is proven by the monitored child executable path and GPU counters."
+  ]
+}
