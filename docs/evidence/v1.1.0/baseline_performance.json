@@ -1,0 +1,86 @@
+{
+  "description": "v1.0.1 baseline performance, measured with the PACKAGED executable (dist/LecturePack/LecturePack.exe --run-acceptance) at tag v1.0.1-real-media-verified (c3ff16c), before any v1.1 changes. Same hardware as final comparison. Sequential pipeline: Inspect -> Extract Audio -> Transcribe -> Detect Slides -> Align (+ Export on demand).",
+  "recorded_at": "2026-07-16",
+  "hardware": {
+    "gpu": "AMD Radeon RX Vega 56 8GB (driver 31.0.21923.11000, Vulkan 1.3.301 instance / 1.3.260 device)",
+    "os": "Windows 11 Home 10.0.26200"
+  },
+  "engine": {
+    "backend": "whisper.cpp CPU (bundled whisper-cli.exe, ggml CPU dlls)",
+    "model": "ggml-base.en.bin",
+    "threads": 8
+  },
+  "runs": {
+    "m2-res_1080p.mp4": {
+      "video_duration_sec": 42.0,
+      "pipeline_seconds": 21.54,
+      "wall_seconds_process": 23.42,
+      "stage_times_sec": {
+        "Inspect": 0.98,
+        "Extract Audio": 0.99,
+        "Transcribe": 4.02,
+        "Detect Slides": 15.21,
+        "Align": 0.33
+      },
+      "candidate_count": 2,
+      "transcript_segments": 11,
+      "context_repair_proposals": 2,
+      "peak_working_set_mb": 424.6,
+      "cpu_seconds_by_process": { "LecturePack": 93.1, "whisper-cli": 14.4 },
+      "acceptance_ok": true
+    },
+    "egypt_excerpt.m4v": {
+      "video_duration_sec": 363.07,
+      "pipeline_seconds": 156.22,
+      "wall_seconds_process": 158.45,
+      "stage_times_sec": {
+        "Inspect": 0.07,
+        "Extract Audio": 0.62,
+        "Transcribe": 56.63,
+        "Detect Slides": 98.53,
+        "Align": 0.35
+      },
+      "candidate_count": 13,
+      "transcript_segments": 87,
+      "context_repair_proposals": 2,
+      "peak_working_set_mb": 536.2,
+      "cpu_seconds_by_process": { "LecturePack": 293.8, "whisper-cli": 226.2, "ffmpeg": 0.4 },
+      "acceptance_ok": true
+    },
+    "egypt_full_lecture_reference_v1.0.1": {
+      "source": "docs/evidence/v1.0.1/full_lecture_run.md (packaged run recorded during v1.0.1 validation)",
+      "video_duration_sec": 4300.4,
+      "pipeline_seconds": 833.7,
+      "stage_times_sec": {
+        "Inspect": 0.09,
+        "Extract Audio": 3.14,
+        "Transcribe": 450.66,
+        "Detect Slides": 378.11,
+        "Align": 1.69
+      },
+      "candidate_count": 81,
+      "transcript_segments": 630,
+      "context_repair_proposals": 27,
+      "export_sizes": "slides.pdf 48.8MB, study-pack.html 65.3MB"
+    }
+  },
+  "test_suite_baseline": { "pytest": "70 passed in 46.06s" },
+  "ui_responsiveness_notes": [
+    "Context Repair dialog generates proposals synchronously in __init__ on the GUI thread; with an LLM provider configured every chunk is a blocking urllib call (60s timeout) -- the window freezes and any provider exception at construction can take down the dialog (user-reported crash).",
+    "Slide detection runs in a QThread but the review list loads full-resolution PNGs as QIcons on the GUI thread.",
+    "Detection decode path uses cv2.VideoCapture random seeks at native resolution for every 1fps sample plus 0.25s stability probes and +1s persistence probes."
+  ],
+  "bottleneck_analysis": {
+    "detect_slides_dominant": "Detection costs 98.5s for a 363s excerpt (0.27x realtime) due to full-resolution random seeks; transcribe and detect run sequentially, so total is their sum.",
+    "expected_gains": [
+      "Sequential downscaled FFmpeg-piped analysis decode instead of per-sample native-resolution seeks",
+      "Run transcription and slide detection concurrently after audio extraction (aim: slower branch + overhead instead of sum)",
+      "Optional whisper.cpp Vulkan backend on the RX Vega 56"
+    ]
+  },
+  "ollama_baseline_bench": {
+    "note": "Installed models benchmarked with a schema-constrained /api/chat repair chunk (6 segments, temperature 0, JSON schema format).",
+    "qwen3.5:4b": { "wall_s_cold": 44.1, "load_s": 14.1, "eval_tok_per_s": 20.2, "schema_valid": true, "corrections_quality": "correct Giza/Khufu/Tutankhamun fixes" },
+    "qwen3.5:9b": { "wall_s_cold": 67.0, "load_s": 18.6, "eval_tok_per_s": 16.8, "schema_valid": true, "corrections_quality": "correct fixes but leaked '[12]' id prefix into corrected_text" }
+  }
+}

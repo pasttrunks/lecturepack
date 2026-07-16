@@ -6,11 +6,14 @@ class WhisperWrapper(QObject):
     # Signals for asynchronous transcription
     progress = Signal(str)
     finished = Signal(bool, str) # success, error_message
+    backend_detected = Signal(str)  # actual loaded backend, e.g. "Vulkan (Vulkan0)" or "CPU"
 
     def __init__(self, whisper_exe_path=""):
         super().__init__()
         self.whisper_exe_path = whisper_exe_path
         self.process = None
+        self.detected_backend = ""
+        self._backend_probe_buffer = ""
 
     def get_supported_flags(self):
         """Retrieves supported options from WhisperCapabilityDetector cache or fallback."""
@@ -26,8 +29,17 @@ class WhisperWrapper(QObject):
             pass
         return {"-oj", "-osrt", "-otxt"}
 
-    def start_transcription(self, audio_path, model_path, output_prefix, glossary=None, threads=8, vad_settings=None):
-        """Asynchronously runs the transcription using QProcess."""
+    def start_transcription(self, audio_path, model_path, output_prefix, glossary=None,
+                            threads=8, vad_settings=None, engine_exe=None, extra_args=None):
+        """Asynchronously runs the transcription using QProcess.
+
+        ``engine_exe`` overrides the configured whisper executable for this run
+        (transcription-engine abstraction); ``extra_args`` are appended verbatim
+        (e.g. ``["-ng"]`` to force CPU on a Vulkan-capable binary)."""
+        if engine_exe:
+            self.whisper_exe_path = engine_exe
+        self.detected_backend = ""
+        self._backend_probe_buffer = ""
         if not self.whisper_exe_path:
             self.finished.emit(False, "Whisper executable path is not set.")
             return
@@ -107,6 +119,9 @@ class WhisperWrapper(QObject):
                 if "--carry-initial-prompt" in supported_flags:
                     whisper_args.append("--carry-initial-prompt")
 
+        if extra_args:
+            whisper_args.extend(extra_args)
+
         # If the path is a python script, run sys.executable with script + args
         if self.whisper_exe_path.lower().endswith(".py"):
             program = sys.executable
@@ -130,7 +145,31 @@ class WhisperWrapper(QObject):
 
     def _handle_ready_read(self):
         data = self.process.readAllStandardOutput().data().decode('utf-8', errors='ignore')
+        self._probe_backend(data)
         self.progress.emit(data)
+
+    def _probe_backend(self, data):
+        """Detect the ACTUAL loaded compute backend from whisper.cpp output.
+        Reliable v1.9.x lines: 'whisper_backend_init_gpu: using Vulkan0 backend'
+        and 'whisper_backend_init_gpu: no GPU found'."""
+        if self.detected_backend:
+            return
+        self._backend_probe_buffer += data
+        buf = self._backend_probe_buffer
+        if "using Vulkan" in buf:
+            for line in buf.splitlines():
+                if "using Vulkan" in line and "backend" in line:
+                    name = line.split("using", 1)[1].replace("backend", "").strip()
+                    self.detected_backend = f"Vulkan ({name})"
+                    self.backend_detected.emit(self.detected_backend)
+                    return
+        if "no GPU found" in buf or "loaded CPU backend" in buf and "loaded Vulkan backend" not in buf:
+            if "no GPU found" in buf:
+                self.detected_backend = "CPU"
+                self.backend_detected.emit(self.detected_backend)
+        # Keep the probe buffer bounded.
+        if len(self._backend_probe_buffer) > 20000:
+            self._backend_probe_buffer = self._backend_probe_buffer[-5000:]
 
     def _handle_finished(self, exit_code, exit_status):
         if exit_status == QProcess.ExitStatus.NormalExit and exit_code == 0:

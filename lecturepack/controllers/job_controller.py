@@ -17,6 +17,9 @@ STAGES_SKIPPED_BY_MODE = {
 from lecturepack.infrastructure.ffmpeg_wrapper import FFmpegWrapper
 from lecturepack.infrastructure.whisper_wrapper import WhisperWrapper
 from lecturepack.infrastructure.cv_engine import SlideDetectorWorker
+from lecturepack.infrastructure.transcription_engines import (
+    EngineRegistry, ENGINE_AUTO,
+)
 from lecturepack.services.export_service import ExportWorker, ExportService
 
 class AlignWorker(QThread):
@@ -40,7 +43,8 @@ class JobController(QObject):
     stage_progress = Signal(str, int)
     stage_log = Signal(str, str)
     stage_finished = Signal(str, bool, str)
-    
+    backend_info = Signal(str)  # human-readable engine/backend line for the status bar
+
     pipeline_completed = Signal()
     pipeline_failed = Signal(str)
 
@@ -49,15 +53,22 @@ class JobController(QObject):
         self.config_manager = config_manager
         self.ffmpeg_wrapper = FFmpegWrapper(config_manager)
         self.whisper_wrapper = WhisperWrapper()
-        
+        self.engine_registry = EngineRegistry(config_manager)
+
         self.job = None
         self.current_stage = None
-        
+
         # Background worker references
         self.slide_worker = None
         self.align_worker = None
         self.export_worker = None
         self.retranscribe_only = False
+
+        # v1.1 parallel scheduler state: transcription and slide detection are
+        # independent after audio extraction, so they may run concurrently.
+        self._active_stages = set()
+        self._group_error = None
+        self._cancelling = False
 
         # Connect ffmpeg signals
         self.ffmpeg_wrapper.progress.connect(self._handle_ffmpeg_log)
@@ -66,35 +77,50 @@ class JobController(QObject):
         # Connect whisper signals
         self.whisper_wrapper.progress.connect(self._handle_whisper_log)
         self.whisper_wrapper.finished.connect(self._handle_whisper_finished)
+        self.whisper_wrapper.backend_detected.connect(
+            lambda b: self.backend_info.emit(f"whisper backend: {b}"))
 
     def set_job(self, job):
         self.job = job
         # Sync whisper executable path
         self.whisper_wrapper.whisper_exe_path = self.config_manager.get("whisper_exe", "")
 
+    def parallel_enabled(self):
+        """Concurrent transcribe+detect. On by default; config can disable."""
+        if self.config_manager is None:
+            return True
+        return bool(self.config_manager.get("parallel_pipeline", True))
+
     def cancel(self):
-        """Cancels any running stage safely."""
-        if not self.current_stage:
+        """Cancels any running stage safely (both branches when parallel)."""
+        active = set(self._active_stages)
+        if self.current_stage and self.current_stage not in active:
+            active.add(self.current_stage)
+        if not active:
             return
 
-        self.stage_log.emit(self.current_stage, "Cancelling stage...\n")
-        
-        if self.current_stage == STAGE_EXTRACT_AUDIO:
-            self.ffmpeg_wrapper.cancel()
-        elif self.current_stage == STAGE_TRANSCRIBE:
-            self.whisper_wrapper.cancel()
-        elif self.current_stage == STAGE_DETECT_SLIDES:
-            if self.slide_worker:
-                self.slide_worker.cancel()
-        elif self.current_stage == STAGE_ALIGN:
-            if self.align_worker:
-                self.align_worker.terminate()
-        elif self.current_stage == STAGE_EXPORT:
-            if self.export_worker:
-                self.export_worker.terminate()
+        self._cancelling = True
+        for stage in active:
+            self.stage_log.emit(stage, "Cancelling stage...\n")
+            if stage == STAGE_EXTRACT_AUDIO:
+                self.ffmpeg_wrapper.cancel()
+            elif stage == STAGE_TRANSCRIBE:
+                self.whisper_wrapper.cancel()
+            elif stage == STAGE_DETECT_SLIDES:
+                if self.slide_worker:
+                    self.slide_worker.cancel()
+            elif stage == STAGE_ALIGN:
+                if self.align_worker:
+                    self.align_worker.terminate()
+            elif stage == STAGE_EXPORT:
+                if self.export_worker:
+                    self.export_worker.terminate()
+            self.job.set_stage_status(stage, "cancelled")
 
-        self.job.set_stage_status(self.current_stage, "cancelled")
+        self._active_stages.clear()
+        self._group_error = None
         self.current_stage = None
+        self._cancelling = False
 
     def run_pipeline(self):
         """Finds the first incomplete stage and runs it."""
@@ -118,29 +144,26 @@ class JobController(QObject):
         return STAGES_SKIPPED_BY_MODE.get(mode, set())
 
     def run_next_stage(self):
-        # Find next pending stage
-        next_stage = None
+        if self._active_stages:
+            return  # a parallel group is still running
+
         skipped = self._skipped_stages()
+        pending = []
         for stage in STAGES:
             # We don't auto-run STAGE_EXPORT during main pipeline, it is triggered after review
             if stage == STAGE_EXPORT:
                 continue
-
-            status = self.job.get_stage_status(stage)
-            if status == "completed":
+            if self.job.get_stage_status(stage) == "completed":
                 continue
-
             # Product-mode gating: mark inapplicable stages completed and move on.
             if stage in skipped:
                 self.stage_log.emit(stage, f"Skipped for product mode '{self.job.get_product_mode()}'.\n")
                 self.job.set_stage_status(stage, "completed")
                 self.stage_finished.emit(stage, True, "")
                 continue
+            pending.append(stage)
 
-            next_stage = stage
-            break
-
-        if not next_stage:
+        if not pending:
             # All processing stages completed
             self.current_stage = None
             if self.retranscribe_only:
@@ -150,23 +173,76 @@ class JobController(QObject):
                 self.pipeline_completed.emit()
             return
 
-        self.current_stage = next_stage
-        self.stage_started.emit(next_stage)
-        self.job.set_stage_status(next_stage, "running")
+        next_stage = pending[0]
 
-        if next_stage == STAGE_INSPECT:
-            self._run_inspect()
-        elif next_stage == STAGE_EXTRACT_AUDIO:
-            self._run_extract_audio()
-        elif next_stage == STAGE_TRANSCRIBE:
-            self._run_transcribe()
-        elif next_stage == STAGE_DETECT_SLIDES:
-            self._run_detect_slides()
-        elif next_stage == STAGE_ALIGN:
-            self._run_align()
-        elif next_stage == STAGE_REVIEW_READY:
-            self.job.set_stage_status(STAGE_REVIEW_READY, "completed")
-            self.run_next_stage()
+        # Parallel group: transcription and slide detection are independent
+        # once audio has been extracted. Run them concurrently so total time
+        # trends toward the slower branch instead of the sum.
+        group = [next_stage]
+        if (self.parallel_enabled()
+                and next_stage in (STAGE_TRANSCRIBE, STAGE_DETECT_SLIDES)):
+            for sibling in (STAGE_TRANSCRIBE, STAGE_DETECT_SLIDES):
+                if sibling != next_stage and sibling in pending:
+                    group.append(sibling)
+
+        self._group_error = None
+        self.current_stage = group[0]
+        for stage in group:
+            self._active_stages.add(stage)
+            self.stage_started.emit(stage)
+            self.job.set_stage_status(stage, "running")
+        if len(group) > 1:
+            self.stage_log.emit(group[0],
+                                f"Running {' + '.join(group)} concurrently.\n")
+
+        for stage in group:
+            if stage == STAGE_INSPECT:
+                self._run_inspect()
+            elif stage == STAGE_EXTRACT_AUDIO:
+                self._run_extract_audio()
+            elif stage == STAGE_TRANSCRIBE:
+                self._run_transcribe(parallel=len(group) > 1)
+            elif stage == STAGE_DETECT_SLIDES:
+                self._run_detect_slides(parallel=len(group) > 1)
+            elif stage == STAGE_ALIGN:
+                self._run_align()
+            elif stage == STAGE_REVIEW_READY:
+                self._stage_done(STAGE_REVIEW_READY, True, "")
+
+    def _stage_done(self, stage, success, error_msg):
+        """Common completion path for every stage; drives the parallel group."""
+        if self._cancelling:
+            return
+        self._active_stages.discard(stage)
+        if stage == self.current_stage:
+            self.current_stage = next(iter(self._active_stages), None)
+
+        if success:
+            self.job.set_stage_status(stage, "completed")
+            self.stage_finished.emit(stage, True, "")
+        else:
+            self.job.set_stage_status(stage, "failed", error_msg)
+            self.stage_finished.emit(stage, False, error_msg)
+            if self._group_error is None:
+                self._group_error = f"{stage}: {error_msg}" if error_msg else stage
+            # Stop the sibling branch cleanly.
+            for other in list(self._active_stages):
+                self.stage_log.emit(other, "Stopping due to failure in sibling stage...\n")
+                if other == STAGE_TRANSCRIBE:
+                    self.whisper_wrapper.cancel()
+                elif other == STAGE_DETECT_SLIDES and self.slide_worker:
+                    self.slide_worker.cancel()
+
+        if self._active_stages:
+            return  # wait for the sibling to finish/cancel
+
+        if self._group_error is not None:
+            err = self._group_error
+            self._group_error = None
+            self.pipeline_failed.emit(err)
+            return
+
+        self.run_next_stage()
 
     def _run_inspect(self):
         self.stage_log.emit(STAGE_INSPECT, "Starting video inspection...\n")
@@ -180,15 +256,10 @@ class JobController(QObject):
             self.job.save()
 
             self.stage_log.emit(STAGE_INSPECT, f"Inspection completed. Metadata: {metadata}\n")
-            self.job.set_stage_status(STAGE_INSPECT, "completed")
-            self.stage_finished.emit(STAGE_INSPECT, True, "")
-            self.run_next_stage()
+            self._stage_done(STAGE_INSPECT, True, "")
         except Exception as e:
-            err_msg = str(e)
-            self.stage_log.emit(STAGE_INSPECT, f"Inspection failed: {err_msg}\n")
-            self.job.set_stage_status(STAGE_INSPECT, "failed", err_msg)
-            self.stage_finished.emit(STAGE_INSPECT, False, err_msg)
-            self.pipeline_failed.emit(err_msg)
+            self.stage_log.emit(STAGE_INSPECT, f"Inspection failed: {e}\n")
+            self._stage_done(STAGE_INSPECT, False, str(e))
 
     def _run_extract_audio(self):
         video_path = self.job.manifest["source"]["original_path"]
@@ -202,26 +273,27 @@ class JobController(QObject):
     def _handle_ffmpeg_finished(self, success, error_msg):
         if success:
             self.stage_log.emit(STAGE_EXTRACT_AUDIO, "Audio extraction completed.\n")
-            self.job.set_stage_status(STAGE_EXTRACT_AUDIO, "completed")
-            self.stage_finished.emit(STAGE_EXTRACT_AUDIO, True, "")
-            self.run_next_stage()
         else:
             self.stage_log.emit(STAGE_EXTRACT_AUDIO, f"Audio extraction failed: {error_msg}\n")
-            self.job.set_stage_status(STAGE_EXTRACT_AUDIO, "failed", error_msg)
-            self.stage_finished.emit(STAGE_EXTRACT_AUDIO, False, error_msg)
-            self.pipeline_failed.emit(error_msg)
+        self._stage_done(STAGE_EXTRACT_AUDIO, success, error_msg)
 
-    def _run_transcribe(self):
+    def _run_transcribe(self, parallel=False):
         audio_wav = os.path.join(self.job.paths["audio"], "lecture-16khz-mono.wav")
+
+        whisper_settings = self.job.settings.get("whisper", {})
+        requested_engine = whisper_settings.get("engine", ENGINE_AUTO)
+        engine = self.engine_registry.resolve(requested_engine)
+
         model_path = self.config_manager.get("whisper_model", "")
-        
+        if whisper_settings.get("model") and os.path.isfile(whisper_settings.get("model", "")):
+            model_path = whisper_settings["model"]
+
         # Output file prefix inside job transcript folder
         output_prefix = os.path.join(self.job.paths["transcript"], "raw")
-        
-        whisper_settings = self.job.settings.get("whisper", {})
+
         glossary = whisper_settings.get("glossary", "")
         threads = whisper_settings.get("threads", 8)
-        
+
         vad_settings = {
             "enabled": whisper_settings.get("vad_enabled", False),
             "model_path": whisper_settings.get("vad_model", ""),
@@ -230,11 +302,16 @@ class JobController(QObject):
             "min_silence_duration_ms": whisper_settings.get("vad_min_silence_duration_ms", 100)
         }
 
-        self.stage_log.emit(STAGE_TRANSCRIBE, f"Starting transcription using model: {model_path}...\n")
+        engine_exe = engine.exe_path or self.config_manager.get("whisper_exe", "")
+        self.stage_log.emit(
+            STAGE_TRANSCRIBE,
+            f"Engine: {engine.label} ({engine.reason or 'default'})\n"
+            f"Starting transcription using model: {model_path}...\n")
+        self.backend_info.emit(f"engine: {engine.key}")
         self.whisper_wrapper.start_transcription(
             audio_wav, model_path, output_prefix,
-            glossary=glossary, threads=threads, vad_settings=vad_settings
-        )
+            glossary=glossary, threads=threads, vad_settings=vad_settings,
+            engine_exe=engine_exe, extra_args=list(engine.extra_args))
 
     def _handle_whisper_log(self, data):
         self.stage_log.emit(STAGE_TRANSCRIBE, data)
@@ -243,14 +320,9 @@ class JobController(QObject):
         if success:
             self.stage_log.emit(STAGE_TRANSCRIBE, "Transcription completed.\n")
             self._build_normalized_transcript()
-            self.job.set_stage_status(STAGE_TRANSCRIBE, "completed")
-            self.stage_finished.emit(STAGE_TRANSCRIBE, True, "")
-            self.run_next_stage()
         else:
             self.stage_log.emit(STAGE_TRANSCRIBE, f"Transcription failed: {error_msg}\n")
-            self.job.set_stage_status(STAGE_TRANSCRIBE, "failed", error_msg)
-            self.stage_finished.emit(STAGE_TRANSCRIBE, False, error_msg)
-            self.pipeline_failed.emit(error_msg)
+        self._stage_done(STAGE_TRANSCRIBE, success, error_msg)
 
     def _build_normalized_transcript(self):
         """Layer the raw whisper.cpp output into the deterministic normalized
@@ -292,13 +364,20 @@ class JobController(QObject):
             # Never let the optional layer break the pipeline.
             self.stage_log.emit(STAGE_TRANSCRIBE, f"Normalization skipped: {e}\n")
 
-    def _run_detect_slides(self):
+    def _run_detect_slides(self, parallel=False):
         video_path = self.job.manifest["source"]["original_path"]
         crop = self.job.settings["slide_detection"]["crop_region"]
         masks = self.job.settings["slide_detection"]["ignore_masks"]
         preset = self.job.get_preset_settings()
 
-        self.slide_worker = SlideDetectorWorker(video_path, crop, masks, preset, self.job.paths)
+        # Bound FFmpeg decode threads while whisper saturates the CPU; the
+        # analysis decode is rarely the bottleneck of the detection branch.
+        decode_threads = 2 if parallel else 0
+
+        self.slide_worker = SlideDetectorWorker(
+            video_path, crop, masks, preset, self.job.paths,
+            ffmpeg_path=self.ffmpeg_wrapper.ffmpeg_path or None,
+            decode_threads=decode_threads)
         self.slide_worker.progress.connect(lambda p: self.stage_progress.emit(STAGE_DETECT_SLIDES, p))
         self.slide_worker.status_message.connect(lambda m: self.stage_log.emit(STAGE_DETECT_SLIDES, m + "\n"))
         self.slide_worker.finished.connect(self._handle_detect_finished)
@@ -310,16 +389,13 @@ class JobController(QObject):
             candidates_path = os.path.join(self.job.paths["root"], "candidates.json")
             from lecturepack.infrastructure.file_manager import FileManager
             FileManager.write_json_atomic(candidates_path, candidates)
-
             self.stage_log.emit(STAGE_DETECT_SLIDES, "Slide detection completed.\n")
-            self.job.set_stage_status(STAGE_DETECT_SLIDES, "completed")
-            self.stage_finished.emit(STAGE_DETECT_SLIDES, True, "")
-            self.run_next_stage()
+            if self.slide_worker is not None and self.slide_worker.decode_path_used:
+                self.backend_info.emit(
+                    f"detector decode: {self.slide_worker.decode_path_used}")
         else:
             self.stage_log.emit(STAGE_DETECT_SLIDES, f"Slide detection failed: {error_msg}\n")
-            self.job.set_stage_status(STAGE_DETECT_SLIDES, "failed", error_msg)
-            self.stage_finished.emit(STAGE_DETECT_SLIDES, False, error_msg)
-            self.pipeline_failed.emit(error_msg)
+        self._stage_done(STAGE_DETECT_SLIDES, success, error_msg)
 
     def _run_align(self):
         self.stage_log.emit(STAGE_ALIGN, "Aligning transcript segments to slides...\n")
@@ -330,14 +406,9 @@ class JobController(QObject):
     def _handle_align_finished(self, success, error_msg):
         if success:
             self.stage_log.emit(STAGE_ALIGN, "Alignment completed.\n")
-            self.job.set_stage_status(STAGE_ALIGN, "completed")
-            self.stage_finished.emit(STAGE_ALIGN, True, "")
-            self.run_next_stage()
         else:
             self.stage_log.emit(STAGE_ALIGN, f"Alignment failed: {error_msg}\n")
-            self.job.set_stage_status(STAGE_ALIGN, "failed", error_msg)
-            self.stage_finished.emit(STAGE_ALIGN, False, error_msg)
-            self.pipeline_failed.emit(error_msg)
+        self._stage_done(STAGE_ALIGN, success, error_msg)
 
     def export_now(self):
         """Manually triggers final exports (Stage 7) from the review view."""
@@ -363,6 +434,7 @@ class JobController(QObject):
             self.stage_log.emit(STAGE_EXPORT, f"Export generation failed: {error_msg}\n")
             self.job.set_stage_status(STAGE_EXPORT, "failed", error_msg)
             self.stage_finished.emit(STAGE_EXPORT, False, error_msg)
+        self.current_stage = None
 
     def run_retranscribe_only(self):
         """Runs the retranscription workflow, skipping inspection, slide detection, and candidate decisions."""
@@ -371,23 +443,23 @@ class JobController(QObject):
             return
 
         self.retranscribe_only = True
-        
+
         # Set stages status:
         self.job.set_stage_status(STAGE_INSPECT, "completed")
-        
+
         # Check audio WAV file validity (exists and not empty)
         audio_path = os.path.join(self.job.paths["audio"], "lecture-16khz-mono.wav")
         if os.path.exists(audio_path) and os.path.getsize(audio_path) > 1000:
             self.job.set_stage_status(STAGE_EXTRACT_AUDIO, "completed")
         else:
             self.job.set_stage_status(STAGE_EXTRACT_AUDIO, "pending")
-            
+
         self.job.set_stage_status(STAGE_TRANSCRIBE, "pending")
         self.job.set_stage_status(STAGE_DETECT_SLIDES, "completed")
         self.job.set_stage_status(STAGE_ALIGN, "pending")
         self.job.set_stage_status(STAGE_REVIEW_READY, "completed")
         self.job.set_stage_status(STAGE_EXPORT, "pending")
-        
+
         # Make sure settings are clean on start
         for s in STAGES:
             status = self.job.get_stage_status(s)

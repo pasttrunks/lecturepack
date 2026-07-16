@@ -781,19 +781,55 @@ class ContextRepairEngine:
     def propose(self, norm: NormalizedTranscript) -> CorrectionSet:
         """Run the full repair pass. Requires a provider. Returns a
         CorrectionSet of proposals; nothing is applied automatically."""
+        corr_set, _stats = self.propose_detailed(norm)
+        return corr_set
+
+    def propose_detailed(self, norm: NormalizedTranscript,
+                         on_progress: Optional[Callable[[int, int], None]] = None,
+                         cancel_check: Optional[Callable[[], bool]] = None):
+        """Chunked repair pass with progress reporting, cooperative
+        cancellation and per-chunk error accounting (v1.1).
+
+        Returns ``(CorrectionSet, stats)`` where stats records total/failed
+        chunk counts and the first few error strings. A cancellation raises
+        the provider's exception (or returns early when ``cancel_check`` is
+        set between chunks) -- partial results are preserved in the returned
+        set so the UI can show what was already proposed.
+        """
         if self.provider is None:
             raise RuntimeError("Context Repair requires a configured LLM provider")
         all_corr: List[Correction] = []
-        for chunk in self.chunk(norm):
+        chunks = self.chunk(norm)
+        stats: Dict[str, Any] = {
+            "chunks_total": len(chunks), "chunks_done": 0,
+            "chunks_failed": 0, "errors": [], "cancelled": False,
+        }
+        for i, chunk in enumerate(chunks):
+            if cancel_check is not None and cancel_check():
+                stats["cancelled"] = True
+                break
             index = {s.id: s for s in chunk}
             user = self.build_user_prompt(chunk)
             try:
                 resp = self.provider.complete(SYSTEM_PROMPT, user)
-            except Exception:
-                continue
-            all_corr.extend(self.parse_and_validate(resp, index))
+                all_corr.extend(self.parse_and_validate(resp, index))
+            except Exception as e:
+                # A cancellation exception aborts the pass; any other provider
+                # failure skips this chunk and is recorded.
+                if type(e).__name__ == "OllamaCancelled":
+                    stats["cancelled"] = True
+                    break
+                stats["chunks_failed"] += 1
+                if len(stats["errors"]) < 5:
+                    stats["errors"].append(f"chunk {i + 1}: {e}")
+            stats["chunks_done"] = i + 1
+            if on_progress is not None:
+                try:
+                    on_progress(i + 1, len(chunks))
+                except Exception:
+                    pass
         best: Dict[int, Correction] = {}
         for c in all_corr:
             if c.segment_id not in best or c.confidence > best[c.segment_id].confidence:
                 best[c.segment_id] = c
-        return CorrectionSet(sorted(best.values(), key=lambda c: c.segment_id))
+        return CorrectionSet(sorted(best.values(), key=lambda c: c.segment_id)), stats
