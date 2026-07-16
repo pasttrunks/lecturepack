@@ -229,7 +229,28 @@ class ExportService:
             json_path = os.path.join(exports_dir, "transcript.json")
             FileManager.write_json_atomic(json_path, raw_segments)
 
-            # 4.4b Normalized transcript (Layer 2) as a readable paragraph export,
+            # 4.4b Additional machine/readable formats (Markdown, JSONL, CSV, VTT),
+            # all from the same corrected raw_segments and one serializer module.
+            from lecturepack.services import transcript_formats as tf
+            for fmt, fname in [("markdown", "transcript.md"), ("jsonl", "transcript.jsonl"),
+                               ("csv", "transcript.csv"), ("vtt", "transcript.vtt")]:
+                try:
+                    content = tf.serialize(fmt, raw_segments, include_timestamps=True)
+                    with open(os.path.join(exports_dir, fname), "w", encoding="utf-8") as f:
+                        f.write(content)
+                except Exception as e:
+                    self.log(f"{fmt} export skipped: {e}")
+
+            # 4.4c Section-structured markdown (topic headings + slides).
+            try:
+                sections = tf.build_sections(aligned_data)
+                title = self.job.manifest.get("title", "Lecture")
+                with open(os.path.join(exports_dir, "transcript.sections.md"), "w", encoding="utf-8") as f:
+                    f.write(tf.sections_to_markdown(sections, include_timestamps=True, title=title))
+            except Exception as e:
+                self.log(f"sections export skipped: {e}")
+
+            # 4.4d Normalized transcript (Layer 2) as a readable paragraph export,
             # sourced from the deterministic normalized.json produced in the pipeline.
             self._write_normalized_export(exports_dir)
 

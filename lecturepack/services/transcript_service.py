@@ -559,6 +559,75 @@ class OpenAICompatibleProvider:
         return data["choices"][0]["message"]["content"]
 
 
+class DeterministicNameProvider:
+    """Offline, non-generative proposal source for Context Repair.
+
+    Proposes replacing garbled word-runs with an *approved* name when they are a
+    close fuzzy match. It NEVER introduces a name that is not on the approved
+    list, so it satisfies the same invented-name guarantee as the LLM path -- it
+    simply cannot hallucinate. Used when no local LLM provider is configured, so
+    the Context Repair workspace still has real, auditable proposals to review.
+
+    It plugs into ``ContextRepairEngine`` through the standard ``complete``
+    interface: it parses the ``[id] text`` lines from the engine's user prompt
+    and returns the same STRICT-JSON shape the LLM is asked for, so every
+    existing guardrail in ``parse_and_validate`` still applies.
+    """
+
+    def __init__(self, approved_names: Iterable[str], min_ratio: float = 0.72):
+        self.approved_names = [n.strip() for n in approved_names if n and n.strip()]
+        self.min_ratio = min_ratio
+
+    def _best_name_fix(self, text: str) -> Optional[str]:
+        words = text.split()
+        if not words:
+            return None
+        lowered = [w.lower().strip(".,;:!?\"'") for w in words]
+        corrected = list(words)
+        changed = False
+        for name in self.approved_names:
+            n_tokens = name.split()
+            span = len(n_tokens)
+            name_l = name.lower()
+            best = None  # (ratio, i)
+            for i in range(0, len(words) - span + 1):
+                window = " ".join(lowered[i:i + span])
+                if not window:
+                    continue
+                if window == name_l:
+                    continue  # already correct
+                ratio = difflib.SequenceMatcher(None, window, name_l).ratio()
+                if ratio >= self.min_ratio and ratio < 1.0:
+                    if best is None or ratio > best[0]:
+                        best = (ratio, i)
+            if best is not None:
+                i = best[1]
+                corrected[i:i + span] = n_tokens
+                lowered[i:i + span] = [t.lower() for t in n_tokens]
+                changed = True
+        if not changed:
+            return None
+        return " ".join(corrected)
+
+    def complete(self, system: str, user: str) -> str:
+        corrections = []
+        for line in user.splitlines():
+            m = re.match(r"^\[(\d+)\]\s(.*)$", line)
+            if not m:
+                continue
+            seg_id = int(m.group(1))
+            text = m.group(2)
+            fix = self._best_name_fix(text)
+            if fix and fix != text:
+                corrections.append({
+                    "segment_id": seg_id,
+                    "corrected_text": fix,
+                    "reason": "Approved-name match (deterministic, offline)",
+                    "confidence": 0.75,
+                })
+        return json.dumps({"corrections": corrections})
+
+
 SYSTEM_PROMPT = (
     "You correct speech-to-text transcription errors. You are given numbered "
     "transcript segments. For each segment that contains a LIKELY TRANSCRIPTION "

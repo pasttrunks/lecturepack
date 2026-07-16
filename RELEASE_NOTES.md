@@ -1,3 +1,49 @@
+# LecturePack v1.0.1 (Real-Media Verified) - Release Notes
+
+**Release Date:** July 2026
+**Tag:** `v1.0.1-real-media-verified`
+**Previous Release:** `v1.0.0-unified` (treated as an internal beta)
+
+v1.0.1 adds the user-facing Context Repair workflow and transcript usability, and
+verifies the app on **real media through the packaged executable**.
+
+## New in v1.0.1
+- **Context Repair workspace** — review proposed corrections with raw / normalized
+  / proposed shown together, changed words (and proper names) highlighted, Accept
+  / Reject / Edit / Accept-all-high-confidence / Reject-all, and filters. Raw
+  Whisper output is never overwritten; everything is reversible. Includes a
+  **Context & Names** editor that feeds both the Whisper prompt and the proposals.
+- **Offline Context Repair** — deterministic approved-name matching when no local
+  LLM is configured; it can only propose names you approved, never invent one.
+- **Transcript workspace** — semantic sections, search (Ctrl+F, F3), and copy in
+  `txt/md/json/jsonl/csv/srt/vtt` (Copy Slide / Topic / Selected / Full, timestamps
+  toggle, Ctrl+C). New exports: `.md`, `.jsonl`, `.csv`, `.vtt`, `sections.md`.
+- **Packaged acceptance driver** (`LecturePack.exe --run-acceptance`).
+
+## Real-media verification (native Windows, packaged EXE)
+- **Packaged m2 pipeline**: exit 0 — bundled ffmpeg/whisper; all 11 export formats
+  parse with ordered timestamps; Context Repair accept/reject reversible with raw
+  hash preserved; job restores after reopen; re-export proven to **not** rerun
+  audio/whisper/detection.
+- **Egypt transcription (base.en)**: the `--prompt` did not fix "Mark Lainer"→
+  *Mark Lehner* or "dolarite"→*dolerite* even with those terms in the prompt;
+  Context Repair proposed the fixes for review. (small.en not available locally;
+  not downloaded.)
+- **Detector on real material**: calm lecture section **P=1.00 R=1.00 F1=1.00**
+  (4/4 states, 0 FP) vs. human-labeled ground truth; embedded video → 13 distinct
+  scene keyframes, no fade/caption/pointer clusters.
+
+Evidence: `docs/evidence/v1.0.1/` (screenshots, contact sheets, metrics,
+transcripts, comparison).
+
+## Honest limitations
+- Automatic transcription is not perfect; Context Repair is a *proposal* you
+  review. Prompting is a weak bias for proper nouns.
+- Slide detection targets *slides*; embedded video yields scene keyframes.
+- Windows x64, CPU-only, unsigned binary.
+
+---
+
 # LecturePack v1.0.0 (Unified) - Release Notes
 
 **Release Date:** July 2026

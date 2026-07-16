@@ -92,3 +92,34 @@ outside their acceptance windows.
 These results are locked in as regression tests in
 `tests/test_detection_targets.py` (balanced and detailed must meet all targets;
 the fade and caption bands must produce no candidates).
+
+## v1.0.1 results on REAL lecture material (Egypt lecture)
+
+The synthetic fixture is necessary but not sufficient. Two excerpts of the real
+Egypt lecture were evaluated with **human/agent-labeled ground truth**, produced
+by visually inspecting dense (every-4s / every-6s) contact sheets of each excerpt
+*independently of detector output*. Evidence: `docs/evidence/v1.0.1/detector/`.
+
+### Calm lecture-slide section (5:00–7:00), balanced preset
+Ground truth (4 slide states): quote → EGYPTOLOGY title → blue discipline box →
+bullets. Ground-truth file: `tests/fixtures/ground_truth/egypt_excerptB_0500_0700.json`.
+
+```
+P=1.000 R=1.000 F1=1.000 | TP=4 FP=0 FN=0 | candidates=4 vs states=4 | ts_err=1.75s
+```
+
+Meets every balanced-mode acceptance target on real material: no missed major
+slide changes, recall ≥ 0.90, precision ≥ 0.80, no fade/caption/pointer clusters.
+
+### Embedded video section (29:18–35:21), balanced preset
+This excerpt is an **embedded educational video** (animations + live footage),
+not slides. The detector produced **13 candidates**, and visual classification of
+every candidate frame confirmed **13 distinct scenes, 0 duplicates, 0
+transition/fade/caption artifacts** — roughly one keyframe per 28 s of continuous
+video. Honest characterisation: the detector does not explode on video content,
+but video keyframes are not "slides"; reject them in review or crop to the slide
+region. This is a limitation of applying slide detection to embedded video, not a
+regression.
+
+The perfect synthetic result alone would not justify these claims — the calm real
+excerpt is the material evidence that balanced mode meets the targets in practice.

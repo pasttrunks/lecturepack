@@ -1,0 +1,13 @@
+{
+    "name": "egypt_excerptB_calm_0500_0700",
+    "source": "CL100 - Day 2 - Egypt and Archaeology.m4v, 5:00-7:00 (calm lecture-slide section)",
+    "provenance": "Human/agent-labeled by visually inspecting a 4-second dense contact sheet of the excerpt INDEPENDENTLY of detector output (see docs/evidence/v1.0.1/egyptB_sheet_dense_00.png). Times are excerpt-relative seconds.",
+    "notes": "Four meaningful slide states: (1) 'Archaeology is the search for fact' quote, (2) EGYPT AND ARCHAEOLOGY / EGYPTOLOGY title with Abu Simbel, (3) blue 'EGYPTOLOGY IS THE DISCIPLINE...' box, (4) 'EGYPT AND ARCHAEOLOGY' bullets (Herodotus, Strabo...). No pointer/caption/fade distractors observed in this calm section.",
+    "events": [
+        {"id": "b1_quote",       "nominal_sec": 0.0,  "t_min": 0.0,  "t_max": 5.0,  "label": "Archaeology quote slide (initial)"},
+        {"id": "b2_egyptology",  "nominal_sec": 35.0, "t_min": 33.0, "t_max": 42.0, "label": "EGYPTOLOGY title slide"},
+        {"id": "b3_discipline",  "nominal_sec": 46.0, "t_min": 44.0, "t_max": 52.0, "label": "Blue discipline definition slide"},
+        {"id": "b4_bullets",     "nominal_sec": 91.0, "t_min": 88.0, "t_max": 97.0, "label": "Egypt and Archaeology bullet slide"}
+    ],
+    "distractors": []
+}

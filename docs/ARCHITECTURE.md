@@ -247,3 +247,44 @@ All decisions are recorded in `docs/DECISIONS.md`. Summary:
 | AD-6 | ReportLab for study-pack PDF, img2pdf for slides-only PDF | DECISIONS.md |
 | AD-7 | Self-contained HTML with base64 images | DECISIONS.md |
 | AD-8 | PyInstaller over Nuitka for initial packaging | DECISIONS.md |
+
+---
+
+## 12. As-built addendum (v1.0.1)
+
+The sections above are the original Phase-0 design. The shipped v1.0.1
+implementation differs in these respects:
+
+**Stages (7, not 8).** `constants.STAGES` = Inspect → Extract Audio → Transcribe →
+Detect Slides → Align → Review Ready → Export. Frame extraction, detection and
+dedup are all inside the single **Detect Slides** stage (`cv_engine.SlideDetectorWorker`).
+Export is user-triggered, not auto-run.
+
+**Product modes.** `JobController.run_next_stage` gates stages by the job's
+`product_mode` (`STAGES_SKIPPED_BY_MODE`): Transcript Only skips Detect Slides;
+Slides Only skips Extract Audio + Transcribe. `ExportService` writes only the
+mode-appropriate artifacts.
+
+**Layered transcript & Context Repair.** `services/transcript_service.py`
+implements the four-layer model (raw / normalized / context proposals /
+user-approved). After Transcribe, the controller writes `normalized.json` and
+`context_candidates.json`. `ui/context_repair_dialog.py` is the review workspace;
+`services/transcript_formats.py` provides the section grouping and the
+`txt/md/json/jsonl/csv/srt/vtt` serializers shared by the workspace and exports.
+Context Repair uses a local OpenAI-compatible LLM if configured, else a
+deterministic approved-name provider that cannot invent names.
+
+**Slide detector (as-built).** The shipped detector uses a rolling motion
+baseline with a two-path (major / progressive-build) decision, plus the v1.0
+overlay-band and major-change-persistence precision guards. (The tiered
+dHash→SSIM→histogram cascade in §7 is the original design; the shipped combined
+score is `0.4·ssim_dist + 0.3·dhash + 0.3·pixel_diff` gated by the baseline.)
+
+**Binaries.** `whisper-cli.exe` and its `ggml*.dll` sit next to `LecturePack.exe`;
+`ffmpeg.exe`/`ffprobe.exe` under `bin/`. Models are **not** bundled and are not
+auto-downloaded. Backend is CPU-only in this build.
+
+**Headless drivers.** `app.py` exposes `--selftest` (launch check) and
+`--run-acceptance` (full end-to-end packaged pipeline driver in
+`services`/`lecturepack.acceptance`), used to validate the packaged build.
+

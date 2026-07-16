@@ -158,9 +158,41 @@ def run_selftest():
         sys.exit(1)
 
 
+def run_acceptance_cli():
+    """Parse ``--run-acceptance <video> <model> <data_dir> [<out_json>] [--names "a,b,c"]``
+    and drive the full packaged pipeline end-to-end. Exits 0 on pass, 1 on fail."""
+    argv = sys.argv
+    i = argv.index("--run-acceptance")
+    rest = [a for a in argv[i + 1:] if not a.startswith("--")]
+    names = []
+    if "--names" in argv:
+        ni = argv.index("--names")
+        if ni + 1 < len(argv):
+            names = [n.strip() for n in argv[ni + 1].split(",") if n.strip()]
+    mode = None
+    if "--mode" in argv:
+        mi = argv.index("--mode")
+        if mi + 1 < len(argv):
+            mode = argv[mi + 1]
+    if len(rest) < 3:
+        print("usage: LecturePack.exe --run-acceptance <video> <model> <data_dir> [<out_json>] "
+              "[--names a,b,c] [--mode study_pack|transcript_only|slides_only]")
+        sys.exit(2)
+    video, model, data_dir = rest[0], rest[1], rest[2]
+    out = rest[3] if len(rest) > 3 else None
+    from lecturepack.acceptance import run_packaged_acceptance
+    report = run_packaged_acceptance(video, model, data_dir, approved_names=names,
+                                     out_path=out, product_mode=mode)
+    sys.exit(0 if report.get("ok") else 1)
+
+
 def main():
     if "--selftest" in sys.argv:
         run_selftest()
+        return
+
+    if "--run-acceptance" in sys.argv:
+        run_acceptance_cli()
         return
 
     app = QApplication(sys.argv)

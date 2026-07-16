@@ -1,0 +1,39 @@
+{
+  "video": "C:\\Users\\marsh\\LecturePackData_validation\\egypt_excerpts\\egyptA_2918_3521.mp4",
+  "preset": "balanced",
+  "duration_sec": 363.0,
+  "candidate_count": 13,
+  "candidate_times_sec": [
+    2.5,
+    36.8,
+    43.5,
+    56.2,
+    101.8,
+    133.2,
+    146.2,
+    172.0,
+    191.5,
+    212.5,
+    230.5,
+    263.5,
+    359.5
+  ],
+  "candidate_times_clock": [
+    "29:20",
+    "29:54",
+    "30:01",
+    "30:14",
+    "30:59",
+    "31:31",
+    "31:44",
+    "32:10",
+    "32:29",
+    "32:50",
+    "33:08",
+    "33:41",
+    "35:17"
+  ],
+  "dense_sheets": 3,
+  "sample_every": 6.0,
+  "offset": 1758.0
+}

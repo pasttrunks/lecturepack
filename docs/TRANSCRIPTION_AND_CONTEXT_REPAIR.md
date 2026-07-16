@@ -126,8 +126,33 @@ paragraph-grouped `transcript.normalized.txt` in modes that produce a transcript
 pipeline's `normalized.json` equals a direct `transcript_service` run over the
 same raw JSON and that the recorded raw hash matches.
 
-Layer 3 (Context Repair) remains opt-in and is exercised at the service level;
-its interactive review panel is not yet surfaced in the main window.
+### Context Repair workspace (v1.0.1)
+
+The interactive Context Repair workspace (`ui/context_repair_dialog.py`, opened
+from the review view) shows, per proposal: the **raw** (Layer 1) segment, the
+**normalized** (Layer 2) segment, the **proposed** correction (editable), the
+changed words highlighted (proper-name changes in a distinct colour), the reason,
+and the confidence. Actions: Accept, Reject, Edit, Accept-all-high-confidence,
+Reject-all; filters: low confidence / proper names / numbers-dates / unresolved /
+accepted / rejected. Accepted corrections are written to `corrected.json` (the
+user-approved layer); `corrections.json` holds the reversible set. Raw and
+normalized files are never rewritten.
+
+The workspace uses a local OpenAI-compatible LLM if one is configured, otherwise
+the deterministic `DeterministicNameProvider` (approved-name fuzzy matching),
+which cannot invent a name.
+
+### Real-media finding: prompting vs. Context Repair (v1.0.1)
+
+On a real Egypt-lecture excerpt with base.en, the Whisper initial `--prompt` did
+**not** correct "Mark Lainer" → *Mark Lehner* (a real Egyptologist) or "dolarite"
+→ *dolerite*, **even when those correct spellings were in the prompt**. Post-hoc
+Context Repair, with the same terms as approved names, proposed exactly those
+corrections for review. Takeaway: the Whisper prompt is a weak decoder bias;
+review-based Context Repair is more effective for specific names — and, crucially,
+never applies a name change without the user accepting it. Automatic transcription
+is not perfect and this workflow keeps the uncertainty visible and under user
+control. Evidence: `docs/evidence/v1.0.1/`.
 
 ## Tests
 

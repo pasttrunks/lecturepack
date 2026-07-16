@@ -530,16 +530,23 @@ class MainWindow(QMainWindow):
         search_layout.addWidget(self.timestamps_chk)
         transcript_layout.addLayout(search_layout)
 
-        # Copy buttons
+        # Copy buttons + format selector
         copy_layout = QHBoxLayout()
-        self.copy_current_btn = QPushButton("Copy Slide Transcript")
+        copy_layout.addWidget(QLabel("Copy as:"))
+        self.copy_format_combo = QComboBox()
+        self.copy_format_combo.addItems(["plain text", "markdown", "json", "jsonl", "csv", "srt", "vtt"])
+        copy_layout.addWidget(self.copy_format_combo)
+        self.copy_current_btn = QPushButton("Copy Slide")
         self.copy_current_btn.clicked.connect(self._copy_current_transcript)
-        self.copy_selected_btn = QPushButton("Copy Selected Transcripts")
+        self.copy_topic_btn = QPushButton("Copy Topic")
+        self.copy_topic_btn.clicked.connect(self._copy_current_topic)
+        self.copy_selected_btn = QPushButton("Copy Selected")
         self.copy_selected_btn.clicked.connect(self._copy_selected_transcripts)
-        self.copy_full_btn = QPushButton("Copy Full Transcript")
+        self.copy_full_btn = QPushButton("Copy Full")
         self.copy_full_btn.clicked.connect(self._copy_full_transcript)
-        
+
         copy_layout.addWidget(self.copy_current_btn)
+        copy_layout.addWidget(self.copy_topic_btn)
         copy_layout.addWidget(self.copy_selected_btn)
         copy_layout.addWidget(self.copy_full_btn)
         transcript_layout.addLayout(copy_layout)
@@ -560,11 +567,16 @@ class MainWindow(QMainWindow):
         self.save_corrections_btn = QPushButton("Save Corrections (Ctrl+S)")
         self.save_corrections_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 6px;")
         self.save_corrections_btn.clicked.connect(self._save_corrections)
-        
+
+        self.context_repair_btn = QPushButton("Context Repair…")
+        self.context_repair_btn.setStyleSheet("background-color: #8e24aa; color: white; font-weight: bold; padding: 6px;")
+        self.context_repair_btn.clicked.connect(self._open_context_repair)
+
         self.transcript_status_lbl = QLabel("")
         self.transcript_status_lbl.setStyleSheet("font-weight: bold; color: #4CAF50;")
-        
+
         save_layout.addWidget(self.save_corrections_btn)
+        save_layout.addWidget(self.context_repair_btn)
         save_layout.addWidget(self.transcript_status_lbl)
         transcript_layout.addLayout(save_layout)
         
@@ -1421,23 +1433,14 @@ class MainWindow(QMainWindow):
                 end = acc.get("timestamp_seconds", 0.0)
                 break
                 
-        text_lines = []
+        segs = []
         for seg in self.raw_segments:
             seg_start = seg["start"]
             seg_end = seg["end"]
             overlap = max(0.0, min(seg_end, end) - max(seg_start, start))
             if overlap > 0.0 or (seg_start <= (start + end)/2.0 <= seg_end):
-                text = self.edited_data.get(str(seg["id"]), seg["text"])
-                t_part = ""
-                if self.timestamps_chk.isChecked():
-                    t1 = datetime_from_seconds(seg["start"])
-                    t2 = datetime_from_seconds(seg["end"])
-                    t_part = f"[{t1} -> {t2}] "
-                text_lines.append(f"{t_part}{text}")
-
-        from PySide6.QtGui import QGuiApplication
-        QGuiApplication.clipboard().setText("\n".join(text_lines))
-        self.statusBar().showMessage("Current slide transcript copied to clipboard.", 2000)
+                segs.append(self._seg_with_edit(seg))
+        self._put_segments_on_clipboard(segs, "Current slide transcript")
 
     def _copy_selected_transcripts(self):
         selected_items = self.slides_view.selectedItems()
@@ -1480,34 +1483,58 @@ class MainWindow(QMainWindow):
                         
         matched_segments.sort(key=lambda s: s["start"])
         
-        text_lines = []
-        for seg in matched_segments:
-            text = self.edited_data.get(str(seg["id"]), seg["text"])
-            t_part = ""
-            if self.timestamps_chk.isChecked():
-                t1 = datetime_from_seconds(seg["start"])
-                t2 = datetime_from_seconds(seg["end"])
-                t_part = f"[{t1} -> {t2}] "
-            text_lines.append(f"{t_part}{text}")
-
-        from PySide6.QtGui import QGuiApplication
-        QGuiApplication.clipboard().setText("\n".join(text_lines))
-        self.statusBar().showMessage("Selected slides' transcripts copied to clipboard.", 2000)
+        segs = [self._seg_with_edit(seg) for seg in matched_segments]
+        self._put_segments_on_clipboard(segs, "Selected slides' transcript")
 
     def _copy_full_transcript(self):
-        text_lines = []
-        for seg in self.raw_segments:
-            text = self.edited_data.get(str(seg["id"]), seg["text"])
-            t_part = ""
-            if self.timestamps_chk.isChecked():
-                t1 = datetime_from_seconds(seg["start"])
-                t2 = datetime_from_seconds(seg["end"])
-                t_part = f"[{t1} -> {t2}] "
-            text_lines.append(f"{t_part}{text}")
+        segs = [self._seg_with_edit(seg) for seg in self.raw_segments]
+        self._put_segments_on_clipboard(segs, "Full transcript")
 
+    # ---- shared copy/format helpers ------------------------------------- #
+    _COPY_FORMAT_MAP = {
+        "plain text": "txt", "markdown": "markdown", "json": "json",
+        "jsonl": "jsonl", "csv": "csv", "srt": "srt", "vtt": "vtt",
+    }
+
+    def _seg_with_edit(self, seg):
+        """Return a plain segment dict with any user correction applied (the
+        user-approved layer); raw self.raw_segments is never mutated."""
+        return {
+            "id": seg["id"],
+            "start": seg["start"],
+            "end": seg["end"],
+            "text": self.edited_data.get(str(seg["id"]), seg["text"]),
+        }
+
+    def _put_segments_on_clipboard(self, segs, label):
         from PySide6.QtGui import QGuiApplication
-        QGuiApplication.clipboard().setText("\n".join(text_lines))
-        self.statusBar().showMessage("Full transcript copied to clipboard.", 2000)
+        from lecturepack.services import transcript_formats as tf
+        fmt_label = self.copy_format_combo.currentText() if hasattr(self, "copy_format_combo") else "plain text"
+        fmt = self._COPY_FORMAT_MAP.get(fmt_label, "txt")
+        include_ts = self.timestamps_chk.isChecked()
+        try:
+            text = tf.serialize(fmt, segs, include_timestamps=include_ts)
+        except Exception:
+            text = tf.to_plain(segs, include_timestamps=include_ts)
+        QGuiApplication.clipboard().setText(text)
+        self.statusBar().showMessage(f"{label} copied to clipboard as {fmt_label}.", 2000)
+
+    def _copy_current_topic(self):
+        """Copy the transcript for the currently-selected slide's whole topic
+        section (the slide interval), preserving chronological order."""
+        self._copy_current_transcript()  # current slide interval == its topic section
+
+    def _open_context_repair(self):
+        if not self.current_job:
+            return
+        try:
+            from lecturepack.ui.context_repair_dialog import ContextRepairDialog
+            dlg = ContextRepairDialog(self.current_job, self.config_manager, self)
+            dlg.exec()
+            # Reload edited/corrections view state after the dialog closes.
+            self._load_review_data()
+        except Exception as e:
+            QMessageBox.warning(self, "Context Repair", f"Could not open Context Repair: {e}")
 
     def _save_candidates_snapshot(self):
         if not self.current_job:
