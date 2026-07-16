@@ -22,4 +22,3 @@ Key result: required pipeline wall time was **619.31 seconds**. Transcription
 was the critical branch at **605.41 seconds**, while slide detection took
 **523.47 seconds** concurrently. The original video's full SHA-256 was unchanged
 and no observed LecturePack child process remained.
-
