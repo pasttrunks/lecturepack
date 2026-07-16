@@ -1,3 +1,24 @@
+# LecturePack v1.1.0 — UI, Speed, local AI (2026-07-16)
+
+**Highlights**
+- 69% faster on the reference PC: two-pass slide-detection decode, concurrent
+  transcription+detection, optional whisper.cpp **Vulkan** GPU engine
+  (verified CPU engine unchanged and always the fallback).
+- Redesigned interface: navigation rail, three-pane Review with unmistakable
+  slide selection, dedicated Transcript workspace (Full / Segments / Sections /
+  Context Repair), stage-by-stage progress with ETA, light+dark themes.
+- Optional local AI via Ollama (recommended: `qwen3:1.7b`): schema-validated,
+  cached, cancellable proposals generated off the GUI thread — the v1.0.1
+  Context Repair crash class is architecturally fixed; every failure mode is
+  recoverable inline and nothing is ever auto-accepted.
+- Cancel now genuinely kills worker processes; no orphaned ffmpeg/whisper.
+- 106 automated tests; packaged real-media validation on the Egypt lecture.
+
+Baseline vs v1.1 (packaged, 6-min excerpt): 156.2 s → 47.8 s.
+Full details: CHANGELOG.md and docs/evidence/v1.1.0/.
+
+---
+
 # LecturePack v1.0.1 (Real-Media Verified) - Release Notes
 
 **Release Date:** July 2026

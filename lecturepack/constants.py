@@ -1,7 +1,7 @@
 import os
 
 APP_NAME = "Lecture Pack"
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.1.0"
 
 # Supported video file extensions (case-insensitive)
 SUPPORTED_VIDEO_EXTENSIONS = ('.mp4', '.avi', '.mkv', '.mov', '.m4v', '.webm')

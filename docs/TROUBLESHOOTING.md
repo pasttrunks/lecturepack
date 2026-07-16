@@ -51,3 +51,29 @@
 ## Where is my data?
 - `%USERPROFILE%\LecturePackData`. See
   [PRIVACY_AND_DATA.md](PRIVACY_AND_DATA.md).
+
+
+## v1.1 additions
+
+**"Vulkan whisper-cli.exe not installed" / engine falls back to CPU**
+The optional GPU engine lives in `bin/vulkan/`. It is used only when
+`vulkan-1.dll` exists (GPU driver installed) and `ggml-vulkan.dll` is present.
+The status bar always shows the actually loaded backend. Force CPU via
+Settings → Default engine → CPU.
+
+**Ollama features greyed out or failing**
+Ollama is optional. Check Settings → AI (Ollama) → Refresh. If the server is
+down you can keep working; Context Repair offers "Use deterministic repair
+only". See docs/OLLAMA_SETUP.md. An Ollama failure never crashes the app —
+use "Copy diagnostic details" when reporting issues.
+
+**A stage reruns although the job was processed before**
+v1.1 caches stages by their inputs (source file signature, crop/ignore
+regions, preset/detector version, engine/model, glossary, VAD). Changing any
+of those re-runs only the affected stages; the stage list marks untouched
+stages as "Cached".
+
+**Cancel takes a moment**
+Cancel first asks processes to exit, then kills them (300 ms grace). After a
+cancel no ffmpeg/whisper-cli processes should remain — if you ever see one in
+Task Manager, please report it.

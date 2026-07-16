@@ -25,7 +25,7 @@ DIST_DIR = os.path.join(PROJECT_ROOT, "dist")
 BUILD_DIR = os.path.join(PROJECT_ROOT, "build")
 RELEASE_DIR = os.path.join(PROJECT_ROOT, "dist-release")
 APP_NAME = "LecturePack"
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 
 # Binaries to include from bin/Release/ (whisper runtime)
 WHISPER_BINS = [
@@ -49,6 +49,22 @@ WHISPER_CPU_DLLS = [
 ]
 
 FFMPEG_BINS = ["ffmpeg.exe", "ffprobe.exe"]
+
+# Optional Vulkan engine (bin/vulkan/) -- whisper.cpp v1.9.1 built with
+# GGML_VULKAN + GGML_BACKEND_DL. Shipped alongside (never replacing) the
+# verified CPU binary; the engine registry falls back to CPU automatically.
+VULKAN_BINS = [
+    "whisper-cli.exe",
+    "libwhisper.dll",
+    "ggml.dll",
+    "ggml-base.dll",
+    "ggml-cpu.dll",
+    "ggml-vulkan.dll",
+    "libgcc_s_seh-1.dll",
+    "libstdc++-6.dll",
+    "libwinpthread-1.dll",
+    "libgomp-1.dll",
+]
 
 
 def run(cmd, **kwargs):
@@ -121,6 +137,21 @@ def main():
         else:
             print(f"  WARNING: {fn} not found in bin/Release/")
 
+    # Optional Vulkan engine
+    vulkan_src = os.path.join(src_bin, "vulkan")
+    if os.path.isdir(vulkan_src):
+        vulkan_dst = os.path.join(bin_dir, "vulkan")
+        os.makedirs(vulkan_dst, exist_ok=True)
+        for fn in VULKAN_BINS:
+            src = os.path.join(vulkan_src, fn)
+            if os.path.isfile(src):
+                shutil.copy2(src, os.path.join(vulkan_dst, fn))
+                print(f"  Copied vulkan/{fn}")
+            else:
+                print(f"  WARNING: {fn} not found in bin/vulkan/")
+    else:
+        print("  NOTE: bin/vulkan/ not present; packaging CPU engine only.")
+
     # Step 3: Copy release documentation
     print("[3/5] Copying documentation...")
     docs = ["README-FIRST.txt", "THIRD_PARTY_NOTICES.txt", "RELEASE_NOTES.md"]
@@ -167,6 +198,16 @@ def main():
             sha256_lines.append(f"{digest}  bin/{fn}")
             manifest_entries.append({
                 "file": f"bin/{fn}",
+                "sha256": digest,
+                "size_bytes": os.path.getsize(fp),
+            })
+    for fn in VULKAN_BINS:
+        fp = os.path.join(bin_dir, "vulkan", fn)
+        if os.path.isfile(fp):
+            digest = sha256_file(fp)
+            sha256_lines.append(f"{digest}  bin/vulkan/{fn}")
+            manifest_entries.append({
+                "file": f"bin/vulkan/{fn}",
                 "sha256": digest,
                 "size_bytes": os.path.getsize(fp),
             })

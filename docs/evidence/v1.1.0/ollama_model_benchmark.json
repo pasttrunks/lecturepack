@@ -1,0 +1,137 @@
+[
+  {
+    "model": "qwen3:1.7b",
+    "chunks": [
+      {
+        "wall_s": 12.6,
+        "schema_ok": true,
+        "raw_proposals": 5,
+        "validated_proposals": 5,
+        "expected_fixes": 4,
+        "correct_fixes": 2,
+        "false_positives_on_clean": 1,
+        "chunks_failed": 0
+      },
+      {
+        "wall_s": 6.1,
+        "schema_ok": true,
+        "raw_proposals": 4,
+        "validated_proposals": 4,
+        "expected_fixes": 3,
+        "correct_fixes": 3,
+        "false_positives_on_clean": 1,
+        "chunks_failed": 0
+      },
+      {
+        "wall_s": 3.2,
+        "schema_ok": true,
+        "raw_proposals": 0,
+        "validated_proposals": 0,
+        "expected_fixes": 1,
+        "correct_fixes": 0,
+        "false_positives_on_clean": 0,
+        "chunks_failed": 0
+      }
+    ],
+    "totals": {
+      "expected": 8,
+      "found": 5,
+      "false_pos": 2,
+      "wall_s": 21.9,
+      "schema_ok": 3,
+      "survived_guardrails": 9,
+      "raw_props": 9,
+      "accuracy": 0.62
+    }
+  },
+  {
+    "model": "qwen3.5:4b",
+    "chunks": [
+      {
+        "wall_s": 19.3,
+        "schema_ok": true,
+        "raw_proposals": 2,
+        "validated_proposals": 2,
+        "expected_fixes": 4,
+        "correct_fixes": 2,
+        "false_positives_on_clean": 0,
+        "chunks_failed": 0
+      },
+      {
+        "wall_s": 20.7,
+        "schema_ok": true,
+        "raw_proposals": 4,
+        "validated_proposals": 1,
+        "expected_fixes": 3,
+        "correct_fixes": 0,
+        "false_positives_on_clean": 0,
+        "chunks_failed": 0
+      },
+      {
+        "wall_s": 5.7,
+        "schema_ok": true,
+        "raw_proposals": 1,
+        "validated_proposals": 1,
+        "expected_fixes": 1,
+        "correct_fixes": 1,
+        "false_positives_on_clean": 0,
+        "chunks_failed": 0
+      }
+    ],
+    "totals": {
+      "expected": 8,
+      "found": 3,
+      "false_pos": 0,
+      "wall_s": 45.7,
+      "schema_ok": 3,
+      "survived_guardrails": 4,
+      "raw_props": 7,
+      "accuracy": 0.38
+    }
+  },
+  {
+    "model": "qwen3.5:9b",
+    "chunks": [
+      {
+        "wall_s": 33.5,
+        "schema_ok": true,
+        "raw_proposals": 3,
+        "validated_proposals": 3,
+        "expected_fixes": 4,
+        "correct_fixes": 2,
+        "false_positives_on_clean": 0,
+        "chunks_failed": 0
+      },
+      {
+        "wall_s": 10.6,
+        "schema_ok": true,
+        "raw_proposals": 2,
+        "validated_proposals": 2,
+        "expected_fixes": 3,
+        "correct_fixes": 2,
+        "false_positives_on_clean": 0,
+        "chunks_failed": 0
+      },
+      {
+        "wall_s": 6.9,
+        "schema_ok": true,
+        "raw_proposals": 1,
+        "validated_proposals": 1,
+        "expected_fixes": 1,
+        "correct_fixes": 1,
+        "false_positives_on_clean": 0,
+        "chunks_failed": 0
+      }
+    ],
+    "totals": {
+      "expected": 8,
+      "found": 5,
+      "false_pos": 0,
+      "wall_s": 51.0,
+      "schema_ok": 3,
+      "survived_guardrails": 6,
+      "raw_props": 6,
+      "accuracy": 0.62
+    }
+  }
+]

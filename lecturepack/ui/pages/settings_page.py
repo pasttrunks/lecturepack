@@ -24,8 +24,12 @@ from lecturepack.infrastructure.transcription_engines import (
     MODEL_PROFILES, model_search_dirs, resolve_profile_model,
 )
 
-RECOMMENDED_MODELS = ["qwen3.5:4b", "qwen3:1.7b", "qwen3:0.6b", "gemma3:1b",
-                      "ministral-3:3b"]
+# Order = preference. Benchmarked 2026-07-16 on the target PC (see
+# docs/evidence/v1.1.0/ollama_model_benchmark.json): qwen3:1.7b matched the
+# 9B model's repair recall (5/8) at 2.3x the speed of qwen3.5:4b; its rare
+# extra proposals are safe because nothing is ever auto-accepted.
+RECOMMENDED_MODELS = ["qwen3:1.7b", "qwen3.5:4b", "qwen3.5:9b", "qwen3:0.6b",
+                      "gemma3:1b", "ministral-3:3b"]
 
 
 class SettingsPage(QWidget):

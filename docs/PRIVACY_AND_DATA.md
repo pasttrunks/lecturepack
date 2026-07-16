@@ -51,3 +51,13 @@ your file manager; the app does not perform destructive cleanup of your data.
 ## Telemetry
 
 None. There is no analytics, crash reporting, or usage tracking.
+
+
+## Local AI (v1.1)
+
+AI assistance talks only to a local Ollama server (`http://localhost:11434`
+by default; configurable). Requests contain transcript segment text plus your
+approved names/glossary; they never leave the machine unless you point the
+base URL elsewhere. Responses are cached inside the job folder
+(`transcript/ai_cache.json`). No AI runtime or model is bundled, nothing is
+sent to the internet, and disabling AI (default) removes all such traffic.

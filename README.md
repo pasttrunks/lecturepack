@@ -5,7 +5,9 @@ aligned transcript with an auditable layered correction workflow, and exports in
 many formats — all processed **locally on your Windows machine**. No cloud, no
 account, no upload.
 
-> Version 1.0.1 (`v1.0.1-real-media-verified`). Windows x64, CPU-only.
+> Version 1.1.0 (`v1.1.0-ui-speed-ollama`). Windows x64. CPU always; optional
+> Vulkan GPU transcription (AMD/cross-vendor) and optional local-AI assistance
+> via Ollama.
 
 ---
 
@@ -54,17 +56,57 @@ Enter proper nouns and terms (e.g. *Mark Lehner*, *dolerite*, *Giza*). They feed
 both the Whisper initial prompt (on retranscription) and the Context Repair
 proposals. Uncertain names are **never** replaced without your review.
 
-## Transcript workspace
+## The v1.1 interface
 
-- Semantic sections (topic heading, time range, associated slide).
-- Search across the transcript (`Ctrl+F`, `F3` / `Shift+F3`).
-- Copy the current slide, current topic, selected slides, or the full
-  transcript, in any export format, with a timestamps toggle (`Ctrl+C`).
-- Save corrections (`Ctrl+S`). Multiple selections copy in chronological order.
+A navigation rail switches between six pages — **Home** (jobs), **Process**
+(settings + stage-by-stage progress with elapsed/ETA and a logs drawer),
+**Review** (slide timeline · large preview · transcript for the selection),
+**Transcript**, **Exports** and **Settings**. Light/dark themes; window
+layout, splitters and view modes persist.
+
+**Review**: selected slides are unmistakable (thick accent outline,
+contrasting background, checkmark badge, focus ring, auto scroll-into-view,
+live count). Click / Ctrl-click / Shift-click / Ctrl+A select; `Delete`
+rejects (never deletes files); `R` restores; `Ctrl+Z` undoes; right-click for
+Keep / Reject / Restore / Export selected / Copy image / Open source
+timestamp.
+
+**Transcript workspace** (independent of slide review):
+
+- *Full Transcript*: readable document, section headings, optional
+  timestamps, search highlighting, timestamp links that select the matching
+  slide, one-click **Copy full transcript**.
+- *Segments*: grid with start/end/duration/confidence/status; edit the active
+  segment in its own editor; **split at cursor, merge, reset, undo/redo**;
+  sort/filter freely — exports stay chronological; raw Whisper output stays
+  immutable.
+- *Sections*: conservative topic sections; rename anything; AI-suggested
+  headings are explicitly marked “(AI)”.
+- *Context Repair*: reviewable correction proposals (see below).
+- Copy as `txt / md / json / jsonl / csv / srt / vtt` with a timestamps
+  toggle (`Ctrl+C`, `Ctrl+F`, `F3`/`Shift+F3`, `Ctrl+S`, `Ctrl+Z`/`Ctrl+Y`).
+
+## Speed (v1.1)
+
+Transcription and slide detection run **concurrently**; slide detection uses
+a two-pass decode (one sequential downscaled FFmpeg analysis stream + full-res
+capture only for accepted slides); an optional **whisper.cpp Vulkan engine**
+uses the GPU when measured faster. On the reference PC the 6-minute test
+excerpt dropped from **156 s (v1.0.1) to 48 s (−69 %)**. Details:
+[docs/PERFORMANCE_AND_BACKENDS.md](docs/PERFORMANCE_AND_BACKENDS.md).
+
+## Local AI (optional, via Ollama)
+
+With a locally installed [Ollama](https://ollama.com), LecturePack can propose
+transcript corrections and section headings (recommended model:
+`qwen3:1.7b`). Proposals are schema-validated, cached, generated off the GUI
+thread, and **never auto-accepted**; every failure mode is recoverable inline.
+Without Ollama, the deterministic offline provider still works. Setup:
+[docs/OLLAMA_SETUP.md](docs/OLLAMA_SETUP.md).
 
 ## Install (portable, no Python needed)
 
-1. Download `LecturePack-portable-1.0.1.zip` from the release.
+1. Download `LecturePack-portable-1.1.0.zip` from the release.
 2. Verify the checksum against `SHA256SUMS.txt`.
 3. Extract anywhere (a path with spaces is fine).
 4. Run `LecturePack.exe`.

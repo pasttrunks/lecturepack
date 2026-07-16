@@ -288,3 +288,46 @@ auto-downloaded. Backend is CPU-only in this build.
 `--run-acceptance` (full end-to-end packaged pipeline driver in
 `services`/`lecturepack.acceptance`), used to validate the packaged build.
 
+
+
+## v1.1 additions
+
+### Pipeline
+- `infrastructure/video_reader.py` — `AnalysisFrameStream` (single FFmpeg
+  rawvideo pipe: fps -> crop -> scale -> gray) + `FrameCursor` (sliding
+  window with look-ahead) + `capture_native_frames` (pass-2 full-res seeks).
+- `infrastructure/cv_engine.py` — same v1.0 decision logic over the piped
+  frames; legacy cv2 seek path retained as automatic fallback; deferred
+  min-time acceptance.
+- `controllers/job_controller.py` — parallel stage group (Transcribe +
+  Detect Slides), user-cancel latch, retired-worker reaping, stage cache
+  fingerprints (`stage_fingerprints.json`), `backend_info`/`stage_cached`
+  signals.
+- `infrastructure/transcription_engines.py` — engine registry/policy
+  (verified CPU binary vs optional `bin/vulkan` build); wrapper reports the
+  actually loaded backend from whisper.cpp output.
+
+### Transcript data
+- `services/transcript_store.py` — working layer (`working.json`, schema 2):
+  full segment list with `origin_ids`, supporting split/merge/edit while raw
+  stays immutable; mirrors legacy `edited.json`; consumed by exports and all
+  transcript views.
+
+### AI
+- `infrastructure/ollama_client.py` — stdlib streaming client (typed errors,
+  finite timeouts, cancel events, JSON-schema constrained chat, response
+  cache) + `OllamaRepairProvider` adapter into the existing
+  `ContextRepairEngine` guardrails.
+- `services/ai_repair_service.py` — `AiRepairWorker` QThread with an absolute
+  exception boundary; disk cache per job.
+
+### UI
+- `ui/main_window.py` — shell (nav rail, command bar, status bar, QSettings
+  persistence) exposing v1.0-compatible aliases for tests/tooling.
+- `ui/pages/` — home, process (collapsible settings + stage rows + logs),
+  review (3-pane), transcript (Full/Segments/Sections/Context Repair tabs),
+  exports, settings.
+- `ui/widgets/slide_grid.py` — selection-visual delegate driven by
+  `theme.selection_visuals` (unit-testable) + WebP thumbnail loader thread.
+- `ui/widgets/context_repair_panel.py` — proposal table shared by the dialog
+  and the Transcript tab.

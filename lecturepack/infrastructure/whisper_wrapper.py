@@ -16,18 +16,37 @@ class WhisperWrapper(QObject):
         self._backend_probe_buffer = ""
 
     def get_supported_flags(self):
-        """Retrieves supported options from WhisperCapabilityDetector cache or fallback."""
+        """Supported CLI options for the CURRENT executable. Uses the async
+        WhisperCapabilityDetector cache when warm; otherwise probes the binary
+        synchronously (fast `--help` run) so alternate engines (e.g. the
+        Vulkan build) still get full-JSON output, threads, VAD and prompt
+        flags instead of the minimal fallback set."""
         from lecturepack.infrastructure.whisper_detector import WhisperCapabilityDetector
+        fallback = {"-oj", "-osrt", "-otxt"}
         if not self.whisper_exe_path or not os.path.exists(self.whisper_exe_path):
-            return {"-oj", "-osrt", "-otxt"}
+            return fallback
         try:
             stat = os.stat(self.whisper_exe_path)
             key = (self.whisper_exe_path, stat.st_size, stat.st_mtime)
-            if key in WhisperCapabilityDetector._cache:
-                return WhisperCapabilityDetector._cache[key]["flags"]
         except Exception:
-            pass
-        return {"-oj", "-osrt", "-otxt"}
+            return fallback
+        if key in WhisperCapabilityDetector._cache:
+            return WhisperCapabilityDetector._cache[key]["flags"]
+        if self.whisper_exe_path.lower().endswith(".py"):
+            return fallback  # test mocks: keep the historical minimal set
+        try:
+            import subprocess
+            creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            result = subprocess.run(
+                [self.whisper_exe_path, "--help"], capture_output=True,
+                timeout=5, creationflags=creationflags)
+            text = (result.stdout + result.stderr).decode("utf-8", errors="ignore")
+            detector = WhisperCapabilityDetector.__new__(WhisperCapabilityDetector)
+            caps = detector._parse_help_text(text)
+            WhisperCapabilityDetector._cache[key] = caps
+            return caps["flags"]
+        except Exception:
+            return fallback
 
     def start_transcription(self, audio_path, model_path, output_prefix, glossary=None,
                             threads=8, vad_settings=None, engine_exe=None, extra_args=None):
