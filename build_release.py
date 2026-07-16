@@ -25,7 +25,7 @@ DIST_DIR = os.path.join(PROJECT_ROOT, "dist")
 BUILD_DIR = os.path.join(PROJECT_ROOT, "build")
 RELEASE_DIR = os.path.join(PROJECT_ROOT, "dist-release")
 APP_NAME = "LecturePack"
-VERSION = "0.4.0"
+VERSION = "1.0.0"
 
 # Binaries to include from bin/Release/ (whisper runtime)
 WHISPER_BINS = [

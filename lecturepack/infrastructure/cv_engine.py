@@ -305,6 +305,14 @@ class SlideDetectorWorker(QThread):
                                 t = stable_t + step_seconds
                                 continue
 
+                            # Tunable precision guards (preset-gated; defaults preserve
+                            # the pre-v1.0 behaviour when a preset omits them).
+                            overlay_band_reject = bool(self.preset.get("overlay_band_reject", False))
+                            overlay_band_frac = float(self.preset.get("overlay_band_frac", 0.15))
+                            build_persistence_ssim = float(self.preset.get("build_persistence_ssim", 0.96))
+                            major_persistence_ssim = float(self.preset.get("major_persistence_ssim", 0.0))
+                            persistence_look_ahead_sec = float(self.preset.get("persistence_look_ahead_sec", 1.0))
+
                             changed_area_ratio = 0.0
                             if C_stable >= major_threshold:
                                 detector_path = "major_change"
@@ -314,27 +322,44 @@ class SlideDetectorWorker(QThread):
                                 # Check persistent contours in stable frame
                                 _, s_thresh = cv2.threshold(s_diff, 30, 255, cv2.THRESH_BINARY)
                                 s_contours, _ = cv2.findContours(s_thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                                
+
                                 s_valid_contours = []
                                 s_total_changed_area = 0.0
+                                band_line = s_diff.shape[0] * (1.0 - overlay_band_frac)
+                                all_in_bottom_band = True
                                 for c in s_contours:
                                     x, y, w, h = cv2.boundingRect(c)
                                     area = cv2.contourArea(c)
                                     if w > 10 and h > 10 and area > 80 and area < 0.5 * s_diff.size:
                                         s_valid_contours.append(c)
                                         s_total_changed_area += area
-                                        
+                                        # A change is "overlay-like" only if its vertical centre
+                                        # sits inside the bottom caption/subtitle band.
+                                        if (y + h / 2.0) < band_line:
+                                            all_in_bottom_band = False
+
                                 if len(s_valid_contours) == 0:
                                     self.status_message.emit(f"Discarding candidate at {stable_t:.2f}s: no persistent progressive build regions.")
                                     prev_frame = cleaned_stable_frame
                                     t = stable_t + step_seconds
                                     continue
-                                    
+
+                                # Reject changes confined to the bottom overlay band
+                                # (live captions / burnt-in subtitles), which are not slides.
+                                if overlay_band_reject and s_valid_contours and all_in_bottom_band:
+                                    self.status_message.emit(f"Discarding candidate at {stable_t:.2f}s: change confined to bottom caption/overlay band.")
+                                    prev_frame = cleaned_stable_frame
+                                    t = stable_t + step_seconds
+                                    continue
+
                                 changed_area_ratio = float(s_total_changed_area / s_diff.size)
 
-                            # Progressive build future look-ahead persistence check
-                            if detector_path == "progressive_build":
-                                future_t = stable_t + 1.0
+                            # Future look-ahead persistence check. Progressive builds always
+                            # require persistence; major changes optionally do too (a fade /
+                            # dissolve momentarily "stabilises" mid-blend but is not persistent).
+                            persistence_threshold = build_persistence_ssim if detector_path == "progressive_build" else major_persistence_ssim
+                            if persistence_threshold > 0.0:
+                                future_t = stable_t + persistence_look_ahead_sec
                                 if future_t < duration:
                                     future_frame_idx = int(future_t * fps)
                                     cap.set(cv2.CAP_PROP_POS_FRAMES, future_frame_idx)
@@ -347,10 +372,11 @@ class SlideDetectorWorker(QThread):
                                         f_gray = cv2.cvtColor(f_resized, cv2.COLOR_BGR2GRAY)
                                         if blur_kernel > 0:
                                             f_gray = cv2.GaussianBlur(f_gray, (blur_kernel, blur_kernel), 0)
-                                        
+
                                         f_ssim = ssim(f_gray, cleaned_stable_frame)
-                                        if f_ssim < 0.96:
-                                            self.status_message.emit(f"Discarding progressive build at {stable_t:.2f}s: not persistent (future SSIM {f_ssim:.3f} < 0.96).")
+                                        self.status_message.emit(f"Persistence probe at {stable_t:.2f}s ({detector_path}): future SSIM {f_ssim:.3f} vs thr {persistence_threshold:.3f}.")
+                                        if f_ssim < persistence_threshold:
+                                            self.status_message.emit(f"Discarding {detector_path} at {stable_t:.2f}s: not persistent (future SSIM {f_ssim:.3f} < {persistence_threshold:.3f}).")
                                             prev_frame = cleaned_stable_frame
                                             t = stable_t + step_seconds
                                             continue

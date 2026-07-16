@@ -30,6 +30,8 @@ a = Analysis(
         'lecturepack.infrastructure.whisper_wrapper',
         'lecturepack.infrastructure.cv_engine',
         'lecturepack.services.export_service',
+        'lecturepack.services.transcript_service',
+        'lecturepack.services.detection_eval',
         'lecturepack.ui.main_window',
         'lecturepack.ui.widgets.crop_selector',
         'PySide6.QtWidgets',

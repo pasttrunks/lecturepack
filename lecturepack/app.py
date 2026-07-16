@@ -120,13 +120,55 @@ def run_packaged_validation(app):
     print("=== PACKAGED VALIDATION COMPLETED SUCCESSFULLY ===")
     sys.exit(0)
 
+def run_selftest():
+    """Headless launch self-test for the packaged binary.
+
+    Uses a throwaway temp data directory (never the user's LecturePackData),
+    the offscreen Qt platform, and no external media. It proves the frozen
+    bundle can import every dependency, initialise Qt, and construct the main
+    window without crashing -- the exact failure class that broke the v0.2.0
+    package. Prints a PASS/FAIL line and exits 0/1.
+    """
+    import os
+    import tempfile
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        import cv2, numpy, PySide6  # noqa: F401
+        from lecturepack import __version__
+        from lecturepack.services import transcript_service, detection_eval  # noqa: F401
+        app = QApplication.instance() or QApplication(sys.argv)
+        data_dir = tempfile.mkdtemp(prefix="lp_selftest_")
+        config = ConfigManager(data_dir)
+        window = MainWindow(config)
+        window.show()
+        QApplication.processEvents()
+        # Sanity: the layered service is importable and functional in-bundle.
+        raw = transcript_service.parse_raw_whisper_json(
+            {"transcription": [{"offsets": {"from": 0, "to": 1000}, "text": " hello"}]})
+        assert transcript_service.normalize_transcript(raw).segments, "normalize produced nothing"
+        window.close()
+        QApplication.processEvents()
+        print(f"SELFTEST PASS: LecturePack v{__version__} launched, "
+              f"cv2 {cv2.__version__}, PySide6 {PySide6.__version__}, offscreen OK")
+        sys.exit(0)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"SELFTEST FAIL: {e}")
+        sys.exit(1)
+
+
 def main():
+    if "--selftest" in sys.argv:
+        run_selftest()
+        return
+
     app = QApplication(sys.argv)
-    
+
     if "--run-packaged-validation" in sys.argv:
         run_packaged_validation(app)
         return
-        
+
     config_manager = ConfigManager()
     window = MainWindow(config_manager)
     window.show()

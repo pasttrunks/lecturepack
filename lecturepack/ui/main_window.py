@@ -330,8 +330,18 @@ class MainWindow(QMainWindow):
         self.preview_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 5px;")
         self.preview_btn.clicked.connect(self._run_detection_preview)
         preset_layout.addWidget(self.preview_btn)
-        
+
         left_layout.addWidget(preset_grp)
+
+        # Product mode group -- what to produce from this lecture.
+        from lecturepack.constants import PRODUCT_MODES, PRODUCT_MODE_LABELS
+        mode_grp = QGroupBox("Output")
+        mode_layout = QVBoxLayout(mode_grp)
+        self.product_mode_combo = QComboBox()
+        for m in PRODUCT_MODES:
+            self.product_mode_combo.addItem(PRODUCT_MODE_LABELS[m], m)
+        mode_layout.addWidget(self.product_mode_combo)
+        left_layout.addWidget(mode_grp)
 
         # Diagnostics bar
         diag_grp = QGroupBox("Diagnostics")
@@ -719,6 +729,12 @@ class MainWindow(QMainWindow):
         else:
             self.preset_combo.setCurrentIndex(1) # Default to Balanced
 
+        # Restore product mode
+        mode = self.current_job.get_product_mode()
+        m_idx = self.product_mode_combo.findData(mode)
+        if m_idx >= 0:
+            self.product_mode_combo.setCurrentIndex(m_idx)
+
         # Restore crop selector geometry
         sd = self.current_job.settings.get("slide_detection", {})
         crop = sd.get("crop_region", {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0})
@@ -783,6 +799,7 @@ class MainWindow(QMainWindow):
         # Save settings first
         preset_name = self.preset_combo.currentText().lower().replace(" / ", "_").replace(" ", "_")
         self.current_job.settings["preset"] = preset_name
+        self.current_job.settings["product_mode"] = self.product_mode_combo.currentData()
         
         # Save Whisper settings
         w_settings = self.current_job.settings["whisper"]
@@ -1266,7 +1283,7 @@ class MainWindow(QMainWindow):
             edited_path = os.path.join(self.current_job.paths["transcript"], "edited.json")
             FileManager.write_json_atomic(edited_path, self.edited_data)
             self.transcript_status_lbl.setText("Segment reset to original.")
-            QTimer.singleShot(2000, lambda: self.transcript_status_lbl.setText(""))
+            QTimer.singleShot(2000, self._clear_transcript_status)
 
     def _save_corrections(self):
         if not self.current_job:
@@ -1295,7 +1312,16 @@ class MainWindow(QMainWindow):
         FileManager.write_json_atomic(edited_path, self.edited_data)
         
         self.transcript_status_lbl.setText("Corrections saved successfully.")
-        QTimer.singleShot(3000, lambda: self.transcript_status_lbl.setText(""))
+        QTimer.singleShot(3000, self._clear_transcript_status)
+
+    def _clear_transcript_status(self):
+        """Clear the transient transcript status label. Guarded because it is
+        invoked from a delayed single-shot timer that can outlive the window
+        (e.g. during test teardown), where the underlying Qt widget is gone."""
+        try:
+            self.transcript_status_lbl.setText("")
+        except RuntimeError:
+            pass
 
     def _on_delete_shortcut(self):
         if self.stack.currentIndex() == 2 and self.slides_view.hasFocus():

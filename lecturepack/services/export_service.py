@@ -16,7 +16,23 @@ class ExportService:
             self.log_callback(msg)
 
     def align_and_export(self):
-        """Runs the alignment algorithm and generates all exports."""
+        """Runs the alignment algorithm and generates the exports appropriate to
+        the job's product mode:
+
+            study_pack       slides.pdf + transcript.* + study-pack.html
+            transcript_only  transcript.* (no slide deck / study pack)
+            slides_only      slides.pdf (no transcript)
+        """
+        from lecturepack.constants import (
+            PRODUCT_MODE_STUDY_PACK, PRODUCT_MODE_TRANSCRIPT_ONLY,
+            PRODUCT_MODE_SLIDES_ONLY,
+        )
+        mode = self.job.get_product_mode() if hasattr(self.job, "get_product_mode") else PRODUCT_MODE_STUDY_PACK
+        want_slides = mode in (PRODUCT_MODE_STUDY_PACK, PRODUCT_MODE_SLIDES_ONLY)
+        want_transcript = mode in (PRODUCT_MODE_STUDY_PACK, PRODUCT_MODE_TRANSCRIPT_ONLY)
+        want_study_pack = mode == PRODUCT_MODE_STUDY_PACK
+        self.log(f"Product mode: {mode} (slides={want_slides}, transcript={want_transcript}, study_pack={want_study_pack})")
+
         # 1. Load accepted slides
         self.log("Loading candidate decisions...")
         candidates_path = os.path.join(self.job.paths["root"], "candidates.json")
@@ -175,47 +191,79 @@ class ExportService:
         os.makedirs(exports_dir, exist_ok=True)
 
         # 4.1 Slides PDF
-        pdf_path = os.path.join(exports_dir, "slides.pdf")
-        self.log(f"Compiling slide PDF to: {pdf_path}")
-        image_paths = []
-        for slide in accepted_slides:
-            if slide["image_filename"]:
-                img_p = os.path.join(self.job.paths["candidates"], slide["image_filename"])
-                if os.path.exists(img_p):
-                    image_paths.append(img_p)
+        if want_slides:
+            pdf_path = os.path.join(exports_dir, "slides.pdf")
+            self.log(f"Compiling slide PDF to: {pdf_path}")
+            image_paths = []
+            for slide in accepted_slides:
+                if slide["image_filename"]:
+                    img_p = os.path.join(self.job.paths["candidates"], slide["image_filename"])
+                    if os.path.exists(img_p):
+                        image_paths.append(img_p)
 
-        if image_paths:
-            with open(pdf_path, "wb") as f:
-                f.write(img2pdf.convert(image_paths))
+            if image_paths:
+                with open(pdf_path, "wb") as f:
+                    f.write(img2pdf.convert(image_paths))
 
-        # 4.2 TXT
-        self.log("Writing transcript TXT...")
-        txt_path = os.path.join(exports_dir, "transcript.txt")
-        with open(txt_path, 'w', encoding='utf-8') as f:
-            for seg in raw_segments:
-                t1 = datetime_from_seconds(seg["start"])
-                t2 = datetime_from_seconds(seg["end"])
-                f.write(f"[{t1} -> {t2}] {seg['text']}\n")
+        if want_transcript:
+            # 4.2 TXT
+            self.log("Writing transcript TXT...")
+            txt_path = os.path.join(exports_dir, "transcript.txt")
+            with open(txt_path, 'w', encoding='utf-8') as f:
+                for seg in raw_segments:
+                    t1 = datetime_from_seconds(seg["start"])
+                    t2 = datetime_from_seconds(seg["end"])
+                    f.write(f"[{t1} -> {t2}] {seg['text']}\n")
 
-        # 4.3 SRT
-        self.log("Writing transcript SRT...")
-        srt_path = os.path.join(exports_dir, "transcript.srt")
-        with open(srt_path, 'w', encoding='utf-8') as f:
-            for i, seg in enumerate(raw_segments):
-                t1 = datetime_from_seconds(seg["start"]).replace(".", ",")
-                t2 = datetime_from_seconds(seg["end"]).replace(".", ",")
-                f.write(f"{i+1}\n{t1} --> {t2}\n{seg['text']}\n\n")
+            # 4.3 SRT
+            self.log("Writing transcript SRT...")
+            srt_path = os.path.join(exports_dir, "transcript.srt")
+            with open(srt_path, 'w', encoding='utf-8') as f:
+                for i, seg in enumerate(raw_segments):
+                    t1 = datetime_from_seconds(seg["start"]).replace(".", ",")
+                    t2 = datetime_from_seconds(seg["end"]).replace(".", ",")
+                    f.write(f"{i+1}\n{t1} --> {t2}\n{seg['text']}\n\n")
 
-        # 4.4 JSON
-        self.log("Writing transcript JSON...")
-        json_path = os.path.join(exports_dir, "transcript.json")
-        FileManager.write_json_atomic(json_path, raw_segments)
+            # 4.4 JSON
+            self.log("Writing transcript JSON...")
+            json_path = os.path.join(exports_dir, "transcript.json")
+            FileManager.write_json_atomic(json_path, raw_segments)
+
+            # 4.4b Normalized transcript (Layer 2) as a readable paragraph export,
+            # sourced from the deterministic normalized.json produced in the pipeline.
+            self._write_normalized_export(exports_dir)
 
         # 4.5 HTML Study Pack
-        html_path = os.path.join(exports_dir, "study-pack.html")
-        self.log(f"Building self-contained HTML study pack: {html_path}")
-        self._generate_html_study_pack(html_path, aligned_data)
+        if want_study_pack:
+            html_path = os.path.join(exports_dir, "study-pack.html")
+            self.log(f"Building self-contained HTML study pack: {html_path}")
+            self._generate_html_study_pack(html_path, aligned_data)
         self.log("All exports completed successfully.")
+
+    def _write_normalized_export(self, exports_dir):
+        """Write transcript.normalized.txt from the Layer-2 normalized.json when
+        present. Paragraph-grouped, deterministic; proves the layered transcript
+        model reaches the exported artifacts. Best-effort and never fatal."""
+        try:
+            normalized_path = os.path.join(self.job.paths["transcript"], "normalized.json")
+            if not os.path.exists(normalized_path):
+                return
+            data = FileManager.read_json_safe(normalized_path, {})
+            segs = {int(s["id"]): s for s in data.get("segments", [])}
+            paragraphs = data.get("paragraphs", [])
+            out_path = os.path.join(exports_dir, "transcript.normalized.txt")
+            with open(out_path, "w", encoding="utf-8") as f:
+                if paragraphs:
+                    for para in paragraphs:
+                        text = " ".join(segs[i]["text"] for i in para if i in segs).strip()
+                        if text:
+                            f.write(text + "\n\n")
+                else:
+                    for s in data.get("segments", []):
+                        f.write(s.get("text", "") + "\n")
+            self.log(f"Wrote normalized transcript: {out_path}")
+        except Exception as e:
+            self.log(f"Normalized export skipped: {e}")
 
     def _generate_html_study_pack(self, html_path, aligned_data):
         slides_html = []

@@ -1,84 +1,98 @@
-# LecturePack v0.2.0 - Release Notes
+# LecturePack v1.0.0 (Unified) - Release Notes
 
 **Release Date:** July 2026
-**Tag:** `v0.2.0-portable-release`
-**Previous Release:** `v0.1.0-working-mvp`
+**Tag:** `v1.0.0-unified`
+**Previous Release:** `v0.4.0-adaptive-detection`
 
 ---
 
-## What's New in v0.2.0
+## What's New in v1.0.0
 
-### Portable Distribution
-- **PyInstaller onedir build** - self-contained portable package, no Python install needed
-- **Bundled binaries** - ffmpeg, ffprobe, and whisper.cpp included in the package
-- **Smart binary detection** - app auto-detects bundled binaries, system PATH, or user-configured paths
-- **Diagnostics bar** - visual status indicators for all dependencies on the setup screen
-- **Start button gating** - processing disabled until required dependencies (FFmpeg + Whisper) are confirmed
+### Layered, auditable transcript model
+A three-layer transcript pipeline replaces ad-hoc raw parsing
+(`lecturepack/services/transcript_service.py`):
 
-### Persistent Configuration
-- **Configurable paths** - ffmpeg, ffprobe, whisper.exe, and model paths are saved to `config.json` and persist across sessions
-- **Auto-detection on startup** - app scans for bundled binaries and system PATH on every launch
-- **Data directory** - job data stored in `~/LecturePackData/` (configurable)
+- **Layer 1 — Raw (immutable):** exact whisper.cpp output with per-token
+  confidence and a SHA-256 content hash that proves the raw layer is never
+  modified by later stages.
+- **Layer 2 — Normalized (deterministic, non-generative):** whitespace/punctuation
+  cleanup, hallucination-loop collapse, exact-duplicate merge and paragraph
+  grouping. Never changes a word, name, number, or fact.
+- **Layer 3 — Context Repair (optional, reversible):** LLM-assisted correction of
+  *likely mishearings only*, via a local OpenAI-compatible endpoint (LM Studio /
+  Ollama). Strict JSON-schema validation, invented-name guardrails, and
+  per-correction accept/reject with the original always recoverable.
 
-### Improved UX
-- **Nonblocking diagnostics** - no popup warnings on launch; status shown inline
-- **Version in title bar** - application version displayed in window title
-- **Drag-and-drop video selection** - drag video files directly onto the setup screen
+The normalized layer now runs inside the pipeline: after transcription the
+controller writes `transcript/normalized.json` and `transcript/context_candidates.json`,
+and exports include a paragraph-grouped `transcript.normalized.txt`.
+
+### Product modes
+A single **Output** selector on the setup screen chooses what to produce:
+
+| Mode | Stages run | Exports |
+|------|-----------|---------|
+| **Study Pack** (default) | audio → transcribe → detect → align | slides.pdf, transcript.*, study-pack.html |
+| **Transcript Only** | audio → transcribe | transcript.txt / .srt / .json / .normalized.txt |
+| **Slides Only** | detect slides | slides.pdf |
+
+Stage gating lives in `JobController`; export selection in `ExportService`.
+
+### Slide-detector precision guards
+Two general, preset-gated guards added to `cv_engine.py`:
+
+- **Overlay-band rejection** — progressive-build changes confined to the bottom
+  caption/subtitle band are ignored (live captions, burnt-in subtitles).
+- **Major-change persistence** — a "major change" whose captured frame is not
+  still present ~1 s later is rejected, so fade/dissolve transitions no longer
+  produce a spurious mid-blend slide.
+
+Measured on the ground-truth fixture (`tests/fixtures/synthetic_lecture.mp4`,
+no ignore masks — the algorithm must reject the mouse pointer, fade, webcam
+noise and captions on its own):
+
+| Preset | Before | After | Meets targets* |
+|--------|--------|-------|----------------|
+| **Balanced** (default) | P=0.67 R=0.75 F1=0.71 | **P=1.00 R=1.00 F1=1.00** | ✅ |
+| Detailed | P=0.73 R=1.00 F1=0.84 | P=0.89 R=1.00 F1=0.94 | ✅ |
+| Conservative | P=0.83 R=0.63 | P=0.83 R=0.63 | ✗ (low-sensitivity by design) |
+
+\* Targets: recall ≥ 0.95, precision ≥ 0.85, candidate count within 20% of the
+true slide count, zero missed slides. Locked in as regression tests
+(`tests/test_detection_targets.py`).
+
+### Version consolidation
+The package version, `constants.APP_VERSION`, the window title, and new-job
+manifests all now report **1.0.0** (previously 0.2.1 / 0.4.0 / 0.1.0 disagreed).
 
 ---
 
-## Validated Features
+## Verified in this build
 
-This release was validated against a real 71.7-minute lecture recording (CL100 - Day 2 - Egypt and Archaeology):
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Video inspection | Verified | 1024x768, 4300.4s, H.264 |
-| Audio extraction | Verified | 16kHz mono WAV via ffmpeg |
-| Transcription | Verified | base.en model, 630 lines, 49KB |
-| Slide detection | Verified | 128 candidates (67 well-spaced + 61 dense cluster) |
-| Alignment | Verified | Transcript segments aligned to slides |
-| Review UI | Verified | Accept/reject workflow functional |
-| PDF export | Verified | 82MB slides PDF |
-| HTML study pack | Verified | 109MB self-contained HTML |
+- **Test suite:** 53 passed (Windows, Python 3.12.3, PySide6 6.11.1). Includes
+  the real slide detector run against the fixture and the full controller
+  pipeline (mock ffmpeg/whisper) for each product mode.
+- **Real whisper.cpp transcription:** bundled `whisper-cli.exe` + `ggml-base.en`
+  transcribed a 42 s 16 kHz WAV (exit 0), producing full token-level JSON that
+  parses through all three transcript layers with the raw content hash unchanged.
+- **Slide detection:** default preset scores P=1.00 / R=1.00 on the ground-truth
+  fixture (see table above).
 
 ---
 
 ## Known Limitations
 
-### Whisper Transcription
-- **Proper nouns and technical terms** - The `base.en` model may mishear specialized vocabulary. Examples from validation:
-  - "Abu Simbel" misheard
-  - "Tutankhamun" transcription errors
-  - This is inherent to the model, not a bug in LecturePack
-- **Recommendation:** Use the `medium.en` or `large-v3` model for better accuracy (requires more RAM and disk)
-
-### Slide Detection
-- **Dense transition clusters** - When many slides appear in rapid succession (< 1.5s apart), the detector may count each individual transition as a separate candidate
-- **Validation finding (CL100):** 128 candidates were produced from a 71.7-minute lecture; a dense cluster exists around 29:18–35:21 where 61 candidates appeared in ~6 minutes
-- **Programmatic analysis:** Frame-difference analysis found substantial visual activity in the dense cluster, but it could not determine whether each occurrence was a distinct slide, progressive build, animation, transition, or video content
-- **No thresholds were changed** to produce fewer candidates — the dense cluster reflects genuine frame-to-frame differences
-- **Manual review remains recommended** — no claim can be made about an optimal candidate count without human visual inspection of each transition
-- **Validation finding (m2-res_1080p):** 7 candidates from a 42-second video, all visually distinct frames correctly detected
-
-### Platform
-- **Windows only** - This is a Windows x64 build
-- **No GPU acceleration** - Whisper runs on CPU only (SSE4.2+ required)
-- **Unsigned binary** - Windows SmartScreen may warn on first launch
-
----
-
-## Binary Sizes
-
-| File | Size |
-|------|------|
-| ffmpeg.exe | 82.5 MB |
-| ffprobe.exe | 82.3 MB |
-| whisper-cli.exe | 0.5 MB |
-| whisper.dll | 1.3 MB |
-| ggml-base.dll | 0.6 MB |
-| ggml-cpu-*.dll (9 variants) | ~0.8 MB each |
-| **Total ZIP** | ~340 MB |
+- **Whisper accuracy** — the `base.en` model may mishear proper nouns and
+  technical terms (e.g. "Abu Simbel", "Tutankhamun"). Use a larger model or the
+  optional Context Repair layer with an approved-names glossary. This is inherent
+  to the model, not a bug.
+- **Conservative preset** — intentionally low-sensitivity; it under-captures
+  fast slide changes and does not meet the ground-truth targets. Use Balanced
+  (default) or Detailed for full coverage.
+- **Context Repair** — requires a locally running OpenAI-compatible endpoint; the
+  app is fully functional with none configured.
+- **Platform** — Windows x64, CPU-only Whisper (SSE4.2+). Unsigned binary;
+  SmartScreen may warn on first launch.
 
 ---
 
@@ -87,30 +101,14 @@ This release was validated against a real 71.7-minute lecture recording (CL100 -
 - **Python:** 3.12.3
 - **PyInstaller:** 6.21.0
 - **PySide6:** 6.11.1
-- **FFmpeg:** 7.0.1 (gyan.dev essentials, GPL build)
-- **whisper.cpp:** Latest release build (CPU-only, no Vulkan/CUDA)
+- **OpenCV:** opencv-python-headless 5.0.0 · **numpy:** 2.5.1
+- **FFmpeg:** bundled (GPL build) · **whisper.cpp:** CPU-only, 9 ggml-cpu variants
 - **Platform:** Windows 10/11 x64
-- **Whisper CPU backends:** 9 variants bundled (alderlake, cannonlake, cascadelake, haswell, icelake, sandybridge, skylakex, sse42, x64). whisper.cpp auto-selects the optimal variant at runtime based on CPU features. On the validation machine (i7-9700F / Coffee Lake), `ggml-cpu-haswell.dll` was loaded. All variants are retained for cross-CPU compatibility; removing specific variants risks breaking on different processors.
-
-### Packaging fix (v0.2.1)
-- Removed `unittest` and `pydoc` from PyInstaller excludes — scipy/numpy require these at runtime
-- The initial v0.2.0 build crashed on launch with `ModuleNotFoundError: No module named 'unittest'`
-
----
-
-## Upgrade from v0.1.0
-
-If upgrading from v0.1.0 (source-only release):
-1. Download and extract the new portable ZIP
-2. Your existing job data in `~/LecturePackData/` is fully compatible
-3. Copy your `config.json` from the old installation, or let the app auto-detect paths
 
 ---
 
 ## License
 
-See `THIRD_PARTY_NOTICES.txt` for complete third-party license information.
-
-The FFmpeg binary included in this distribution is compiled with GPL-licensed
-code (libx264, libx265). Under the GPL, source code availability must be
-offered if this package is redistributed.
+See `THIRD_PARTY_NOTICES.txt` for complete third-party license information. The
+FFmpeg binary is compiled with GPL-licensed code (libx264/libx265); under the
+GPL, source availability must be offered if this package is redistributed.

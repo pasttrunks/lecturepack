@@ -2,8 +2,18 @@ import os
 from PySide6.QtCore import QObject, Signal, QThread
 from lecturepack.constants import (
     STAGE_INSPECT, STAGE_EXTRACT_AUDIO, STAGE_TRANSCRIBE,
-    STAGE_DETECT_SLIDES, STAGE_ALIGN, STAGE_REVIEW_READY, STAGE_EXPORT, STAGES
+    STAGE_DETECT_SLIDES, STAGE_ALIGN, STAGE_REVIEW_READY, STAGE_EXPORT, STAGES,
+    PRODUCT_MODE_STUDY_PACK, PRODUCT_MODE_TRANSCRIPT_ONLY, PRODUCT_MODE_SLIDES_ONLY,
 )
+
+# Processing stages that are not applicable to a given product mode. INSPECT,
+# ALIGN (which produces the mode-aware exports), REVIEW_READY and EXPORT always
+# run; ALIGN degrades gracefully when a side (slides or transcript) is absent.
+STAGES_SKIPPED_BY_MODE = {
+    PRODUCT_MODE_STUDY_PACK: set(),
+    PRODUCT_MODE_TRANSCRIPT_ONLY: {STAGE_DETECT_SLIDES},
+    PRODUCT_MODE_SLIDES_ONLY: {STAGE_EXTRACT_AUDIO, STAGE_TRANSCRIBE},
+}
 from lecturepack.infrastructure.ffmpeg_wrapper import FFmpegWrapper
 from lecturepack.infrastructure.whisper_wrapper import WhisperWrapper
 from lecturepack.infrastructure.cv_engine import SlideDetectorWorker
@@ -100,18 +110,35 @@ class JobController(QObject):
 
         self.run_next_stage()
 
+    def _skipped_stages(self):
+        """Stages that should not run for the current job's product mode."""
+        if not self.job:
+            return set()
+        mode = self.job.get_product_mode()
+        return STAGES_SKIPPED_BY_MODE.get(mode, set())
+
     def run_next_stage(self):
         # Find next pending stage
         next_stage = None
+        skipped = self._skipped_stages()
         for stage in STAGES:
             # We don't auto-run STAGE_EXPORT during main pipeline, it is triggered after review
             if stage == STAGE_EXPORT:
                 continue
-            
+
             status = self.job.get_stage_status(stage)
-            if status != "completed":
-                next_stage = stage
-                break
+            if status == "completed":
+                continue
+
+            # Product-mode gating: mark inapplicable stages completed and move on.
+            if stage in skipped:
+                self.stage_log.emit(stage, f"Skipped for product mode '{self.job.get_product_mode()}'.\n")
+                self.job.set_stage_status(stage, "completed")
+                self.stage_finished.emit(stage, True, "")
+                continue
+
+            next_stage = stage
+            break
 
         if not next_stage:
             # All processing stages completed
@@ -215,6 +242,7 @@ class JobController(QObject):
     def _handle_whisper_finished(self, success, error_msg):
         if success:
             self.stage_log.emit(STAGE_TRANSCRIBE, "Transcription completed.\n")
+            self._build_normalized_transcript()
             self.job.set_stage_status(STAGE_TRANSCRIBE, "completed")
             self.stage_finished.emit(STAGE_TRANSCRIBE, True, "")
             self.run_next_stage()
@@ -223,6 +251,46 @@ class JobController(QObject):
             self.job.set_stage_status(STAGE_TRANSCRIBE, "failed", error_msg)
             self.stage_finished.emit(STAGE_TRANSCRIBE, False, error_msg)
             self.pipeline_failed.emit(error_msg)
+
+    def _build_normalized_transcript(self):
+        """Layer the raw whisper.cpp output into the deterministic normalized
+        transcript (services.transcript_service) and write the auditable
+        artifacts. The raw layer is never modified. Failures here never fail the
+        pipeline -- the raw transcript remains the source of truth."""
+        try:
+            import json
+            from lecturepack.services import transcript_service as ts
+            from lecturepack.infrastructure.file_manager import FileManager
+
+            transcript_dir = self.job.paths["transcript"]
+            raw_path = os.path.join(transcript_dir, "raw.json")
+            if not os.path.exists(raw_path):
+                self.stage_log.emit(STAGE_TRANSCRIBE, "Normalization skipped: raw.json not found.\n")
+                return
+
+            with open(raw_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            filename = self.job.manifest.get("source", {}).get("filename", "")
+            raw = ts.parse_raw_whisper_json(data, meta={"source": filename, "job_id": self.job.job_id})
+            norm = ts.normalize_transcript(raw)
+
+            FileManager.write_json_atomic(
+                os.path.join(transcript_dir, "normalized.json"), norm.to_dict())
+
+            candidates = ts.propose_entity_candidates(norm, filename=filename)
+            FileManager.write_json_atomic(
+                os.path.join(transcript_dir, "context_candidates.json"),
+                [c.to_dict() for c in candidates])
+
+            self.stage_log.emit(
+                STAGE_TRANSCRIBE,
+                f"Normalized transcript: {len(raw.segments)} raw -> {len(norm.segments)} "
+                f"segments, {len(norm.paragraphs)} paragraphs, "
+                f"{len(candidates)} context candidates (raw hash {raw.content_hash()[:12]}).\n")
+        except Exception as e:
+            # Never let the optional layer break the pipeline.
+            self.stage_log.emit(STAGE_TRANSCRIBE, f"Normalization skipped: {e}\n")
 
     def _run_detect_slides(self):
         video_path = self.job.manifest["source"]["original_path"]
