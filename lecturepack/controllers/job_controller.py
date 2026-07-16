@@ -38,11 +38,17 @@ class AlignWorker(QThread):
         except Exception as e:
             self.finished.emit(False, str(e))
 
+# Bump when the detector algorithm changes in a way that invalidates cached
+# detection results (part of the detection stage cache key).
+DETECTOR_VERSION = "v1.1.0-piped-1"
+
+
 class JobController(QObject):
     stage_started = Signal(str)
     stage_progress = Signal(str, int)
     stage_log = Signal(str, str)
     stage_finished = Signal(str, bool, str)
+    stage_cached = Signal(str)  # stage skipped because its cache key matches
     backend_info = Signal(str)  # human-readable engine/backend line for the status bar
 
     pipeline_completed = Signal()
@@ -69,6 +75,12 @@ class JobController(QObject):
         self._active_stages = set()
         self._group_error = None
         self._cancelling = False
+        # Latched by cancel(); prevents a late stage-finished event (e.g. a
+        # process that ignored terminate()) from restarting the pipeline.
+        self._user_cancelled = False
+        # Workers replaced while still winding down are parked here so their
+        # QThread objects are never garbage-collected while running.
+        self._retired_workers = []
 
         # Connect ffmpeg signals
         self.ffmpeg_wrapper.progress.connect(self._handle_ffmpeg_log)
@@ -100,6 +112,7 @@ class JobController(QObject):
             return
 
         self._cancelling = True
+        self._user_cancelled = True
         for stage in active:
             self.stage_log.emit(stage, "Cancelling stage...\n")
             if stage == STAGE_EXTRACT_AUDIO:
@@ -128,6 +141,7 @@ class JobController(QObject):
             self.pipeline_failed.emit("No job loaded.")
             return
 
+        self._user_cancelled = False
         # Check overall state or reset failed/cancelled stages
         for stage in STAGES:
             status = self.job.get_stage_status(stage)
@@ -143,6 +157,75 @@ class JobController(QObject):
         mode = self.job.get_product_mode()
         return STAGES_SKIPPED_BY_MODE.get(mode, set())
 
+    # ------------------------------------------------------------------ #
+    # Stage cache keys (Phase 8). A completed stage is only trusted when its
+    # recorded fingerprint still matches the current source + settings.
+    # ------------------------------------------------------------------ #
+    def _fingerprints_path(self):
+        return os.path.join(self.job.paths["root"], "stage_fingerprints.json")
+
+    def _stage_fingerprint(self, stage):
+        import hashlib
+        import json
+        src = self.job.manifest.get("source", {}).get("original_path", "")
+        try:
+            st = os.stat(src)
+            src_sig = [src, st.st_size, int(st.st_mtime)]
+        except OSError:
+            src_sig = [src, 0, 0]
+        w = self.job.settings.get("whisper", {})
+        payload = None
+        if stage == STAGE_EXTRACT_AUDIO:
+            payload = {"src": src_sig}
+        elif stage == STAGE_TRANSCRIBE:
+            payload = {
+                "src": src_sig,
+                "model": os.path.basename(w.get("model", "")),
+                "engine": w.get("engine", "auto"),
+                "glossary": w.get("glossary", ""),
+                "language": w.get("language", "en"),
+                "vad": [bool(w.get("vad_enabled")),
+                        os.path.basename(w.get("vad_model", "")),
+                        w.get("vad_threshold"), w.get("vad_min_speech_duration_ms"),
+                        w.get("vad_min_silence_duration_ms")],
+            }
+        elif stage == STAGE_DETECT_SLIDES:
+            sd = self.job.settings.get("slide_detection", {})
+            payload = {
+                "src": src_sig,
+                "preset": self.job.settings.get("preset", ""),
+                "detector_version": DETECTOR_VERSION,
+                "crop": sd.get("crop_region"),
+                "masks": sd.get("ignore_masks"),
+            }
+        if payload is None:
+            return None
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def _record_stage_fingerprint(self, stage):
+        fp = self._stage_fingerprint(stage)
+        if fp is None:
+            return
+        from lecturepack.infrastructure.file_manager import FileManager
+        data = FileManager.read_json_safe(self._fingerprints_path(), {}) or {}
+        data[stage] = fp
+        FileManager.write_json_atomic(self._fingerprints_path(), data)
+
+    def _stage_cache_valid(self, stage):
+        """A completed stage stays completed only while its inputs match.
+        Jobs from before v1.1 have no recorded fingerprints; they are trusted
+        (legacy behaviour) and gain fingerprints on their next run."""
+        fp = self._stage_fingerprint(stage)
+        if fp is None:
+            return True
+        from lecturepack.infrastructure.file_manager import FileManager
+        data = FileManager.read_json_safe(self._fingerprints_path(), {}) or {}
+        recorded = data.get(stage)
+        if recorded is None:
+            return True
+        return recorded == fp
+
     def run_next_stage(self):
         if self._active_stages:
             return  # a parallel group is still running
@@ -154,7 +237,13 @@ class JobController(QObject):
             if stage == STAGE_EXPORT:
                 continue
             if self.job.get_stage_status(stage) == "completed":
-                continue
+                if self._stage_cache_valid(stage):
+                    self.stage_cached.emit(stage)
+                    continue
+                # Inputs changed since this stage last ran -- invalidate it.
+                self.stage_log.emit(
+                    stage, "Settings or source changed since the last run; re-running stage.\n")
+                self.job.set_stage_status(stage, "pending")
             # Product-mode gating: mark inapplicable stages completed and move on.
             if stage in skipped:
                 self.stage_log.emit(stage, f"Skipped for product mode '{self.job.get_product_mode()}'.\n")
@@ -213,12 +302,20 @@ class JobController(QObject):
         """Common completion path for every stage; drives the parallel group."""
         if self._cancelling:
             return
+        if self._user_cancelled:
+            # A worker finished after the user cancelled (Windows console
+            # processes can ignore terminate()); never resume the pipeline.
+            self._active_stages.discard(stage)
+            if self.job is not None and self.job.get_stage_status(stage) != "cancelled":
+                self.job.set_stage_status(stage, "cancelled")
+            return
         self._active_stages.discard(stage)
         if stage == self.current_stage:
             self.current_stage = next(iter(self._active_stages), None)
 
         if success:
             self.job.set_stage_status(stage, "completed")
+            self._record_stage_fingerprint(stage)
             self.stage_finished.emit(stage, True, "")
         else:
             self.job.set_stage_status(stage, "failed", error_msg)
@@ -365,6 +462,19 @@ class JobController(QObject):
             self.stage_log.emit(STAGE_TRANSCRIBE, f"Normalization skipped: {e}\n")
 
     def _run_detect_slides(self, parallel=False):
+        # Never let a still-running worker be replaced (and garbage-collected
+        # mid-run): retire it and keep a reference until its thread exits.
+        if self.slide_worker is not None and self.slide_worker.isRunning():
+            self.slide_worker.cancel()
+            try:
+                self.slide_worker.finished.disconnect(self._handle_detect_finished)
+            except Exception:
+                pass
+            self._retired_workers.append(self.slide_worker)
+            self.slide_worker.finished.connect(
+                lambda *_a, w=self.slide_worker: self._reap_retired(w))
+        self._retired_workers = [w for w in self._retired_workers if w.isRunning()]
+
         video_path = self.job.manifest["source"]["original_path"]
         crop = self.job.settings["slide_detection"]["crop_region"]
         masks = self.job.settings["slide_detection"]["ignore_masks"]
@@ -382,6 +492,12 @@ class JobController(QObject):
         self.slide_worker.status_message.connect(lambda m: self.stage_log.emit(STAGE_DETECT_SLIDES, m + "\n"))
         self.slide_worker.finished.connect(self._handle_detect_finished)
         self.slide_worker.start()
+
+    def _reap_retired(self, worker):
+        """Drop a retired detector worker once its thread has fully exited."""
+        worker.wait(100)
+        self._retired_workers = [w for w in self._retired_workers
+                                 if w is not worker and w.isRunning()]
 
     def _handle_detect_finished(self, success, error_msg, candidates):
         if success:
@@ -415,6 +531,7 @@ class JobController(QObject):
         if not self.job:
             return
 
+        self._user_cancelled = False
         self.current_stage = STAGE_EXPORT
         self.stage_started.emit(STAGE_EXPORT)
         self.job.set_stage_status(STAGE_EXPORT, "running")
@@ -442,6 +559,7 @@ class JobController(QObject):
             self.pipeline_failed.emit("No job loaded.")
             return
 
+        self._user_cancelled = False
         self.retranscribe_only = True
 
         # Set stages status:

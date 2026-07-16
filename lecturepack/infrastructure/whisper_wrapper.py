@@ -140,8 +140,14 @@ class WhisperWrapper(QObject):
         self.process.start(program, args)
 
     def cancel(self):
+        """Stop the transcription process. terminate() posts WM_CLOSE, which
+        console processes on Windows ignore -- so escalate to kill() to
+        guarantee no orphaned whisper-cli survives a cancel."""
         if self.process and self.process.state() == QProcess.ProcessState.Running:
             self.process.terminate()
+            if not self.process.waitForFinished(300):
+                self.process.kill()
+                self.process.waitForFinished(2000)
 
     def _handle_ready_read(self):
         data = self.process.readAllStandardOutput().data().decode('utf-8', errors='ignore')

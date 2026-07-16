@@ -66,71 +66,16 @@ class ExportService:
                 "end": max(start, end)
             })
 
-        # 2. Load transcript segments
+        # 2. Load transcript segments through the v1.1 working layer, which
+        # already applies user text edits and structural split/merge edits on
+        # top of the immutable raw output. Old jobs without a working.json
+        # load raw + legacy edited.json identically to v1.0.
         self.log("Parsing transcript segments...")
-        transcript_json_path = os.path.join(self.job.paths["root"], "transcript", "raw.json")
-        transcript_data = FileManager.read_json_safe(transcript_json_path, {})
-        
-        # Parse segments
-        raw_segments = []
-        if isinstance(transcript_data, dict):
-            # whisper.cpp json format (check both nested and root level)
-            transcription = transcript_data.get("result", {}).get("transcription", [])
-            if not transcription and "transcription" in transcript_data:
-                transcription = transcript_data["transcription"]
-                
-            for i, seg in enumerate(transcription):
-                offsets = seg.get("offsets", {})
-                start_sec = offsets.get("from", 0) / 1000.0
-                end_sec = offsets.get("to", 0) / 1000.0
-                text = seg.get("text", "").strip()
-                raw_segments.append({
-                    "id": i + 1,
-                    "start": start_sec,
-                    "end": end_sec,
-                    "text": text
-                })
-        
-        if not raw_segments:
-            # Fallback to loading raw.txt if json is missing or empty
-            raw_txt_path = os.path.join(self.job.paths["root"], "transcript", "raw.txt")
-            if os.path.exists(raw_txt_path):
-                with open(raw_txt_path, 'r', encoding='utf-8') as f:
-                    for i, line in enumerate(f):
-                        line = line.strip()
-                        if not line:
-                            continue
-                        if line.startswith("[") and "->" in line:
-                            try:
-                                parts = line.split("]", 1)
-                                ts_part = parts[0][1:]
-                                text_part = parts[1].strip()
-                                t1, t2 = ts_part.split("->")
-                                def to_sec(s):
-                                    s = s.strip()
-                                    h, m, sec = s.split(":")
-                                    return int(h)*3600 + int(m)*60 + float(sec)
-                                start_sec = to_sec(t1)
-                                end_sec = to_sec(t2)
-                                raw_segments.append({
-                                    "id": i + 1,
-                                    "start": start_sec,
-                                    "end": end_sec,
-                                    "text": text_part
-                                })
-                            except Exception:
-                                pass
-
-        # Apply transcript corrections if edited.json exists
-        edited_json_path = os.path.join(self.job.paths["transcript"], "edited.json")
-        if os.path.exists(edited_json_path):
-            edited_data = FileManager.read_json_safe(edited_json_path, {})
-            for seg in raw_segments:
-                seg_id_str = str(seg["id"])
-                if seg_id_str in edited_data:
-                    seg["text"] = edited_data[seg_id_str]
-
-        # Sort segments
+        from lecturepack.services import transcript_store
+        raw_segments = [
+            {"id": s["id"], "start": s["start"], "end": s["end"], "text": s["text"]}
+            for s in transcript_store.load_working(self.job.paths)
+        ]
         raw_segments.sort(key=lambda s: s["start"])
 
         # 3. Alignment

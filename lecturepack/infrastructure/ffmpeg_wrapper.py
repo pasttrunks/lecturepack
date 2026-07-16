@@ -138,8 +138,13 @@ class FFmpegWrapper(QObject):
         self.process.start(program, args)
 
     def cancel(self):
+        """Stop the extraction process; escalate terminate() to kill() because
+        Windows console processes ignore WM_CLOSE (prevents orphaned ffmpeg)."""
         if self.process and self.process.state() == QProcess.ProcessState.Running:
             self.process.terminate()
+            if not self.process.waitForFinished(300):
+                self.process.kill()
+                self.process.waitForFinished(2000)
 
     def _handle_ready_read(self):
         data = self.process.readAllStandardOutput().data().decode('utf-8', errors='ignore')
