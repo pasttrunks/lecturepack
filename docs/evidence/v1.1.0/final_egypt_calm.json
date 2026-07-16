@@ -13,10 +13,10 @@
     "Saqqara"
   ],
   "stage_times": {
-    "Inspect": 0.09,
-    "Extract Audio": 0.4,
-    "Detect Slides": 43.91,
-    "Transcribe": 49.74,
+    "Inspect": 0.08,
+    "Extract Audio": 0.39,
+    "Transcribe": 25.56,
+    "Detect Slides": 31.6,
     "Align": 0.18,
     "Review Ready": 0.01
   },
@@ -32,9 +32,9 @@
     "model_ok": true
   },
   "product_mode": "study_pack",
-  "job_id": "991a12f6-47a2-40ea-8b67-ec0d70f8751f",
-  "job_path": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\991a12f6-47a2-40ea-8b67-ec0d70f8751f",
-  "pipeline_seconds": 50.42,
+  "job_id": "e7043557-aec1-484f-9359-d03f10646cd4",
+  "job_path": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\e7043557-aec1-484f-9359-d03f10646cd4",
+  "pipeline_seconds": 32.28,
   "pipeline_completed": true,
   "stage_status": {
     "Inspect": "completed",
@@ -48,28 +48,28 @@
   "artifacts": {
     "raw_json": [
       true,
-      253538,
-      1784184118777684100
+      250741,
+      1784184623113793200
     ],
     "normalized_json": [
       true,
-      11509,
-      1784184118853685300
+      12455,
+      1784184623268793400
     ],
     "context_candidates": [
       true,
-      575,
-      1784184118855686300
+      670,
+      1784184623269795900
     ],
     "audio_wav": [
       true,
       12480206,
-      1784184069102161100
+      1784184597704837700
     ],
     "candidates_json": [
       true,
       4244,
-      1784184113029685300
+      1784184629313060300
     ]
   },
   "candidate_count": 6,
@@ -85,9 +85,9 @@
     "real_proposals": 4,
     "mechanism_demo": false,
     "total_proposals": 4,
-    "accepted_segment": 5,
-    "rejected_segment": 13,
-    "raw_hash": "29d8193df79e72677d6029110403e766276613db1bbc52fadf3f3698be77af22",
+    "accepted_segment": 7,
+    "rejected_segment": 17,
+    "raw_hash": "ef8e1ed4f1ce5d225833279583e0589c4bba50836d8b0c9723f6152a3d09c523",
     "accepted_count": 1,
     "rejected_count": 1,
     "reversible": true
@@ -96,78 +96,78 @@
     "slides.pdf": [
       true,
       2564828,
-      1784184118997716300
+      1784184629463374000
     ],
     "study-pack.html": [
       true,
-      3434909,
-      1784184119034684300
+      3435594,
+      1784184629498376200
     ],
     "transcript.txt": [
       true,
-      4821,
-      1784184118998684000
+      4945,
+      1784184629464374000
     ],
     "transcript.srt": [
       true,
-      4944,
-      1784184118999698000
+      5086,
+      1784184629466388100
     ],
     "transcript.json": [
       true,
-      6330,
-      1784184119000684800
+      6655,
+      1784184629467374500
     ],
     "transcript.md": [
       true,
-      4491,
-      1784184119001684800
+      4570,
+      1784184629467374500
     ],
     "transcript.jsonl": [
       true,
-      5271,
-      1784184119002685200
+      5452,
+      1784184629468373000
     ],
     "transcript.csv": [
       true,
-      4793,
-      1784184119003685200
+      4907,
+      1784184629469374500
     ],
     "transcript.vtt": [
       true,
-      4952,
-      1784184119003685200
+      5094,
+      1784184629469374500
     ],
     "transcript.normalized.txt": [
       true,
-      4120,
-      1784184119014685500
+      4148,
+      1784184629479394800
     ],
     "transcript.sections.md": [
       true,
-      4926,
-      1784184119004684300
+      5006,
+      1784184629470373200
     ]
   },
-  "exports_dir": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\991a12f6-47a2-40ea-8b67-ec0d70f8751f\\exports",
+  "exports_dir": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\e7043557-aec1-484f-9359-d03f10646cd4\\exports",
   "parse_checks": {
     "json": {
-      "segments": 22,
+      "segments": 25,
       "ordered": true
     },
     "jsonl": {
-      "rows": 22
+      "rows": 25
     },
     "csv": {
-      "rows": 22
+      "rows": 25
     },
     "transcript.srt": {
       "has_arrows": true,
-      "chars": 4856
+      "chars": 4986
     },
     "transcript.vtt": {
       "has_arrows": true,
-      "chars": 4863
+      "chars": 4993
     }
   },
   "restore": {

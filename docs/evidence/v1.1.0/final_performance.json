@@ -1,0 +1,88 @@
+{
+  "description": "v1.1.0 FINAL performance, measured with the PACKAGED executable (LecturePack-portable-1.1.0.zip extracted to a clean path WITH SPACES: 'C:/Users/marsh/AppData/Local/Temp/LecturePack Clean Validate 1.1'), --run-acceptance, engine=auto (resolved to Vulkan via vulkan_benchmark_ok), parallel pipeline on, model ggml-base.en.bin, glossary applied. Same hardware and media as baseline_performance.json.",
+  "recorded_at": "2026-07-16",
+  "engine": {
+    "backend": "whisper.cpp v1.9.1 Vulkan (Radeon RX Vega 56) + verified CPU fallback",
+    "scheduler": "transcribe + detect concurrent",
+    "detector_decode": "piped two-pass (FFmpeg analysis stream + full-res capture at accepted candidates)"
+  },
+  "runs": {
+    "m2-res_1080p.mp4": {
+      "video_duration_sec": 42.0,
+      "pipeline_seconds": 10.01,
+      "baseline_pipeline_seconds": 21.54,
+      "improvement": "-53.5%",
+      "stage_times_sec": {"Inspect": 0.76, "Extract Audio": 0.75, "Transcribe": 8.1, "Detect Slides": 5.9, "Align": 0.38},
+      "candidate_count": 2,
+      "baseline_candidate_count": 2,
+      "transcript_segments": 3,
+      "peak_working_set_mb": 542,
+      "orphaned_processes_after": 0,
+      "acceptance_ok": true
+    },
+    "egypt_calm_excerpt.mp4 (4:30-11:00 of full lecture, 390s)": {
+      "video_duration_sec": 390.1,
+      "pipeline_seconds": 32.28,
+      "stage_times_sec": {"Inspect": 0.08, "Extract Audio": 0.39, "Transcribe": 25.56, "Detect Slides": 31.6, "Align": 0.18},
+      "candidate_count": 6,
+      "transcript_segments": 25,
+      "peak_working_set_mb": 564,
+      "orphaned_processes_after": 0,
+      "acceptance_ok": true,
+      "note": "no v1.0.1 baseline for this exact excerpt; 12.1x realtime"
+    },
+    "egypt_excerpt.m4v (video-heavy, 363s)": {
+      "video_duration_sec": 363.1,
+      "pipeline_seconds": 47.59,
+      "baseline_pipeline_seconds": 156.22,
+      "improvement": "-69.5%",
+      "stage_times_sec": {"Inspect": 0.08, "Extract Audio": 0.41, "Transcribe": 31.29, "Detect Slides": 46.77, "Align": 0.3},
+      "candidate_count": 11,
+      "baseline_candidate_count": 13,
+      "transcript_segments": 70,
+      "peak_working_set_mb": 566,
+      "orphaned_processes_after": 0,
+      "acceptance_ok": true,
+      "note": "candidate delta is phase variance inside the embedded-video section (transient scene keyframes); calm-section ground truth P=R=1.0 identical to v1.0.1"
+    },
+    "CL100 - Day 2 - Egypt and Archaeology.m4v (FULL lecture, 71.7 min)": {
+      "video_duration_sec": 4300.4,
+      "pipeline_seconds": 369.79,
+      "baseline_pipeline_seconds": 833.7,
+      "improvement": "-55.6%",
+      "meets_30pct_target": true,
+      "meets_10min_stretch_target": true,
+      "stage_times_sec": {"Inspect": 0.11, "Extract Audio": 4.25, "Transcribe": 260.45, "Detect Slides": 363.15, "Align": 2.25},
+      "baseline_stage_times_sec": {"Transcribe": 450.66, "Detect Slides": 378.11},
+      "scheduler_note": "stages overlap; wall = slower branch (detect 363s) + overhead, not the sum (623s of stage work in 370s wall)",
+      "candidate_count": 79,
+      "baseline_candidate_count": 81,
+      "transcript_segments": 361,
+      "baseline_transcript_segments": 630,
+      "segment_count_note": "segments are longer, not fewer words: the v1.1 acceptance path now actually applies the glossary --prompt (v1.0.1 acceptance silently dropped it) and whisper.cpp v1.9.1 segments longer phrases; all text content and timestamps present, json/jsonl/csv parse ordered",
+      "context_repair_proposals": 19,
+      "reexport_no_rerun": true,
+      "exports": {
+        "slides.pdf_mb": 47.4, "study-pack.html_mb": 63.5,
+        "transcript_formats": ["txt", "srt", "json", "md", "jsonl", "csv", "vtt", "normalized.txt", "sections.md"]
+      },
+      "peak_working_set_mb": 1164,
+      "orphaned_processes_after": 0,
+      "acceptance_ok": true
+    }
+  },
+  "test_suite_final": {"pytest": "106 passed (see full run in release notes)"},
+  "selftest": "SELFTEST PASS: LecturePack v1.1.0 launched, cv2 5.0.0, PySide6 6.11.1, offscreen OK (from clean extraction path with spaces)",
+  "acceptance_targets": {
+    "1_no_context_repair_crash": "PASS - 16 automated fault-isolation tests (context_repair_failure_tests.txt)",
+    "2_selection_obvious_both_themes": "PASS - pixel-level test + light/dark screenshots",
+    "3_dedicated_transcript_views": "PASS - Transcript page independent of review",
+    "4_full_transcript_one_click": "PASS - 'Copy full transcript' button",
+    "5_search_selection_sync": "PASS - automated test (transcript search selects slide)",
+    "6_30pct_faster_full_lecture": "PASS - 55.6% faster (833.7s -> 369.8s)",
+    "7_under_10min_full_lecture": "PASS - 6.2 min",
+    "8_rerun_reexport_cache_correct": "PASS - no_rerun true on all four runs + fingerprint tests",
+    "9_no_orphaned_processes": "PASS - checked after each packaged run",
+    "10_no_job_data_deleted": "PASS - validation used isolated data dirs; user jobs untouched (backup at C:/Users/marsh/LecturePackData-backups/v1.1.0-pre)"
+  }
+}

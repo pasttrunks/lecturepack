@@ -1,5 +1,5 @@
 {
-  "video": "C:\\Users\\marsh\\LecturePackData\\egypt_excerpt.m4v",
+  "video": "C:\\Users\\marsh\\OneDrive\\Desktop\\UB\\CL100\\CL100 - Day 2 - Egypt and Archaeology.m4v",
   "model": "C:\\Users\\marsh\\Documents\\LecturePack\\models\\ggml-base.en.bin",
   "data_dir": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data",
   "frozen": true,
@@ -13,11 +13,11 @@
     "Saqqara"
   ],
   "stage_times": {
-    "Inspect": 0.08,
-    "Extract Audio": 0.41,
-    "Transcribe": 31.29,
-    "Detect Slides": 46.77,
-    "Align": 0.3,
+    "Inspect": 0.11,
+    "Extract Audio": 4.25,
+    "Transcribe": 260.45,
+    "Detect Slides": 363.15,
+    "Align": 2.25,
     "Review Ready": 0.01
   },
   "errors": [],
@@ -32,9 +32,9 @@
     "model_ok": true
   },
   "product_mode": "study_pack",
-  "job_id": "ff35b22d-5081-469c-b7d5-eb6c9a3c74cc",
-  "job_path": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\ff35b22d-5081-469c-b7d5-eb6c9a3c74cc",
-  "pipeline_seconds": 47.59,
+  "job_id": "50b77345-1669-40a0-ba7b-e0ebec695c6b",
+  "job_path": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\50b77345-1669-40a0-ba7b-e0ebec695c6b",
+  "pipeline_seconds": 369.79,
   "pipeline_completed": true,
   "stage_status": {
     "Inspect": "completed",
@@ -48,31 +48,31 @@
   "artifacts": {
     "raw_json": [
       true,
-      391183,
-      1784184664872162600
+      2969001,
+      1784184948907006600
     ],
     "normalized_json": [
       true,
-      29601,
-      1784184665036161600
+      164534,
+      1784184949175990600
     ],
     "context_candidates": [
       true,
-      1053,
-      1784184665038161200
+      8014,
+      1784184949184992200
     ],
     "audio_wav": [
       true,
-      11616192,
-      1784184633741509100
+      137607102,
+      1784184688724348400
     ],
     "candidates_json": [
       true,
-      7944,
-      1784184680518238800
+      57804,
+      1784185051887178200
     ]
   },
-  "candidate_count": 11,
+  "candidate_count": 79,
   "context_repair": {
     "approved_names": [
       "Egypt",
@@ -82,12 +82,12 @@
       "Khufu",
       "Saqqara"
     ],
-    "real_proposals": 2,
+    "real_proposals": 19,
     "mechanism_demo": false,
-    "total_proposals": 2,
-    "accepted_segment": 39,
-    "rejected_segment": 62,
-    "raw_hash": "08d48b7a04354076b0d86df07381b28008dbe509d6a0c9e98a60bb7092afc979",
+    "total_proposals": 19,
+    "accepted_segment": 44,
+    "rejected_segment": 63,
+    "raw_hash": "13c039580f0c920a5eab4b58977e7d16e7feff65342327a2c9e6b2c190c5036e",
     "accepted_count": 1,
     "rejected_count": 1,
     "reversible": true
@@ -95,79 +95,79 @@
   "exports": {
     "slides.pdf": [
       true,
-      5752130,
-      1784184680770612300
+      47444193,
+      1784185053667596500
     ],
     "study-pack.html": [
       true,
-      7702603,
-      1784184680831614300
+      63466219,
+      1784185054138098900
     ],
     "transcript.txt": [
       true,
-      8877,
-      1784184680772645200
+      59418,
+      1784185053675593500
     ],
     "transcript.srt": [
       true,
-      9288,
-      1784184680773611700
+      61837,
+      1784185053679593500
     ],
     "transcript.json": [
       true,
-      13776,
-      1784184680774611800
+      85743,
+      1784185053683598800
     ],
     "transcript.md": [
       true,
-      7827,
-      1784184680776610600
+      54003,
+      1784185053685597600
     ],
     "transcript.jsonl": [
       true,
-      10413,
-      1784184680776610600
+      68412,
+      1784185053687598400
     ],
     "transcript.csv": [
       true,
-      8691,
-      1784184680777610800
+      59345,
+      1784185053689595600
     ],
     "transcript.vtt": [
       true,
-      9296,
-      1784184680778611400
+      61845,
+      1784185053691596300
     ],
     "transcript.normalized.txt": [
       true,
-      6640,
-      1784184680789612500
+      47896,
+      1784185053707593100
     ],
     "transcript.sections.md": [
       true,
-      8680,
-      1784184680779612700
+      59602,
+      1784185053695598200
     ]
   },
-  "exports_dir": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\ff35b22d-5081-469c-b7d5-eb6c9a3c74cc\\exports",
+  "exports_dir": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\50b77345-1669-40a0-ba7b-e0ebec695c6b\\exports",
   "parse_checks": {
     "json": {
-      "segments": 70,
+      "segments": 361,
       "ordered": true
     },
     "jsonl": {
-      "rows": 70
+      "rows": 361
     },
     "csv": {
-      "rows": 70
+      "rows": 361
     },
     "transcript.srt": {
       "has_arrows": true,
-      "chars": 9008
+      "chars": 60390
     },
     "transcript.vtt": {
       "has_arrows": true,
-      "chars": 9015
+      "chars": 60397
     }
   },
   "restore": {
@@ -185,7 +185,7 @@
     "product_mode": "study_pack"
   },
   "reexport": {
-    "flipped_decision_at": 2.5,
+    "flipped_decision_at": 1.5,
     "audio_unchanged": true,
     "raw_unchanged": true,
     "candidate_pngs_unchanged": true,

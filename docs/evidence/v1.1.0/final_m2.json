@@ -14,10 +14,10 @@
   ],
   "stage_times": {
     "Inspect": 0.76,
-    "Extract Audio": 0.78,
-    "Transcribe": 5.91,
-    "Detect Slides": 6.32,
-    "Align": 0.36,
+    "Extract Audio": 0.75,
+    "Detect Slides": 5.9,
+    "Transcribe": 8.1,
+    "Align": 0.38,
     "Review Ready": 0.01
   },
   "errors": [],
@@ -32,9 +32,9 @@
     "model_ok": true
   },
   "product_mode": "study_pack",
-  "job_id": "16baa635-1f43-4dd1-ac57-2f241b8b57ba",
-  "job_path": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\16baa635-1f43-4dd1-ac57-2f241b8b57ba",
-  "pipeline_seconds": 8.24,
+  "job_id": "c1d68359-c0e5-45a9-a6da-c0c5ab868ec5",
+  "job_path": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\c1d68359-c0e5-45a9-a6da-c0c5ab868ec5",
+  "pipeline_seconds": 10.01,
   "pipeline_completed": true,
   "stage_status": {
     "Inspect": "completed",
@@ -48,28 +48,28 @@
   "artifacts": {
     "raw_json": [
       true,
-      17095,
-      1784184063134961000
+      17096,
+      1784184593097017800
     ],
     "normalized_json": [
       true,
-      1445,
-      1784184063223972600
+      1437,
+      1784184593185673400
     ],
     "context_candidates": [
       true,
       284,
-      1784184063225972100
+      1784184593186679300
     ],
     "audio_wav": [
       true,
       1344248,
-      1784184057305538800
+      1784184585087467800
     ],
     "candidates_json": [
       true,
       1365,
-      1784184063643235600
+      1784184591004033100
     ]
   },
   "candidate_count": 2,
@@ -96,60 +96,60 @@
     "slides.pdf": [
       true,
       4654365,
-      1784184063960247700
+      1784184593529404800
     ],
     "study-pack.html": [
       true,
       6217638,
-      1784184064008236900
+      1784184593577371800
     ],
     "transcript.txt": [
       true,
       324,
-      1784184063961234100
+      1784184593530400300
     ],
     "transcript.srt": [
       true,
       339,
-      1784184063961234100
+      1784184593530400300
     ],
     "transcript.json": [
       true,
       524,
-      1784184063962236400
+      1784184593531368900
     ],
     "transcript.md": [
       true,
       279,
-      1784184063964238700
+      1784184593532372300
     ],
     "transcript.jsonl": [
       true,
       377,
-      1784184063964238700
+      1784184593532372300
     ],
     "transcript.csv": [
       true,
       341,
-      1784184063965240000
+      1784184593533369800
     ],
     "transcript.vtt": [
       true,
       347,
-      1784184063965240000
+      1784184593533369800
     ],
     "transcript.normalized.txt": [
       true,
       230,
-      1784184063968235700
+      1784184593541399400
     ],
     "transcript.sections.md": [
       true,
       403,
-      1784184063966235100
+      1784184593534369500
     ]
   },
-  "exports_dir": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\16baa635-1f43-4dd1-ac57-2f241b8b57ba\\exports",
+  "exports_dir": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\c1d68359-c0e5-45a9-a6da-c0c5ab868ec5\\exports",
   "parse_checks": {
     "json": {
       "segments": 3,
