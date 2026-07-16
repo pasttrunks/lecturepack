@@ -16,11 +16,13 @@ class FileManager:
 
     @staticmethod
     def read_json_safe(filepath, default=None):
-        """Safely reads a JSON file, returning a default value if missing or corrupt."""
+        """Safely reads a JSON file, returning a default value if missing or
+        corrupt. utf-8-sig tolerates a UTF-8 BOM (files edited with Notepad or
+        written by PowerShell 5.1 carry one)."""
         if not os.path.exists(filepath):
             return default
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
+            with open(filepath, 'r', encoding='utf-8-sig') as f:
                 return json.load(f)
         except Exception:
             return default
