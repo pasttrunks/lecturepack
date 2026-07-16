@@ -73,3 +73,5 @@ Each implementation request must restate:
 - Required tests
 - Non-goals
 - Required completion evidence
+
+## Imported Claude Cowork project instructions
