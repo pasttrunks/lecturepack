@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from lecturepack.constants import (
-    DEFAULT_DATA_DIR, STAGES, STAGE_EXPORT, STAGE_REVIEW_READY,
+    DEFAULT_DATA_DIR, STAGES, STAGE_EXPORT, STAGE_REVIEW_READY, STAGE_TRANSCRIBE,
     SUPPORTED_VIDEO_EXTENSIONS,
 )
 from lecturepack.controllers.job_controller import JobController
@@ -831,6 +831,12 @@ class MainWindow(QMainWindow):
 
     def _on_whisper_detection_finished(self, exe_path, caps):
         self.current_whisper_caps = caps
+        if self.current_job is not None:
+            actual = (self.current_job.state.get("stages", {})
+                      .get(STAGE_TRANSCRIBE, {}).get("backend_used"))
+            if actual:
+                self.sb_engine.setText(f"loaded backend: {actual}")
+                return
         backend = caps.get("backend", "CPU")
         version = caps.get("version", "?")
         model = os.path.basename(self.config_manager.get("whisper_model", "") or "—")
@@ -997,6 +1003,7 @@ class MainWindow(QMainWindow):
             os.startfile(exports_dir)
 
     def closeEvent(self, event):
+        self.controller.cancel()
         self.whisper_detector.cancel()
         self.transcript_page.shutdown()
         self.review_page.slides_view.shutdown()

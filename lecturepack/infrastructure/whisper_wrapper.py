@@ -1,6 +1,7 @@
 import os
 import sys
 from PySide6.QtCore import QProcess, QObject, Signal
+from lecturepack.infrastructure.process_tree import terminate_qprocess_tree
 
 class WhisperWrapper(QObject):
     # Signals for asynchronous transcription
@@ -14,6 +15,7 @@ class WhisperWrapper(QObject):
         self.process = None
         self.detected_backend = ""
         self._backend_probe_buffer = ""
+        self.last_cancel_report = None
 
     def get_supported_flags(self):
         """Supported CLI options for the CURRENT executable. Uses the async
@@ -159,14 +161,9 @@ class WhisperWrapper(QObject):
         self.process.start(program, args)
 
     def cancel(self):
-        """Stop the transcription process. terminate() posts WM_CLOSE, which
-        console processes on Windows ignore -- so escalate to kill() to
-        guarantee no orphaned whisper-cli survives a cancel."""
+        """Stop only the exact process tree started for transcription."""
         if self.process and self.process.state() == QProcess.ProcessState.Running:
-            self.process.terminate()
-            if not self.process.waitForFinished(300):
-                self.process.kill()
-                self.process.waitForFinished(2000)
+            self.last_cancel_report = terminate_qprocess_tree(self.process)
 
     def _handle_ready_read(self):
         data = self.process.readAllStandardOutput().data().decode('utf-8', errors='ignore')
@@ -201,4 +198,3 @@ class WhisperWrapper(QObject):
             self.finished.emit(True, "")
         else:
             self.finished.emit(False, f"whisper-cli exited with status {exit_status} and code {exit_code}")
-

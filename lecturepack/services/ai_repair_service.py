@@ -35,6 +35,11 @@ from lecturepack.services import transcript_service as ts
 
 AI_CACHE_FILENAME = "ai_cache.json"
 
+# A closing panel relinquishes its worker immediately so the GUI never waits
+# on a network timeout.  Detached workers remain strongly owned here until
+# their QThread really exits, preventing "QThread destroyed while running".
+_DETACHED_WORKERS = set()
+
 
 def load_ai_cache(transcript_dir: str) -> dict:
     """Disk cache of model responses. Entries are keyed by
@@ -103,11 +108,19 @@ class AiRepairWorker(QObject):
 
     def detach_and_stop(self):
         """Owner is going away: cancel and let the thread wind down on its
-        own. The worker holds no UI references, so this is leak-free."""
+        own. The worker holds no UI references, so closing is non-blocking."""
         self.cancel()
-        if self._thread is not None:
-            self._thread.quit()
-            self._thread.wait(5000)
+        thread = self._thread
+        if thread is None or thread.isFinished():
+            return
+        _DETACHED_WORKERS.add(self)
+
+        def release():
+            _DETACHED_WORKERS.discard(self)
+
+        thread.finished.connect(release)
+        thread.requestInterruption()
+        thread.quit()
 
     # ---- worker body ----------------------------------------------------- #
     def _run(self):

@@ -1,6 +1,7 @@
 import os
 import sys
 import shutil
+import copy
 from lecturepack.constants import DEFAULT_DATA_DIR
 from lecturepack.infrastructure.file_manager import FileManager
 
@@ -23,11 +24,18 @@ class ConfigManager:
     CONFIG_FILENAME = "config.json"
 
     DEFAULT_SETTINGS = {
+        "schema_version": 1,
         "whisper_exe": "",
+        "whisper_vulkan_exe": "",
         "whisper_model": "",
         "ffmpeg_exe": "",
         "ffprobe_exe": "",
         "data_directory": DEFAULT_DATA_DIR,
+        "engine": "auto",
+        "vulkan_benchmark_ok": False,
+        "parallel_pipeline": True,
+        "dark_theme": False,
+        "ollama": {},
     }
 
     def __init__(self, data_dir=None):
@@ -39,19 +47,34 @@ class ConfigManager:
             data_dir = DEFAULT_DATA_DIR
         self.data_dir = data_dir
         self.config_path = os.path.join(data_dir, self.CONFIG_FILENAME)
-        self.settings = dict(self.DEFAULT_SETTINGS)
+        self.settings = copy.deepcopy(self.DEFAULT_SETTINGS)
         self.settings["data_directory"] = data_dir
         self.load()
 
     def load(self):
         if os.path.exists(self.config_path):
-            data = FileManager.read_json_safe(self.config_path)
+            data = FileManager.read_json_safe(self.config_path, {})
             if isinstance(data, dict):
                 # Merge EVERY stored key (not only the historical defaults) so
                 # v1.1 settings -- engine, vulkan_benchmark_ok,
                 # parallel_pipeline, ollama, dark_theme -- survive restarts.
                 for k, v in data.items():
                     self.settings[k] = v
+                # Pre-engine configs called this choice "backend" (and some
+                # builds nested it under whisper).  Migrate without discarding
+                # unknown future keys.
+                if "engine" not in data:
+                    nested = data.get("whisper") if isinstance(data.get("whisper"), dict) else {}
+                    legacy_engine = data.get("backend", nested.get("backend"))
+                    if legacy_engine in ("auto", "cpu", "vulkan"):
+                        self.settings["engine"] = legacy_engine
+                if not isinstance(self.settings.get("ollama"), dict):
+                    self.settings["ollama"] = {}
+                self.settings["schema_version"] = 1
+                # Canonicalize BOM/partial legacy files immediately so the
+                # migrated values demonstrably survive the next restart.
+                if self.settings != data:
+                    self.save()
         else:
             os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
             self.save()

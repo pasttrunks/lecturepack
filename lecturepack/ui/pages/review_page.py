@@ -246,7 +246,12 @@ class ReviewPage(QWidget):
             self.slide_info_lbl.setText("Timestamp: —")
             self.transcript_table.setRowCount(0)
             return
-        primary_item = selected_items[0]
+        # Extended selections have a distinct current item.  It is the user's
+        # navigation anchor and must drive the preview even when earlier rows
+        # remain selected via Ctrl/Shift.
+        primary_item = self.slides_view.currentItem()
+        if primary_item is None or not primary_item.isSelected():
+            primary_item = selected_items[0]
         cand = primary_item.data(CAND_ROLE)
         self._show_slide_preview(cand)
         self._update_transcript_for_selected_slides()

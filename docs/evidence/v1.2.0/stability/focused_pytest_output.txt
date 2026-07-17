@@ -1,0 +1,89 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+PySide6 6.11.1 -- Qt runtime 6.11.1 -- Qt compiled 6.11.1
+rootdir: C:\Users\marsh\Documents\LecturePack
+configfile: pytest.ini
+plugins: qt-4.5.0
+collected 55 items
+
+tests\test_ui_v11.py ...............
+.\.venv\Scripts\python.exe : ----------------------------------------
+At line:2 char:11
++ $output = .\.venv\Scripts\python.exe -m pytest tests\test_ui_v11.py t ...
++           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (----------------------------------------:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+Exception occurred during processing of request from ('127.0.0.1', 61067)
+Traceback (most recent call last):
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 692, in
+process_request_thread
+    self.finish_request(request, client_address)
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 761, in __init__
+    self.handle()
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\http\server.py", line 436, in handle
+    self.handle_one_request()
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\http\server.py", line 424, in handle_one_request
+    method()
+  File "C:\Users\marsh\Documents\LecturePack\tests\test_ollama_and_repair.py", line 95, in do_POST
+    self.wfile.write((json.dumps(chunk) + "\n").encode())
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 840, in write
+    self._sock.sendall(b)
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 61059)
+Traceback (most recent call last):
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 692, in
+process_request_thread
+    self.finish_request(request, client_address)
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 761, in __init__
+    self.handle()
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\http\server.py", line 436, in handle
+    self.handle_one_request()
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\http\server.py", line 424, in handle_one_request
+    method()
+  File "C:\Users\marsh\Documents\LecturePack\tests\test_ollama_and_repair.py", line 95, in do_POST
+    self.wfile.write((json.dumps(chunk) + "\n").encode())
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 840, in write
+    self._sock.sendall(b)
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 61090)
+Traceback (most recent call last):
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 692, in
+process_request_thread
+    self.finish_request(request, client_address)
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 761, in __init__
+    self.handle()
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\http\server.py", line 436, in handle
+    self.handle_one_request()
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\http\server.py", line 424, in handle_one_request
+    method()
+  File "C:\Users\marsh\Documents\LecturePack\tests\test_ollama_and_repair.py", line 95, in do_POST
+    self.wfile.write((json.dumps(chunk) + "\n").encode())
+  File "C:\Users\marsh\AppData\Local\Programs\Python\Python312\Lib\socketserver.py", line 840, in write
+    self._sock.sendall(b)
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+tests\test_ollama_and_repair.py ................
+tests\test_scheduler_and_engines.py .........
+tests\test_packaging_and_safety.py ....
+tests\test_stability_phase.py ...worker_detach_seconds=0.000038
+.dialog_close_seconds=0.012972
+.app_close_seconds=0.004905
+.app_close_cleanup={"child_pid": 10748, "finished": true, "root_pid": 12012, "strategy": "taskkill-pid-tree", "taskkill_returncode": 0}
+.process_tree_report={"finished": true, "root_pid": 9180, "strategy": "taskkill-pid-tree", "taskkill_returncode": 0}
+.ffmpeg_cleanup={"child_pid": 2804, "finished": true, "root_pid": 18796, "strategy": "taskkill-pid-tree", "taskkill_returncode": 0}
+.whisper_cleanup={"child_pid": 12356, "finished": true, "root_pid": 5544, "strategy": "taskkill-pid-tree", "taskkill_returncode": 0}
+.reexport_signatures={"after": {"C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\audio\\lecture-16khz-mono.wav": {"mtime_ns": 1784253500003965800, "sha256": "b185459c84f80e5d034c453608636fc741154f06a544d8fd89959556e65bed71", "size": 2044}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\candidates.json": {"mtime_ns": 1784253508395237700, "sha256": "e9df460204ff4c1d1f1d9cb91fd356376a51bde8d5347b3fad1966b402485fa3", "size": 5670}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_1287_51500.png": {"mtime_ns": 1784253506154241200, "sha256": "38ab372f4efd72782fea71c2ced1d9cfa000409643ca68825adc9c34d00f9c8e", "size": 32953}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_1412_56500.png": {"mtime_ns": 1784253507042237000, "sha256": "c79474a4fcd4873e024e8018332b073789f121d46d3605cf2680a6d5c9ae4664", "size": 40281}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_1550_62000.png": {"mtime_ns": 1784253507754236700, "sha256": "b6d3705700fac8c0a53732703129575a9a5dada656dae868bfd596798354c75f", "size": 23845}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_175_7000.png": {"mtime_ns": 1784253500985712200, "sha256": "c79474a4fcd4873e024e8018332b073789f121d46d3605cf2680a6d5c9ae4664", "size": 40281}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_37_1500.png": {"mtime_ns": 1784253500300998700, "sha256": "14008ad1c6d4907b9fbab3329befca9de6d5b1113e3b47fb170ef744bb335adc", "size": 47057}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_537_21500.png": {"mtime_ns": 1784253502354711000, "sha256": "ec4cb906221cd5fa970969b3553328d1dfe40a7763bcb1c34172bad0d07b737d", "size": 57281}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_675_27000.png": {"mtime_ns": 1784253503067716000, "sha256": "357bbc1477aafa438a3a87ce1594ae5894a866aba99e96d1f2d8ef7b3330f549", "size": 43759}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_875_35000.png": {"mtime_ns": 1784253504184710300, "sha256": "1cc51788862675f9f5f2d11a6b5a0c58d99696dd0fc3593bf7c8aaf60a5a8dfe", "size": 45982}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\transcript\\raw.json": {"mtime_ns": 1784253500127967400, "sha256": "5ec99110f1ee02f9df1fffcb37f510f2e5deae63da4e65a4611de45062ec3b8c", "size": 1688}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\transcript\\raw.srt": {"mtime_ns": 1784253500127967400, "sha256": "87ca6998f9e5334c3a75bdc88398940fb23bfb52e6db075babf877d8010e87b1", "size": 547}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\transcript\\raw.txt": {"mtime_ns": 1784253500128982600, "sha256": "0fc393923ad3f72d18e5401ece2e26eb52228f04e7e119c5495c1467b01083cc", "size": 514}}, "artifact_count": 13, "before": {"C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\audio\\lecture-16khz-mono.wav": {"mtime_ns": 1784253500003965800, "sha256": "b185459c84f80e5d034c453608636fc741154f06a544d8fd89959556e65bed71", "size": 2044}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\candidates.json": {"mtime_ns": 1784253508395237700, "sha256": "e9df460204ff4c1d1f1d9cb91fd356376a51bde8d5347b3fad1966b402485fa3", "size": 5670}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_1287_51500.png": {"mtime_ns": 1784253506154241200, "sha256": "38ab372f4efd72782fea71c2ced1d9cfa000409643ca68825adc9c34d00f9c8e", "size": 32953}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_1412_56500.png": {"mtime_ns": 1784253507042237000, "sha256": "c79474a4fcd4873e024e8018332b073789f121d46d3605cf2680a6d5c9ae4664", "size": 40281}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_1550_62000.png": {"mtime_ns": 1784253507754236700, "sha256": "b6d3705700fac8c0a53732703129575a9a5dada656dae868bfd596798354c75f", "size": 23845}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_175_7000.png": {"mtime_ns": 1784253500985712200, "sha256": "c79474a4fcd4873e024e8018332b073789f121d46d3605cf2680a6d5c9ae4664", "size": 40281}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_37_1500.png": {"mtime_ns": 1784253500300998700, "sha256": "14008ad1c6d4907b9fbab3329befca9de6d5b1113e3b47fb170ef744bb335adc", "size": 47057}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_537_21500.png": {"mtime_ns": 1784253502354711000, "sha256": "ec4cb906221cd5fa970969b3553328d1dfe40a7763bcb1c34172bad0d07b737d", "size": 57281}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_675_27000.png": {"mtime_ns": 1784253503067716000, "sha256": "357bbc1477aafa438a3a87ce1594ae5894a866aba99e96d1f2d8ef7b3330f549", "size": 43759}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\frames\\candidates\\slide_875_35000.png": {"mtime_ns": 1784253504184710300, "sha256": "1cc51788862675f9f5f2d11a6b5a0c58d99696dd0fc3593bf7c8aaf60a5a8dfe", "size": 45982}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\transcript\\raw.json": {"mtime_ns": 1784253500127967400, "sha256": "5ec99110f1ee02f9df1fffcb37f510f2e5deae63da4e65a4611de45062ec3b8c", "size": 1688}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\transcript\\raw.srt": {"mtime_ns": 1784253500127967400, "sha256": "87ca6998f9e5334c3a75bdc88398940fb23bfb52e6db075babf877d8010e87b1", "size": 547}, "C:\\Users\\marsh\\AppData\\Local\\Temp\\pytest-of-marsh\\pytest-112\\test_reexport_preserves_audio_0\\data\\jobs\\679004d7-64d9-4360-a630-ecde1a040ba9\\transcript\\raw.txt": {"mtime_ns": 1784253500128982600, "sha256": "0fc393923ad3f72d18e5401ece2e26eb52228f04e7e119c5495c1467b01083cc", "size": 514}}}
+.
+
+======================== 55 passed in 95.10s (0:01:35) ========================

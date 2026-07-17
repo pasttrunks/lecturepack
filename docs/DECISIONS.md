@@ -4,6 +4,44 @@ Record of major technical decisions. Newest entries at the top.
 
 ---
 
+## AD-10: Non-Blocking UI Shutdown and PID-Scoped Process Trees (v1.2 stability)
+
+**Date:** 2026-07-16
+**Status:** Accepted
+
+**Context:** Closing Context Repair could wait up to five seconds for a
+cooperative network worker, application close did not explicitly cancel the
+active controller, and direct `QProcess.kill()` did not guarantee that helper
+descendants exited. The UI also displayed requested/capability backends after
+a run instead of retaining the backend actually reported by whisper.cpp.
+
+**Decision:**
+
+1. Detach Context Repair workers immediately on owner close, request
+   cooperative cancellation, and retain strong ownership in a detached-worker
+   registry until each QThread has really finished.
+2. Route application close through `JobController.cancel()` before tearing
+   down page workers.
+3. On Windows, terminate an external-tool tree by the exact root PID returned
+   by LecturePack's `QProcess` using `taskkill /PID <pid> /T /F`. Never kill by
+   executable/image name. Retain terminate/kill fallback behavior on non-Windows.
+4. Persist the backend emitted by whisper.cpp under
+   `state.json -> stages -> Transcribe -> backend_used`; prefer that value over
+   requested-engine and binary-capability labels when a job is reopened.
+
+**Alternatives considered:** Blocking `QThread.wait()` was rejected because it
+freezes close handling. `QThread.terminate()` was rejected for Context Repair
+because asynchronous thread termination can interrupt Python/Qt state at an
+unsafe point. Image-name process killing was rejected because it can terminate
+unrelated user processes. Persisting only the requested engine was rejected
+because auto/fallback resolution does not prove which compute backend loaded.
+
+**Rationale:** The selected design keeps the native window responsive, preserves
+Qt object lifetime, scopes destructive process action to PIDs LecturePack
+created, and makes backend diagnostics auditable across restarts.
+
+---
+
 ## AD-9: Adaptive Baseline and Two-Path Slide Detection (v0.4.0)
 
 **Date:** 2026-07-15 (Phase 4)  

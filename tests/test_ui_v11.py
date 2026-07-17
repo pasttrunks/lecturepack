@@ -8,7 +8,7 @@ import json
 import os
 
 import pytest
-from PySide6.QtCore import Qt, QPoint
+from PySide6.QtCore import Qt, QPoint, QItemSelectionModel
 
 from lecturepack.infrastructure.config_manager import ConfigManager
 from lecturepack.infrastructure.file_manager import FileManager
@@ -154,6 +154,42 @@ def test_click_and_ctrl_click_and_shift_click(window, qtbot):
     qtbot.keyClick(view, Qt.Key_Escape, Qt.KeyboardModifier.NoModifier)
 
 
+@pytest.mark.parametrize("mode", ["grid", "list"])
+def test_current_slide_drives_preview_and_scroll(window, qtbot, monkeypatch, mode):
+    """In a multi-selection, the current row—not the first selected row—is
+    the navigation/preview anchor in both display modes."""
+    view = window.slides_view
+    view.set_display_mode(mode)
+    view.clearSelection()
+    view.setCurrentItem(view.item(0), QItemSelectionModel.SelectionFlag.ClearAndSelect)
+
+    scrolled_rows = []
+    original_scroll = view.scrollToItem
+
+    def record_scroll(item, hint):
+        scrolled_rows.append(view.row(item))
+        original_scroll(item, hint)
+
+    monkeypatch.setattr(view, "scrollToItem", record_scroll)
+    view.setCurrentItem(view.item(3), QItemSelectionModel.SelectionFlag.Select)
+    qtbot.wait(30)
+
+    assert sorted(view.row(i) for i in view.selectedItems()) == [0, 3]
+    assert view.currentRow() == 3
+    assert scrolled_rows and scrolled_rows[-1] == 3
+    assert "00:00:22.000" in window.review_page.slide_info_lbl.text()
+
+
+def test_arrow_navigation_updates_current_preview(window, qtbot):
+    view = window.slides_view
+    view.setFocus()
+    view.setCurrentRow(0)
+    qtbot.keyClick(view, Qt.Key_Down)
+    qtbot.wait(30)
+    assert view.currentRow() == 1
+    assert "00:00:08.000" in window.review_page.slide_info_lbl.text()
+
+
 def test_select_all_and_keyboard_decisions(window, qtbot):
     view = window.slides_view
     view.setFocus()
@@ -209,6 +245,20 @@ def test_transcript_page_full_and_segment_views(window, qtbot):
     tp.tabs.setCurrentIndex(1)
     assert tp.seg_table.rowCount() == 5
     assert tp.seg_table.item(0, 6).text().startswith("Welcome")
+
+
+def test_transcript_numeric_columns_sort_chronologically(window, qtbot):
+    tp = window.transcript_page
+    tp.tabs.setCurrentIndex(1)
+    # IDs and formatted timestamps must use numeric sort keys, never text order.
+    tp.seg_table.sortItems(0, Qt.SortOrder.DescendingOrder)
+    ids_desc = [int(tp.seg_table.item(r, 0).text())
+                for r in range(tp.seg_table.rowCount())]
+    assert ids_desc == sorted(ids_desc, reverse=True)
+    tp.seg_table.sortItems(1, Qt.SortOrder.AscendingOrder)
+    starts = [float(tp.seg_table.item(r, 1).data(Qt.ItemDataRole.UserRole + 7))
+              for r in range(tp.seg_table.rowCount())]
+    assert starts == sorted(starts)
 
 
 def test_transcript_copy_formats(window, qtbot, monkeypatch):

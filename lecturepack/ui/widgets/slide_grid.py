@@ -261,9 +261,9 @@ class SlideGridWidget(QListWidget):
 
     # ---- behavior -------------------------------------------------------- #
     def _scroll_to_current(self):
-        items = self.selectedItems()
-        if items:
-            self.scrollToItem(items[0], QListWidget.ScrollHint.EnsureVisible)
+        item = self.currentItem()
+        if item is not None:
+            self.scrollToItem(item, QListWidget.ScrollHint.EnsureVisible)
 
     def keyPressEvent(self, event):
         key = event.key()

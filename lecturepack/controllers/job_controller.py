@@ -89,13 +89,26 @@ class JobController(QObject):
         # Connect whisper signals
         self.whisper_wrapper.progress.connect(self._handle_whisper_log)
         self.whisper_wrapper.finished.connect(self._handle_whisper_finished)
-        self.whisper_wrapper.backend_detected.connect(
-            lambda b: self.backend_info.emit(f"whisper backend: {b}"))
+        self.whisper_wrapper.backend_detected.connect(self._handle_backend_detected)
 
     def set_job(self, job):
         self.job = job
         # Sync whisper executable path
         self.whisper_wrapper.whisper_exe_path = self.config_manager.get("whisper_exe", "")
+        if job is not None:
+            actual = (job.state.get("stages", {}).get(STAGE_TRANSCRIBE, {})
+                      .get("backend_used"))
+            if actual:
+                self.backend_info.emit(f"loaded backend: {actual}")
+
+    def _handle_backend_detected(self, backend):
+        """Persist the backend reported by the running whisper binary."""
+        if self.job is not None:
+            stage = self.job.state.setdefault("stages", {}).setdefault(
+                STAGE_TRANSCRIBE, {"status": "running"})
+            stage["backend_used"] = backend
+            self.job.save()
+        self.backend_info.emit(f"loaded backend: {backend}")
 
     def parallel_enabled(self):
         """Concurrent transcribe+detect. On by default; config can disable."""

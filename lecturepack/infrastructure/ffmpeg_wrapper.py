@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 from PySide6.QtCore import QProcess, QObject, Signal
+from lecturepack.infrastructure.process_tree import terminate_qprocess_tree
 
 class FFmpegWrapper(QObject):
     # Signals for asynchronous audio extraction
@@ -16,6 +17,7 @@ class FFmpegWrapper(QObject):
         self.ffmpeg_path = ""
         self.ffprobe_path = ""
         self.process = None
+        self.last_cancel_report = None
         self.detect_binaries()
 
     def detect_binaries(self):
@@ -138,13 +140,9 @@ class FFmpegWrapper(QObject):
         self.process.start(program, args)
 
     def cancel(self):
-        """Stop the extraction process; escalate terminate() to kill() because
-        Windows console processes ignore WM_CLOSE (prevents orphaned ffmpeg)."""
+        """Stop only the exact process tree started for audio extraction."""
         if self.process and self.process.state() == QProcess.ProcessState.Running:
-            self.process.terminate()
-            if not self.process.waitForFinished(300):
-                self.process.kill()
-                self.process.waitForFinished(2000)
+            self.last_cancel_report = terminate_qprocess_tree(self.process)
 
     def _handle_ready_read(self):
         data = self.process.readAllStandardOutput().data().decode('utf-8', errors='ignore')
