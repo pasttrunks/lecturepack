@@ -1,0 +1,60 @@
+{
+  "phase": "Live Groq validation only",
+  "verification_date": "2026-07-17",
+  "short_video": {
+    "file": "C:/Users/marsh/Downloads/Video/m2-res_1080p.mp4",
+    "duration_seconds": 42.01,
+    "fast": {
+      "transcription_backend": "groq-fast",
+      "actual_backend": "Groq whisper-large-v3-turbo",
+      "total_wall_time_seconds": 8.64,
+      "word_count": 37
+    },
+    "accurate": {
+      "transcription_backend": "groq-accurate",
+      "actual_backend": "Groq whisper-large-v3",
+      "total_wall_time_seconds": 7.71,
+      "word_count": 33
+    }
+  },
+  "difficult_name_excerpt": {
+    "file": "C:/Users/marsh/LecturePackData_validation/egypt_excerpts/egyptA_2918_3521.mp4",
+    "duration_seconds": 363.0,
+    "local": {
+      "transcription_backend": "local-whispercpp",
+      "actual_backend": "Vulkan (Vulkan0)",
+      "total_wall_time_seconds": 60.91,
+      "word_count": 1153,
+      "spelling_mark_lehner": "Mark Lane or",
+      "spelling_dolerite": "dolarite / dola right"
+    },
+    "fast": {
+      "transcription_backend": "groq-fast",
+      "actual_backend": "Groq whisper-large-v3-turbo",
+      "total_wall_time_seconds": 45.70,
+      "word_count": 1162,
+      "spelling_mark_lehner": "Mark Lehner",
+      "spelling_dolerite": "dolerite"
+    },
+    "accurate": {
+      "transcription_backend": "groq-accurate",
+      "actual_backend": "Groq whisper-large-v3",
+      "total_wall_time_seconds": 45.98,
+      "word_count": 1065,
+      "spelling_mark_lehner": "Mark Lehner",
+      "spelling_dolerite": "dolerite"
+    }
+  },
+  "fallback": {
+    "success": true,
+    "requested_backend": "groq-fast",
+    "actual_backend": "local-whispercpp",
+    "engine_used": "whispercpp-vulkan",
+    "resolved_status": "completed",
+    "time_seconds": 9.35
+  },
+  "full_lecture": {
+    "status": "skipped",
+    "reason": "4,479-second lecture MP4 file was not present on the host filesystem."
+  }
+}

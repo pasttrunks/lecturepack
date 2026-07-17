@@ -566,6 +566,15 @@ class JobController(QObject):
         original = self._transcription_request
         settings = self.job.settings.get("whisper", {})
         model = settings.get("model") or self.config_manager.get("whisper_model", "")
+        if model and not os.path.isfile(model):
+            from lecturepack.infrastructure.transcription_engines import model_search_dirs
+            for d in model_search_dirs(self.config_manager):
+                cand = os.path.join(d, model)
+                if os.path.isfile(cand):
+                    model = os.path.abspath(cand)
+                    break
+            else:
+                model = self.config_manager.get("whisper_model", "")
         self.stage_log.emit(
             STAGE_TRANSCRIBE,
             "Online transcription unavailable; continuing with Private Local fallback.\n")
