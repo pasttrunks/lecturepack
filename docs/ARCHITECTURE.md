@@ -331,3 +331,43 @@ auto-downloaded. Backend is CPU-only in this build.
   `theme.selection_visuals` (unit-testable) + WebP thumbnail loader thread.
 - `ui/widgets/context_repair_panel.py` — proposal table shared by the dialog
   and the Transcript tab.
+
+## v1.2 Study workspace additions
+
+### Persistent Study data
+
+- `services/study_service.py` is the single writer for per-job `study.json`
+  (schema 1). It owns slide bookmarks, short slide notes, section bookmarks,
+  and a per-job resume position. Writes use the existing atomic JSON helper.
+- `study.json` is user-authored state. It is not part of raw transcript,
+  working transcript, aligned transcript, or candidate-decision data.
+- Old jobs need no migration: a missing or malformed `study.json` loads as an
+  empty Study state and is not created until the user changes Study data.
+
+### Derived overview
+
+- The Study overview is rebuilt deterministically from working transcript,
+  `aligned.json`, `section_overrides.json`, candidates, source duration, and
+  `state.json/stages/Transcribe/backend_used`.
+- Summary and key terms do not call a provider. Summary provenance is shown as
+  `deterministic transcript extract`; AI section headings retain the `(AI)`
+  marker inherited from the Transcript workspace.
+
+### UI and navigation
+
+- `ui/pages/study_page.py` is stack index 6 so the v1.0/v1.1 public page
+  indices remain stable. The navigation rail presents Study immediately after
+  Home using an explicit display-order mapping.
+- Completed jobs and newly completed pipelines land on Study. Quick actions
+  open Transcript, Review, correction review, or Exports. Resume restores the
+  saved workspace and nearest slide timestamp.
+- Review owns slide bookmark/note controls; Transcript Sections owns section
+  bookmark and jump controls. Both notify Study to refresh.
+
+### Exports
+
+- Study Pack mode writes `study-data.json`, self-contained
+  `study-pack.html`, and ReportLab `study-pack.pdf`.
+- Exports label user-authored annotations separately, escape HTML/XML text,
+  and read rather than mutate source metadata, raw transcript, candidate
+  decisions, and candidate images.

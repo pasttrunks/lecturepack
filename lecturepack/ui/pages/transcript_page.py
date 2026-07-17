@@ -69,6 +69,8 @@ class TranscriptPage(QWidget):
     """Owns the working segment layer for the current job."""
     seek_requested = Signal(float)         # timestamp seconds -> select slide
     status_message = Signal(str)
+    study_data_changed = Signal()
+    position_changed = Signal(float)
 
     def __init__(self, config_manager, parent=None):
         super().__init__(parent)
@@ -217,10 +219,18 @@ class TranscriptPage(QWidget):
         self.rename_section_btn.clicked.connect(self.rename_section)
         self.copy_section_btn = QPushButton("Copy section")
         self.copy_section_btn.clicked.connect(self.copy_current_section)
+        self.bookmark_section_btn = QPushButton("☆ Bookmark section")
+        self.bookmark_section_btn.setObjectName("sectionBookmarkButton")
+        self.bookmark_section_btn.clicked.connect(self.toggle_section_bookmark)
+        self.jump_section_btn = QPushButton("Jump to first slide")
+        self.jump_section_btn.setObjectName("sectionJumpButton")
+        self.jump_section_btn.clicked.connect(self.jump_to_current_section)
         self.ai_headings_btn = QPushButton("Suggest headings with AI (Ollama)")
         self.ai_headings_btn.clicked.connect(self.suggest_headings_ai)
         sec_actions.addWidget(self.rename_section_btn)
         sec_actions.addWidget(self.copy_section_btn)
+        sec_actions.addWidget(self.bookmark_section_btn)
+        sec_actions.addWidget(self.jump_section_btn)
         sec_actions.addStretch(1)
         sec_actions.addWidget(self.ai_headings_btn)
         scl.addLayout(sec_actions)
@@ -234,6 +244,8 @@ class TranscriptPage(QWidget):
         self.sections_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.sections_table.itemDoubleClicked.connect(
             lambda item: self.rename_section())
+        self.sections_table.currentCellChanged.connect(
+            lambda *_: self._on_section_selection())
         scl.addWidget(self.sections_table, 1)
         self.tabs.addTab(sec_w, "Sections")
 
@@ -406,9 +418,14 @@ class TranscriptPage(QWidget):
         self._sync_editor()
 
     def _render_sections(self):
+        from lecturepack.services import study_service
+        bookmarks = study_service.load_study_data(self.job)["bookmarked_sections"] \
+            if self.job is not None else {}
         self.sections_table.setRowCount(len(self._sections))
         for r, sec in enumerate(self._sections):
             head = sec["heading"]
+            if study_service.section_key(sec) in bookmarks:
+                head = "★ " + head
             if sec.get("heading_source") == "ai":
                 head += "  (AI)"
             elif sec.get("heading_source") == "user":
@@ -417,6 +434,7 @@ class TranscriptPage(QWidget):
                     str(len(sec.get("segments", []))), str(sec.get("slide_index", "")) ]
             for ccol, v in enumerate(vals):
                 self.sections_table.setItem(r, ccol, QTableWidgetItem(v))
+        self._on_section_selection()
 
     # ------------------------------------------------------------------ #
     # search
@@ -639,6 +657,51 @@ class TranscriptPage(QWidget):
             return
         sec = self._sections[r]
         self._copy_segments(sec.get("segments", []), f"Section '{sec['heading']}'")
+
+    def _current_section(self):
+        row = self.sections_table.currentRow()
+        return self._sections[row] if 0 <= row < len(self._sections) else None
+
+    def _on_section_selection(self):
+        from lecturepack.services import study_service
+        sec = self._current_section()
+        if sec is None or self.job is None:
+            self.bookmark_section_btn.setEnabled(False)
+            self.jump_section_btn.setEnabled(False)
+            self.bookmark_section_btn.setText("☆ Bookmark section")
+            return
+        bookmarks = study_service.load_study_data(self.job)["bookmarked_sections"]
+        marked = study_service.section_key(sec) in bookmarks
+        self.bookmark_section_btn.setEnabled(True)
+        self.jump_section_btn.setEnabled(True)
+        self.bookmark_section_btn.setText(
+            "★ Bookmarked section" if marked else "☆ Bookmark section")
+        self.position_changed.emit(float(sec.get("start", 0.0)))
+
+    def toggle_section_bookmark(self):
+        from lecturepack.services import study_service
+        sec = self._current_section()
+        if sec is None or self.job is None:
+            return
+        bookmarks = study_service.load_study_data(self.job)["bookmarked_sections"]
+        marked = study_service.section_key(sec) in bookmarks
+        study_service.set_section_bookmark(self.job, sec, not marked)
+        study_service.save_position(
+            self.job, page="transcript", timestamp_seconds=float(sec.get("start", 0.0)),
+            section=sec)
+        self._render_sections()
+        self.study_data_changed.emit()
+
+    def jump_to_current_section(self):
+        from lecturepack.services import study_service
+        sec = self._current_section()
+        if sec is None or self.job is None:
+            return
+        timestamp = float(sec.get("start", 0.0))
+        study_service.save_position(
+            self.job, page="review", timestamp_seconds=timestamp, section=sec)
+        self.seek_requested.emit(timestamp)
+        self.position_changed.emit(timestamp)
 
     def suggest_headings_ai(self):
         """AI-assigned section headings (Phase 5 scope). Runs in a worker via

@@ -1,6 +1,7 @@
 import os
 import base64
 import json
+import html
 import img2pdf
 from PySide6.QtCore import QThread, Signal
 from lecturepack.infrastructure.file_manager import FileManager
@@ -201,9 +202,16 @@ class ExportService:
 
         # 4.5 HTML Study Pack
         if want_study_pack:
+            from lecturepack.services import study_service
+            FileManager.write_json_atomic(
+                os.path.join(exports_dir, "study-data.json"),
+                study_service.export_payload(self.job))
             html_path = os.path.join(exports_dir, "study-pack.html")
             self.log(f"Building self-contained HTML study pack: {html_path}")
             self._generate_html_study_pack(html_path, aligned_data)
+            study_pdf_path = os.path.join(exports_dir, "study-pack.pdf")
+            self.log(f"Building PDF study pack: {study_pdf_path}")
+            self._generate_pdf_study_pack(study_pdf_path, aligned_data)
         self.log("All exports completed successfully.")
 
     def _write_normalized_export(self, exports_dir):
@@ -232,6 +240,9 @@ class ExportService:
             self.log(f"Normalized export skipped: {e}")
 
     def _generate_html_study_pack(self, html_path, aligned_data):
+        from lecturepack.services import study_service
+        study = study_service.load_study_data(self.job)
+        slide_study = study["bookmarked_slides"]
         slides_html = []
         for entry in aligned_data:
             img_b64 = ""
@@ -247,11 +258,20 @@ class ExportService:
                 segments_html.append(f"""
                 <div class="transcript-line">
                     <span class="timestamp" title="Timestamp">{t_str}</span>
-                    <span class="text">{seg['text']}</span>
+                    <span class="text">{html.escape(str(seg['text']))}</span>
                 </div>
                 """)
 
             img_tag = f'<img src="data:image/png;base64,{img_b64}" alt="Slide {entry["slide_index"]}">' if img_b64 else '<div class="no-image">No Slide Image</div>'
+            key = study_service.slide_key(entry)
+            annotation = slide_study.get(key, {})
+            annotation_html = ""
+            if annotation.get("bookmarked") or annotation.get("note"):
+                bookmark = "★ Bookmarked" if annotation.get("bookmarked") else "Note"
+                note = html.escape(str(annotation.get("note") or ""))
+                annotation_html = (
+                    '<div class="user-note"><strong>User-authored: '
+                    f'{bookmark}</strong>{("<br>" + note) if note else ""}</div>')
 
             slides_html.append(f"""
             <div class="slide-block" id="slide-{entry['slide_index']}">
@@ -262,16 +282,31 @@ class ExportService:
                     </div>
                     <div class="slide-transcript">
                         {"".join(segments_html)}
+                        {annotation_html}
                     </div>
                 </div>
             </div>
             """)
 
+        title = html.escape(str(self.job.manifest.get('title', 'Lecture')))
+        source_path = html.escape(str(
+            self.job.manifest.get('source', {}).get('original_path', '')))
+        section_bookmarks = sorted(
+            study["bookmarked_sections"].values(),
+            key=lambda entry: float(entry.get("start", 0.0)))
+        section_items = "".join(
+            f"<li>★ {datetime_from_seconds(float(entry.get('start', 0.0)))} — "
+            f"{html.escape(str(entry.get('heading', 'Untitled section')))}</li>"
+            for entry in section_bookmarks)
+        study_summary = (
+            '<section class="study-data"><h2>Your study bookmarks and notes</h2>'
+            + (f"<ul>{section_items}</ul>" if section_items else
+               "<p>No section bookmarks.</p>") + "</section>")
         html_content = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Lecture Study Pack - {self.job.manifest.get('title', 'Lecture')}</title>
+    <title>Lecture Study Pack - {title}</title>
     <style>
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -365,15 +400,22 @@ class ExportService:
             color: #777;
             font-style: italic;
         }}
+        .study-data, .user-note {{
+            background: #eff6ff;
+            border-left: 4px solid #2563eb;
+            padding: 12px;
+            margin: 14px 0;
+        }}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Lecture Study Pack: {self.job.manifest.get('title', 'Lecture')}</h1>
+        <h1>Lecture Study Pack: {title}</h1>
         <div class="video-note">
-            Original Video Path: <strong>{self.job.manifest.get('source', {}).get('original_path', '')}</strong><br>
+            Original Video Path: <strong>{source_path}</strong><br>
             <em>Note: For offline compatibility, timestamp links display the slide interval. Open the video in your media player to seek to a specific time.</em>
         </div>
+        {study_summary}
         <div class="slides-container">
             {"".join(slides_html)}
         </div>
@@ -383,6 +425,77 @@ class ExportService:
 """
         with open(html_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
+
+    def _generate_pdf_study_pack(self, pdf_path, aligned_data):
+        """Create a printable study pack with transcript and user annotations."""
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Image as ReportLabImage,
+            PageBreak,
+        )
+        from lecturepack.services import study_service
+
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            "StudyTitle", parent=styles["Title"], alignment=TA_CENTER,
+            textColor="#1e3d59")
+        note_style = ParagraphStyle(
+            "UserNote", parent=styles["BodyText"], backColor="#eff6ff",
+            borderColor="#2563eb", borderWidth=1, borderPadding=8,
+            spaceBefore=8, spaceAfter=8)
+        story = [
+            Paragraph(
+                f"Lecture Study Pack: {html.escape(str(self.job.manifest.get('title', 'Lecture')))}",
+                title_style),
+            Paragraph("Transcript and slide content are source-derived. Bookmarks and notes are user-authored.",
+                      styles["Italic"]),
+            Spacer(1, 0.2 * inch),
+        ]
+        study = study_service.load_study_data(self.job)
+        section_bookmarks = sorted(
+            study["bookmarked_sections"].values(),
+            key=lambda entry: float(entry.get("start", 0.0)))
+        if section_bookmarks:
+            story.append(Paragraph("User-authored section bookmarks", styles["Heading2"]))
+            for entry in section_bookmarks:
+                story.append(Paragraph(
+                    f"Bookmarked {html.escape(datetime_from_seconds(float(entry.get('start', 0.0))))} — "
+                    f"{html.escape(str(entry.get('heading', 'Untitled section')))}",
+                    note_style))
+            story.append(Spacer(1, 0.15 * inch))
+        for entry in aligned_data:
+            story.append(Paragraph(
+                f"Slide {entry['slide_index']} — {html.escape(str(entry['timestamp_formatted']))}",
+                styles["Heading2"]))
+            image_name = entry.get("image_filename") or ""
+            image_path = os.path.join(self.job.paths["candidates"], image_name)
+            if image_name and os.path.exists(image_path):
+                image = ReportLabImage(image_path)
+                image._restrictSize(6.8 * inch, 4.6 * inch)
+                story.extend([image, Spacer(1, 0.12 * inch)])
+            annotation = study["bookmarked_slides"].get(
+                study_service.slide_key(entry), {})
+            if annotation.get("bookmarked") or annotation.get("note"):
+                label = "★ Bookmarked" if annotation.get("bookmarked") else "Note"
+                note = html.escape(str(annotation.get("note") or ""))
+                story.append(Paragraph(
+                    f"<b>User-authored: {label}</b>{('<br/>' + note) if note else ''}",
+                    note_style))
+            for segment in entry.get("segments", []):
+                timestamp = datetime_from_seconds(float(segment.get("start", 0.0)))
+                story.append(Paragraph(
+                    f"<b>{html.escape(timestamp)}</b>  "
+                    f"{html.escape(str(segment.get('text') or ''))}",
+                    styles["BodyText"]))
+            story.append(PageBreak())
+        SimpleDocTemplate(
+            pdf_path, pagesize=letter, rightMargin=0.6 * inch,
+            leftMargin=0.6 * inch, topMargin=0.55 * inch,
+            bottomMargin=0.55 * inch, title=str(self.job.manifest.get("title", "Lecture")),
+        ).build(story)
 
 class ExportWorker(QThread):
     progress = Signal(int)

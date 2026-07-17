@@ -40,6 +40,8 @@ class ReviewPage(QWidget):
     status_message = Signal(str)
     selection_count_changed = Signal(int)
     open_context_repair = Signal()
+    study_data_changed = Signal()
+    position_changed = Signal(float)
 
     def __init__(self, config_manager, parent=None):
         super().__init__(parent)
@@ -49,6 +51,7 @@ class ReviewPage(QWidget):
         self.edited_data = {}
         self.undo_stack = []
         self.current_search_match = -1
+        self._current_candidate = None
         self._build_ui()
 
     # ------------------------------------------------------------------ #
@@ -128,6 +131,22 @@ class ReviewPage(QWidget):
         nav.addWidget(self.slide_info_lbl, 1)
         nav.addWidget(next_btn)
         cl.addLayout(nav)
+
+        study_row = QHBoxLayout()
+        self.slide_bookmark_btn = QPushButton("☆ Bookmark")
+        self.slide_bookmark_btn.setCheckable(True)
+        self.slide_bookmark_btn.setObjectName("slideBookmarkButton")
+        self.slide_bookmark_btn.setEnabled(False)
+        self.slide_bookmark_btn.toggled.connect(self._save_slide_study)
+        self.slide_note_edit = QLineEdit()
+        self.slide_note_edit.setObjectName("slideNoteEdit")
+        self.slide_note_edit.setPlaceholderText("Add a short note for this slide…")
+        self.slide_note_edit.setMaxLength(500)
+        self.slide_note_edit.setEnabled(False)
+        self.slide_note_edit.editingFinished.connect(self._save_slide_study)
+        study_row.addWidget(self.slide_bookmark_btn)
+        study_row.addWidget(self.slide_note_edit, 1)
+        cl.addLayout(study_row)
         self.splitter.addWidget(center)
 
         # ---- right: transcript for the selection ------------------------ #
@@ -216,6 +235,8 @@ class ReviewPage(QWidget):
         self.preview_lbl.setText("Select a slide to preview")
         self.preview_lbl.setPixmap(QPixmap())
         self.slide_info_lbl.setText("Timestamp: —")
+        self._current_candidate = None
+        self._clear_study_controls()
         self.selected_count_lbl.setText("Selected: 0")
         self.transcript_table.setRowCount(0)
         if self.job is None:
@@ -245,6 +266,8 @@ class ReviewPage(QWidget):
             self.preview_lbl.setPixmap(QPixmap())
             self.slide_info_lbl.setText("Timestamp: —")
             self.transcript_table.setRowCount(0)
+            self._current_candidate = None
+            self._clear_study_controls()
             return
         # Extended selections have a distinct current item.  It is the user's
         # navigation anchor and must drive the preview even when earlier rows
@@ -257,6 +280,7 @@ class ReviewPage(QWidget):
         self._update_transcript_for_selected_slides()
 
     def _show_slide_preview(self, cand):
+        self._current_candidate = cand
         img_filename = cand.get("image_filename", "")
         img_p = os.path.join(self.job.paths["candidates"], img_filename)
         if os.path.exists(img_p):
@@ -268,6 +292,47 @@ class ReviewPage(QWidget):
             self.preview_lbl.setText("Image missing.")
         self.slide_info_lbl.setText(
             f"{cand.get('timestamp_formatted', '00:00:00')}  ·  frame {cand.get('frame_number', 0)}")
+        self._load_study_controls(cand)
+        self.position_changed.emit(float(cand.get("timestamp_seconds", 0.0)))
+
+    def _clear_study_controls(self):
+        self.slide_bookmark_btn.blockSignals(True)
+        self.slide_bookmark_btn.setChecked(False)
+        self.slide_bookmark_btn.setText("☆ Bookmark")
+        self.slide_bookmark_btn.blockSignals(False)
+        self.slide_bookmark_btn.setEnabled(False)
+        self.slide_note_edit.blockSignals(True)
+        self.slide_note_edit.clear()
+        self.slide_note_edit.blockSignals(False)
+        self.slide_note_edit.setEnabled(False)
+
+    def _load_study_controls(self, candidate):
+        from lecturepack.services import study_service
+        entry = study_service.get_slide_entry(self.job, candidate) if self.job else {}
+        bookmarked = bool(entry.get("bookmarked", False))
+        self.slide_bookmark_btn.blockSignals(True)
+        self.slide_bookmark_btn.setChecked(bookmarked)
+        self.slide_bookmark_btn.setText("★ Bookmarked" if bookmarked else "☆ Bookmark")
+        self.slide_bookmark_btn.blockSignals(False)
+        self.slide_bookmark_btn.setEnabled(self.job is not None)
+        self.slide_note_edit.blockSignals(True)
+        self.slide_note_edit.setText(str(entry.get("note") or ""))
+        self.slide_note_edit.blockSignals(False)
+        self.slide_note_edit.setEnabled(self.job is not None)
+
+    def _save_slide_study(self, *args):
+        if self.job is None or self._current_candidate is None:
+            return
+        from lecturepack.services import study_service
+        bookmarked = self.slide_bookmark_btn.isChecked()
+        self.slide_bookmark_btn.setText("★ Bookmarked" if bookmarked else "☆ Bookmark")
+        study_service.set_slide_study(
+            self.job, self._current_candidate, bookmarked=bookmarked,
+            note=self.slide_note_edit.text())
+        study_service.save_position(
+            self.job, page="review",
+            timestamp_seconds=float(self._current_candidate.get("timestamp_seconds", 0.0)))
+        self.study_data_changed.emit()
 
     def _step_selection(self, delta):
         row = self.slides_view.currentRow()

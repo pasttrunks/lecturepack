@@ -4,6 +4,40 @@ Record of major technical decisions. Newest entries at the top.
 
 ---
 
+## AD-11: Separate User Study Data from Source-Derived Artifacts (v1.2 Study)
+
+**Date:** 2026-07-16
+**Status:** Accepted
+
+**Context:** The Study workspace needs durable slide bookmarks, section
+bookmarks, short notes, and a per-job resume position. Writing those values
+into `candidates.json`, raw/working transcript layers, or aligned output would
+mix user-authored content with source-derived content and make re-export less
+safe. The overview also needs to work offline and must not silently introduce
+AI-generated claims.
+
+**Decision:** Store user-authored Study state in one atomic per-job
+`study.json` file (schema version 1). Derive overview text, topics, key terms,
+review counts, duration, and the actually loaded backend from existing job
+artifacts on demand. Label deterministic summary provenance in the UI and
+keep AI-marked section headings visibly marked. Export Study data with
+explicit source-derived and user-authored provenance groups.
+
+**Alternatives considered:** Extending `candidates.json` was rejected because
+candidate decisions are source-processing state. Extending transcript
+`working.json` was rejected because bookmarks and resume positions are not
+transcript edits. SQLite was rejected because per-job atomic JSON is already
+the project persistence contract. Generating the overview with a provider was
+rejected for this phase because it would add latency, nondeterminism, and a
+network/provider dependency outside the approved scope.
+
+**Rationale:** A dedicated user-data layer preserves provenance, permits old
+jobs with no Study file to open unchanged, makes restart behavior auditable,
+and allows HTML/PDF/JSON exports to include notes without modifying raw
+transcript, source metadata, or candidate images.
+
+---
+
 ## AD-10: Non-Blocking UI Shutdown and PID-Scoped Process Trees (v1.2 stability)
 
 **Date:** 2026-07-16

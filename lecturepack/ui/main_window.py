@@ -47,12 +47,15 @@ from lecturepack.ui.pages.exports_page import ExportsPage
 from lecturepack.ui.pages.home_page import HomePage
 from lecturepack.ui.pages.process_page import ProcessPage
 from lecturepack.ui.pages.review_page import ReviewPage
+from lecturepack.ui.pages.study_page import StudyPage
 from lecturepack.ui.pages.transcript_page import TranscriptPage
 from lecturepack.ui.pages.settings_page import SettingsPage
 
-PAGES = ["Home", "Process", "Review", "Transcript", "Exports", "Settings"]
-PAGE_ICONS = ["⌂", "▶", "▦", "¶", "⇩", "⚙"]
-PAGE_HOME, PAGE_PROCESS, PAGE_REVIEW, PAGE_TRANSCRIPT, PAGE_EXPORTS, PAGE_SETTINGS = range(6)
+PAGES = ["Home", "Process", "Review", "Transcript", "Exports", "Settings", "Study"]
+PAGE_ICONS = ["⌂", "▶", "▦", "¶", "⇩", "⚙", "◇"]
+PAGE_HOME, PAGE_PROCESS, PAGE_REVIEW, PAGE_TRANSCRIPT, PAGE_EXPORTS, PAGE_SETTINGS, PAGE_STUDY = range(7)
+NAV_PAGE_ORDER = [PAGE_HOME, PAGE_STUDY, PAGE_PROCESS, PAGE_REVIEW,
+                  PAGE_TRANSCRIPT, PAGE_EXPORTS, PAGE_SETTINGS]
 
 
 class RestoreDialog(QDialog):
@@ -199,17 +202,19 @@ class MainWindow(QMainWindow):
         rl = QVBoxLayout(rail)
         rl.setContentsMargins(6, 10, 6, 10)
         rl.setSpacing(4)
-        self.nav_buttons = []
-        for i, (name, icon) in enumerate(zip(PAGES, PAGE_ICONS)):
+        self.nav_buttons = [None] * len(PAGES)
+        for page_index in NAV_PAGE_ORDER:
+            name, icon = PAGES[page_index], PAGE_ICONS[page_index]
             btn = QToolButton()
             btn.setText(f"{icon}\n{name}")
             btn.setCheckable(True)
             btn.setProperty("navButton", True)
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
             btn.setFixedSize(64, 52)
-            btn.clicked.connect(lambda checked, idx=i: self.navigate_to(idx))
+            btn.clicked.connect(
+                lambda checked, idx=page_index: self.navigate_to(idx))
             rl.addWidget(btn)
-            self.nav_buttons.append(btn)
+            self.nav_buttons[page_index] = btn
         rl.addStretch(1)
         hb.addWidget(rail)
 
@@ -220,8 +225,10 @@ class MainWindow(QMainWindow):
         self.transcript_page = TranscriptPage(self.config_manager)
         self.exports_page = ExportsPage()
         self.settings_page = SettingsPage(self.config_manager)
+        self.study_page = StudyPage()
         for w in (self.home_page, self.process_page, self.review_page,
-                  self.transcript_page, self.exports_page, self.settings_page):
+                  self.transcript_page, self.exports_page, self.settings_page,
+                  self.study_page):
             self.stack.addWidget(w)
         self.stack.currentChanged.connect(self._on_page_changed)
         hb.addWidget(self.stack, 1)
@@ -265,11 +272,21 @@ class MainWindow(QMainWindow):
 
         self.review_page.status_message.connect(self._show_status)
         self.review_page.open_context_repair.connect(self._open_context_repair)
+        self.review_page.study_data_changed.connect(self.study_page.refresh)
+        self.review_page.position_changed.connect(
+            lambda timestamp: self._save_study_position("review", timestamp))
         self.review_page.selection_count_changed.connect(
             lambda n: self.bar_status_lbl.setText(f"{n} slide(s) selected" if n else ""))
 
         self.transcript_page.status_message.connect(self._show_status)
         self.transcript_page.seek_requested.connect(self._on_transcript_seek)
+        self.transcript_page.study_data_changed.connect(self.study_page.refresh)
+        self.transcript_page.position_changed.connect(
+            lambda timestamp: self._save_study_position("transcript", timestamp))
+
+        self.study_page.navigate_requested.connect(self._on_study_navigation)
+        self.study_page.seek_requested.connect(self._on_transcript_seek)
+        self.study_page.resume_requested.connect(self._resume_study_position)
 
         self.exports_page.export_requested.connect(self._export_outputs)
 
@@ -358,6 +375,7 @@ class MainWindow(QMainWindow):
         self.review_page.load_review_data()
         self.transcript_page.load_job(self.current_job)
         self.exports_page.set_job(self.current_job)
+        self.study_page.load_job(self.current_job)
 
     def _save_corrections(self):
         self.review_page._save_corrections()
@@ -390,13 +408,15 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(index)
 
     def _on_page_changed(self, index):
-        for i, btn in enumerate(self.nav_buttons):
-            btn.setChecked(i == index)
+        for page_index, btn in enumerate(self.nav_buttons):
+            btn.setChecked(page_index == index)
         if index == PAGE_REVIEW and self.current_job is not None \
                 and self.review_page.slides_view.count() == 0:
             self._load_review_data()
         if index == PAGE_EXPORTS:
             self.exports_page.refresh_artifacts()
+        if index == PAGE_STUDY and self.current_job is not None:
+            self.study_page.refresh()
         self._settings.setValue("lastPage", index)
 
     def _restore_ui_state(self):
@@ -467,6 +487,7 @@ class MainWindow(QMainWindow):
             return
         self.current_job = Job(self.config_manager.data_dir, video_path=video_path)
         self.controller.set_job(self.current_job)
+        self.study_page.load_job(self.current_job)
         self.job_title_lbl.setText(self.current_job.manifest.get("title", "Job"))
 
         try:
@@ -527,6 +548,7 @@ class MainWindow(QMainWindow):
         self.current_job = Job(self.config_manager.data_dir, job_id=job_id)
         self.controller.set_job(self.current_job)
         self.review_page.set_job(self.current_job)
+        self.study_page.load_job(self.current_job)
         self.job_title_lbl.setText(self.current_job.manifest.get("title", "Job"))
         pp = self.process_page
         pp.video_path_edit.setText(source_path)
@@ -590,7 +612,7 @@ class MainWindow(QMainWindow):
 
         if is_completed:
             self._load_review_data()
-            self.navigate_to(PAGE_REVIEW)
+            self.navigate_to(PAGE_STUDY)
         else:
             self.navigate_to(PAGE_PROCESS)
 
@@ -770,9 +792,9 @@ class MainWindow(QMainWindow):
         self._elapsed_timer.stop()
         self.sb_stage.setText("Complete")
         self._load_review_data()
-        self.navigate_to(PAGE_REVIEW)
+        self.navigate_to(PAGE_STUDY)
         self._reload_recent_jobs()
-        self._show_status("Processing finished — review your slides.")
+        self._show_status("Processing finished — your Study workspace is ready.")
 
     def _on_pipeline_failed(self, error_msg):
         self._elapsed_timer.stop()
@@ -930,6 +952,31 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
     # cross-page sync
     # ------------------------------------------------------------------ #
+    def _save_study_position(self, page, timestamp):
+        if self.current_job is None:
+            return
+        from lecturepack.services import study_service
+        study_service.save_position(
+            self.current_job, page=page, timestamp_seconds=float(timestamp))
+
+    def _on_study_navigation(self, destination):
+        mapping = {
+            "study": PAGE_STUDY,
+            "review": PAGE_REVIEW,
+            "transcript": PAGE_TRANSCRIPT,
+            "corrections": PAGE_TRANSCRIPT,
+            "exports": PAGE_EXPORTS,
+        }
+        self.navigate_to(mapping.get(destination, PAGE_STUDY))
+        if destination == "corrections":
+            self.transcript_page.tabs.setCurrentIndex(1)
+
+    def _resume_study_position(self, page, timestamp):
+        self._on_study_navigation(page)
+        if page in ("review", "transcript", "corrections"):
+            self.review_page.select_slide_near(float(timestamp))
+        self._show_status(f"Resumed {page} at {timestamp:.0f}s.")
+
     def _on_transcript_seek(self, timestamp):
         self.review_page.select_slide_near(timestamp)
         self._show_status(f"Selected slide near {timestamp:.0f}s (see Review page).")
@@ -956,6 +1003,7 @@ class MainWindow(QMainWindow):
                 FileManager.archive_job(self.config_manager.data_dir, self.current_job.job_id)
                 self.current_job = None
                 self.controller.set_job(None)
+                self.study_page.load_job(None)
                 self.process_page.video_path_edit.clear()
                 self.process_page.glossary_edit.clear()
                 self.process_page.metadata_lbl.setText("No video loaded.")
