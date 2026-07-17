@@ -69,13 +69,13 @@ def test_capability_contract_is_explicit_and_json_safe():
     assert payload["requires_secret"] is False
 
 
-def test_registry_contains_only_private_local_backend_and_safe_fallback():
+def test_registry_contains_local_and_explicitly_approved_online_backends():
     wrapper = FakeWhisperWrapper()
     registry = BackendRegistry(
         config_manager=None, local_wrapper=wrapper,
         local_engine_registry=FakeEngineRegistry())
 
-    assert registry.keys() == [BACKEND_LOCAL_WHISPERCPP]
+    assert registry.keys() == [BACKEND_LOCAL_WHISPERCPP, "groq-fast", "groq-accurate"]
     local, reason = registry.resolve(BACKEND_LOCAL_WHISPERCPP)
     assert isinstance(local, LocalWhisperCppBackend)
     assert local.capabilities().is_local
@@ -85,7 +85,7 @@ def test_registry_contains_only_private_local_backend_and_safe_fallback():
     fallback, reason = registry.resolve("future-online-provider")
     assert fallback is local
     assert "unavailable" in reason.lower()
-    assert registry.any_network_enabled() is False
+    assert registry.any_network_enabled() is True
 
 
 def test_local_adapter_preserves_arguments_progress_backend_result_and_cancel(qtbot, tmp_path):

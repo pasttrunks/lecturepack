@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QInputDialog,
 )
 
 from lecturepack.infrastructure.transcription_engines import (
@@ -113,6 +114,27 @@ class SettingsPage(QWidget):
         eng_grid.addWidget(self.profiles_lbl, 4, 0, 1, 2)
         layout.addWidget(self._card("Transcription engine && pipeline", eng_grid))
 
+        groq = QGridLayout()
+        self.groq_status_lbl = QLabel("")
+        self.groq_status_lbl.setWordWrap(True)
+        groq.addWidget(self.groq_status_lbl, 0, 0, 1, 3)
+        self.groq_set_btn = QPushButton("Set API key")
+        self.groq_set_btn.clicked.connect(self.set_groq_key)
+        groq.addWidget(self.groq_set_btn, 1, 0)
+        self.groq_test_btn = QPushButton("Test key")
+        self.groq_test_btn.clicked.connect(self.test_groq_key)
+        groq.addWidget(self.groq_test_btn, 1, 1)
+        self.groq_remove_btn = QPushButton("Remove key")
+        self.groq_remove_btn.clicked.connect(self.remove_groq_key)
+        groq.addWidget(self.groq_remove_btn, 1, 2)
+        groq_note = QLabel(
+            "Online transcription is opt-in. Only audio chunks are uploaded. "
+            "The key is never written to LecturePack settings or job files.")
+        groq_note.setWordWrap(True)
+        groq_note.setProperty("muted", True)
+        groq.addWidget(groq_note, 2, 0, 1, 3)
+        layout.addWidget(self._card("Groq online transcription", groq))
+
         # ---- Ollama -------------------------------------------------------- #
         ol = QGridLayout()
         self.ollama_enabled_chk = QCheckBox("Enable AI assistance (local Ollama)")
@@ -193,6 +215,7 @@ class SettingsPage(QWidget):
         self.data_dir_lbl.setText(cm.data_dir)
         self.refresh_engine_status()
         self.refresh_diagnostics()
+        self.refresh_groq_status()
 
     def save(self):
         cm = self.config_manager
@@ -215,6 +238,72 @@ class SettingsPage(QWidget):
         self.refresh_diagnostics()
         self.settings_changed.emit()
         self.ollama_status_lbl.setText("Settings saved.")
+
+    def refresh_groq_status(self):
+        from lecturepack.infrastructure.secret_store import (
+            SecretStoreError, WindowsCredentialStore,
+        )
+        try:
+            present = WindowsCredentialStore().has_secret()
+            self.groq_status_lbl.setText(
+                "API key stored securely in Windows Credential Manager."
+                if present else "No Groq API key stored. Private Local remains the default.")
+            self.groq_test_btn.setEnabled(present)
+            self.groq_remove_btn.setEnabled(present)
+        except SecretStoreError as exc:
+            self.groq_status_lbl.setText(str(exc))
+            self.groq_test_btn.setEnabled(False)
+            self.groq_remove_btn.setEnabled(False)
+
+    def set_groq_key(self):
+        from lecturepack.infrastructure.secret_store import (
+            SecretStoreError, WindowsCredentialStore,
+        )
+        key, ok = QInputDialog.getText(
+            self, "Groq API key", "API key:", QLineEdit.EchoMode.Password)
+        if not ok:
+            return
+        try:
+            WindowsCredentialStore().set(key)
+        except SecretStoreError as exc:
+            self.groq_status_lbl.setText(str(exc))
+            return
+        self.refresh_groq_status()
+
+    def remove_groq_key(self):
+        from lecturepack.infrastructure.secret_store import (
+            SecretStoreError, WindowsCredentialStore,
+        )
+        try:
+            WindowsCredentialStore().remove()
+        except SecretStoreError as exc:
+            self.groq_status_lbl.setText(str(exc))
+            return
+        self.refresh_groq_status()
+
+    def test_groq_key(self):
+        from lecturepack.infrastructure.secret_store import WindowsCredentialStore
+        from lecturepack.services.groq_transcription import GroqHttpClient
+        self.groq_test_btn.setEnabled(False)
+        self.groq_status_lbl.setText("Testing Groq credentials...")
+
+        def work():
+            key = WindowsCredentialStore().get()
+            if not key:
+                return ("error", "No API key stored.")
+            return ("ok", GroqHttpClient().test_key(key))
+
+        def done(result):
+            self.groq_test_btn.setEnabled(True)
+            if result and result[0] == "ok" and result[1]:
+                self.groq_status_lbl.setText(
+                    "Groq credential test passed. Account limits and billing still apply.")
+            else:
+                self.groq_status_lbl.setText(
+                    "Groq credential test failed: " +
+                    (str(result[1]) if result else "unknown"))
+
+        self._run_bg(work, done)
 
     # ------------------------------------------------------------------ #
     def refresh_engine_status(self):

@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
 
 from lecturepack.constants import (
     DEFAULT_DATA_DIR, STAGES, STAGE_EXPORT, STAGE_REVIEW_READY, STAGE_TRANSCRIBE,
-    SUPPORTED_VIDEO_EXTENSIONS,
+    SUPPORTED_VIDEO_EXTENSIONS, TRANSCRIPTION_BACKEND_LOCAL,
 )
 from lecturepack.controllers.job_controller import JobController
 from lecturepack.infrastructure.file_manager import FileManager
@@ -263,6 +263,10 @@ class MainWindow(QMainWindow):
         self.home_page.export_archive_requested.connect(self._export_job_archive)
 
         self.process_page.video_chosen.connect(self._on_video_selected_from_ui)
+        self.process_page.transcription_mode_combo.currentIndexChanged.connect(
+            self._refresh_diagnostics)
+        self.process_page.product_mode_combo.currentIndexChanged.connect(
+            self._refresh_diagnostics)
         self.process_page.start_requested.connect(self._start_processing)
         self.process_page.retranscribe_requested.connect(self._retranscribe_only_workflow)
         self.process_page.cancel_requested.connect(self._cancel_processing)
@@ -554,6 +558,9 @@ class MainWindow(QMainWindow):
         pp.video_path_edit.setText(source_path)
 
         w_settings = self.current_job.settings.get("whisper", {})
+        backend_idx = pp.transcription_mode_combo.findData(
+            w_settings.get("transcription_backend", TRANSCRIPTION_BACKEND_LOCAL))
+        pp.transcription_mode_combo.setCurrentIndex(max(0, backend_idx))
         pp.glossary_edit.setText(w_settings.get("glossary", ""))
         profile = w_settings.get("profile", "fast")
         p_idx = pp.profile_combo.findText(profile.title())
@@ -569,6 +576,11 @@ class MainWindow(QMainWindow):
         pp.vad_thresh_spin.setValue(w_settings.get("vad_threshold", 0.50))
         pp.vad_spd_spin.setValue(w_settings.get("vad_min_speech_duration_ms", 250))
         pp.vad_sil_spin.setValue(w_settings.get("vad_min_silence_duration_ms", 100))
+        pp.groq_concurrency_spin.setValue(int(w_settings.get(
+            "groq_concurrency", self.config_manager.get("groq_concurrency", 2))))
+        pp.online_fallback_chk.setChecked(bool(w_settings.get(
+            "online_fallback_local",
+            self.config_manager.get("online_fallback_local", True))))
 
         preset = self.current_job.settings.get("preset", "balanced")
         if preset in ["standard_lecture", "webcam_lecture", "whiteboard_lecture", "software_demo"]:
@@ -637,6 +649,9 @@ class MainWindow(QMainWindow):
         w_settings["vad_threshold"] = pp.vad_thresh_spin.value()
         w_settings["vad_min_speech_duration_ms"] = pp.vad_spd_spin.value()
         w_settings["vad_min_silence_duration_ms"] = pp.vad_sil_spin.value()
+        w_settings["transcription_backend"] = pp.transcription_mode_combo.currentData()
+        w_settings["groq_concurrency"] = pp.groq_concurrency_spin.value()
+        w_settings["online_fallback_local"] = pp.online_fallback_chk.isChecked()
 
         # Profile-driven model recommendation (uses downloaded profile models
         # when present; never blocks).
@@ -668,15 +683,47 @@ class MainWindow(QMainWindow):
         w_model = self.config_manager.get("whisper_model", "")
         mode = self.process_page.product_mode_combo.currentData()
         needs_whisper = mode != "slides_only"
-        if needs_whisper and (not w_exe or not os.path.exists(w_exe)):
+        backend = self.process_page.transcription_mode_combo.currentData()
+        local_selected = backend == TRANSCRIPTION_BACKEND_LOCAL
+        if needs_whisper and local_selected and (not w_exe or not os.path.exists(w_exe)):
             QMessageBox.warning(self, "Whisper Executable",
                                 "Configure a valid whisper-cli path in Settings.")
             return
-        if needs_whisper and (not w_model or not os.path.exists(w_model)):
+        if needs_whisper and local_selected and (not w_model or not os.path.exists(w_model)):
             QMessageBox.warning(self, "Whisper Model",
                                 "Configure a valid Whisper model in Settings.")
             return
-        if self.process_page.vad_chk.isChecked():
+        if needs_whisper and not local_selected:
+            from lecturepack.infrastructure.secret_store import (
+                SecretStoreError, WindowsCredentialStore,
+            )
+            try:
+                if not WindowsCredentialStore().has_secret():
+                    QMessageBox.warning(
+                        self, "Groq API key",
+                        "Store a Groq API key in Settings before using an online mode.")
+                    return
+            except SecretStoreError as exc:
+                QMessageBox.warning(self, "Credential Manager", str(exc))
+                return
+            accepted = bool(self.current_job.settings.get("whisper", {}).get(
+                "online_privacy_accepted", False))
+            if not accepted:
+                reply = QMessageBox.question(
+                    self, "Online transcription privacy",
+                    "LecturePack will upload only lossless 16 kHz mono audio chunks "
+                    "to Groq for transcription. The lecture video, slide images, "
+                    "existing transcripts, and job metadata are not uploaded.\n\n"
+                    "Groq usage may be billed and is subject to your account limits. "
+                    "Do you consent to this audio upload for this job?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No)
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+                self.current_job.settings.setdefault("whisper", {})[
+                    "online_privacy_accepted"] = True
+                self.current_job.save()
+        if local_selected and self.process_page.vad_chk.isChecked():
             v_model = self.process_page.vad_model_edit.text().strip()
             if not v_model or not os.path.exists(v_model):
                 QMessageBox.warning(self, "VAD Model",
@@ -840,15 +887,27 @@ class MainWindow(QMainWindow):
         from lecturepack.infrastructure.transcription_engines import EngineRegistry
         reg = EngineRegistry(self.config_manager)
         resolved = reg.resolve(self.config_manager.get("engine", "auto"))
-        self.process_page.set_engine_status(
-            f"Engine: {resolved.label} — {resolved.reason or 'default'}")
-        self.sb_engine.setText(f"{resolved.key}")
+        selected_backend = self.process_page.transcription_mode_combo.currentData()
+        if selected_backend == TRANSCRIPTION_BACKEND_LOCAL:
+            self.process_page.set_engine_status(
+                f"Engine: {resolved.label} — {resolved.reason or 'default'}")
+            self.sb_engine.setText(f"{resolved.key}")
+        else:
+            label = self.process_page.transcription_mode_combo.currentText()
+            self.process_page.set_engine_status(
+                f"Backend: {label} — credential status is shown in Settings")
+            self.sb_engine.setText(label)
 
         w_exe = self.config_manager.get("whisper_exe", "")
-        deps_ok = diag["ffmpeg"]["valid"] and diag["whisper_cli"]["valid"] \
-            and diag["whisper_model"]["valid"]
+        base_ok = diag["ffmpeg"]["valid"] and diag["ffprobe"]["valid"]
+        needs_transcript = self.process_page.product_mode_combo.currentData() != "slides_only"
+        local_selected = (self.process_page.transcription_mode_combo.currentData()
+                          == TRANSCRIPTION_BACKEND_LOCAL)
+        deps_ok = base_ok and (not needs_transcript or not local_selected or
+                               (diag["whisper_cli"]["valid"] and
+                                diag["whisper_model"]["valid"]))
         self.process_page.start_btn.setEnabled(bool(deps_ok))
-        if w_exe and os.path.exists(w_exe):
+        if selected_backend == TRANSCRIPTION_BACKEND_LOCAL and w_exe and os.path.exists(w_exe):
             self.whisper_detector.detect(w_exe)
 
     def _on_whisper_detection_finished(self, exe_path, caps):

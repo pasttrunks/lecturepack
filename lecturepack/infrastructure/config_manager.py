@@ -34,6 +34,9 @@ class ConfigManager:
         "engine": "auto",
         "vulkan_benchmark_ok": False,
         "parallel_pipeline": True,
+        "groq_concurrency": 2,
+        "groq_max_upload_bytes": 23 * 1024 * 1024,
+        "online_fallback_local": True,
         "dark_theme": False,
         "ollama": {},
     }

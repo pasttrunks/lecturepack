@@ -6,19 +6,25 @@ placing provider logic, secrets, HTTP, chunking, or retries in JobController.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, dataclass, field
 from threading import Event
 from typing import Any, Dict, Optional
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QThread
 
-from lecturepack.constants import TRANSCRIPTION_BACKEND_LOCAL
+from lecturepack.constants import (
+    TRANSCRIPTION_BACKEND_LOCAL, TRANSCRIPTION_BACKEND_GROQ_FAST,
+    TRANSCRIPTION_BACKEND_GROQ_ACCURATE,
+)
 from lecturepack.infrastructure.transcription_engines import (
     ENGINE_AUTO, EngineRegistry,
 )
 
 
 BACKEND_LOCAL_WHISPERCPP = TRANSCRIPTION_BACKEND_LOCAL
+BACKEND_GROQ_FAST = TRANSCRIPTION_BACKEND_GROQ_FAST
+BACKEND_GROQ_ACCURATE = TRANSCRIPTION_BACKEND_GROQ_ACCURATE
 
 
 @dataclass(frozen=True)
@@ -69,6 +75,7 @@ class TranscriptionRequest:
     local_engine: str = ENGINE_AUTO
     job_id: str = ""
     source_duration_seconds: float = 0.0
+    provider_options: Dict[str, Any] = field(default_factory=dict)
     cancel_token: CancellationToken = field(default_factory=CancellationToken,
                                              compare=False, repr=False)
 
@@ -192,16 +199,221 @@ class LocalWhisperCppBackend(TranscriptionBackend):
         self.finished.emit(result)
 
 
+class _GroqWorker(QThread):
+    progress = Signal(str)
+    result_ready = Signal(object)
+
+    def __init__(self, request, backend_key, model, config_manager,
+                 secret_store, client_factory, encoder_factory):
+        super().__init__()
+        self.request = request
+        self.backend_key = backend_key
+        self.model = model
+        self.config_manager = config_manager
+        self.secret_store = secret_store
+        self.client_factory = client_factory
+        self.encoder_factory = encoder_factory
+        self.encoder = None
+        self.clients = []
+
+    def cancel(self):
+        self.request.cancel_token.cancel()
+        if self.encoder is not None:
+            self.encoder.cancel()
+        for client in list(self.clients):
+            cancel = getattr(client, "cancel", None)
+            if cancel:
+                cancel()
+
+    def run(self):
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from lecturepack.infrastructure.file_manager import FileManager
+        from lecturepack.services.groq_transcription import (
+            DEFAULT_MAX_UPLOAD_BYTES, AudioChunk, FfmpegFlacEncoder, GroqError,
+            GroqHttpClient, cache_fingerprint, merge_verbose_chunks,
+            plan_audio_chunks, write_canonical_outputs,
+        )
+        request = self.request
+        options = request.provider_options or {}
+        started = __import__("time").monotonic()
+        try:
+            if not options.get("privacy_accepted", False):
+                raise GroqError("Online audio upload requires privacy acknowledgement.",
+                                kind="privacy_required", retryable=False)
+            api_key = self.secret_store.get()
+            if not api_key:
+                raise GroqError("No Groq API key is stored in Windows Credential Manager.",
+                                kind="missing_secret", retryable=False)
+            duration = float(request.source_duration_seconds or 0.0)
+            if duration <= 0:
+                import wave
+                with wave.open(request.audio_path, "rb") as wav:
+                    duration = wav.getnframes() / float(wav.getframerate())
+            max_bytes = int(options.get("max_upload_bytes") or
+                            (self.config_manager.get("groq_max_upload_bytes",
+                                                     DEFAULT_MAX_UPLOAD_BYTES)
+                             if self.config_manager else DEFAULT_MAX_UPLOAD_BYTES))
+            concurrency = max(1, min(4, int(options.get("concurrency") or
+                                             (self.config_manager.get("groq_concurrency", 2)
+                                              if self.config_manager else 2))))
+            chunks = plan_audio_chunks(duration, max_bytes)
+            fingerprint = cache_fingerprint(
+                request.audio_path, self.model, request.language, request.prompt,
+                duration, max_bytes)
+            root = os.path.join(os.path.dirname(request.output_prefix),
+                                "groq-cache", fingerprint)
+            audio_dir = os.path.join(root, "audio")
+            response_dir = os.path.join(root, "responses")
+            os.makedirs(audio_dir, exist_ok=True)
+            os.makedirs(response_dir, exist_ok=True)
+            ffmpeg = options.get("ffmpeg_path") or (
+                self.config_manager.get("ffmpeg_exe", "") if self.config_manager else "")
+            self.encoder = (self.encoder_factory(ffmpeg) if self.encoder_factory
+                            else FfmpegFlacEncoder(ffmpeg))
+            encoded: list[tuple[AudioChunk, str, str]] = []
+            resumed = 0
+            for chunk in chunks:
+                if request.cancel_token.is_cancelled():
+                    raise GroqError("Online transcription cancelled.", kind="cancelled",
+                                    retryable=False)
+                audio_path = os.path.join(audio_dir, f"chunk-{chunk.index:04d}.flac")
+                response_path = os.path.join(
+                    response_dir, f"chunk-{chunk.index:04d}.json")
+                if not os.path.exists(response_path):
+                    if not os.path.exists(audio_path):
+                        self.progress.emit(
+                            f"Preparing online audio chunk {chunk.index + 1}/{len(chunks)}...\n")
+                        self.encoder.encode(request.audio_path, chunk, audio_path,
+                                            request.cancel_token.is_cancelled)
+                    if os.path.getsize(audio_path) >= max_bytes:
+                        raise GroqError(
+                            "Prepared audio chunk exceeds the configured upload limit.",
+                            kind="chunk_too_large", status=413, retryable=False)
+                else:
+                    resumed += 1
+                encoded.append((chunk, audio_path, response_path))
+
+            client = self.client_factory() if self.client_factory else GroqHttpClient()
+            self.clients.append(client)
+
+            def upload(item):
+                chunk, audio_path, response_path = item
+                if os.path.exists(response_path):
+                    return chunk, FileManager.read_json_safe(response_path, {})
+                payload = client.transcribe(
+                    audio_path, api_key=api_key, model=self.model,
+                    language=request.language, prompt="",
+                    cancelled=request.cancel_token.is_cancelled)
+                FileManager.write_json_atomic(response_path, payload)
+                return chunk, payload
+
+            results = []
+            with ThreadPoolExecutor(max_workers=concurrency,
+                                    thread_name_prefix="LecturePackGroq") as pool:
+                futures = {pool.submit(upload, item): item[0] for item in encoded}
+                completed = 0
+                for future in as_completed(futures):
+                    if request.cancel_token.is_cancelled():
+                        for pending in futures:
+                            pending.cancel()
+                        raise GroqError("Online transcription cancelled.", kind="cancelled",
+                                        retryable=False)
+                    results.append(future.result())
+                    completed += 1
+                    self.progress.emit(
+                        f"Online transcription chunk {completed}/{len(chunks)} complete.\n")
+            # Drop the only explicit secret reference before merge/persistence.
+            api_key = ""
+            merged = merge_verbose_chunks(results)
+            paths = write_canonical_outputs(merged, request.output_prefix)
+            self.result_ready.emit(TranscriptionResult(
+                success=True, backend_key=self.backend_key, provider="Groq",
+                actual_backend=f"Groq {self.model}", raw_json_path=paths[0],
+                raw_srt_path=paths[1], raw_txt_path=paths[2],
+                metrics={"chunks": len(chunks), "resumed_chunks": resumed,
+                         "elapsed_seconds": round(__import__("time").monotonic() - started, 3)}))
+        except Exception as exc:
+            api_key = ""
+            if isinstance(exc, GroqError):
+                kind, message, retryable = exc.kind, str(exc), exc.retryable
+            else:
+                kind, message, retryable = "online_internal", str(exc), False
+            self.result_ready.emit(TranscriptionResult(
+                success=False, backend_key=self.backend_key, provider="Groq",
+                actual_backend=f"Groq {self.model}", error_code=kind,
+                error_message=_safe_error(message, request), retryable=retryable,
+                fallback_allowed=kind not in ("cancelled", "privacy_required")))
+
+
+class GroqTranscriptionBackend(TranscriptionBackend):
+    """Opt-in Groq adapter; all work occurs outside the GUI thread."""
+
+    def __init__(self, key, model, config_manager, secret_store=None,
+                 client_factory=None, encoder_factory=None, parent=None):
+        super().__init__(parent)
+        from lecturepack.infrastructure.secret_store import WindowsCredentialStore
+        self.key = key
+        self.model = model
+        self.config_manager = config_manager
+        self.secret_store = secret_store or WindowsCredentialStore()
+        self.client_factory = client_factory
+        self.encoder_factory = encoder_factory
+        self.worker = None
+
+    def capabilities(self) -> BackendCapabilities:
+        from lecturepack.services.groq_transcription import DEFAULT_MAX_UPLOAD_BYTES
+        return BackendCapabilities(
+            key=self.key,
+            label="Online Fast (Groq)" if self.key == BACKEND_GROQ_FAST
+            else "Online Accurate (Groq)",
+            provider="Groq", is_local=False, requires_secret=True,
+            uploads_audio=True, supports_segment_timestamps=True,
+            supports_word_timestamps=True, supports_prompt=False,
+            supports_vad=False, supports_resume=True,
+            accepted_audio_formats=("flac",),
+            max_upload_bytes=DEFAULT_MAX_UPLOAD_BYTES)
+
+    def start(self, request: TranscriptionRequest) -> None:
+        if self.worker is not None and self.worker.isRunning():
+            raise RuntimeError("Groq transcription is already running.")
+        self.worker = _GroqWorker(
+            request, self.key, self.model, self.config_manager,
+            self.secret_store, self.client_factory, self.encoder_factory)
+        self.worker.progress.connect(self.progress.emit)
+        self.worker.result_ready.connect(self._finished)
+        self.worker.start()
+
+    def _finished(self, result):
+        if result.success:
+            self.backend_detected.emit(result.actual_backend)
+        self.finished.emit(result)
+
+    def cancel(self) -> None:
+        if self.worker is not None:
+            self.worker.cancel()
+            # Keep QObject/QThread lifetime safe on application close without
+            # turning cancellation into a long blocking wait.
+            self.worker.wait(750)
+
+
 class BackendRegistry:
     """Holds provider adapters; unknown selections fail closed to local."""
 
     def __init__(self, config_manager, local_wrapper,
-                 local_engine_registry: Optional[EngineRegistry] = None):
+                 local_engine_registry: Optional[EngineRegistry] = None,
+                 secret_store=None):
+        from lecturepack.services.groq_transcription import (
+            GROQ_ACCURATE_MODEL, GROQ_FAST_MODEL,
+        )
         self.config_manager = config_manager
         local_engines = local_engine_registry or EngineRegistry(config_manager)
         local = LocalWhisperCppBackend(local_wrapper, local_engines)
         self._backends: Dict[str, TranscriptionBackend] = {
             BACKEND_LOCAL_WHISPERCPP: local,
+            BACKEND_GROQ_FAST: GroqTranscriptionBackend(
+                BACKEND_GROQ_FAST, GROQ_FAST_MODEL, config_manager, secret_store),
+            BACKEND_GROQ_ACCURATE: GroqTranscriptionBackend(
+                BACKEND_GROQ_ACCURATE, GROQ_ACCURATE_MODEL, config_manager, secret_store),
         }
 
     def register(self, backend: TranscriptionBackend) -> None:

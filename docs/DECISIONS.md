@@ -4,6 +4,59 @@ Record of major technical decisions. Newest entries at the top.
 
 ---
 
+## AD-13: Opt-In Groq Audio Transcription with Credential Manager (v1.2)
+
+**Date:** 2026-07-16
+**Status:** Accepted
+
+**Context:** Online Fast and Online Accurate must improve transcription speed or
+accuracy without weakening Private Local defaults, uploading visual/job data,
+persisting API keys, blocking the Qt event loop, or replacing a valid local
+transcript with a partial provider result. Provider limits and pricing can
+change independently of LecturePack.
+
+**Decision:** Register two explicit provider adapters above the neutral
+transcription seam: `groq-fast` uses `whisper-large-v3-turbo` and
+`groq-accurate` uses `whisper-large-v3`. Private Local remains the default for
+new and old jobs. Require per-job consent immediately before an online run and
+read the key only from Windows Credential Manager. Upload only lossless FLAC
+audio derived from the existing 16 kHz mono WAV; do not send video, slides,
+transcript text, job metadata, or glossary prompts.
+
+Use a conservative 23 MiB direct-upload ceiling beneath Groq's documented
+25 MB free-tier limit. Plan overlapping, ordered chunks from worst-case PCM
+size, encode each with an exact LecturePack-owned FFmpeg PID, retry transient
+errors with bounded exponential backoff and `retry-after`, cache successful
+per-chunk JSON by an input fingerprint, offset timestamps, remove overlap
+duplicates, and atomically publish canonical raw outputs only after all chunks
+merge. On eligible online failure, retry only the transcription branch through
+Private Local while concurrent slide detection continues. Preserve any prior
+canonical transcript until either provider or fallback succeeds.
+
+**Alternatives considered:** Storing a key in `config.json` or job settings was
+rejected as plaintext secret persistence. Environment-only configuration was
+rejected because it does not provide the required native Set/Test/Remove
+workflow. Adding the Groq SDK was rejected because the OpenAI-compatible
+multipart endpoint is small enough for the standard library and a new runtime
+dependency was unnecessary. Uploading the original video was rejected because
+only audio is required. Assuming developer-tier limits or a free allowance was
+rejected because limits and billing are account-specific and mutable.
+
+**Rationale:** This design makes every network action visible and opt-in,
+minimizes uploaded data, resumes safely, keeps the native window responsive,
+and preserves the already-proven local path as a real fallback rather than a
+second provider implementation.
+
+**Official sources checked 2026-07-16:**
+[Groq Speech to Text](https://console.groq.com/docs/speech-to-text),
+[Groq rate limits](https://console.groq.com/docs/rate-limits),
+[Groq API errors](https://console.groq.com/docs/errors), and the official model
+pages for
+[`whisper-large-v3-turbo`](https://console.groq.com/docs/model/whisper-large-v3-turbo)
+and [`whisper-large-v3`](https://console.groq.com/docs/model/whisper-large-v3).
+
+---
+
 ## AD-12: Provider-Neutral Transcription Above Local Compute Engines (v1.2)
 
 **Date:** 2026-07-16

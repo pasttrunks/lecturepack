@@ -378,10 +378,10 @@ auto-downloaded. Backend is CPU-only in this build.
   `TranscriptionRequest`, `TranscriptionResult`, a cooperative
   `CancellationToken`, the Qt-signal `TranscriptionBackend` base, and
   `BackendRegistry`.
-- `LocalWhisperCppBackend` is the only registered backend at this checkpoint.
-  Its capability record states that it is local, requires no secret, and
-  uploads no audio. It delegates unchanged to `WhisperWrapper` and the existing
-  CPU/Vulkan `EngineRegistry`.
+- `LocalWhisperCppBackend` remains the default backend. Its capability record
+  states that it is local, requires no secret, and uploads no audio. It
+  delegates unchanged to `WhisperWrapper` and the existing CPU/Vulkan
+  `EngineRegistry`; approved online adapters register beside it.
 - `JobController` knows only the provider-neutral start/progress/result/cancel
   contract. The existing `whisper_wrapper` attribute remains available for
   diagnostics and process-tree verification.
@@ -394,3 +394,30 @@ auto-downloaded. Backend is CPU-only in this build.
 - Local cache fingerprints are unchanged from v1.1. Non-local fingerprints
   include requested and effective adapter keys, preventing fallback output
   from masquerading as output from a later-available provider.
+
+## v1.2 Groq online transcription
+
+- `infrastructure/secret_store.py` is the only API-key persistence path. It
+  calls Windows Credential Manager directly and has no plaintext fallback.
+- `services/groq_transcription.py` owns size-aware overlapping chunk plans,
+  exact-PID FFmpeg FLAC encoding, the standard-library multipart client,
+  retry/`retry-after`, resumable response caching, timestamp offsetting,
+  overlap de-duplication, and canonical JSON/SRT/TXT publication.
+- `GroqTranscriptionBackend` runs encoding/upload/merge on a QThread and exposes
+  it only through the neutral progress/result/cancel contract. Online Fast and
+  Accurate are registered explicitly; Private Local remains registry and UI
+  default.
+- A per-job `online_privacy_accepted` setting is required before the backend
+  reads a credential. Provider requests contain FLAC audio plus required API
+  control fields only. Glossary text, video, slides, transcript artifacts, and
+  job metadata are not sent.
+- Successful chunk responses live under
+  `transcript/groq-cache/<fingerprint>/responses/`. Canonical `raw.*` files are
+  written only after a complete ordered merge, so a failed online attempt does
+  not replace an existing valid transcript.
+- Eligible online errors can start one Private Local fallback inside the
+  transcription branch. The parallel slide-detection branch is not cancelled;
+  job state retains the requested provider, sanitized online failure, and
+  runtime-proven backend that ultimately completed. Local fallback writes to a
+  pending prefix and promotes all three canonical artifacts only on success,
+  preserving a previously valid transcript if fallback also fails.

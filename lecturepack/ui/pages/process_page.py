@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
 
 from lecturepack.constants import (
     STAGES, STAGE_EXPORT, SUPPORTED_VIDEO_EXTENSIONS,
-    PRODUCT_MODES, PRODUCT_MODE_LABELS,
+    PRODUCT_MODES, PRODUCT_MODE_LABELS, TRANSCRIPTION_MODE_LABELS,
+    TRANSCRIPTION_BACKEND_LOCAL,
 )
 from lecturepack.infrastructure.transcription_engines import (
     ENGINE_AUTO, ENGINE_CPU, ENGINE_VULKAN, ENGINE_LABELS,
@@ -175,21 +176,43 @@ class ProcessPage(QWidget):
         # Transcription
         tr_grp = CollapsibleGroup("Transcription")
         grid = QGridLayout()
-        grid.addWidget(QLabel("Profile:"), 0, 0)
+        grid.addWidget(QLabel("Processing:"), 0, 0)
+        self.transcription_mode_combo = QComboBox()
+        for key, label in TRANSCRIPTION_MODE_LABELS.items():
+            self.transcription_mode_combo.addItem(label, key)
+        grid.addWidget(self.transcription_mode_combo, 0, 1)
+        grid.addWidget(QLabel("Profile:"), 1, 0)
         self.profile_combo = QComboBox()
         self.profile_combo.addItems(["Fast", "Balanced", "Accurate", "Custom"])
-        grid.addWidget(self.profile_combo, 0, 1)
-        grid.addWidget(QLabel("Engine:"), 1, 0)
+        grid.addWidget(self.profile_combo, 1, 1)
+        grid.addWidget(QLabel("Engine:"), 2, 0)
         self.engine_combo = QComboBox()
         for key in (ENGINE_AUTO, ENGINE_CPU, ENGINE_VULKAN):
             self.engine_combo.addItem(ENGINE_LABELS[key], key)
-        grid.addWidget(self.engine_combo, 1, 1)
-        grid.addWidget(QLabel("Threads:"), 2, 0)
+        grid.addWidget(self.engine_combo, 2, 1)
+        grid.addWidget(QLabel("Threads:"), 3, 0)
         self.threads_spin = QSpinBox()
         self.threads_spin.setRange(1, 32)
         self.threads_spin.setValue(8)
-        grid.addWidget(self.threads_spin, 2, 1)
+        grid.addWidget(self.threads_spin, 3, 1)
+        grid.addWidget(QLabel("Online requests:"), 4, 0)
+        self.groq_concurrency_spin = QSpinBox()
+        self.groq_concurrency_spin.setRange(1, 4)
+        self.groq_concurrency_spin.setValue(
+            int(self.config_manager.get("groq_concurrency", 2)))
+        grid.addWidget(self.groq_concurrency_spin, 4, 1)
         tr_grp.body_layout.addLayout(grid)
+        self.online_fallback_chk = QCheckBox(
+            "Fall back to Private Local if the online provider is unavailable")
+        self.online_fallback_chk.setChecked(bool(
+            self.config_manager.get("online_fallback_local", True)))
+        tr_grp.body_layout.addWidget(self.online_fallback_chk)
+        self.online_notice_lbl = QLabel(
+            "Online modes upload only lossless 16 kHz mono audio chunks to Groq. "
+            "Slides, video, transcripts, and job metadata stay local.")
+        self.online_notice_lbl.setWordWrap(True)
+        self.online_notice_lbl.setProperty("muted", True)
+        tr_grp.body_layout.addWidget(self.online_notice_lbl)
         self.engine_status_lbl = QLabel("")
         self.engine_status_lbl.setProperty("muted", True)
         self.engine_status_lbl.setWordWrap(True)
@@ -237,6 +260,9 @@ class ProcessPage(QWidget):
         self.glossary_edit.setPlaceholderText("Comma separated key terms, names, acronyms…")
         glossary_row.addWidget(self.glossary_edit)
         tr_grp.body_layout.addLayout(glossary_row)
+        self.transcription_mode_combo.currentIndexChanged.connect(
+            self._update_transcription_mode)
+        self._update_transcription_mode()
         ll.addWidget(tr_grp)
 
         # Slide detection
@@ -369,6 +395,15 @@ class ProcessPage(QWidget):
                                                    "Model files (*.bin)")
         if file_path:
             self.vad_model_edit.setText(file_path)
+
+    def _update_transcription_mode(self):
+        local = self.transcription_mode_combo.currentData() == TRANSCRIPTION_BACKEND_LOCAL
+        for widget in (self.profile_combo, self.engine_combo, self.threads_spin,
+                       self.vad_chk, self.vad_model_edit, self.vad_advanced):
+            widget.setEnabled(local)
+        self.groq_concurrency_spin.setEnabled(not local)
+        self.online_fallback_chk.setVisible(not local)
+        self.online_notice_lbl.setVisible(not local)
 
     # ---- controller feedback -------------------------------------------- #
     def reset_progress(self):

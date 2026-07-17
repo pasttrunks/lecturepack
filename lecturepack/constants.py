@@ -7,6 +7,14 @@ APP_VERSION = "1.1.0"
 # dependency-free default; online adapters are registered only when their
 # explicitly approved implementation is present and selected.
 TRANSCRIPTION_BACKEND_LOCAL = "local-whispercpp"
+TRANSCRIPTION_BACKEND_GROQ_FAST = "groq-fast"
+TRANSCRIPTION_BACKEND_GROQ_ACCURATE = "groq-accurate"
+
+TRANSCRIPTION_MODE_LABELS = {
+    TRANSCRIPTION_BACKEND_LOCAL: "Private Local",
+    TRANSCRIPTION_BACKEND_GROQ_FAST: "Online Fast (Groq)",
+    TRANSCRIPTION_BACKEND_GROQ_ACCURATE: "Online Accurate (Groq)",
+}
 
 # Supported video file extensions (case-insensitive)
 SUPPORTED_VIDEO_EXTENSIONS = ('.mp4', '.avi', '.mkv', '.mov', '.m4v', '.webm')

@@ -58,6 +58,21 @@ def _process_exists(pid: int) -> bool:
     return str(pid) in result.stdout
 
 
+def _read_pid_file(path: Path, timeout_seconds: float = 3.0) -> int:
+    """Wait through Windows/AV create-and-scan races for a complete PID."""
+    deadline = time.monotonic() + timeout_seconds
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            value = path.read_text(encoding="ascii").strip()
+            if value.isdigit():
+                return int(value)
+        except (OSError, UnicodeError) as exc:
+            last_error = exc
+        time.sleep(0.02)
+    raise AssertionError(f"PID file did not become readable: {last_error}")
+
+
 def _minimal_norm():
     return {
         "schema_version": 1,
@@ -211,7 +226,7 @@ def test_main_window_close_terminates_active_whisper_tree(
     assert wrapper.process.waitForStarted(3000)
     qtbot.waitUntil(child_pid_file.exists, timeout=3000)
     parent_pid = int(wrapper.process.processId())
-    child_pid = int(child_pid_file.read_text(encoding="ascii"))
+    child_pid = _read_pid_file(child_pid_file)
     window.controller.current_stage = STAGE_TRANSCRIBE
     window.controller._active_stages = {STAGE_TRANSCRIBE}
 
@@ -235,7 +250,7 @@ def test_owned_process_tree_terminated_but_unrelated_process_survives(qtbot, tmp
     try:
         assert qprocess.waitForStarted(3000)
         qtbot.waitUntil(child_pid_file.exists, timeout=3000)
-        child_pid = int(child_pid_file.read_text(encoding="ascii"))
+        child_pid = _read_pid_file(child_pid_file)
         parent_pid = int(qprocess.processId())
         assert _process_exists(parent_pid) and _process_exists(child_pid)
 
@@ -276,7 +291,7 @@ def test_real_wrappers_terminate_their_owned_trees(
     assert wrapper.process.waitForStarted(3000)
     qtbot.waitUntil(child_pid_file.exists, timeout=3000)
     parent_pid = int(wrapper.process.processId())
-    child_pid = int(child_pid_file.read_text(encoding="ascii"))
+    child_pid = _read_pid_file(child_pid_file)
     assert _process_exists(parent_pid) and _process_exists(child_pid)
     wrapper.cancel()
     qtbot.waitUntil(lambda: not _process_exists(parent_pid), timeout=5000)

@@ -1,4 +1,5 @@
 import os
+from dataclasses import replace
 from PySide6.QtCore import QObject, Signal, QThread
 from lecturepack.constants import (
     STAGE_INSPECT, STAGE_EXTRACT_AUDIO, STAGE_TRANSCRIBE,
@@ -69,6 +70,8 @@ class JobController(QObject):
         self.transcription_backend = None
         self._transcription_request = None
         self._requested_transcription_backend = BACKEND_LOCAL_WHISPERCPP
+        self._online_fallback_attempted = False
+        self._fallback_output_prefix = None
 
         self.job = None
         self.current_stage = None
@@ -183,6 +186,8 @@ class JobController(QObject):
             return
 
         self._user_cancelled = False
+        self._online_fallback_attempted = False
+        self._fallback_output_prefix = None
         # Check overall state or reset failed/cancelled stages
         for stage in STAGES:
             status = self.job.get_stage_status(stage)
@@ -462,11 +467,12 @@ class JobController(QObject):
         }
 
         backend_label = backend.capabilities().label
+        model_label = model_path if backend.capabilities().is_local else backend.capabilities().label
         self.stage_log.emit(
             STAGE_TRANSCRIBE,
             f"Transcription backend: {backend_label} ({backend_reason})\n"
             + (f"Engine: {engine.label} ({engine.reason or 'default'})\n" if engine else "")
-            + f"Starting transcription using model: {model_path}...\n")
+            + f"Starting transcription using: {model_label}...\n")
         self.backend_info.emit(
             f"engine: {engine.key}" if engine else f"backend: {requested_backend}")
         self._transcription_request = TranscriptionRequest(
@@ -474,7 +480,16 @@ class JobController(QObject):
             model=model_path, language=whisper_settings.get("language", "en"),
             prompt=glossary, threads=threads, vad=vad_settings,
             local_engine=requested_engine, job_id=self.job.job_id,
-            source_duration_seconds=float(self.job.source.get("duration", 0.0) or 0.0))
+            source_duration_seconds=float(self.job.source.get("duration", 0.0) or 0.0),
+            provider_options={
+                "privacy_accepted": bool(whisper_settings.get(
+                    "online_privacy_accepted", False)),
+                "concurrency": int(whisper_settings.get(
+                    "groq_concurrency", self.config_manager.get("groq_concurrency", 2))),
+                "max_upload_bytes": int(self.config_manager.get(
+                    "groq_max_upload_bytes", 23 * 1024 * 1024)),
+                "ffmpeg_path": self.config_manager.get("ffmpeg_exe", ""),
+            })
         backend.start(self._transcription_request)
 
     def _handle_whisper_log(self, data):
@@ -494,6 +509,9 @@ class JobController(QObject):
                 success=False, backend_key=BACKEND_LOCAL_WHISPERCPP,
                 provider="unknown", error_code="invalid_backend_result",
                 error_message="Transcription backend returned an invalid result.")
+        if (self._fallback_output_prefix is not None
+                and result.backend_key == BACKEND_LOCAL_WHISPERCPP):
+            result = self._finalize_local_fallback(result)
         if self.job is not None:
             stage = self.job.state.setdefault("stages", {}).setdefault(
                 STAGE_TRANSCRIBE, {"status": "running"})
@@ -505,6 +523,8 @@ class JobController(QObject):
                 stage["engine_used"] = result.engine_key
             if result.actual_backend:
                 stage["backend_used"] = result.actual_backend
+            if result.metrics:
+                stage["transcription_metrics"] = result.metrics
             self.job.save()
         if result.success:
             self.stage_log.emit(STAGE_TRANSCRIBE, "Transcription completed.\n")
@@ -514,8 +534,78 @@ class JobController(QObject):
                 STAGE_TRANSCRIBE,
                 f"Transcription failed ({result.error_code or 'unknown'}): "
                 f"{result.error_message}\n")
+            if self._should_fallback_to_local(result):
+                self._start_local_fallback(result)
+                return
         self._stage_done(
             STAGE_TRANSCRIBE, result.success, result.error_message)
+
+    def _should_fallback_to_local(self, result):
+        if (self._online_fallback_attempted or self._user_cancelled
+                or not result.fallback_allowed
+                or self._requested_transcription_backend == BACKEND_LOCAL_WHISPERCPP):
+            return False
+        settings = self.job.settings.get("whisper", {}) if self.job else {}
+        return bool(settings.get(
+            "online_fallback_local",
+            self.config_manager.get("online_fallback_local", True)))
+
+    def _start_local_fallback(self, failed_result):
+        """Retry only the transcription branch; slide work continues untouched."""
+        self._online_fallback_attempted = True
+        stage = self.job.state.setdefault("stages", {}).setdefault(
+            STAGE_TRANSCRIBE, {"status": "running"})
+        stage["online_failure"] = {
+            "backend": failed_result.backend_key,
+            "code": failed_result.error_code,
+            "message": failed_result.error_message,
+        }
+        self.job.save()
+        local, _ = self.transcription_backends.resolve(BACKEND_LOCAL_WHISPERCPP)
+        self._set_transcription_backend(local)
+        original = self._transcription_request
+        settings = self.job.settings.get("whisper", {})
+        model = settings.get("model") or self.config_manager.get("whisper_model", "")
+        self.stage_log.emit(
+            STAGE_TRANSCRIBE,
+            "Online transcription unavailable; continuing with Private Local fallback.\n")
+        self.backend_info.emit("backend: Private Local fallback")
+        self._fallback_output_prefix = original.output_prefix + ".fallback-pending"
+        self._transcription_request = TranscriptionRequest(
+            audio_path=original.audio_path, output_prefix=self._fallback_output_prefix,
+            model=model, language=original.language, prompt=original.prompt,
+            threads=original.threads, vad=original.vad,
+            local_engine=original.local_engine, job_id=original.job_id,
+            source_duration_seconds=original.source_duration_seconds)
+        local.start(self._transcription_request)
+
+    def _finalize_local_fallback(self, result):
+        """Promote a complete fallback as a unit; never expose partial output."""
+        pending = self._fallback_output_prefix
+        self._fallback_output_prefix = None
+        canonical = os.path.join(self.job.paths["transcript"], "raw")
+        extensions = (".json", ".srt", ".txt")
+        if result.success:
+            missing = [ext for ext in extensions if not os.path.isfile(pending + ext)]
+            if missing:
+                return replace(
+                    result, success=False, error_code="fallback_incomplete",
+                    error_message="Private Local fallback did not produce all transcript artifacts.",
+                    retryable=False, fallback_allowed=False)
+            for ext in extensions:
+                os.replace(pending + ext, canonical + ext)
+            return replace(
+                result, raw_json_path=canonical + ".json",
+                raw_srt_path=canonical + ".srt",
+                raw_txt_path=canonical + ".txt")
+        # Partial fallback files are owned temporary artifacts, never source
+        # data. Remove only these exact pending paths; canonical raw stays put.
+        for ext in extensions:
+            try:
+                os.remove(pending + ext)
+            except FileNotFoundError:
+                pass
+        return result
 
     def _build_normalized_transcript(self):
         """Layer the raw whisper.cpp output into the deterministic normalized
@@ -656,6 +746,8 @@ class JobController(QObject):
             return
 
         self._user_cancelled = False
+        self._online_fallback_attempted = False
+        self._fallback_output_prefix = None
         self.retranscribe_only = True
 
         # Set stages status:
