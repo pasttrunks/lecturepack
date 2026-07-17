@@ -1,0 +1,41 @@
+{
+  "phase": "Provider-neutral transcription backends + Groq Online Fast/Accurate",
+  "starting_commit": "8c13e7d",
+  "registered_backends": [
+    "local-whispercpp-cpu",
+    "local-whispercpp-vulkan",
+    "groq-fast",
+    "groq-accurate"
+  ],
+  "groq_models": {
+    "groq-fast": "whisper-large-v3-turbo",
+    "groq-accurate": "whisper-large-v3"
+  },
+  "secret_storage": "Windows Credential Manager (LecturePack/Groq API Key)",
+  "redaction_rules": [
+    "redact API keys",
+    "redact Authorization headers",
+    "redact URLs containing secrets"
+  ],
+  "chunk_size_limits": {
+    "max_bytes": 24117248,
+    "target_seconds": 480.0
+  },
+  "fallback_rules": [
+    "fallback on missing key",
+    "fallback on connection failure",
+    "fallback on quota exhaustion",
+    "fallback on HTTP 429",
+    "fallback on user request"
+  ],
+  "focused_tests": {
+    "collected": 21,
+    "passed": 21,
+    "log_file": "focused_pytest_output.txt"
+  },
+  "full_tests": {
+    "collected": 151,
+    "passed": 151,
+    "log_file": "full_pytest_output.txt"
+  }
+}
