@@ -1,7 +1,8 @@
 # Provider-neutral transcription checkpoint evidence
 
-Phase: `refactor: provider-neutral transcription backends`  
-Date: 2026-07-16  
+Phase: `refactor: provider-neutral transcription backends`
+
+Date: 2026-07-16
 Starting commit: `7a7f000`
 
 No Groq/Gemini adapter, HTTP client, API key, credential store, upload path, or
