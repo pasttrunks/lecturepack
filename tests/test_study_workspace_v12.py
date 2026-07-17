@@ -151,3 +151,55 @@ def test_study_exports_include_user_data_without_mutating_sources(qtbot, tmp_pat
     assert "<script>alert" not in html_text
     assert open(os.path.join(exports, "study-pack.pdf"), "rb").read(4) == b"%PDF"
     assert {path: _signature(path) for path in before} == before
+
+
+def test_study_copy_full_transcript_works(qtbot, tmp_path):
+    from PySide6.QtGui import QGuiApplication
+    data_dir, job = _ready_job(tmp_path)
+    page = TranscriptPage(ConfigManager(data_dir))
+    qtbot.addWidget(page)
+    page.load_job(job)
+
+    clipboard = QGuiApplication.clipboard()
+    clipboard.clear()
+    page.copy_format_combo.setCurrentText("plain text")
+    page.timestamps_chk.setChecked(False)
+    page.copy_full_transcript()
+    # Since mock job has segments like "Welcome to the lecture on Egypt"
+    txt = clipboard.text()
+    assert txt.strip() != ""
+    assert "pyramid" in txt.lower()
+
+
+def test_timestamp_links_navigate_correctly(qtbot, tmp_path):
+    data_dir, job = _ready_job(tmp_path)
+    page = StudyPage()
+    qtbot.addWidget(page)
+    page.load_job(job)
+
+    navs = []
+    seeks = []
+    page.navigate_requested.connect(navs.append)
+    page.seek_requested.connect(seeks.append)
+
+    assert page.topics_list.count() > 0
+    item = page.topics_list.item(0)
+    page.topics_list.itemActivated.emit(item)
+    assert navs == ["transcript"]
+    assert len(seeks) == 1
+    assert seeks[0] == item.data(Qt.ItemDataRole.UserRole)
+
+
+def test_keyboard_navigation_on_study_page(qtbot, tmp_path):
+    data_dir, job = _ready_job(tmp_path)
+    page = StudyPage()
+    qtbot.addWidget(page)
+    page.load_job(job)
+
+    page.topics_list.setFocus()
+    page.topics_list.setCurrentRow(0)
+
+    navs = []
+    page.navigate_requested.connect(navs.append)
+    qtbot.keyClick(page.topics_list, Qt.Key.Key_Return)
+    assert "transcript" in navs

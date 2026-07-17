@@ -35,7 +35,7 @@ def signature(path):
 
 
 def main():
-    evidence_dir = Path("docs/evidence/v1.2.0/study").resolve()
+    evidence_dir = Path("docs/evidence/v1.2.0/study_workspace").resolve()
     evidence_dir.mkdir(parents=True, exist_ok=True)
     app = QApplication.instance() or QApplication([])
     with tempfile.TemporaryDirectory(prefix="lecturepack-study-evidence-") as tmp:
