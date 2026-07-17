@@ -371,3 +371,26 @@ auto-downloaded. Backend is CPU-only in this build.
 - Exports label user-authored annotations separately, escape HTML/XML text,
   and read rather than mutate source metadata, raw transcript, candidate
   decisions, and candidate images.
+
+## v1.2 provider-neutral transcription boundary
+
+- `services/transcription_backends.py` defines `BackendCapabilities`,
+  `TranscriptionRequest`, `TranscriptionResult`, a cooperative
+  `CancellationToken`, the Qt-signal `TranscriptionBackend` base, and
+  `BackendRegistry`.
+- `LocalWhisperCppBackend` is the only registered backend at this checkpoint.
+  Its capability record states that it is local, requires no secret, and
+  uploads no audio. It delegates unchanged to `WhisperWrapper` and the existing
+  CPU/Vulkan `EngineRegistry`.
+- `JobController` knows only the provider-neutral start/progress/result/cancel
+  contract. The existing `whisper_wrapper` attribute remains available for
+  diagnostics and process-tree verification.
+- Canonical provider output is still `transcript/raw.json`, `raw.srt`, and
+  `raw.txt`; deterministic normalization continues after a successful result.
+- Transcribe stage state separates:
+  `transcription_backend_requested`, effective `transcription_backend`,
+  `transcription_provider`, selected local `engine_used`, and runtime-proven
+  `backend_used`.
+- Local cache fingerprints are unchanged from v1.1. Non-local fingerprints
+  include requested and effective adapter keys, preventing fallback output
+  from masquerading as output from a later-available provider.

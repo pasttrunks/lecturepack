@@ -1,0 +1,32 @@
+{
+  "phase": "refactor: provider-neutral transcription backends",
+  "starting_commit": "7a7f000",
+  "registered_backends": [
+    "local-whispercpp"
+  ],
+  "network_backend_enabled": false,
+  "local_capabilities": {
+    "is_local": true,
+    "uploads_audio": false,
+    "requires_secret": false,
+    "supports_segment_timestamps": true,
+    "supports_word_timestamps": true,
+    "supports_prompt": true,
+    "supports_vad": true
+  },
+  "canonical_mock_raw_segments": 7,
+  "old_job_settings_rewritten": false,
+  "implicit_explicit_local_fingerprint_equal": true,
+  "fallback_availability_fingerprint_isolated": true,
+  "selected_engine_is_not_runtime_backend_proof": true,
+  "focused_tests": {
+    "collected": 29,
+    "passed": 29,
+    "seconds": 68.43
+  },
+  "full_tests": {
+    "collected": 136,
+    "passed": 136,
+    "seconds": 143.62
+  }
+}

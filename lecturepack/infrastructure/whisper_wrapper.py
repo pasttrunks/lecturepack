@@ -185,10 +185,10 @@ class WhisperWrapper(QObject):
                     self.detected_backend = f"Vulkan ({name})"
                     self.backend_detected.emit(self.detected_backend)
                     return
-        if "no GPU found" in buf or "loaded CPU backend" in buf and "loaded Vulkan backend" not in buf:
-            if "no GPU found" in buf:
-                self.detected_backend = "CPU"
-                self.backend_detected.emit(self.detected_backend)
+        if ("no GPU found" in buf
+                or ("loaded CPU backend" in buf and "loaded Vulkan backend" not in buf)):
+            self.detected_backend = "CPU"
+            self.backend_detected.emit(self.detected_backend)
         # Keep the probe buffer bounded.
         if len(self._backend_probe_buffer) > 20000:
             self._backend_probe_buffer = self._backend_probe_buffer[-5000:]

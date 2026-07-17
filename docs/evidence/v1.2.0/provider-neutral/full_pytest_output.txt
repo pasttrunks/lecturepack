@@ -1,0 +1,30 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+PySide6 6.11.1 -- Qt runtime 6.11.1 -- Qt compiled 6.11.1
+rootdir: C:\Users\marsh\Documents\LecturePack
+configfile: pytest.ini
+testpaths: tests
+plugins: qt-4.5.0
+collected 136 items
+
+tests\test_context_repair.py .....                                       [  3%]
+tests\test_detection_eval.py .......                                     [  8%]
+tests\test_detection_targets.py ...                                      [ 11%]
+tests\test_exports.py .                                                  [ 11%]
+tests\test_integration.py .                                              [ 12%]
+tests\test_job_persistence.py .                                          [ 13%]
+tests\test_ollama_and_repair.py ................                         [ 25%]
+tests\test_packaging_and_safety.py ....                                  [ 27%]
+tests\test_product_modes.py ...                                          [ 30%]
+tests\test_scheduler_and_engines.py .........                            [ 36%]
+tests\test_slide_detection.py .                                          [ 37%]
+tests\test_stability_phase.py ...........                                [ 45%]
+tests\test_study_workflow.py .............                               [ 55%]
+tests\test_study_workspace_v12.py ......                                 [ 59%]
+tests\test_transcript_formats.py ........                                [ 65%]
+tests\test_transcript_layers.py ...................                      [ 79%]
+tests\test_transcription_backend_contract.py .........                   [ 86%]
+tests\test_ui_v11.py ...............                                     [ 97%]
+tests\test_video_extensions.py ....                                      [100%]
+
+======================= 136 passed in 143.62s (0:02:23) =======================

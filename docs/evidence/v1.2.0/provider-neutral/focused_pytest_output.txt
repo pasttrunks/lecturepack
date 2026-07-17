@@ -1,0 +1,13 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+PySide6 6.11.1 -- Qt runtime 6.11.1 -- Qt compiled 6.11.1
+rootdir: C:\Users\marsh\Documents\LecturePack
+configfile: pytest.ini
+plugins: qt-4.5.0
+collected 29 items
+
+tests\test_transcription_backend_contract.py .........                   [ 31%]
+tests\test_scheduler_and_engines.py .........                            [ 62%]
+tests\test_stability_phase.py ...........                                [100%]
+
+======================== 29 passed in 68.43s (0:01:08) ========================

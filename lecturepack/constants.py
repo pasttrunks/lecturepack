@@ -3,6 +3,11 @@ import os
 APP_NAME = "Lecture Pack"
 APP_VERSION = "1.1.0"
 
+# Provider-level transcription backend. Local whisper.cpp remains the private,
+# dependency-free default; online adapters are registered only when their
+# explicitly approved implementation is present and selected.
+TRANSCRIPTION_BACKEND_LOCAL = "local-whispercpp"
+
 # Supported video file extensions (case-insensitive)
 SUPPORTED_VIDEO_EXTENSIONS = ('.mp4', '.avi', '.mkv', '.mov', '.m4v', '.webm')
 

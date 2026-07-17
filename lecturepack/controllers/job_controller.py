@@ -21,6 +21,10 @@ from lecturepack.infrastructure.transcription_engines import (
     EngineRegistry, ENGINE_AUTO,
 )
 from lecturepack.services.export_service import ExportWorker, ExportService
+from lecturepack.services.transcription_backends import (
+    BACKEND_LOCAL_WHISPERCPP, BackendRegistry, TranscriptionRequest,
+    TranscriptionResult,
+)
 
 class AlignWorker(QThread):
     finished = Signal(bool, str)
@@ -60,6 +64,11 @@ class JobController(QObject):
         self.ffmpeg_wrapper = FFmpegWrapper(config_manager)
         self.whisper_wrapper = WhisperWrapper()
         self.engine_registry = EngineRegistry(config_manager)
+        self.transcription_backends = BackendRegistry(
+            config_manager, self.whisper_wrapper, self.engine_registry)
+        self.transcription_backend = None
+        self._transcription_request = None
+        self._requested_transcription_backend = BACKEND_LOCAL_WHISPERCPP
 
         self.job = None
         self.current_stage = None
@@ -86,10 +95,29 @@ class JobController(QObject):
         self.ffmpeg_wrapper.progress.connect(self._handle_ffmpeg_log)
         self.ffmpeg_wrapper.finished.connect(self._handle_ffmpeg_finished)
 
-        # Connect whisper signals
-        self.whisper_wrapper.progress.connect(self._handle_whisper_log)
-        self.whisper_wrapper.finished.connect(self._handle_whisper_finished)
-        self.whisper_wrapper.backend_detected.connect(self._handle_backend_detected)
+        # Route the existing whisper.cpp wrapper through the provider-neutral
+        # adapter. The public wrapper attribute remains for diagnostics/tests.
+        local_backend, _ = self.transcription_backends.resolve(
+            BACKEND_LOCAL_WHISPERCPP)
+        self._set_transcription_backend(local_backend)
+
+    def _set_transcription_backend(self, backend):
+        if backend is self.transcription_backend:
+            return
+        if self.transcription_backend is not None:
+            for signal, slot in (
+                    (self.transcription_backend.progress, self._handle_whisper_log),
+                    (self.transcription_backend.finished, self._handle_transcription_result),
+                    (self.transcription_backend.backend_detected,
+                     self._handle_backend_detected)):
+                try:
+                    signal.disconnect(slot)
+                except (RuntimeError, TypeError):
+                    pass
+        self.transcription_backend = backend
+        backend.progress.connect(self._handle_whisper_log)
+        backend.finished.connect(self._handle_transcription_result)
+        backend.backend_detected.connect(self._handle_backend_detected)
 
     def set_job(self, job):
         self.job = job
@@ -131,7 +159,7 @@ class JobController(QObject):
             if stage == STAGE_EXTRACT_AUDIO:
                 self.ffmpeg_wrapper.cancel()
             elif stage == STAGE_TRANSCRIBE:
-                self.whisper_wrapper.cancel()
+                self.transcription_backend.cancel()
             elif stage == STAGE_DETECT_SLIDES:
                 if self.slide_worker:
                     self.slide_worker.cancel()
@@ -202,6 +230,20 @@ class JobController(QObject):
                         w.get("vad_threshold"), w.get("vad_min_speech_duration_ms"),
                         w.get("vad_min_silence_duration_ms")],
             }
+            # Preserve the exact v1.1/local cache key so existing jobs never
+            # retranscribe merely because the provider-neutral default was
+            # materialized. Future non-local adapters must be isolated.
+            selected_backend = w.get(
+                "transcription_backend", BACKEND_LOCAL_WHISPERCPP)
+            if selected_backend != BACKEND_LOCAL_WHISPERCPP:
+                payload["transcription_backend"] = selected_backend
+                # Include the currently resolvable adapter. A run that fell
+                # back to local must invalidate if that provider later becomes
+                # available, rather than reusing local output under its name.
+                effective, _ = self.transcription_backends.resolve(
+                    selected_backend)
+                payload["effective_transcription_backend"] = \
+                    effective.capabilities().key
         elif stage == STAGE_DETECT_SLIDES:
             sd = self.job.settings.get("slide_detection", {})
             payload = {
@@ -339,7 +381,7 @@ class JobController(QObject):
             for other in list(self._active_stages):
                 self.stage_log.emit(other, "Stopping due to failure in sibling stage...\n")
                 if other == STAGE_TRANSCRIBE:
-                    self.whisper_wrapper.cancel()
+                    self.transcription_backend.cancel()
                 elif other == STAGE_DETECT_SLIDES and self.slide_worker:
                     self.slide_worker.cancel()
 
@@ -391,8 +433,15 @@ class JobController(QObject):
         audio_wav = os.path.join(self.job.paths["audio"], "lecture-16khz-mono.wav")
 
         whisper_settings = self.job.settings.get("whisper", {})
+        requested_backend = whisper_settings.get(
+            "transcription_backend", BACKEND_LOCAL_WHISPERCPP)
+        self._requested_transcription_backend = requested_backend
+        backend, backend_reason = self.transcription_backends.resolve(
+            requested_backend)
+        self._set_transcription_backend(backend)
         requested_engine = whisper_settings.get("engine", ENGINE_AUTO)
-        engine = self.engine_registry.resolve(requested_engine)
+        engine = self.engine_registry.resolve(requested_engine) \
+            if backend.capabilities().is_local else None
 
         model_path = self.config_manager.get("whisper_model", "")
         if whisper_settings.get("model") and os.path.isfile(whisper_settings.get("model", "")):
@@ -412,27 +461,61 @@ class JobController(QObject):
             "min_silence_duration_ms": whisper_settings.get("vad_min_silence_duration_ms", 100)
         }
 
-        engine_exe = engine.exe_path or self.config_manager.get("whisper_exe", "")
+        backend_label = backend.capabilities().label
         self.stage_log.emit(
             STAGE_TRANSCRIBE,
-            f"Engine: {engine.label} ({engine.reason or 'default'})\n"
-            f"Starting transcription using model: {model_path}...\n")
-        self.backend_info.emit(f"engine: {engine.key}")
-        self.whisper_wrapper.start_transcription(
-            audio_wav, model_path, output_prefix,
-            glossary=glossary, threads=threads, vad_settings=vad_settings,
-            engine_exe=engine_exe, extra_args=list(engine.extra_args))
+            f"Transcription backend: {backend_label} ({backend_reason})\n"
+            + (f"Engine: {engine.label} ({engine.reason or 'default'})\n" if engine else "")
+            + f"Starting transcription using model: {model_path}...\n")
+        self.backend_info.emit(
+            f"engine: {engine.key}" if engine else f"backend: {requested_backend}")
+        self._transcription_request = TranscriptionRequest(
+            audio_path=audio_wav, output_prefix=output_prefix,
+            model=model_path, language=whisper_settings.get("language", "en"),
+            prompt=glossary, threads=threads, vad=vad_settings,
+            local_engine=requested_engine, job_id=self.job.job_id,
+            source_duration_seconds=float(self.job.source.get("duration", 0.0) or 0.0))
+        backend.start(self._transcription_request)
 
     def _handle_whisper_log(self, data):
         self.stage_log.emit(STAGE_TRANSCRIBE, data)
 
     def _handle_whisper_finished(self, success, error_msg):
-        if success:
+        """Backward-compatible entry point for older tests/tools."""
+        self._handle_transcription_result(TranscriptionResult(
+            success=bool(success), backend_key=BACKEND_LOCAL_WHISPERCPP,
+            provider="whisper.cpp", error_code="" if success else "local_process_failed",
+            error_message=error_msg or "", retryable=not success,
+            fallback_allowed=False))
+
+    def _handle_transcription_result(self, result):
+        if not isinstance(result, TranscriptionResult):
+            result = TranscriptionResult(
+                success=False, backend_key=BACKEND_LOCAL_WHISPERCPP,
+                provider="unknown", error_code="invalid_backend_result",
+                error_message="Transcription backend returned an invalid result.")
+        if self.job is not None:
+            stage = self.job.state.setdefault("stages", {}).setdefault(
+                STAGE_TRANSCRIBE, {"status": "running"})
+            stage["transcription_backend"] = result.backend_key
+            stage["transcription_backend_requested"] = \
+                self._requested_transcription_backend
+            stage["transcription_provider"] = result.provider
+            if result.engine_key:
+                stage["engine_used"] = result.engine_key
+            if result.actual_backend:
+                stage["backend_used"] = result.actual_backend
+            self.job.save()
+        if result.success:
             self.stage_log.emit(STAGE_TRANSCRIBE, "Transcription completed.\n")
             self._build_normalized_transcript()
         else:
-            self.stage_log.emit(STAGE_TRANSCRIBE, f"Transcription failed: {error_msg}\n")
-        self._stage_done(STAGE_TRANSCRIBE, success, error_msg)
+            self.stage_log.emit(
+                STAGE_TRANSCRIBE,
+                f"Transcription failed ({result.error_code or 'unknown'}): "
+                f"{result.error_message}\n")
+        self._stage_done(
+            STAGE_TRANSCRIBE, result.success, result.error_message)
 
     def _build_normalized_transcript(self):
         """Layer the raw whisper.cpp output into the deterministic normalized

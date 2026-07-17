@@ -4,6 +4,46 @@ Record of major technical decisions. Newest entries at the top.
 
 ---
 
+## AD-12: Provider-Neutral Transcription Above Local Compute Engines (v1.2)
+
+**Date:** 2026-07-16
+**Status:** Accepted
+
+**Context:** LecturePack already has a proven `EngineRegistry` for selecting
+whisper.cpp CPU or Vulkan binaries. Optional online transcription needs a
+separate provider boundary without scattering HTTP, secret, retry, chunk, or
+fallback logic through `JobController`, and without recasting a selected
+engine as proof of the backend that actually loaded.
+
+**Decision:** Add a service-layer `TranscriptionBackend` QObject contract with
+explicit capability, request, result, progress, runtime-backend, cancellation,
+and structured-error data. Keep CPU/Vulkan selection inside a
+`LocalWhisperCppBackend` adapter around the existing QProcess wrapper. A
+`BackendRegistry` resolves provider-level choices and fails closed to Private
+Local when a requested adapter is absent. Persist requested provider,
+effective provider, selected local engine, and runtime-proven backend as
+distinct fields.
+
+The existing local stage fingerprint remains byte-identical when the local
+default is implicit or explicit. Non-local requests include both requested and
+currently resolvable effective adapters, so output created by a local fallback
+is invalidated if that provider later becomes available.
+
+**Alternatives considered:** Treating CPU and Vulkan as cloud-equivalent
+providers was rejected because they share the same executable contract and
+canonical output. Putting provider branches directly in `JobController` was
+rejected because it couples scheduling to vendor behavior. Replacing
+`WhisperWrapper` was rejected because its QProcess, cancellation, and
+runtime-backend parsing are already tested. Adding an SDK/dependency in this
+phase was rejected because no online adapter is yet enabled.
+
+**Rationale:** The boundary keeps private local behavior and old cache keys
+stable while giving later Groq/Gemini work one injectable, cancellable seam.
+Capability metadata makes upload/secret behavior auditable before any backend
+can be presented to the user.
+
+---
+
 ## AD-11: Separate User Study Data from Source-Derived Artifacts (v1.2 Study)
 
 **Date:** 2026-07-16
