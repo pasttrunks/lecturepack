@@ -60,4 +60,4 @@ AD-15 preserves that rule while allowing Phase 1 packaging to proceed only when 
 
 ## Resume Point
 
-Run `$gsd-plan-phase 1 --gaps` to create gap-closure plans from `01-VERIFICATION.md`, then run `$gsd-execute-phase 1 --gaps-only` and re-verify Phase 1. Do not begin Phase 2 or approve the portable release until both release-integrity gaps close. Keep the 47-item architecture baseline visible in release reporting; strict conformance is not claimed and remediation remains Phase 2 work. Security enforcement is enabled and still requires `$gsd-secure-phase 1` before phase advancement.
+Gap-closure Plans 01-04 through 01-06 are created and independently plan-checked. Run `$gsd-execute-phase 1 --gaps-only`, then re-verify Phase 1. Do not begin Phase 2 or approve the portable release until both release-integrity gaps close. Keep the 47-item architecture baseline visible in release reporting; strict conformance is not claimed and remediation remains Phase 2 work. Security enforcement is enabled and still requires `$gsd-secure-phase 1` before phase advancement.
