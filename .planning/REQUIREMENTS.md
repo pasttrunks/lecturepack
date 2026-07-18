@@ -104,6 +104,7 @@ Extracted from: intel/requirements.md, intel/decisions.md, intel/constraints.md,
   existing violations across 62 cross-layer edges and makes no strict-conformance
   claim. Phase 2 owns eliminating that baseline debt and must reach zero
   violations.
+
 - **Scope:** System architecture
 - **Phase:** 1 (no-regression release gate), 2 (strict-conformance remediation)
 
@@ -176,22 +177,22 @@ Extracted from: intel/requirements.md, intel/decisions.md, intel/constraints.md,
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REQ-core-conversion | Phase 1 | Pending |
-| REQ-privacy-safety | Phase 1 | Pending |
-| REQ-transcription | Phase 1 | Pending |
-| REQ-slide-extraction | Phase 1 | Pending |
-| REQ-alignment | Phase 1 | Pending |
-| REQ-export-formats | Phase 1 | Pending |
-| REQ-job-lifecycle | Phase 1 | Pending |
-| REQ-study-workspace | Phase 1 | Pending |
-| REQ-provider-neutral-transcription | Phase 1 | Pending |
-| REQ-groq-transcription | Phase 1 | Pending |
-| REQ-stability | Phase 1 | Pending |
-| REQ-architecture-layers | Phase 1 / Phase 2 | Phase 1 no-regression gate pending; Phase 2 debt open |
+| REQ-core-conversion | Phase 1 | Complete |
+| REQ-privacy-safety | Phase 1 | Complete |
+| REQ-transcription | Phase 1 | Complete |
+| REQ-slide-extraction | Phase 1 | Complete |
+| REQ-alignment | Phase 1 | Complete |
+| REQ-export-formats | Phase 1 | Complete |
+| REQ-job-lifecycle | Phase 1 | Complete |
+| REQ-study-workspace | Phase 1 | Complete |
+| REQ-provider-neutral-transcription | Phase 1 | Complete |
+| REQ-groq-transcription | Phase 1 | Complete |
+| REQ-stability | Phase 1 | Complete |
+| REQ-architecture-layers | Phase 1 / Phase 2 | Phase 1 no-regression gate Complete; Phase 2 strict-conformance debt open |
 | REQ-test-framework | Phase 1 | Complete |
 | REQ-version-bump | Phase 1 | Complete |
 | REQ-packaging-spec-audit | Phase 1 | Complete |
 | REQ-packaged-build | Phase 1 | Pending |
-| REQ-test-suite-pass | Phase 1 | Pending |
-| REQ-self-test | Phase 1 | Pending |
-| REQ-test-reconciliation | Phase 1 | Pending |
+| REQ-test-suite-pass | Phase 1 | Complete |
+| REQ-self-test | Phase 1 | Complete |
+| REQ-test-reconciliation | Phase 1 | Complete |

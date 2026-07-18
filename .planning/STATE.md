@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 1
 current_phase_name: Packaging & Release
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-07-18T12:43:35.045Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-07-18T16:57:49.004Z"
 last_activity: 2026-07-18
 last_activity_desc: Phase 1 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 1 (Packaging & Release) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-18 — Phase 1 execution started
 
-Progress: [███░░░░░░░] 33%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [███░░░░░░░] 33%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 2 min | 2 tasks | 6 files |
+| Phase 01 P02 | 30 min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 13 ADR decisions (AD-1 through AD-13), all LOCKED. See PROJECT.md.
 
 - [Phase 01]: AD-14: lecturepack.__version__ is the sole executable runtime/build version authority; human-facing build labels remain synchronized but non-authoritative.
+- [Phase 01]: AD-15: strict adjacent-layer architecture remains the target; Phase 1 blocks new exact violation identities relative to 25e9dd1, and Phase 2 owns closure of the 47-item baseline debt.
 
 ### Ingested Intel
 
@@ -83,9 +85,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- **Test count drift:** 149 collected vs 151 recorded in latest handoff. Need reconciliation before claiming test pass.
 - **run_packaged_validation hardcoded paths:** lecturepack/app.py has owner-specific paths; must not be used for validation.
-- Phase 1 Plan 01-02 blocked: strict architecture audit found 47 existing adjacent-layer import violations across 62 cross-layer edges; resolving requires an approved architecture remediation plan or an approved requirement/decision change.
 
 ## Deferred Items
 
@@ -100,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-18T12:13:44.757Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-07-18T16:57:48.993Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
