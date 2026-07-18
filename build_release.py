@@ -20,12 +20,14 @@ import json
 import zipfile
 import datetime
 
+from lecturepack import __version__
+
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DIST_DIR = os.path.join(PROJECT_ROOT, "dist")
 BUILD_DIR = os.path.join(PROJECT_ROOT, "build")
 RELEASE_DIR = os.path.join(PROJECT_ROOT, "dist-release")
 APP_NAME = "LecturePack"
-VERSION = "1.1.0"
+VERSION = __version__
 
 # Binaries to include from bin/Release/ (whisper runtime)
 WHISPER_BINS = [

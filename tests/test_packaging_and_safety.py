@@ -1,8 +1,39 @@
 """Packaged-path resolution and no-deletion safety guarantees."""
 import os
+
 import pytest
+
 from lecturepack.infrastructure.config_manager import ConfigManager
 from lecturepack.infrastructure.file_manager import FileManager
+
+
+def test_release_version_has_single_authority():
+    """Runtime and release-tool consumers use the package version authority."""
+    import build_release
+    import lecturepack
+    from lecturepack import constants
+
+    assert lecturepack.__version__ == "1.2.0"
+    assert constants.APP_VERSION == lecturepack.__version__
+    assert build_release.VERSION == lecturepack.__version__
+
+    project_root = os.path.dirname(os.path.dirname(__file__))
+    with open(os.path.join(project_root, "lecturepack", "constants.py"), encoding="utf-8") as f:
+        constants_source = f.read()
+    with open(os.path.join(project_root, "build_release.py"), encoding="utf-8") as f:
+        release_source = f.read()
+    assert 'APP_VERSION = "1.2.0"' not in constants_source
+    assert 'VERSION = "1.2.0"' not in release_source
+
+
+def test_new_job_manifest_uses_release_version(tmp_path):
+    """A newly persisted job manifest records the canonical release version."""
+    from lecturepack.models.job import Job
+
+    job = Job(str(tmp_path / "data"), video_path=str(tmp_path / "lecture.mp4"))
+    persisted_manifest = FileManager.read_json_safe(job.manifest_path, {})
+
+    assert persisted_manifest["app_version"] == "1.2.0"
 
 
 def test_bundled_binary_resolution_next_to_exe(tmp_path):

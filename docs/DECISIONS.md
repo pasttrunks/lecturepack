@@ -4,6 +4,35 @@ Record of major technical decisions. Newest entries at the top.
 
 ---
 
+## AD-14: Canonical Runtime and Build Version Authority (v1.2)
+
+**Date:** 2026-07-18
+**Status:** Accepted
+
+**Context:** The package initializer, application constants, release script,
+and human-facing build labels previously carried independent release-version
+literals. That allowed the runtime version, new-job manifests, archive names,
+and release metadata to drift apart during a release update.
+
+**Decision:** Define the executable release semantic version only in
+`lecturepack.__version__`. Application code consumes that value through
+`constants.APP_VERSION`, and release tooling consumes it through
+`build_release.VERSION`. Human-facing build labels, including the
+`LecturePack.spec` header, remain synchronized with the canonical version but
+are explicitly non-authoritative.
+
+**Alternatives considered:** Keeping independent literals in every consumer
+was rejected because it preserves the source of runtime, manifest, and archive
+drift. Parsing the PyInstaller spec header at runtime was rejected because a
+human-facing comment is not an import-safe metadata contract and would couple
+application startup to build configuration text.
+
+**Rationale:** A dependency-free package-level authority is available to both
+runtime and build consumers without initialization-order dependencies, while
+synchronized labels remain readable to release reviewers.
+
+---
+
 ## AD-13: Opt-In Groq Audio Transcription with Credential Manager (v1.2)
 
 **Date:** 2026-07-16

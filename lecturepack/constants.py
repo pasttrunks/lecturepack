@@ -1,7 +1,9 @@
 import os
 
+from lecturepack import __version__
+
 APP_NAME = "Lecture Pack"
-APP_VERSION = "1.1.0"
+APP_VERSION = __version__
 
 # Provider-level transcription backend. Local whisper.cpp remains the private,
 # dependency-free default; online adapters are registered only when their
