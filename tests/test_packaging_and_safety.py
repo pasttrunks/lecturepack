@@ -1,5 +1,7 @@
 """Packaged-path resolution and no-deletion safety guarantees."""
 import os
+import re
+from pathlib import Path
 
 import pytest
 
@@ -34,6 +36,46 @@ def test_new_job_manifest_uses_release_version(tmp_path):
     persisted_manifest = FileManager.read_json_safe(job.manifest_path, {})
 
     assert persisted_manifest["app_version"] == "1.2.0"
+
+
+def test_spec_includes_current_hiddenimports_and_keeps_asserts():
+    """The static PyInstaller spec tracks dynamic modules and keeps assertions."""
+    import lecturepack
+
+    required_modules = {
+        "lecturepack.ui.pages.home_page",
+        "lecturepack.ui.pages.process_page",
+        "lecturepack.ui.pages.review_page",
+        "lecturepack.ui.pages.transcript_page",
+        "lecturepack.ui.pages.exports_page",
+        "lecturepack.ui.pages.settings_page",
+        "lecturepack.ui.pages.study_page",
+        "lecturepack.ui.widgets.crop_selector",
+        "lecturepack.ui.widgets.slide_grid",
+        "lecturepack.ui.widgets.context_repair_panel",
+        "lecturepack.services.transcript_store",
+        "lecturepack.services.groq_transcription",
+        "lecturepack.services.ai_repair_service",
+        "lecturepack.services.study_service",
+        "lecturepack.services.transcription_backends",
+        "lecturepack.infrastructure.video_reader",
+        "lecturepack.infrastructure.transcription_engines",
+        "lecturepack.infrastructure.ollama_client",
+        "lecturepack.infrastructure.process_tree",
+        "lecturepack.infrastructure.secret_store",
+        "lecturepack.infrastructure.whisper_detector",
+    }
+
+    spec_path = Path(__file__).resolve().parents[1] / "LecturePack.spec"
+    spec_source = spec_path.read_text(encoding="utf-8")
+    hiddenimports_source = spec_source.split("hiddenimports=[", 1)[1].split("],", 1)[0]
+    hiddenimports = re.findall(r"^\s*'([^']+)',\s*$", hiddenimports_source, re.MULTILINE)
+    header = re.search(r"^# LecturePack v(\d+\.\d+\.\d+) -", spec_source, re.MULTILINE)
+
+    assert required_modules <= set(hiddenimports)
+    assert len(hiddenimports) == len(set(hiddenimports)), "hiddenimports contains duplicates"
+    assert header and header.group(1) == lecturepack.__version__
+    assert re.search(r"^\s*optimize=0,\s*$", spec_source, re.MULTILINE)
 
 
 def test_bundled_binary_resolution_next_to_exe(tmp_path):

@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# LecturePack v0.2.0 - PyInstaller onedir spec
+# LecturePack v1.2.0 - PyInstaller onedir spec
 # Build: pyinstaller LecturePack.spec
 
 import os
@@ -29,14 +29,34 @@ a = Analysis(
         'lecturepack.infrastructure.ffmpeg_wrapper',
         'lecturepack.infrastructure.whisper_wrapper',
         'lecturepack.infrastructure.cv_engine',
+        'lecturepack.infrastructure.video_reader',
+        'lecturepack.infrastructure.transcription_engines',
+        'lecturepack.infrastructure.ollama_client',
+        'lecturepack.infrastructure.process_tree',
+        'lecturepack.infrastructure.secret_store',
+        'lecturepack.infrastructure.whisper_detector',
         'lecturepack.services.export_service',
         'lecturepack.services.transcript_service',
         'lecturepack.services.transcript_formats',
         'lecturepack.services.detection_eval',
+        'lecturepack.services.transcript_store',
+        'lecturepack.services.groq_transcription',
+        'lecturepack.services.ai_repair_service',
+        'lecturepack.services.study_service',
+        'lecturepack.services.transcription_backends',
         'lecturepack.acceptance',
         'lecturepack.ui.main_window',
         'lecturepack.ui.context_repair_dialog',
+        'lecturepack.ui.pages.home_page',
+        'lecturepack.ui.pages.process_page',
+        'lecturepack.ui.pages.review_page',
+        'lecturepack.ui.pages.transcript_page',
+        'lecturepack.ui.pages.exports_page',
+        'lecturepack.ui.pages.settings_page',
+        'lecturepack.ui.pages.study_page',
         'lecturepack.ui.widgets.crop_selector',
+        'lecturepack.ui.widgets.slide_grid',
+        'lecturepack.ui.widgets.context_repair_panel',
         'PySide6.QtWidgets',
         'PySide6.QtCore',
         'PySide6.QtGui',
@@ -59,7 +79,7 @@ a = Analysis(
         'IPython', 'jupyter', 'notebook',
     ],
     noarchive=False,
-    optimize=1,
+    optimize=0,
 )
 
 pyz = PYZ(a.pure, a.zipped_data)
