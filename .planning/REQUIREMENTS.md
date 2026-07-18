@@ -192,7 +192,7 @@ Extracted from: intel/requirements.md, intel/decisions.md, intel/constraints.md,
 | REQ-test-framework | Phase 1 | Complete |
 | REQ-version-bump | Phase 1 | Complete |
 | REQ-packaging-spec-audit | Phase 1 | Complete |
-| REQ-packaged-build | Phase 1 | Pending |
+| REQ-packaged-build | Phase 1 | Complete |
 | REQ-test-suite-pass | Phase 1 | Complete |
 | REQ-self-test | Phase 1 | Complete |
 | REQ-test-reconciliation | Phase 1 | Complete |

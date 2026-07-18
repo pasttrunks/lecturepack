@@ -25,7 +25,7 @@ LecturePack is a brownfield project with a complete v1.2 codebase on the `v1.2-h
   5. Packaged build extracts to a clean path and launches without fatal errors
   6. The architecture audit introduces no violation absent from baseline commit `25e9dd1`; all 47 baseline violations remain disclosed as Phase 2 debt and strict conformance is not claimed
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 
 Plans:
 **Wave 1**
@@ -38,7 +38,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — Build and integrity-check the portable package, then validate both frozen launch paths
+- [x] 01-03-PLAN.md — Build and integrity-check the portable package, then validate both frozen launch paths
 
 ### Phase 2: Reliability & Architecture Hardening
 
@@ -69,5 +69,5 @@ Phases execute in numeric order: 1 → 2
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Packaging & Release | 2/3 | In Progress|  |
+| 1. Packaging & Release | 3/3 | In Progress|  |
 | 2. Reliability & Architecture Hardening | 0/4 | Not started | - |
