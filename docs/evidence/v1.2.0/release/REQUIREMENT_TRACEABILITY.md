@@ -1,14 +1,15 @@
 # Phase 1 Source Requirement Traceability
 
 PREVALIDATION_STATUS: PASS
-CURRENT_RUN_STATUS: PENDING
+CURRENT_RUN_STATUS: GAP
+OVERALL_STATUS: GAP
 
 This pre-validation audit was performed against the actual bodies of the named
 pytest nodes before collection. `STATUS: COVERED` means a concrete executable
 assertion or the explicitly scheduled read-only audit covers the clause; it
-does not claim that the current release run has passed yet. Task 3 promotes the
-matrix only after every node is collected and reported `PASSED` and both audits
-exit zero.
+does not claim that the current release run has passed. The current run
+collected and passed every mapped pytest node, but the read-only architecture
+audit found existing violations of the documented layer contract.
 
 ## REQ-core-conversion
 
@@ -224,11 +225,14 @@ exit zero.
 - `REQ-architecture-layers:C01` — Production modules remain classified into
   UI, controller, service, and infrastructure layers. Mapping: targeted
   `ARCHITECTURE_CHECK`. Assertion category: whole-tree AST import
-  classification. `STATUS: COVERED`
+  classification. The audit parsed 42 production modules but found 47 imports
+  that violate the documented adjacent-layer contract. `STATUS: GAP`
 - `REQ-architecture-layers:C02` — Dependency direction is UI to Controller to
   Service to Infrastructure with no reverse dependency. Mapping: targeted
   `ARCHITECTURE_CHECK`. Assertion category: AST direction audit.
-  `STATUS: COVERED`
+  Controllers currently bypass services to import infrastructure, and UI
+  modules currently bypass controllers to import services/infrastructure.
+  `STATUS: GAP`
 - `REQ-architecture-layers:C03` — The controller accepts an injected backend
   without provider-specific logic. Mapping:
   `tests/test_transcription_backend_contract.py::test_controller_accepts_injected_backend_without_provider_logic`.
@@ -236,11 +240,14 @@ exit zero.
 - `REQ-architecture-layers:C04` — UI does not directly import infrastructure
   and services do not import UI widgets. Mapping: targeted
   `ARCHITECTURE_CHECK`. Assertion category: forbidden layer-edge audit.
-  `STATUS: COVERED`
+  The audit found direct UI-to-infrastructure and UI-to-service imports.
+  `STATUS: GAP`
 - `REQ-architecture-layers:C05` — Architecture constraints have executable
   enforcement rather than code-review-only inference. Mapping: targeted
   `ARCHITECTURE_CHECK` plus the injected-backend node. Assertion category:
-  automated architecture gate. `STATUS: COVERED`
+  automated architecture gate. The gate executed and correctly failed on 47
+  violations; the architecture contract is not currently satisfied.
+  `STATUS: GAP`
 
 ## REQ-test-framework
 
@@ -256,10 +263,26 @@ exit zero.
   Task 2 collection and Task 3 full-suite commands. Assertion category:
   framework collection/execution. `STATUS: COVERED`
 
+## Current-run verification
+
+- All 37 mapped pytest node IDs were present in collection and reported
+  `PASSED` in the full run (`MISSING_COLLECTION: none`, `MISSING_PASS: none`).
+- The full suite passed: `158 passed in 113.56s (0:01:53)`.
+- The development self-test passed within the 120-second timeout and reported
+  LecturePack v1.2.0, cv2 5.0.0, PySide6 6.11.1, and offscreen Qt OK.
+- `PRIVACY_CHECK: PASS` with zero privacy violations.
+- `ARCHITECTURE_CHECK: FAIL` with 47 layer-edge violations.
+
+The missing contract is strict adjacent-layer dependency direction: UI must
+route through controllers, and controllers must route through services before
+infrastructure. Repair requires a broad production architecture refactor that
+is outside Plan 01-02's evidence-only authorization. No source files were
+changed to hide or narrow this gap.
+
 ## Pre-validation conclusion
 
 All thirteen inherited requirement rows have concrete executable mappings.
 The only missing acceptance nodes were the four REQ-alignment behaviors, now
 implemented in `tests/test_alignment.py`. No production source or unrelated
-test file was changed. Current-run PASS remains pending collection, full pytest,
-the architecture/privacy audit, and the development self-test.
+test file was changed. Pre-validation therefore passed as a mapping audit, but
+the current release gate is `GAP` because the architecture audit failed.

@@ -1,0 +1,5 @@
+COMMAND: .venv\Scripts\python.exe -m lecturepack --selftest
+TIMEOUT_SECONDS: 120
+TIMEOUT: false
+SELFTEST PASS: LecturePack v1.2.0 launched, cv2 5.0.0, PySide6 6.11.1, offscreen OK
+EXIT_CODE: 0

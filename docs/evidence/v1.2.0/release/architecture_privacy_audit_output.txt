@@ -1,0 +1,57 @@
+.venv\Scripts\python.exe -c "exec(compile(open(r'docs\evidence\v1.2.0\release\.architecture_privacy_audit.py', encoding='utf-8').read(), r'docs\evidence\v1.2.0\release\.architecture_privacy_audit.py', 'exec'))"
+TIMEOUT_SECONDS: 120
+TIMEOUT: false
+PARSED_MODULES: 42
+ARCHITECTURE_EDGE_COUNT: 62
+ARCHITECTURE_VIOLATION_COUNT: 47
+ARCHITECTURE_VIOLATION: controllers/job_controller.py:18: controllers -> infrastructure via lecturepack.infrastructure.ffmpeg_wrapper
+ARCHITECTURE_VIOLATION: controllers/job_controller.py:19: controllers -> infrastructure via lecturepack.infrastructure.whisper_wrapper
+ARCHITECTURE_VIOLATION: controllers/job_controller.py:20: controllers -> infrastructure via lecturepack.infrastructure.cv_engine
+ARCHITECTURE_VIOLATION: controllers/job_controller.py:21: controllers -> infrastructure via lecturepack.infrastructure.transcription_engines
+ARCHITECTURE_VIOLATION: controllers/job_controller.py:270: controllers -> infrastructure via lecturepack.infrastructure.file_manager
+ARCHITECTURE_VIOLATION: controllers/job_controller.py:282: controllers -> infrastructure via lecturepack.infrastructure.file_manager
+ARCHITECTURE_VIOLATION: controllers/job_controller.py:570: controllers -> infrastructure via lecturepack.infrastructure.transcription_engines
+ARCHITECTURE_VIOLATION: controllers/job_controller.py:627: controllers -> infrastructure via lecturepack.infrastructure.file_manager
+ARCHITECTURE_VIOLATION: controllers/job_controller.py:701: controllers -> infrastructure via lecturepack.infrastructure.file_manager
+ARCHITECTURE_VIOLATION: ui/main_window.py:43: ui -> infrastructure via lecturepack.infrastructure.file_manager
+ARCHITECTURE_VIOLATION: ui/main_window.py:131: ui -> infrastructure via lecturepack.infrastructure.whisper_detector
+ARCHITECTURE_VIOLATION: ui/main_window.py:658: ui -> infrastructure via lecturepack.infrastructure.transcription_engines
+ARCHITECTURE_VIOLATION: ui/main_window.py:887: ui -> infrastructure via lecturepack.infrastructure.transcription_engines
+ARCHITECTURE_VIOLATION: ui/main_window.py:1017: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/main_window.py:1205: ui -> infrastructure via lecturepack.infrastructure.cv_engine
+ARCHITECTURE_VIOLATION: ui/main_window.py:697: ui -> infrastructure via lecturepack.infrastructure.secret_store
+ARCHITECTURE_VIOLATION: ui/pages/home_page.py:19: ui -> infrastructure via lecturepack.infrastructure.file_manager
+ARCHITECTURE_VIOLATION: ui/pages/process_page.py:30: ui -> infrastructure via lecturepack.infrastructure.transcription_engines
+ARCHITECTURE_VIOLATION: ui/pages/review_page.py:28: ui -> infrastructure via lecturepack.infrastructure.file_manager
+ARCHITECTURE_VIOLATION: ui/pages/review_page.py:29: ui -> services via lecturepack.services.export_service
+ARCHITECTURE_VIOLATION: ui/pages/review_page.py:30: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/review_page.py:232: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/review_page.py:310: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/review_page.py:326: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/review_page.py:398: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/review_page.py:463: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/settings_page.py:23: ui -> infrastructure via lecturepack.infrastructure.transcription_engines
+ARCHITECTURE_VIOLATION: ui/pages/settings_page.py:243: ui -> infrastructure via lecturepack.infrastructure.secret_store
+ARCHITECTURE_VIOLATION: ui/pages/settings_page.py:259: ui -> infrastructure via lecturepack.infrastructure.secret_store
+ARCHITECTURE_VIOLATION: ui/pages/settings_page.py:274: ui -> infrastructure via lecturepack.infrastructure.secret_store
+ARCHITECTURE_VIOLATION: ui/pages/settings_page.py:285: ui -> infrastructure via lecturepack.infrastructure.secret_store
+ARCHITECTURE_VIOLATION: ui/pages/settings_page.py:286: ui -> services via lecturepack.services.groq_transcription
+ARCHITECTURE_VIOLATION: ui/pages/settings_page.py:364: ui -> infrastructure via lecturepack.infrastructure.ollama_client
+ARCHITECTURE_VIOLATION: ui/pages/settings_page.py:418: ui -> infrastructure via lecturepack.infrastructure.ollama_client
+ARCHITECTURE_VIOLATION: ui/pages/study_page.py:10: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/study_page.py:11: ui -> services via lecturepack.services.transcript_formats
+ARCHITECTURE_VIOLATION: ui/pages/transcript_page.py:37: ui -> infrastructure via lecturepack.infrastructure.file_manager
+ARCHITECTURE_VIOLATION: ui/pages/transcript_page.py:38: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/transcript_page.py:39: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/transcript_page.py:421: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/transcript_page.py:666: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/transcript_page.py:682: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/transcript_page.py:696: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/pages/transcript_page.py:718: ui -> infrastructure via lecturepack.infrastructure.ollama_client
+ARCHITECTURE_VIOLATION: ui/widgets/context_repair_panel.py:35: ui -> infrastructure via lecturepack.infrastructure.file_manager
+ARCHITECTURE_VIOLATION: ui/widgets/context_repair_panel.py:36: ui -> services via lecturepack.services
+ARCHITECTURE_VIOLATION: ui/widgets/context_repair_panel.py:37: ui -> services via lecturepack.services.ai_repair_service
+ARCHITECTURE_CHECK: FAIL
+PRIVACY_VIOLATION_COUNT: 0
+PRIVACY_CHECK: PASS
+EXIT_CODE: 1
