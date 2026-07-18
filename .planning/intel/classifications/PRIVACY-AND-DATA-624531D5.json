@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/PRIVACY_AND_DATA.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Privacy & Data Storage",
+  "summary": "Privacy and data storage documentation for the local-first desktop application.",
+  "scope": ["privacy", "data storage", "local-first", "security"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

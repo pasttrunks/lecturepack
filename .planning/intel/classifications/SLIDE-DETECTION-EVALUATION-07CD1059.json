@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/SLIDE_DETECTION_EVALUATION.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Slide Detection Evaluation",
+  "summary": "Evaluation documentation for slide detection algorithm performance.",
+  "scope": ["slide detection", "evaluation", "CV", "algorithm"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/DECISIONS.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Lecture Pack -- Decision Log",
+  "summary": "Record of major technical decisions, newest entries at the top, with Accepted status.",
+  "scope": ["technical decisions", "architecture", "infrastructure", "design tradeoffs"],
+  "cross_refs": [],
+  "locked": true,
+  "precedence": null,
+  "notes": ""
+}

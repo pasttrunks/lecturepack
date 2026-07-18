@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/PRODUCT_SPEC.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Lecture Pack -- Product Specification",
+  "summary": "Product specification for lecture-to-study-material conversion application.",
+  "scope": ["lecture video processing", "transcription", "slide detection", "export", "study pack"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

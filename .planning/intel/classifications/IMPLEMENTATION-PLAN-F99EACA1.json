@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/IMPLEMENTATION_PLAN.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Lecture Pack -- Implementation Plan",
+  "summary": "Technical implementation plan with source tree, phases, and milestones.",
+  "scope": ["implementation", "source tree", "phases", "milestones", "build"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/HANDOFF_PHASE_V1_2_STABILITY.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "v1.2 Stability Handoff",
+  "summary": "Handoff for v1.2 stability hardening phase.",
+  "scope": ["handoff", "v1.2", "stability", "hardening"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}
