@@ -1,6 +1,16 @@
 LECTUREPACK 1.2.0 RELEASE BUILD EVIDENCE
 GENERATED_AT: 2026-07-18
 AUTHORIZATION: Phase 1 Plan 01-03 generated build/dist/dist-release scope only
+INITIAL_PRE_DELETION_INVENTORY_CONTEXT: Captured by the first authorized wrapper attempt before build_release.py deleted prior generated release outputs; retained here after the wrapper's normal PyInstaller stderr stream required a Windows PowerShell capture correction.
+INITIAL_PRE_DELETION_INVENTORY_BEGIN
+CLEANUP_INVENTORY_ENTRY: PATH=dist-release/BUILD_MANIFEST.json; KIND=regular-file; ATTRIBUTES=Archive; RULE=shared-generated-release-file; DECISION: ALLOW
+CLEANUP_INVENTORY_ENTRY: PATH=dist-release/LecturePack-portable-1.1.0.zip; KIND=regular-file; ATTRIBUTES=Archive; RULE=portable-semver-zip; DECISION: ALLOW
+CLEANUP_INVENTORY_ENTRY: PATH=dist-release/RELEASE_NOTES.md; KIND=regular-file; ATTRIBUTES=Archive; RULE=shared-generated-release-file; DECISION: ALLOW
+CLEANUP_INVENTORY_ENTRY: PATH=dist-release/SHA256SUMS.txt; KIND=regular-file; ATTRIBUTES=Archive; RULE=shared-generated-release-file; DECISION: ALLOW
+INITIAL_PRE_DELETION_INVENTORY_END
+INITIAL_PRE_DELETION_INVENTORY_STATUS: PASS
+INITIAL_CLEANUP_AUTHORIZED: true
+WRAPPER_RETRY_REASON: Windows PowerShell promoted PyInstaller's normal stderr progress stream to a terminating NativeCommandError after authorized cleanup; no source or user data was touched, and the corrected wrapper repeated the full preflight before the successful build.
 REPOSITORY_ROOT: C:\Users\marsh\Documents\LecturePack
 EXPECTED_TARGET: C:\Users\marsh\Documents\LecturePack\build
 ACTUAL_TARGET: C:\Users\marsh\Documents\LecturePack\build
