@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-18
 **Branch:** `v1.2-hybrid-study`
-**Status:** All three Phase 1 plans are complete; phase verification is next.
+**Status:** All three Phase 1 plans are complete; independent verification found two release-integrity gaps, so Phase 1 remains pending.
 
 ## Authorized Scope
 
@@ -33,6 +33,14 @@ Phase 1 packages, tests, validates, and publishes LecturePack v1.2.0. Phase 2 re
 
 Evidence is under `docs/evidence/v1.2.0/release/`.
 
+## Verification Result
+
+- Independent GSD verification: `gaps_found`, 40/47 must-haves verified.
+- The shipped v1.2 ZIP contains `README-FIRST.txt` labeled v0.2.0 and `RELEASE_NOTES.md` headed v1.1.0; `build_release.py` still carries a v0.2.1 tool label.
+- Direct `python build_release.py` does not enforce the one-off cleanup preflight, treats required missing runtime/document inputs as warnings, and omits the primary CPU Whisper runtime from per-binary checksum metadata.
+- Strict architecture debt remains explicitly deferred to Phase 2 and is not one of the actionable Phase 1 gaps.
+- Full structured evidence and required fixes are in `.planning/phases/01-packaging-release/01-VERIFICATION.md`.
+
 ## Architecture Debt
 
 `docs/ARCHITECTURE.md` requires each layer to call only the layer directly below and forbids direct UI-to-infrastructure calls. The current code has controller-to-infrastructure and UI-to-service/infrastructure imports. Repair is a broad production refactor outside Phase 1's packaging scope.
@@ -52,4 +60,4 @@ AD-15 preserves that rule while allowing Phase 1 packaging to proceed only when 
 
 ## Resume Point
 
-Proceed to GSD phase verification and owner release approval. Do not begin Phase 2 until the Phase 1 approval gate is explicitly passed. Keep the 47-item architecture baseline visible in release reporting; strict conformance is not claimed and remediation remains Phase 2 work.
+Run `$gsd-plan-phase 1 --gaps` to create gap-closure plans from `01-VERIFICATION.md`, then run `$gsd-execute-phase 1 --gaps-only` and re-verify Phase 1. Do not begin Phase 2 or approve the portable release until both release-integrity gaps close. Keep the 47-item architecture baseline visible in release reporting; strict conformance is not claimed and remediation remains Phase 2 work. Security enforcement is enabled and still requires `$gsd-secure-phase 1` before phase advancement.
