@@ -1,0 +1,12 @@
+LECTUREPACK 1.2.0 CLEAN-EXTRACTED FROZEN SELFTEST EVIDENCE
+EXECUTABLE_PATH: C:\Users\marsh\AppData\Local\Temp\LecturePack clean 19451da991f14c81932682e5a6088854\LecturePack\LecturePack.exe
+COMMAND: "C:\Users\marsh\AppData\Local\Temp\LecturePack clean 19451da991f14c81932682e5a6088854\LecturePack\LecturePack.exe" --selftest
+TIMEOUT_SECONDS: 120
+TIMEOUT: false
+STDOUT_BEGIN
+SELFTEST PASS: LecturePack v1.2.0 launched, cv2 5.0.0, PySide6 6.11.1, offscreen OK
+STDOUT_END
+STDERR_BEGIN
+
+STDERR_END
+EXIT_CODE: 0

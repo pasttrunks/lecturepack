@@ -1,0 +1,12 @@
+LECTUREPACK 1.2.0 ONEDIR FROZEN SELFTEST EVIDENCE
+EXECUTABLE_PATH: C:\Users\marsh\Documents\LecturePack\dist\LecturePack\LecturePack.exe
+COMMAND: "C:\Users\marsh\Documents\LecturePack\dist\LecturePack\LecturePack.exe" --selftest
+TIMEOUT_SECONDS: 120
+TIMEOUT: false
+STDOUT_BEGIN
+SELFTEST PASS: LecturePack v1.2.0 launched, cv2 5.0.0, PySide6 6.11.1, offscreen OK
+STDOUT_END
+STDERR_BEGIN
+
+STDERR_END
+EXIT_CODE: 0
