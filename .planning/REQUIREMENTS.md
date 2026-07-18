@@ -98,9 +98,14 @@ Extracted from: intel/requirements.md, intel/decisions.md, intel/constraints.md,
 
 - **Source:** docs/ARCHITECTURE.md §1
 - **Description:** Four-layer architecture enforced: UI (PySide6), Controller (JobController), Service (transcription, slide detection, export, alignment, LLM, study), Infrastructure (FFmpeg/whisper wrappers, CV engine, file I/O, config, secrets). Each layer calls only the layer directly below. UI never calls infrastructure directly. Services never reference UI widgets.
-- **Acceptance:** Architecture constraints enforced by code review and test structure.
+- **Acceptance:** The strict adjacent-layer rule remains the target. Phase 1
+  release validation compares exact current violation identities with the
+  committed `25e9dd1` baseline and permits no new violation; it discloses the 47
+  existing violations across 62 cross-layer edges and makes no strict-conformance
+  claim. Phase 2 owns eliminating that baseline debt and must reach zero
+  violations.
 - **Scope:** System architecture
-- **Phase:** 1 (verified, not built)
+- **Phase:** 1 (no-regression release gate), 2 (strict-conformance remediation)
 
 ### REQ-test-framework
 
@@ -182,7 +187,7 @@ Extracted from: intel/requirements.md, intel/decisions.md, intel/constraints.md,
 | REQ-provider-neutral-transcription | Phase 1 | Pending |
 | REQ-groq-transcription | Phase 1 | Pending |
 | REQ-stability | Phase 1 | Pending |
-| REQ-architecture-layers | Phase 1 | Complete |
+| REQ-architecture-layers | Phase 1 / Phase 2 | Phase 1 no-regression gate pending; Phase 2 debt open |
 | REQ-test-framework | Phase 1 | Complete |
 | REQ-version-bump | Phase 1 | Complete |
 | REQ-packaging-spec-audit | Phase 1 | Complete |

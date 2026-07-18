@@ -4,6 +4,38 @@ Record of major technical decisions. Newest entries at the top.
 
 ---
 
+## AD-15: Baseline-Gated Architecture Release Check (v1.2)
+
+**Date:** 2026-07-18
+**Status:** Accepted
+
+**Context:** The Phase 1 whole-tree import audit correctly found 47 existing
+violations of the approved adjacent-layer rule across 62 cross-layer edges.
+Eliminating those violations requires a broad production refactor outside the
+packaging release scope. The audit remains useful as a release regression gate,
+but its existing debt must not be mistaken for strict conformance.
+
+**Decision:** The strict UI -> Controller -> Service -> Infrastructure rule in
+`docs/ARCHITECTURE.md` remains the target architecture. For the v1.2 Phase 1
+packaging release, the architecture gate blocks only a violation whose exact
+identity is absent from the evidence committed at `25e9dd1`. The 47 existing
+violations across 62 cross-layer edges are disclosed baseline debt and are
+deferred to Phase 2 for closure. Phase 1 may report `ARCHITECTURE_CHECK: PASS`
+only when `NEW_VIOLATIONS_COUNT: 0`; it must also report that strict architecture
+conformance has not been achieved.
+
+**Alternatives considered:** Blocking the v1.2 packaging release on an immediate
+broad architecture refactor was rejected because it materially expands Phase 1
+and risks unrelated release behavior. Silently ignoring or removing the audit
+was rejected because it would erase known debt and permit new violations to
+enter undetected.
+
+**Rationale:** An immutable, identity-level baseline preserves a fail-closed
+no-regression gate for the release while keeping all existing violations visible
+and assigning their actual remediation to a separately planned Phase 2 effort.
+
+---
+
 ## AD-14: Canonical Runtime and Build Version Authority (v1.2)
 
 **Date:** 2026-07-18

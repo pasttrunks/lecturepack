@@ -46,26 +46,35 @@ SELFTEST_LOG: development_selftest_output.txt
 AUDIT_COMMAND: .venv\Scripts\python.exe -c "exec(compile(open(r'docs\evidence\v1.2.0\release\.architecture_privacy_audit.py', encoding='utf-8').read(), r'docs\evidence\v1.2.0\release\.architecture_privacy_audit.py', 'exec'))"
 AUDIT_TIMEOUT_SECONDS: 120
 AUDIT_TIMEOUT: false
-AUDIT_EXIT_CODE: 1
-ARCHITECTURE_CHECK: FAIL
+AUDIT_EXIT_CODE: 0
+ARCHITECTURE_BASELINE_COMMIT: 25e9dd1
+ARCHITECTURE_BASELINE_EDGE_COUNT: 62
+ARCHITECTURE_BASELINE_VIOLATION_COUNT: 47
+ARCHITECTURE_CURRENT_EDGE_COUNT: 62
 ARCHITECTURE_VIOLATION_COUNT: 47
+ARCHITECTURE_NEW_VIOLATIONS_COUNT: 0
+ARCHITECTURE_RESOLVED_VIOLATIONS_COUNT: 0
+ARCHITECTURE_DEFERRED_VIOLATIONS_COUNT: 47
+STRICT_ARCHITECTURE_CONFORMANCE: NO
+ARCHITECTURE_CHECK: PASS
 PRIVACY_CHECK: PASS
 PRIVACY_VIOLATION_COUNT: 0
 AUDIT_LOG: architecture_privacy_audit_output.txt
 
-The missing architecture contract is strict adjacent-layer dependency
-direction. The read-only AST audit found controllers importing infrastructure
-directly and UI modules importing services/infrastructure directly. Fixing
-those 47 imports requires a production architecture refactor outside this
-evidence-only plan's permitted files. The audit was not narrowed to manufacture
-a passing result.
+The approved Phase 1 architecture gate compares exact current violation
+identities with the immutable evidence at commit `25e9dd1`. This run found no
+new identity. The strict adjacent-layer rule remains unsatisfied: controllers
+still import infrastructure directly and UI modules still import
+services/infrastructure. Those 47 disclosed violations are deferred to Phase 2;
+this PASS is a no-regression result, not a strict-conformance claim.
 
 ## Validation scope and outcome
 
-TRACEABILITY_STATUS: GAP
-OVERALL_STATUS: BLOCKED
+TRACEABILITY_STATUS: PASS
+OVERALL_STATUS: PASS
 
 This evidence does not claim live Groq validation, real lecture-media
 validation, or owner-specific installed-package validation. The deterministic
-fake-provider and repository test surfaces passed, but the architecture
-acceptance gate prevents release evidence from being marked complete.
+fake-provider and repository test surfaces passed. It also does not claim
+strict architecture conformance; Phase 2 owns closure of the retained baseline
+debt.

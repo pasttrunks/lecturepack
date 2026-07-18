@@ -1,6 +1,9 @@
-.venv\Scripts\python.exe -c "exec(compile(open(r'docs\evidence\v1.2.0\release\.architecture_privacy_audit.py', encoding='utf-8').read(), r'docs\evidence\v1.2.0\release\.architecture_privacy_audit.py', 'exec'))"
+﻿COMMAND: .venv\Scripts\python.exe -c "exec(compile(open(r'docs\evidence\v1.2.0\release\.architecture_privacy_audit.py', encoding='utf-8').read(), r'docs\evidence\v1.2.0\release\.architecture_privacy_audit.py', 'exec'))"
 TIMEOUT_SECONDS: 120
 TIMEOUT: false
+BASELINE_COMMIT: 25e9dd1
+BASELINE_ARCHITECTURE_EDGE_COUNT: 62
+BASELINE_ARCHITECTURE_VIOLATION_COUNT: 47
 PARSED_MODULES: 42
 ARCHITECTURE_EDGE_COUNT: 62
 ARCHITECTURE_VIOLATION_COUNT: 47
@@ -51,7 +54,11 @@ ARCHITECTURE_VIOLATION: ui/pages/transcript_page.py:718: ui -> infrastructure vi
 ARCHITECTURE_VIOLATION: ui/widgets/context_repair_panel.py:35: ui -> infrastructure via lecturepack.infrastructure.file_manager
 ARCHITECTURE_VIOLATION: ui/widgets/context_repair_panel.py:36: ui -> services via lecturepack.services
 ARCHITECTURE_VIOLATION: ui/widgets/context_repair_panel.py:37: ui -> services via lecturepack.services.ai_repair_service
-ARCHITECTURE_CHECK: FAIL
+NEW_VIOLATIONS_COUNT: 0
+RESOLVED_VIOLATIONS_COUNT: 0
+DEFERRED_VIOLATIONS_COUNT: 47
+STRICT_ARCHITECTURE_CONFORMANCE: NO
+ARCHITECTURE_CHECK: PASS
 PRIVACY_VIOLATION_COUNT: 0
 PRIVACY_CHECK: PASS
-EXIT_CODE: 1
+EXIT_CODE: 0

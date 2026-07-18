@@ -7,7 +7,7 @@ LecturePack is a brownfield project with a complete v1.2 codebase on the `v1.2-h
 ## Phases
 
 - [ ] **Phase 1: Packaging & Release** - Audit packaging spec, reconcile tests, pass full suite, build v1.2 release
-- [ ] **Phase 2: Reliability Hardening** - Fix critical reliability gaps: cooperative cancel, GUI-thread subprocess, test coverage
+- [ ] **Phase 2: Reliability & Architecture Hardening** - Fix critical reliability gaps and eliminate disclosed adjacent-layer debt
 
 ## Phase Details
 
@@ -23,6 +23,7 @@ LecturePack is a brownfield project with a complete v1.2 codebase on the `v1.2-h
   3. PyInstaller builds successfully; packaged EXE initializes without import/startup errors
   4. Version strings consistently report 1.2.0 across all artifacts
   5. Packaged build extracts to a clean path and launches without fatal errors
+  6. The architecture audit introduces no violation absent from baseline commit `25e9dd1`; all 47 baseline violations remain disclosed as Phase 2 debt and strict conformance is not claimed
 
 **Plans**: 1/3 plans executed
 
@@ -39,25 +40,27 @@ Plans:
 
 - [ ] 01-03-PLAN.md — Build and integrity-check the portable package, then validate both frozen launch paths
 
-### Phase 2: Reliability Hardening
+### Phase 2: Reliability & Architecture Hardening
 
-**Goal**: Critical reliability gaps from the codebase audit are resolved, preventing Qt state corruption and UI freezes
+**Goal**: Critical reliability gaps are resolved and the 47 disclosed adjacent-layer violations are eliminated, preventing Qt state corruption, UI freezes, and further architecture drift
 **Depends on**: Phase 1
-**Requirements**: REQ-stability, REQ-test-framework
+**Requirements**: REQ-stability, REQ-test-framework, REQ-architecture-layers
 **Success Criteria** (what must be TRUE):
 
   1. AlignWorker and ExportWorker use cooperative cancellation (no QThread.terminate() on cancel)
   2. FFmpegWrapper.inspect_video runs off the GUI thread with a timeout, preventing UI stalls
   3. New tests cover non-ASCII path image I/O and AlignWorker/ExportWorker cancel behavior
   4. Full test suite still passes after all changes
+  5. The whole-tree architecture audit reports zero adjacent-layer violations, closing the 47-item baseline debt without weakening the approved rule
 
-**Plans**: TBD
+**Plans**: 0/4 plans executed
 
 Plans:
 
 - [ ] 02-01: Replace QThread.terminate() with cooperative cancel for AlignWorker and ExportWorker
 - [ ] 02-02: Move ffprobe inspect to a worker thread with timeout; add non-ASCII path test fixture
 - [ ] 02-03: Add cancel and image-missing edge case tests
+- [ ] 02-04: Route controller/UI dependencies through adjacent layers and retire the 47-violation architecture baseline
 
 ## Progress
 
@@ -67,4 +70,4 @@ Phases execute in numeric order: 1 → 2
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Packaging & Release | 1/3 | In Progress|  |
-| 2. Reliability Hardening | 0/3 | Not started | - |
+| 2. Reliability & Architecture Hardening | 0/4 | Not started | - |
