@@ -24,12 +24,12 @@ LecturePack is a brownfield project with a complete v1.2 codebase on the `v1.2-h
   4. Version strings consistently report 1.2.0 across all artifacts
   5. Packaged build extracts to a clean path and launches without fatal errors
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Single-source release 1.2.0, audit hidden imports, and preserve frozen self-test assertions
+- [x] 01-01-PLAN.md — Single-source release 1.2.0, audit hidden imports, and preserve frozen self-test assertions
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -66,5 +66,5 @@ Phases execute in numeric order: 1 → 2
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Packaging & Release | 0/3 | Not started | - |
+| 1. Packaging & Release | 1/3 | In Progress|  |
 | 2. Reliability Hardening | 0/3 | Not started | - |
