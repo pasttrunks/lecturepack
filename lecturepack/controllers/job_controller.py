@@ -1,6 +1,6 @@
 import os
 from dataclasses import replace
-from PySide6.QtCore import QObject, Signal, QThread
+from PySide6.QtCore import QObject, Signal, QThread, QTimer
 from lecturepack.constants import (
     STAGE_INSPECT, STAGE_EXTRACT_AUDIO, STAGE_TRANSCRIBE,
     STAGE_DETECT_SLIDES, STAGE_ALIGN, STAGE_REVIEW_READY, STAGE_EXPORT, STAGES,
@@ -55,6 +55,10 @@ class JobController(QObject):
     stage_finished = Signal(str, bool, str)
     stage_cached = Signal(str)  # stage skipped because its cache key matches
     backend_info = Signal(str)  # human-readable engine/backend line for the status bar
+    # Live transcript segment dicts ({"start_ms", "end_ms", "text", "seq"})
+    # relayed from the active transcription backend. Ephemeral display data
+    # only; the canonical transcript is still built from raw.json on success.
+    transcript_segment = Signal(dict)
 
     pipeline_completed = Signal()
     pipeline_failed = Signal(str)
@@ -94,6 +98,15 @@ class JobController(QObject):
         # QThread objects are never garbage-collected while running.
         self._retired_workers = []
 
+        # Transcribe-stage log throttle. whisper-cli emits progress updates
+        # (carriage-return rewrites) many times per second; forwarding every
+        # chunk to the log widget saturates the GUI event loop. Chunks are
+        # coalesced here and flushed at a fixed, human-scale cadence.
+        self._transcribe_log_buffer = []
+        self._transcribe_log_timer = QTimer(self)
+        self._transcribe_log_timer.setInterval(200)
+        self._transcribe_log_timer.timeout.connect(self._flush_transcribe_log)
+
         # Connect ffmpeg signals
         self.ffmpeg_wrapper.progress.connect(self._handle_ffmpeg_log)
         self.ffmpeg_wrapper.finished.connect(self._handle_ffmpeg_finished)
@@ -111,6 +124,8 @@ class JobController(QObject):
             for signal, slot in (
                     (self.transcription_backend.progress, self._handle_whisper_log),
                     (self.transcription_backend.finished, self._handle_transcription_result),
+                    (self.transcription_backend.segment_ready,
+                     self._handle_transcript_segment),
                     (self.transcription_backend.backend_detected,
                      self._handle_backend_detected)):
                 try:
@@ -120,6 +135,7 @@ class JobController(QObject):
         self.transcription_backend = backend
         backend.progress.connect(self._handle_whisper_log)
         backend.finished.connect(self._handle_transcription_result)
+        backend.segment_ready.connect(self._handle_transcript_segment)
         backend.backend_detected.connect(self._handle_backend_detected)
 
     def set_job(self, job):
@@ -493,7 +509,27 @@ class JobController(QObject):
         backend.start(self._transcription_request)
 
     def _handle_whisper_log(self, data):
-        self.stage_log.emit(STAGE_TRANSCRIBE, data)
+        """Buffer transcribe-stage output; flushed by _flush_transcribe_log.
+
+        whisper-cli progress rewrites arrive many times per second. Emitting
+        stage_log per chunk forces a full log-widget relayout each time and
+        starves the GUI event loop during long transcriptions, so chunks are
+        coalesced and forwarded at the throttle timer's cadence instead."""
+        self._transcribe_log_buffer.append(data)
+        if not self._transcribe_log_timer.isActive():
+            self._transcribe_log_timer.start()
+
+    def _flush_transcribe_log(self):
+        if self._transcribe_log_buffer:
+            text = "".join(self._transcribe_log_buffer)
+            self._transcribe_log_buffer = []
+            self.stage_log.emit(STAGE_TRANSCRIBE, text)
+        if not self._transcribe_log_buffer:
+            self._transcribe_log_timer.stop()
+
+    def _handle_transcript_segment(self, segment):
+        """Relay a live segment dict from the backend to the UI, unchanged."""
+        self.transcript_segment.emit(segment)
 
     def _handle_whisper_finished(self, success, error_msg):
         """Backward-compatible entry point for older tests/tools."""
@@ -504,6 +540,9 @@ class JobController(QObject):
             fallback_allowed=False))
 
     def _handle_transcription_result(self, result):
+        # Drain any throttled log output before the completion/failure lines
+        # so the log stays in causal order.
+        self._flush_transcribe_log()
         if not isinstance(result, TranscriptionResult):
             result = TranscriptionResult(
                 success=False, backend_key=BACKEND_LOCAL_WHISPERCPP,

@@ -4,6 +4,58 @@ Record of major technical decisions. Newest entries at the top.
 
 ---
 
+## AD-16: Live Transcript Streaming from whisper.cpp stdout; No Controller Thread Move (v1.3)
+
+**Date:** 2026-07-18
+**Status:** Accepted
+
+**Context:** During transcription the UI appeared frozen and no transcript text
+was visible until the stage completed. The transcription path already used
+`QProcess` asynchronously, so the freeze was not process blocking. The real
+causes were (a) whisper-cli carriage-return progress updates forwarded per
+chunk into `QTextEdit.insertPlainText`, forcing hundreds of document
+relayouts per second and starving the GUI event loop, and (b) transcript
+text existing only in the final `raw.json/srt/txt` artifacts.
+
+**Decision:** Parse whisper.cpp's real-time stdout segment lines
+(`[HH:MM:SS.mmm --> HH:MM:SS.mmm] text`) incrementally and surface them as
+ephemeral, display-only `segment_ready` dicts
+(`{"start_ms", "end_ms", "text", "seq"}`). The chain is
+`WhisperWrapper.segment_ready` -> `TranscriptionBackend.segment_ready` (new
+optional interface signal, advertised via
+`BackendCapabilities.supports_live_segments`) -> `JobController.transcript_segment`
+-> the process page's live-transcript pane. Live segments are never written to
+the raw/normalized/working persistence layers; the canonical transcript is
+still built from `raw.json` on stage success. Separately, transcribe-stage log
+output is coalesced in `JobController` and flushed to `stage_log` on a 200 ms
+`QTimer` (with a final flush before the result is handled), which removes the
+relayout storm for all log consumers.
+
+`JobController` was deliberately **not** moved to a dedicated `QThread`:
+`QProcess` signals are already non-blocking and delivered through the GUI
+event loop, so the move would add cross-thread lifecycle risk (cancel
+semantics, worker parenting, job-state saves) with no measured benefit.
+
+**Alternatives considered:**
+- Moving `JobController` (or only `WhisperWrapper`+`QProcess`) to a worker
+  thread: rejected for Phase 1; adds thread-affinity complexity and does not
+  address the log-relayout storm, which was the actual freeze. The
+  wrapper-only variant remains an option if process I/O ever measurably
+  contends with the GUI.
+- True word-level streaming via `whisper-stream`: rejected as an engine
+  change with unverified Vulkan-build implications. whisper-cli emits
+  segment-per-line only, so Phase 1 delivers segment-level live text.
+- UI-side throttling in the process page: rejected in favor of the
+  controller-side throttle so every present and future `stage_log` consumer
+  benefits.
+
+**Rationale:** The parser operates on a byte buffer split on both `\n` and
+`\r`, which tolerates merged-channel progress pollution and decodes complete
+lines only, fixing split multi-byte UTF-8 across reads. An unterminated
+trailing line is flushed at process end so no segment is lost.
+
+---
+
 ## AD-15: Baseline-Gated Architecture Release Check (v1.2)
 
 **Date:** 2026-07-18

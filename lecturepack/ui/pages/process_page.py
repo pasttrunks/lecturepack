@@ -347,6 +347,21 @@ class ProcessPage(QWidget):
         self.progress_bar.setRange(0, 100)
         rl.addWidget(self.progress_bar)
 
+        # Live transcript: segments streamed from whisper.cpp stdout while
+        # transcription runs (ephemeral view; canonical text comes from the
+        # raw transcript layer after the stage completes).
+        live_lbl = QLabel("Live transcript")
+        live_lbl.setProperty("muted", True)
+        rl.addWidget(live_lbl)
+        self.live_transcript = QTextEdit()
+        self.live_transcript.setReadOnly(True)
+        self.live_transcript.setPlaceholderText(
+            "Transcript segments appear here as they are transcribed…")
+        self.live_transcript.setMaximumHeight(150)
+        self.live_transcript.setStyleSheet(
+            "background: #14161a; color: #d7dce2; font-size: 12px;")
+        rl.addWidget(self.live_transcript)
+
         log_hdr = QHBoxLayout()
         self.log_toggle = QToolButton()
         self.log_toggle.setText("▾ Logs")
@@ -413,6 +428,22 @@ class ProcessPage(QWidget):
             row.elapsed.setText("")
         self.progress_bar.setValue(0)
         self.log_text.clear()
+        self.live_transcript.clear()
+
+    def on_transcript_segment(self, segment):
+        """Append one live segment line; arrival rate is a few per second."""
+        try:
+            start_ms = int(segment.get("start_ms", 0))
+        except (TypeError, ValueError):
+            start_ms = 0
+        text = str(segment.get("text", "")).strip()
+        if not text:
+            return
+        hours, rem = divmod(max(0, start_ms) // 1000, 3600)
+        minutes, seconds = divmod(rem, 60)
+        self.live_transcript.append(f"[{hours:02d}:{minutes:02d}:{seconds:02d}] {text}")
+        scrollbar = self.live_transcript.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
     def on_stage_started(self, stage):
         self.stage_lbl.setText(f"Running: {stage}")

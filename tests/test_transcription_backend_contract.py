@@ -23,6 +23,7 @@ class FakeWhisperWrapper(QObject):
     progress = Signal(str)
     finished = Signal(bool, str)
     backend_detected = Signal(str)
+    segment_ready = Signal(dict)
 
     def __init__(self):
         super().__init__()
