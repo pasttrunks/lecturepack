@@ -7,9 +7,9 @@ Usage:
 Requirements:
     pip install mss Pillow pyautogui
 
-This script launches LecturePack, waits for it to render, captures the main
-window as assets/hero.png, then navigates to the Study page with Focus Mode
-and captures assets/focus_mode.png. Finally it kills the app process.
+This script launches LecturePack, waits for it to render, captures only the
+main window as assets/hero.png, then navigates to the Study page with Focus
+Mode and captures assets/focus_mode.png. Finally it kills the app process.
 
 NOTE: This script must be run on a machine with a display. It will not work
 in headless CI environments.
@@ -19,6 +19,46 @@ import subprocess
 import sys
 import time
 import os
+import ctypes
+import ctypes.wintypes
+
+# ---------- Windows window-finding helpers ----------
+
+EnumWindows = ctypes.windll.user32.EnumWindows
+GetWindowTextW = ctypes.windll.user32.GetWindowTextW
+GetWindowTextLengthW = ctypes.windll.user32.GetWindowTextLengthW
+IsWindowVisible = ctypes.windll.user32.IsWindowVisible
+GetWindowRect = ctypes.windll.user32.GetWindowRect
+GetClassName = ctypes.windll.user32.GetClassNameW
+
+EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+
+def find_window_by_title(substr):
+    """Find the first visible window whose title contains `substr`."""
+    result = []
+
+    def callback(hwnd, _):
+        if IsWindowVisible(hwnd):
+            length = GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buf = ctypes.create_unicode_buffer(length + 1)
+                GetWindowTextW(hwnd, buf, length + 1)
+                if substr.lower() in buf.value.lower():
+                    result.append(hwnd)
+                    return False  # stop enumerating
+        return True
+
+    EnumWindows(EnumWindowsProc(callback), 0)
+    return result[0] if result else None
+
+def get_window_rect(hwnd):
+    """Return (left, top, right, bottom) for the given window handle."""
+    rect = ctypes.wintypes.RECT()
+    GetWindowRect(hwnd, ctypes.byref(rect))
+    return rect.left, rect.top, rect.right, rect.bottom
+
+
+# ---------- Screenshot helpers ----------
 
 def find_mss():
     try:
@@ -39,78 +79,41 @@ def find_pillow():
     except ImportError:
         return None, None
 
-def capture_hero():
-    """Capture the main window as assets/hero.png after app launches."""
+def capture_window(hwnd, filename):
+    """Capture only the given window and save to filename."""
+    left, top, right, bottom = get_window_rect(hwnd)
+    width = right - left
+    height = bottom - top
+    print(f"  Window rect: {left},{top} {width}x{height}")
+
+    if width <= 0 or height <= 0:
+        print("  ERROR: Window has zero size — is it minimized?")
+        return False
+
     mss_mod = find_mss()
-    if mss_mod is None:
-        print("WARN: mss not installed, falling back to Pillow")
-        _, ImageGrab = find_pillow()
-        if ImageGrab is None:
-            print("ERROR: Neither mss nor Pillow is available. Install with: pip install mss Pillow")
-            return False
-        img = ImageGrab.grab()
+    if mss_mod:
+        with mss_mod.MSS() as sct:
+            monitor = {"left": left, "top": top, "width": width, "height": height}
+            shot = sct.grab(monitor)
+            img = mss_to_pil(sct, shot)
+            os.makedirs("assets", exist_ok=True)
+            img.save(filename)
+            print(f"  Saved {filename}")
+            return True
+
+    _, ImageGrab = find_pillow()
+    if ImageGrab:
+        img = ImageGrab.grab(bbox=(left, top, right, bottom))
         os.makedirs("assets", exist_ok=True)
-        img.save("assets/hero.png")
-        print("Saved assets/hero.png via Pillow ImageGrab")
+        img.save(filename)
+        print(f"  Saved {filename}")
         return True
 
-    with mss_mod.MSS() as sct:
-        monitor = sct.monitors[1]  # primary monitor
-        screenshot = sct.grab(monitor)
-        img = mss_to_pil(sct, screenshot)
-        os.makedirs("assets", exist_ok=True)
-        img.save("assets/hero.png")
-        print("Saved assets/hero.png via mss")
-        return True
-
-def capture_focus_mode():
-    """Try to navigate to Study page and toggle Focus Mode, then capture."""
-    try:
-        import pyautogui
-        pyautogui.FAILSAFE = True
-        pyautogui.PAUSE = 0.5
-
-        # Give app time to settle
-        time.sleep(1)
-
-        # Try clicking the Study nav item (approximately 2nd item in nav rail)
-        # The nav rail is on the left side; Study is typically the first item after Home
-        screen_w, screen_h = pyautogui.size()
-
-        # Nav rail is roughly 60px wide on the left. Study icon is ~120px from top
-        nav_x = 35
-        study_y = 120  # approximate position of Study nav item
-
-        pyautogui.click(nav_x, study_y)
-        time.sleep(2)
-
-        # Try to activate Focus Mode (Ctrl+Shift+F or via menu)
-        # Focus mode hides nav rail — try the keyboard shortcut
-        pyautogui.hotkey('ctrl', 'shift', 'f')
-        time.sleep(1.5)
-
-        mss_mod = find_mss()
-        if mss_mod:
-            with mss_mod.MSS() as sct:
-                monitor = sct.monitors[1]
-                screenshot = sct.grab(monitor)
-                img = mss_to_pil(sct, screenshot)
-                img.save("assets/focus_mode.png")
-                print("Saved assets/focus_mode.png via mss")
-                return True
-        else:
-            _, ImageGrab = find_pillow()
-            if ImageGrab:
-                img = ImageGrab.grab()
-                img.save("assets/focus_mode.png")
-                print("Saved assets/focus_mode.png via Pillow")
-                return True
-    except ImportError:
-        print("WARN: pyautogui not installed, skipping focus mode capture")
-        print("  Install with: pip install pyautogui")
-    except Exception as e:
-        print(f"WARN: Could not capture focus mode: {e}")
+    print("  ERROR: No screenshot library available")
     return False
+
+
+# ---------- Main ----------
 
 def main():
     print("LecturePack Screenshot Capture")
@@ -136,19 +139,68 @@ def main():
     print(f"  PID: {proc.pid}")
 
     # Wait for app to launch and render
-    print("Waiting 5 seconds for app to render...")
-    time.sleep(5)
+    print("Waiting 6 seconds for app to render...")
+    time.sleep(6)
+
+    # Find the LecturePack window
+    print("\nLocating LecturePack window...")
+    hwnd = find_window_by_title("Lecture Pack")
+    if hwnd is None:
+        # Try alternate title variations
+        for title in ["LecturePack", "lecturepack", "Lecture"]:
+            hwnd = find_window_by_title(title)
+            if hwnd:
+                break
+
+    if hwnd is None:
+        print("  ERROR: Could not find LecturePack window.")
+        print("  Capturing full primary monitor as fallback...")
+        mss_mod = find_mss()
+        if mss_mod:
+            with mss_mod.MSS() as sct:
+                shot = sct.grab(sct.monitors[1])
+                img = mss_to_pil(sct, shot)
+                os.makedirs("assets", exist_ok=True)
+                img.save("assets/hero.png")
+                print("  Saved assets/hero.png (full screen fallback)")
+        proc.terminate()
+        proc.wait(timeout=5)
+        sys.exit(1)
+
+    print(f"  Found window handle: {hwnd:#x}")
 
     # Capture hero screenshot
     print("\nCapturing hero screenshot...")
-    capture_hero()
+    capture_window(hwnd, "assets/hero.png")
 
-    # Capture focus mode (optional)
+    # Capture focus mode (optional — requires pyautogui)
     print("\nAttempting focus mode capture...")
     try:
-        capture_focus_mode()
+        import pyautogui
+        pyautogui.FAILSAFE = True
+        pyautogui.PAUSE = 0.3
+
+        # Bring window to front
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
+        time.sleep(0.5)
+
+        # Navigate to Study page: click 2nd nav item (Study is after Home)
+        left, top, right, bottom = get_window_rect(hwnd)
+        nav_x = left + 35       # nav rail center x
+        study_y = top + 120     # approximate Study icon y
+        pyautogui.click(nav_x, study_y)
+        time.sleep(2)
+
+        # Toggle Focus Mode (Ctrl+Shift+F)
+        pyautogui.hotkey('ctrl', 'shift', 'f')
+        time.sleep(1.5)
+
+        capture_window(hwnd, "assets/focus_mode.png")
+
+    except ImportError:
+        print("  SKIPPED: pyautogui not installed (pip install pyautogui)")
     except Exception as e:
-        print(f"  Focus mode capture skipped: {e}")
+        print(f"  SKIPPED: {e}")
 
     # Kill the app
     print(f"\nKilling LecturePack (PID {proc.pid})...")
