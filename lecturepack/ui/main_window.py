@@ -27,10 +27,10 @@ import datetime
 import os
 import shutil
 
-from PySide6.QtCore import QElapsedTimer, QRectF, QSettings, QSize, Qt, QTimer
-from PySide6.QtGui import QKeySequence, QShortcut, QPixmap
+from PySide6.QtCore import QByteArray, QElapsedTimer, QRectF, QSettings, QSize, Qt, QTimer
+from PySide6.QtGui import QImage, QIcon, QKeySequence, QShortcut, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QListWidget,
+    QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget,
     QMainWindow, QMessageBox, QProgressBar, QPushButton, QSizeGrip,
     QToolButton, QVBoxLayout, QWidget, QTableWidgetItem, QLineEdit, QTextEdit,
 )
@@ -51,13 +51,36 @@ from lecturepack.ui.pages.study_page import StudyPage
 from lecturepack.ui.pages.transcript_page import TranscriptPage
 from lecturepack.ui.pages.settings_page import SettingsPage
 from lecturepack.ui.widgets.animated_stacked import AnimatedStackedWidget
-from lecturepack.ui.widgets.title_bar import TitleBarWidget
+from lecturepack.ui.widgets.title_bar import HeaderBarWidget
 
 PAGES = ["Home", "Process", "Review", "Transcript", "Exports", "Settings", "Study"]
 PAGE_ICONS = ["⌂", "▶", "▦", "¶", "⇩", "⚙", "◇"]
 PAGE_HOME, PAGE_PROCESS, PAGE_REVIEW, PAGE_TRANSCRIPT, PAGE_EXPORTS, PAGE_SETTINGS, PAGE_STUDY = range(7)
 NAV_PAGE_ORDER = [PAGE_HOME, PAGE_STUDY, PAGE_PROCESS, PAGE_REVIEW,
                   PAGE_TRANSCRIPT, PAGE_EXPORTS, PAGE_SETTINGS]
+
+_NAV_SVG = {
+    "Home": b'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>',
+    "Process": b'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>',
+    "Review": b'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg>',
+    "Transcript": b'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12H3"/><path d="M17 18H3"/><path d="M21 6H3"/></svg>',
+    "Study": b'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.42 10.92a1 1 0 0 0-.02-1.84L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.83l8.57 3.91a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></svg>',
+    "Exports": b'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>',
+    "Settings": b'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
+}
+
+
+def _nav_icon(name: str, dark: bool = False) -> QIcon:
+    """Return a QIcon from the SVG data for a nav item, themed to light/dark."""
+    svg_template = _NAV_SVG.get(name, b"")
+    if not svg_template:
+        return QIcon()
+    color = "#F0E9DF" if dark else "#1D1915"
+    svg = svg_template.replace(b"currentColor", color.encode())
+    img = QImage.fromData(QByteArray(svg))
+    if img.isNull():
+        return QIcon()
+    return QIcon(QPixmap.fromImage(img))
 
 
 class RestoreDialog(QDialog):
@@ -157,6 +180,7 @@ class MainWindow(QMainWindow):
         self.home_page.refresh_jobs()
         self._refresh_diagnostics()
         self._restore_ui_state()
+        self._refresh_nav_icons()
 
     # ------------------------------------------------------------------ #
     # shell construction
@@ -167,75 +191,99 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ---- custom frameless title bar (Phase 2) ------------------------- #
-        self.title_bar = TitleBarWidget(title=self.windowTitle())
-        self.title_bar.minimize_clicked.connect(self.showMinimized)
-        self.title_bar.toggle_maximize_clicked.connect(self._toggle_maximize)
-        self.title_bar.close_clicked.connect(self.close)
-        root.addWidget(self.title_bar)
+        # ---- Studio-style header bar (56px) ------------------------------- #
+        self.header_bar = HeaderBarWidget(title=self.windowTitle())
+        self.header_bar.minimize_clicked.connect(self.showMinimized)
+        self.header_bar.toggle_maximize_clicked.connect(self._toggle_maximize)
+        self.header_bar.close_clicked.connect(self.close)
+        self.header_bar.theme_toggled.connect(self._on_theme_toggle)
+        self.header_bar.save_clicked.connect(self._on_save_action)
+        self.header_bar.export_clicked.connect(self._export_outputs)
+        root.addWidget(self.header_bar)
 
-        # ---- command bar -------------------------------------------------- #
-        bar = QWidget()
-        bar.setObjectName("CommandBar")
-        self._command_bar = bar
-        bl = QHBoxLayout(bar)
-        bl.setContentsMargins(12, 6, 12, 6)
-        self.job_title_lbl = QLabel("No job")
-        self.job_title_lbl.setProperty("h2", True)
-        bl.addWidget(self.job_title_lbl)
-        self.recent_jobs_combo = QComboBox()
-        self.recent_jobs_combo.setMinimumWidth(260)
-        self.recent_jobs_combo.currentIndexChanged.connect(self._on_recent_job_changed)
-        bl.addWidget(self.recent_jobs_combo)
-        self.mode_lbl = QLabel("")
-        self.mode_lbl.setProperty("muted", True)
-        bl.addWidget(self.mode_lbl)
-        bl.addStretch(1)
-        self.bar_status_lbl = QLabel("")
-        self.bar_status_lbl.setProperty("muted", True)
-        bl.addWidget(self.bar_status_lbl)
-        self.focus_toggle_btn = QPushButton("◧ Focus")
-        self.focus_toggle_btn.setObjectName("focusToggleBtn")
-        self.focus_toggle_btn.setToolTip("Toggle Focus Mode (Ctrl+Shift+F)")
-        bl.addWidget(self.focus_toggle_btn)
-        self.save_btn = QPushButton("Save")
-        self.save_btn.clicked.connect(self._on_save_action)
-        bl.addWidget(self.save_btn)
-        self.export_btn = QPushButton("Export")
-        self.export_btn.setProperty("primary", True)
-        self.export_btn.clicked.connect(self._export_outputs)
-        bl.addWidget(self.export_btn)
-        root.addWidget(bar)
-
-        # ---- body: rail + stack -------------------------------------------- #
+        # ---- body: sidebar + stack ---------------------------------------- #
         body = QWidget()
         hb = QHBoxLayout(body)
         hb.setContentsMargins(0, 0, 0, 0)
         hb.setSpacing(0)
 
-        rail = QWidget()
-        rail.setObjectName("NavRail")
-        self._nav_rail = rail
-        rail.setFixedWidth(76)
-        rl = QVBoxLayout(rail)
-        rl.setContentsMargins(6, 10, 6, 10)
-        rl.setSpacing(4)
-        self.nav_buttons = [None] * len(PAGES)
-        for page_index in NAV_PAGE_ORDER:
-            name, icon = PAGES[page_index], PAGE_ICONS[page_index]
-            btn = QToolButton()
-            btn.setText(f"{icon}\n{name}")
-            btn.setCheckable(True)
-            btn.setProperty("navButton", True)
-            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-            btn.setFixedSize(64, 52)
-            btn.clicked.connect(
-                lambda checked, idx=page_index: self.navigate_to(idx))
-            rl.addWidget(btn)
-            self.nav_buttons[page_index] = btn
-        rl.addStretch(1)
-        hb.addWidget(rail)
+        sidebar = QWidget()
+        sidebar.setObjectName("NavSidebar")
+        self._nav_rail = sidebar  # keep alias for focus_mode compatibility
+        sidebar.setFixedWidth(224)
+        sl = QVBoxLayout(sidebar)
+        sl.setContentsMargins(12, 14, 12, 14)
+        sl.setSpacing(4)
 
+        # -- job status card (hidden until a job is active) -- #
+        self._job_card = QFrame()
+        self._job_card.setObjectName("JobStatusCard")
+        self._job_card.setFixedHeight(70)
+        jc_layout = QHBoxLayout(self._job_card)
+        jc_layout.setContentsMargins(10, 10, 10, 10)
+        jc_layout.setSpacing(11)
+        self._job_card_thumb = QFrame()
+        self._job_card_thumb.setObjectName("JobCardThumb")
+        self._job_card_thumb.setFixedSize(40, 30)
+        jc_layout.addWidget(self._job_card_thumb)
+        self._job_card_info = QVBoxLayout()
+        self._job_card_info.setSpacing(2)
+        self._job_card_title = QLabel("")
+        self._job_card_title.setObjectName("JobCardTitle")
+        self._job_card_status = QLabel("")
+        self._job_card_status.setObjectName("JobCardStatus")
+        self._job_card_info.addWidget(self._job_card_title)
+        self._job_card_info.addWidget(self._job_card_status)
+        jc_layout.addLayout(self._job_card_info, 1)
+        self._job_card.hide()
+        sl.addWidget(self._job_card)
+
+        # -- Library section -- #
+        lib_label = QLabel("Library")
+        lib_label.setObjectName("SidebarSectionLabel")
+        sl.addWidget(lib_label)
+        self.nav_buttons = [None] * len(PAGES)
+
+        home_btn = self._make_nav_btn(PAGE_HOME, "\u2302", "Home")
+        sl.addWidget(home_btn)
+        self.nav_buttons[PAGE_HOME] = home_btn
+
+        # -- Workspace section -- #
+        ws_label = QLabel("Workspace")
+        ws_label.setObjectName("SidebarSectionLabel")
+        sl.addWidget(ws_label)
+
+        ws_nav = [
+            (PAGE_PROCESS, "\u25B6", "Process"),
+            (PAGE_REVIEW, "\u25A6", "Review"),
+            (PAGE_TRANSCRIPT, "\u00B6", "Transcript"),
+            (PAGE_STUDY, "\u25C7", "Study"),
+        ]
+        for page_idx, icon, name in ws_nav:
+            btn = self._make_nav_btn(page_idx, icon, name)
+            sl.addWidget(btn)
+            self.nav_buttons[page_idx] = btn
+
+        # -- Output section -- #
+        out_label = QLabel("Output")
+        out_label.setObjectName("SidebarSectionLabel")
+        sl.addWidget(out_label)
+
+        exports_btn = self._make_nav_btn(PAGE_EXPORTS, "\u2909", "Exports")
+        sl.addWidget(exports_btn)
+        self.nav_buttons[PAGE_EXPORTS] = exports_btn
+
+        # -- spacer -- #
+        sl.addStretch(1)
+
+        # -- Settings (bottom) -- #
+        settings_btn = self._make_nav_btn(PAGE_SETTINGS, "\u2699", "Settings")
+        sl.addWidget(settings_btn)
+        self.nav_buttons[PAGE_SETTINGS] = settings_btn
+
+        hb.addWidget(sidebar)
+
+        # -- page stack -- #
         self.stack = AnimatedStackedWidget()
         self.home_page = HomePage(self.config_manager)
         self.process_page = ProcessPage(self.config_manager)
@@ -253,32 +301,51 @@ class MainWindow(QMainWindow):
         root.addWidget(body, 1)
         self.setCentralWidget(central)
 
-        # ---- status bar --------------------------------------------------- #
-        sb = self.statusBar()
+        # ---- custom status footer (34px) ---------------------------------- #
+        footer = QFrame()
+        footer.setObjectName("AppStatusFooter")
+        footer.setFixedHeight(40)
+        fl = QHBoxLayout(footer)
+        fl.setContentsMargins(18, 0, 18, 0)
+        fl.setSpacing(15)
         self.sb_stage = QLabel("Idle")
+        self.sb_stage.setObjectName("FooterStage")
         self.sb_elapsed = QLabel("")
+        self.sb_elapsed.setObjectName("FooterElapsed")
         self.sb_progress = QProgressBar()
-        self.sb_progress.setMaximumWidth(160)
-        self.sb_progress.setMaximumHeight(12)
+        self.sb_progress.setMaximumWidth(200)
+        self.sb_progress.setMaximumHeight(7)
         self.sb_progress.setTextVisible(False)
+        self.sb_progress.setObjectName("FooterProgress")
+        fl.addWidget(self.sb_stage)
+        fl.addWidget(self.sb_progress)
+        fl.addWidget(self.sb_elapsed)
+        fl.addStretch(1)
         self.sb_engine = QLabel("")
-        self.sb_engine.setProperty("muted", True)
+        self.sb_engine.setObjectName("FooterEngine")
         self.sb_warn = QLabel("")
-        self.sb_warn.setProperty("chip", "warn")
-        for w in (self.sb_stage, self.sb_elapsed, self.sb_progress):
-            sb.addWidget(w)
-        sb.addPermanentWidget(self.sb_warn)
-        sb.addPermanentWidget(self.sb_engine)
-        sb.addPermanentWidget(QSizeGrip(self))  # resize handle for frameless
+        self.sb_warn.setObjectName("FooterWarn")
+        fl.addWidget(self.sb_warn)
+        fl.addWidget(self.sb_engine)
+        fl.addWidget(QSizeGrip(self))  # resize handle for frameless
+        root.addWidget(footer)
+
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
 
-        # ---- focus mode (Phase 2) ---------------------------------------- #
+        # -- compat aliases for status bar access -- #
+        self._status_footer = footer
+        self._command_bar = None  # removed in Studio layout
+        self._hidden_combo = QComboBox()
+        self._hidden_combo.hide()
+        self._hidden_mode_lbl = QLabel("")
+        self._hidden_mode_lbl.hide()
+
+        # ---- focus mode --------------------------------------------------- #
         from lecturepack.ui.widgets.focus_mode import FocusModeController
-        self.focus_mode = FocusModeController(
-            self, [self._nav_rail, self._command_bar, sb])
-        self.focus_toggle_btn.clicked.connect(self.focus_mode.toggle)
+        chrome_widgets = [w for w in [self._nav_rail, self.header_bar, footer] if w is not None]
+        self.focus_mode = FocusModeController(self, chrome_widgets)
 
         # ---- page wiring --------------------------------------------------- #
         self.home_page.video_chosen.connect(self._on_video_selected_from_ui)
@@ -304,8 +371,7 @@ class MainWindow(QMainWindow):
         self.review_page.study_data_changed.connect(self.study_page.refresh)
         self.review_page.position_changed.connect(
             lambda timestamp: self._save_study_position("review", timestamp))
-        self.review_page.selection_count_changed.connect(
-            lambda n: self.bar_status_lbl.setText(f"{n} slide(s) selected" if n else ""))
+        self.review_page.selection_count_changed.connect(lambda n: None)
 
         self.transcript_page.status_message.connect(self._show_status)
         self.transcript_page.seek_requested.connect(self._on_transcript_seek)
@@ -323,6 +389,44 @@ class MainWindow(QMainWindow):
         self.settings_page.settings_changed.connect(self._refresh_diagnostics)
 
     # ---- compatibility aliases (v1.0 tests / packaged validation) -------- #
+    @property
+    def title_bar(self):
+        return self.header_bar
+
+    @property
+    def bar_status_lbl(self):
+        return self.sb_engine
+
+    @property
+    def mode_lbl(self):
+        return self._hidden_mode_lbl
+
+    @property
+    def recent_jobs_combo(self):
+        return self._hidden_combo
+
+    @property
+    def job_title_lbl(self):
+        return self.header_bar.breadcrumb_lbl
+
+    def _make_nav_btn(self, page_index, icon, name):
+        btn = QToolButton()
+        btn.setText(f"  {name}")
+        btn.setCheckable(True)
+        btn.setProperty("navButton", True)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        btn.setIconSize(QSize(19, 19))
+        btn.setFixedHeight(38)
+        btn.clicked.connect(
+            lambda checked, idx=page_index: self.navigate_to(idx))
+        return btn
+
+    def _refresh_nav_icons(self):
+        """Update all nav button SVG icons for the current theme."""
+        dark = self.palette().window().color().lightness() < 128
+        for idx, btn in enumerate(self.nav_buttons):
+            if btn is not None:
+                btn.setIcon(_nav_icon(PAGES[idx], dark=dark))
     @property
     def slides_view(self):
         return self.review_page.slides_view
@@ -433,19 +537,47 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
     # navigation & persistence
     # ------------------------------------------------------------------ #
+    def _update_job_card(self):
+        """Show/hide and update the sidebar job status card."""
+        if self.current_job is not None:
+            title = self.current_job.manifest.get("title", "Job")
+            status = "Active"
+            stages = self.current_job.state.get("stages", {})
+            for stage_name, stage_data in stages.items():
+                s = stage_data.get("status", "pending")
+                if s == "running":
+                    status = f"{stage_name}..."
+                    break
+                elif s == "completed":
+                    status = "Complete"
+            self._job_card_title.setText(title)
+            self._job_card_status.setText(status)
+            self._job_card.show()
+        else:
+            self._job_card.hide()
     def _toggle_maximize(self):
         if self.isMaximized():
             self.showNormal()
         else:
             self.showMaximized()
-        self.title_bar.set_maximized(self.isMaximized())
+        self.header_bar.set_maximized(self.isMaximized())
 
     def navigate_to(self, index):
         self.stack.setCurrentIndex(index)
 
     def _on_page_changed(self, index):
         for page_index, btn in enumerate(self.nav_buttons):
-            btn.setChecked(page_index == index)
+            if btn is not None:
+                btn.setChecked(page_index == index)
+        # Update breadcrumb
+        page_name = PAGES[index] if 0 <= len(PAGES) else ""
+        job_title = ""
+        if self.current_job is not None:
+            job_title = self.current_job.manifest.get("title", "")
+        if job_title:
+            self.header_bar.set_breadcrumb(f"{job_title}  \u203A  {page_name}")
+        else:
+            self.header_bar.set_breadcrumb(page_name)
         if index == PAGE_REVIEW and self.current_job is not None \
                 and self.review_page.slides_view.count() == 0:
             self._load_review_data()
@@ -483,6 +615,15 @@ class MainWindow(QMainWindow):
     def _on_theme_changed(self, dark):
         from PySide6.QtWidgets import QApplication
         theme.apply_theme(QApplication.instance(), dark)
+        self.header_bar.set_theme_label(dark)
+        self.header_bar.set_wordmark_theme(dark)
+        self._refresh_nav_icons()
+
+    def _on_theme_toggle(self):
+        dark = not theme.is_dark()
+        self.config_manager.set("dark_theme", dark)
+        self._on_theme_changed(dark)
+        self.settings_page._load_settings()
 
     def _show_status(self, msg):
         self.statusBar().showMessage(msg, 4000)
@@ -524,7 +665,9 @@ class MainWindow(QMainWindow):
         self.current_job = Job(self.config_manager.data_dir, video_path=video_path)
         self.controller.set_job(self.current_job)
         self.study_page.load_job(self.current_job)
-        self.job_title_lbl.setText(self.current_job.manifest.get("title", "Job"))
+        title = self.current_job.manifest.get("title", "Job")
+        self.header_bar.set_breadcrumb(f"{title}")
+        self._update_job_card()
 
         try:
             self.controller.ffmpeg_wrapper.detect_binaries()
@@ -585,7 +728,9 @@ class MainWindow(QMainWindow):
         self.controller.set_job(self.current_job)
         self.review_page.set_job(self.current_job)
         self.study_page.load_job(self.current_job)
-        self.job_title_lbl.setText(self.current_job.manifest.get("title", "Job"))
+        title = self.current_job.manifest.get("title", "Job")
+        self.header_bar.set_breadcrumb(f"{title}")
+        self._update_job_card()
         pp = self.process_page
         pp.video_path_edit.setText(source_path)
 
@@ -1105,7 +1250,7 @@ class MainWindow(QMainWindow):
                 self.process_page.video_path_edit.clear()
                 self.process_page.glossary_edit.clear()
                 self.process_page.metadata_lbl.setText("No video loaded.")
-                self.job_title_lbl.setText("No job")
+                self.header_bar.set_breadcrumb("Home")
                 self._reload_recent_jobs()
                 self.recent_jobs_combo.setCurrentIndex(0)
                 self._show_status("Job archived (nothing was deleted).")

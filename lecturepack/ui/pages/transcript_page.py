@@ -1,6 +1,6 @@
 """
 lecturepack.ui.pages.transcript_page
-====================================
+===================================
 
 Dedicated Transcript workspace (v1.1, Phase 3), independent of slide review.
 
@@ -20,6 +20,7 @@ Views:
 The RAW whisper output is immutable; every edit lives in the working layer
 (services.transcript_store) which mirrors legacy edited.json for old
 consumers.
+Studio visual layout.
 """
 from __future__ import annotations
 
@@ -28,15 +29,16 @@ import os
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication, QTextCursor, QTextCharFormat, QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QHBoxLayout, QHeaderView,
+    QAbstractItemView, QCheckBox, QComboBox, QFrame, QHBoxLayout, QHeaderView,
     QInputDialog, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
-    QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
+    QScrollArea, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
     QVBoxLayout, QWidget,
 )
 
 from lecturepack.infrastructure.file_manager import FileManager
 from lecturepack.services import transcript_formats as tf
 from lecturepack.services import transcript_store as store
+from lecturepack.ui import theme
 from lecturepack.ui.widgets.context_repair_panel import ContextRepairPanel
 
 COPY_FORMATS = ["plain text", "markdown", "json", "jsonl", "csv", "srt", "vtt"]
@@ -54,9 +56,6 @@ _SORT_ROLE = Qt.ItemDataRole.UserRole + 7
 
 
 class _NumericItem(QTableWidgetItem):
-    """Table item that sorts by a numeric key while displaying formatted text
-    (e.g. '0:01:05' sorted by 65.0 seconds; ids sorted as ints not strings)."""
-
     def __lt__(self, other):
         a = self.data(_SORT_ROLE)
         b = other.data(_SORT_ROLE)
@@ -66,8 +65,7 @@ class _NumericItem(QTableWidgetItem):
 
 
 class TranscriptPage(QWidget):
-    """Owns the working segment layer for the current job."""
-    seek_requested = Signal(float)         # timestamp seconds -> select slide
+    seek_requested = Signal(float)
     status_message = Signal(str)
     study_data_changed = Signal()
     position_changed = Signal(float)
@@ -76,8 +74,8 @@ class TranscriptPage(QWidget):
         super().__init__(parent)
         self.config_manager = config_manager
         self.job = None
-        self.segments = []          # working layer (plain dicts)
-        self.confidence = {}        # raw id -> confidence
+        self.segments = []
+        self.confidence = {}
         self._undo = []
         self._redo = []
         self._search_hits = []
@@ -87,49 +85,77 @@ class TranscriptPage(QWidget):
         self._active_seg_id = None
         self._build_ui()
 
-    # ------------------------------------------------------------------ #
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        top = QHBoxLayout()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea{background:transparent;border:none;}")
+
+        container = QWidget()
+        container.setStyleSheet("background:transparent;")
+        sl_main = QVBoxLayout(container)
+        sl_main.setContentsMargins(44, 30, 44, 52)
+        sl_main.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+        wrapper = QWidget()
+        wrapper.setMaximumWidth(960)
+        wl = QVBoxLayout(wrapper)
+        wl.setContentsMargins(0, 0, 0, 0)
+        wl.setSpacing(16)
+
         title = QLabel("Transcript")
-        title.setProperty("h1", True)
-        top.addWidget(title)
-        top.addSpacing(16)
+        title.setStyleSheet("font-size: 28px; font-weight: 700; letter-spacing: -0.02em;")
+        wl.addWidget(title)
+
+        toolbar = QFrame()
+        toolbar.setStyleSheet(
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')}; "
+            f"border-radius: 10px;")
+        tb_l = QHBoxLayout(toolbar)
+        tb_l.setContentsMargins(14, 10, 14, 10)
+        tb_l.setSpacing(8)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search transcript (Ctrl+F, F3 / Shift+F3)…")
+        self.search_edit.setPlaceholderText("Search transcript (Ctrl+F, F3 / Shift+F3)\u2026")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.returnPressed.connect(self.search_next)
         self.search_edit.textChanged.connect(self._reset_search)
-        top.addWidget(self.search_edit, 1)
+        tb_l.addWidget(self.search_edit, 1)
         self.search_count_lbl = QLabel("")
-        self.search_count_lbl.setProperty("muted", True)
-        top.addWidget(self.search_count_lbl)
+        self.search_count_lbl.setStyleSheet(f"color: {theme.c('muted')}; border: none;")
+        tb_l.addWidget(self.search_count_lbl)
 
         self.timestamps_chk = QCheckBox("Timestamps")
         self.timestamps_chk.setChecked(True)
         self.timestamps_chk.toggled.connect(self._render_full)
-        top.addWidget(self.timestamps_chk)
+        tb_l.addWidget(self.timestamps_chk)
 
-        top.addWidget(QLabel("Copy as:"))
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setStyleSheet(f"color: {theme.c('line')}; border: none;")
+        tb_l.addWidget(sep)
+
+        tb_l.addWidget(QLabel("Copy as:"))
         self.copy_format_combo = QComboBox()
         self.copy_format_combo.addItems(COPY_FORMATS)
-        top.addWidget(self.copy_format_combo)
+        tb_l.addWidget(self.copy_format_combo)
         self.copy_selected_btn = QPushButton("Copy selected")
         self.copy_selected_btn.clicked.connect(self.copy_selected_segments)
-        top.addWidget(self.copy_selected_btn)
+        tb_l.addWidget(self.copy_selected_btn)
         self.copy_full_btn = QPushButton("Copy full transcript")
         self.copy_full_btn.setProperty("primary", True)
         self.copy_full_btn.clicked.connect(self.copy_full_transcript)
-        top.addWidget(self.copy_full_btn)
-        layout.addLayout(top)
+        tb_l.addWidget(self.copy_full_btn)
+        wl.addWidget(toolbar)
 
         self.tabs = QTabWidget()
-        layout.addWidget(self.tabs, 1)
+        wl.addWidget(self.tabs, 1)
 
-        # --- 1. Full transcript ------------------------------------------ #
+        # --- 1. Full transcript --- #
         full_w = QWidget()
         fl = QVBoxLayout(full_w)
         fl.setContentsMargins(0, 6, 0, 0)
@@ -139,12 +165,13 @@ class TranscriptPage(QWidget):
         fl.addWidget(self.full_view)
         self.tabs.addTab(full_w, "Full Transcript")
 
-        # --- 2. Segments --------------------------------------------------- #
+        # --- 2. Segments --- #
         seg_w = QWidget()
         sl = QVBoxLayout(seg_w)
         sl.setContentsMargins(0, 6, 0, 0)
 
         filt_row = QHBoxLayout()
+        filt_row.setSpacing(8)
         filt_row.addWidget(QLabel("Show:"))
         self.seg_filter_combo = QComboBox()
         self.seg_filter_combo.addItems(["all", "edited", "low confidence", "matches search"])
@@ -152,7 +179,7 @@ class TranscriptPage(QWidget):
         filt_row.addWidget(self.seg_filter_combo)
         filt_row.addStretch(1)
         self.seg_info_lbl = QLabel("")
-        self.seg_info_lbl.setProperty("muted", True)
+        self.seg_info_lbl.setStyleSheet(f"color: {theme.c('muted')}; border: none;")
         filt_row.addWidget(self.seg_info_lbl)
         sl.addLayout(filt_row)
 
@@ -168,8 +195,6 @@ class TranscriptPage(QWidget):
         self.seg_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.seg_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.seg_table.setSortingEnabled(True)
-        # default: chronological (Start ascending) -- split/merge ids are not
-        # chronological, timestamps always are
         self.seg_table.horizontalHeader().setSortIndicator(1, Qt.SortOrder.AscendingOrder)
         self.seg_table.setAlternatingRowColors(True)
         self.seg_table.itemSelectionChanged.connect(self._on_seg_selection)
@@ -182,8 +207,9 @@ class TranscriptPage(QWidget):
         el = QVBoxLayout(editor_w)
         el.setContentsMargins(0, 4, 0, 0)
         ed_hdr = QHBoxLayout()
-        self.editor_lbl = QLabel("Active segment: —")
-        self.editor_lbl.setProperty("h2", True)
+        ed_hdr.setSpacing(6)
+        self.editor_lbl = QLabel("Active segment: \u2014")
+        self.editor_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
         ed_hdr.addWidget(self.editor_lbl)
         ed_hdr.addStretch(1)
         for label, slot, tip in [
@@ -193,6 +219,9 @@ class TranscriptPage(QWidget):
                 ("Undo", self.undo, "Ctrl+Z"), ("Redo", self.redo, "Ctrl+Y")]:
             b = QPushButton(label)
             b.setToolTip(tip)
+            b.setStyleSheet(
+                f"font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px; "
+                f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
             b.clicked.connect(slot)
             ed_hdr.addWidget(b)
         self.save_btn = QPushButton("Save (Ctrl+S)")
@@ -201,7 +230,7 @@ class TranscriptPage(QWidget):
         ed_hdr.addWidget(self.save_btn)
         el.addLayout(ed_hdr)
         self.seg_editor = QPlainTextEdit()
-        self.seg_editor.setPlaceholderText("Select a segment to edit its text…")
+        self.seg_editor.setPlaceholderText("Select a segment to edit its text\u2026")
         self.seg_editor.textChanged.connect(self._on_editor_changed)
         el.addWidget(self.seg_editor)
         split.addWidget(editor_w)
@@ -210,16 +239,17 @@ class TranscriptPage(QWidget):
         sl.addWidget(split, 1)
         self.tabs.addTab(seg_w, "Segments")
 
-        # --- 3. Sections ---------------------------------------------------- #
+        # --- 3. Sections --- #
         sec_w = QWidget()
         scl = QVBoxLayout(sec_w)
         scl.setContentsMargins(0, 6, 0, 0)
         sec_actions = QHBoxLayout()
-        self.rename_section_btn = QPushButton("Rename heading…")
+        sec_actions.setSpacing(6)
+        self.rename_section_btn = QPushButton("Rename heading\u2026")
         self.rename_section_btn.clicked.connect(self.rename_section)
         self.copy_section_btn = QPushButton("Copy section")
         self.copy_section_btn.clicked.connect(self.copy_current_section)
-        self.bookmark_section_btn = QPushButton("☆ Bookmark section")
+        self.bookmark_section_btn = QPushButton("\u2606 Bookmark section")
         self.bookmark_section_btn.setObjectName("sectionBookmarkButton")
         self.bookmark_section_btn.clicked.connect(self.toggle_section_bookmark)
         self.jump_section_btn = QPushButton("Jump to first slide")
@@ -249,11 +279,15 @@ class TranscriptPage(QWidget):
         scl.addWidget(self.sections_table, 1)
         self.tabs.addTab(sec_w, "Sections")
 
-        # --- 4. Context Repair ------------------------------------------- #
+        # --- 4. Context Repair --- #
         self.repair_host = QWidget()
         self.repair_layout = QVBoxLayout(self.repair_host)
         self.repair_layout.setContentsMargins(0, 0, 0, 0)
         self.tabs.addTab(self.repair_host, "Context Repair")
+
+        sl_main.addWidget(wrapper)
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
 
     # ------------------------------------------------------------------ #
     # job loading
@@ -324,16 +358,16 @@ class TranscriptPage(QWidget):
 
     def _render_full(self):
         if not self.segments:
-            self.full_view.setHtml("<p style='color:#8b93a1'>No transcript yet. "
+            muted_c = theme.DARK_MUTED if theme.is_dark() else theme.LIGHT_MUTED
+            self.full_view.setHtml(f"<p style='color:{muted_c}'>No transcript yet. "
                                    "Process a lecture or open a job.</p>")
             return
         show_ts = self.timestamps_chk.isChecked()
         query = self.search_edit.text().strip().lower()
-        # Section boundaries for headings
         sec_starts = {}
         for sec in self._sections:
             sec_starts.setdefault(round(sec["start"], 1), sec)
-        parts = ["<style>a{text-decoration:none;color:#2563eb}"
+        parts = [f"<style>a{{text-decoration:none;color:{theme.ACCENT}}}"
                  "p{line-height:1.55;margin:0 0 10px 0;}"
                  "h3{margin:18px 0 6px 0;}</style>"]
         emitted_secs = set()
@@ -349,9 +383,9 @@ class TranscriptPage(QWidget):
                 if sec.get("index") not in emitted_secs and seg["start"] >= sec["start"] \
                         and abs(seg["start"] - sec["start"]) < 15.0:
                     flush()
-                    mark = " <span style='color:#8e24aa;font-size:80%'>(AI)</span>" \
+                    mark = " <span style='color:#8E24AA;font-size:80%'>(AI)</span>" \
                         if sec.get("heading_source") == "ai" else ""
-                    parts.append(f"<h3>{tf.fmt_clock(sec['start'])} · "
+                    parts.append(f"<h3>{tf.fmt_clock(sec['start'])} \u00b7 "
                                  f"{_esc(sec['heading'])}{mark}</h3>")
                     emitted_secs.add(sec.get("index"))
             text = _esc(seg["text"])
@@ -399,7 +433,7 @@ class TranscriptPage(QWidget):
             if len(seg.get("origin_ids", [])) > 1:
                 status = (status + " merged").strip()
             vals = [str(seg["id"]), _fmt_time(seg["start"]), _fmt_time(seg["end"]),
-                    f"{dur:.1f}s", f"{conf:.2f}" if conf is not None else "—",
+                    f"{dur:.1f}s", f"{conf:.2f}" if conf is not None else "\u2014",
                     status, seg["text"]]
             sort_keys = [seg["id"], seg["start"], seg["end"], dur,
                          conf if conf is not None else -1.0, None, None]
@@ -410,11 +444,11 @@ class TranscriptPage(QWidget):
                 if ccol == 0:
                     item.setData(Qt.ItemDataRole.UserRole, seg["id"])
                 if ccol == 4 and conf is not None and conf < 0.6:
-                    item.setForeground(QColor("#d97706"))
+                    item.setForeground(QColor(theme.WARNING))
                 self.seg_table.setItem(r, ccol, item)
         self.seg_table.setSortingEnabled(True)
         self.seg_info_lbl.setText(
-            f"{len(rows)} of {len(self.segments)} segments · exports stay chronological")
+            f"{len(rows)} of {len(self.segments)} segments \u00b7 exports stay chronological")
         self._sync_editor()
 
     def _render_sections(self):
@@ -425,13 +459,13 @@ class TranscriptPage(QWidget):
         for r, sec in enumerate(self._sections):
             head = sec["heading"]
             if study_service.section_key(sec) in bookmarks:
-                head = "★ " + head
+                head = "\u2605 " + head
             if sec.get("heading_source") == "ai":
                 head += "  (AI)"
             elif sec.get("heading_source") == "user":
                 head += "  (edited)"
             vals = [head, tf.fmt_clock(sec["start"]), tf.fmt_clock(sec["end"]),
-                    str(len(sec.get("segments", []))), str(sec.get("slide_index", "")) ]
+                    str(len(sec.get("segments", []))), str(sec.get("slide_index", ""))]
             for ccol, v in enumerate(vals):
                 self.sections_table.setItem(r, ccol, QTableWidgetItem(v))
         self._on_section_selection()
@@ -473,7 +507,6 @@ class TranscriptPage(QWidget):
         self.search_count_lbl.setText(f"{self._search_pos + 1}/{len(hits)} matches")
         seg = self.segments[hits[self._search_pos]]
         if self.tabs.currentIndex() == 0:
-            # scroll the full view to the match
             doc = self.full_view.document()
             cursor = doc.find(self.search_edit.text())
             for _ in range(self._search_pos):
@@ -560,11 +593,11 @@ class TranscriptPage(QWidget):
         seg = self._seg_by_id(self._active_seg_id) if self._active_seg_id else None
         self.seg_editor.blockSignals(True)
         if seg is None:
-            self.editor_lbl.setText("Active segment: —")
+            self.editor_lbl.setText("Active segment: \u2014")
             self.seg_editor.setPlainText("")
         else:
             self.editor_lbl.setText(
-                f"Active segment #{seg['id']}  ·  {_fmt_time(seg['start'])} → "
+                f"Active segment #{seg['id']}  \u00b7  {_fmt_time(seg['start'])} \u2192 "
                 f"{_fmt_time(seg['end'])}")
             if self.seg_editor.toPlainText() != seg["text"]:
                 self.seg_editor.setPlainText(seg["text"])
@@ -578,9 +611,8 @@ class TranscriptPage(QWidget):
         if text != seg["text"]:
             if not self._undo or self._undo[-1] is not None:
                 self._snapshot()
-                self._undo.append(None)  # marker: continuous typing session
+                self._undo.append(None)
             self.segments = store.edit_text(self.segments, seg["id"], text)
-            # update just the visible row text without a full re-render
             for r in range(self.seg_table.rowCount()):
                 item = self.seg_table.item(r, 0)
                 if item and item.data(Qt.ItemDataRole.UserRole) == seg["id"]:
@@ -629,7 +661,6 @@ class TranscriptPage(QWidget):
     def save(self):
         if self.job is None:
             return
-        # drop typing-session markers from the undo stack
         self._undo = [s for s in self._undo if s is not None]
         store.save_working(self.job.paths, self.segments)
         self.status_message.emit("Transcript working layer saved (raw untouched).")
@@ -668,14 +699,14 @@ class TranscriptPage(QWidget):
         if sec is None or self.job is None:
             self.bookmark_section_btn.setEnabled(False)
             self.jump_section_btn.setEnabled(False)
-            self.bookmark_section_btn.setText("☆ Bookmark section")
+            self.bookmark_section_btn.setText("\u2606 Bookmark section")
             return
         bookmarks = study_service.load_study_data(self.job)["bookmarked_sections"]
         marked = study_service.section_key(sec) in bookmarks
         self.bookmark_section_btn.setEnabled(True)
         self.jump_section_btn.setEnabled(True)
         self.bookmark_section_btn.setText(
-            "★ Bookmarked section" if marked else "☆ Bookmark section")
+            "\u2605 Bookmarked section" if marked else "\u2606 Bookmark section")
         self.position_changed.emit(float(sec.get("start", 0.0)))
 
     def toggle_section_bookmark(self):
@@ -704,8 +735,6 @@ class TranscriptPage(QWidget):
         self.position_changed.emit(timestamp)
 
     def suggest_headings_ai(self):
-        """AI-assigned section headings (Phase 5 scope). Runs in a worker via
-        the panel's infrastructure; marked (AI) and editable; never silent."""
         if self.job is None or not self._sections:
             self.status_message.emit("No sections available yet (run a job first).")
             return
@@ -713,7 +742,7 @@ class TranscriptPage(QWidget):
         if not (o.get("enabled") and o.get("model")):
             QMessageBox.information(
                 self, "Ollama not configured",
-                "Enable Ollama and pick a model in Settings → AI (Ollama) first.")
+                "Enable Ollama and pick a model in Settings \u2192 AI (Ollama) first.")
             return
         from lecturepack.infrastructure.ollama_client import OllamaClient, OllamaError
         client = OllamaClient(o.get("base_url") or "http://localhost:11434")
@@ -733,8 +762,7 @@ class TranscriptPage(QWidget):
         user = ("Give each numbered lecture section a concise 3-7 word heading "
                 "based ONLY on its text. Do not invent facts.\n" + "\n".join(lines))
         self.ai_headings_btn.setEnabled(False)
-        self.status_message.emit("Requesting section headings from Ollama…")
-        # Short, single request -- run in a Python thread and marshal back.
+        self.status_message.emit("Requesting section headings from Ollama\u2026")
         import threading
         import json as _json
 
@@ -771,7 +799,7 @@ class TranscriptPage(QWidget):
             self._save_section_overrides()
             self._render_sections()
             self._render_full()
-            self.status_message.emit(f"AI suggested {n} heading(s) — marked (AI), editable.")
+            self.status_message.emit(f"AI suggested {n} heading(s) \u2014 marked (AI), editable.")
 
         from PySide6.QtCore import QTimer
 
@@ -837,8 +865,10 @@ def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _highlight(escaped_text: str, query: str) -> str:
+def _highlight(escaped_text, query):
     import re as _re
+    hl_bg = "#332810" if theme.is_dark() else "#FBEDC6"
+    hl_fg = theme.DARK_INK if theme.is_dark() else theme.LIGHT_INK
     return _re.sub(f"({_re.escape(query)})",
-                   r"<span style='background:#fde68a;color:#111827'>\1</span>",
+                   rf"<span style='background:{hl_bg};color:{hl_fg}'>\1</span>",
                    escaped_text, flags=_re.IGNORECASE)

@@ -64,7 +64,7 @@ def changed_words_html(original: str, proposed: str, approved_names):
         else:
             for w in p_words[j1:j2]:
                 is_name = bool(_CAP.match(w)) or w.lower() in approved_lower
-                colour = "#8e24aa" if is_name else "#c62828"
+                colour = "#8E24AA" if is_name else "#C62828"
                 out.append(f'<span style="color:{colour};font-weight:bold;'
                            f'text-decoration:underline">{_escape(w)}</span>')
     return " ".join(out)
@@ -495,11 +495,11 @@ class ContextRepairPanel(QWidget):
             src = c.source if c.source not in ("context_repair",) else "deterministic"
             self.table.setItem(r, 7, QTableWidgetItem(src))
             status_item = QTableWidgetItem(c.status)
-            colour = {"accepted": QColor("#c8e6c9"), "rejected": QColor("#ffcdd2"),
-                      "needs_review": QColor("#fff9c4")}.get(c.status)
+            colour = {"accepted": QColor("#D3F0DF"), "rejected": QColor("#FADAD5"),
+                      "needs_review": QColor("#FBEDC6")}.get(c.status)
             if colour:
                 status_item.setBackground(colour)
-                status_item.setForeground(QColor("#111827"))
+                status_item.setForeground(QColor("#1C1A16"))
             self.table.setItem(r, 8, status_item)
             self.table.setRowHeight(r, 44)
         self._update_summary()

@@ -1,6 +1,6 @@
 """
 lecturepack.ui.pages.review_page
-================================
+=================================
 
 Slide review workspace (v1.1, Phases 1+2). Default layout:
 
@@ -11,6 +11,7 @@ Slide review workspace (v1.1, Phases 1+2). Default layout:
 Selection is synchronized: slide grid <-> preview <-> transcript pane, and the
 page reports selection to the shell toolbar. All decisions (keep / reject /
 restore) are reversible; nothing is ever physically deleted.
+Studio visual layout.
 """
 from __future__ import annotations
 
@@ -20,14 +21,16 @@ import shutil
 from PySide6.QtCore import Qt, QSize, Signal, QTimer
 from PySide6.QtGui import QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QMessageBox, QPushButton, QSplitter, QTableWidget,
-    QTableWidgetItem, QTextEdit, QToolButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView,
+    QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSplitter,
+    QTableWidget, QTableWidgetItem, QTextEdit, QToolButton, QVBoxLayout,
+    QWidget,
 )
 
 from lecturepack.infrastructure.file_manager import FileManager
 from lecturepack.services.export_service import datetime_from_seconds
 from lecturepack.services import transcript_formats as tf
+from lecturepack.ui import theme
 from lecturepack.ui.widgets.slide_grid import SlideGridWidget, CAND_ROLE
 
 _COPY_FORMAT_MAP = {
@@ -57,20 +60,29 @@ class ReviewPage(QWidget):
     # ------------------------------------------------------------------ #
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setStyleSheet(f"""
+            QSplitter::handle {{
+                background: {theme.c('line')};
+                width: 1px;
+            }}
+        """)
 
         # ---- left: slide timeline -------------------------------------- #
         left = QWidget()
+        left.setMinimumWidth(250)
+        left.setMaximumWidth(300)
         ll = QVBoxLayout(left)
-        ll.setContentsMargins(0, 0, 0, 0)
+        ll.setContentsMargins(14, 14, 14, 14)
+        ll.setSpacing(10)
         lt = QHBoxLayout()
         lbl = QLabel("Slides")
-        lbl.setProperty("h2", True)
+        lbl.setStyleSheet("font-weight: 700; font-size: 16px;")
         lt.addWidget(lbl)
         self.selected_count_lbl = QLabel("Selected: 0")
-        self.selected_count_lbl.setStyleSheet("font-weight: bold; color: #2563eb;")
+        self.selected_count_lbl.setStyleSheet(f"font-weight: 700; color: {theme.ACCENT};")
         lt.addWidget(self.selected_count_lbl)
         lt.addStretch(1)
         self.grid_mode_btn = QToolButton()
@@ -96,12 +108,19 @@ class ReviewPage(QWidget):
         ll.addWidget(self.slides_view, 1)
 
         actions = QHBoxLayout()
+        actions.setSpacing(6)
         self.bulk_keep_btn = QPushButton("Keep")
+        self.bulk_keep_btn.setStyleSheet(
+            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
         self.bulk_keep_btn.clicked.connect(self._bulk_keep)
         self.bulk_reject_btn = QPushButton("Reject (Del)")
         self.bulk_reject_btn.setProperty("danger", True)
         self.bulk_reject_btn.clicked.connect(self._bulk_reject)
         self.bulk_restore_btn = QPushButton("Restore (R)")
+        self.bulk_restore_btn.setStyleSheet(
+            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
         self.bulk_restore_btn.clicked.connect(self._bulk_restore)
         actions.addWidget(self.bulk_keep_btn)
         actions.addWidget(self.bulk_reject_btn)
@@ -112,20 +131,33 @@ class ReviewPage(QWidget):
         # ---- center: preview -------------------------------------------- #
         center = QWidget()
         cl = QVBoxLayout(center)
-        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setContentsMargins(14, 14, 14, 14)
+        cl.setSpacing(10)
+
         self.preview_lbl = QLabel("Select a slide to preview")
         self.preview_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_lbl.setMinimumHeight(240)
+        border_c = theme.c('border')
+        muted_c = theme.c('muted')
+        bg_c = theme.c('panel2')
         self.preview_lbl.setStyleSheet(
-            "background: #14161a; border: 1px solid #3a3f47; border-radius: 8px; color: #8b93a1;")
+            f"background: {bg_c}; border: 1.5px solid {border_c}; border-radius: 10px; color: {muted_c};")
         cl.addWidget(self.preview_lbl, 1)
+
         nav = QHBoxLayout()
-        prev_btn = QPushButton("◀ Prev")
+        nav.setSpacing(8)
+        prev_btn = QPushButton("\u25c0 Prev")
+        prev_btn.setStyleSheet(
+            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
         prev_btn.clicked.connect(lambda: self._step_selection(-1))
-        self.slide_info_lbl = QLabel("Timestamp: —")
+        self.slide_info_lbl = QLabel("Timestamp: \u2014")
         self.slide_info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.slide_info_lbl.setProperty("h2", True)
-        next_btn = QPushButton("Next ▶")
+        self.slide_info_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
+        next_btn = QPushButton("Next \u25b6")
+        next_btn.setStyleSheet(
+            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
         next_btn.clicked.connect(lambda: self._step_selection(1))
         nav.addWidget(prev_btn)
         nav.addWidget(self.slide_info_lbl, 1)
@@ -133,14 +165,18 @@ class ReviewPage(QWidget):
         cl.addLayout(nav)
 
         study_row = QHBoxLayout()
-        self.slide_bookmark_btn = QPushButton("☆ Bookmark")
+        study_row.setSpacing(8)
+        self.slide_bookmark_btn = QPushButton("\u2606 Bookmark")
         self.slide_bookmark_btn.setCheckable(True)
         self.slide_bookmark_btn.setObjectName("slideBookmarkButton")
         self.slide_bookmark_btn.setEnabled(False)
+        self.slide_bookmark_btn.setStyleSheet(
+            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
         self.slide_bookmark_btn.toggled.connect(self._save_slide_study)
         self.slide_note_edit = QLineEdit()
         self.slide_note_edit.setObjectName("slideNoteEdit")
-        self.slide_note_edit.setPlaceholderText("Add a short note for this slide…")
+        self.slide_note_edit.setPlaceholderText("Add a short note for this slide\u2026")
         self.slide_note_edit.setMaxLength(500)
         self.slide_note_edit.setEnabled(False)
         self.slide_note_edit.editingFinished.connect(self._save_slide_study)
@@ -151,26 +187,37 @@ class ReviewPage(QWidget):
 
         # ---- right: transcript for the selection ------------------------ #
         right = QWidget()
+        right.setMinimumWidth(320)
+        right.setMaximumWidth(420)
         rl = QVBoxLayout(right)
-        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setContentsMargins(14, 14, 14, 14)
+        rl.setSpacing(10)
         rt = QLabel("Transcript for selection")
-        rt.setProperty("h2", True)
+        rt.setStyleSheet("font-weight: 700; font-size: 16px;")
         rl.addWidget(rt)
 
         search_layout = QHBoxLayout()
+        search_layout.setSpacing(6)
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search (Ctrl+F, F3/Shift+F3)…")
+        self.search_input.setPlaceholderText("Search (Ctrl+F, F3/Shift+F3)\u2026")
         self.search_input.textChanged.connect(self._on_search_text_changed)
         self.search_prev_btn = QPushButton("Prev")
+        self.search_prev_btn.setStyleSheet(
+            f"font: 600 13px sans-serif; padding: 6px 10px; border-radius: 6px; "
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
         self.search_prev_btn.clicked.connect(self._search_prev)
         self.search_next_btn = QPushButton("Next")
+        self.search_next_btn.setStyleSheet(
+            f"font: 600 13px sans-serif; padding: 6px 10px; border-radius: 6px; "
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
         self.search_next_btn.clicked.connect(self._search_next)
-        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.search_input, 1)
         search_layout.addWidget(self.search_prev_btn)
         search_layout.addWidget(self.search_next_btn)
         rl.addLayout(search_layout)
 
         copy_layout = QHBoxLayout()
+        copy_layout.setSpacing(6)
         copy_layout.addWidget(QLabel("Copy as:"))
         self.copy_format_combo = QComboBox()
         self.copy_format_combo.addItems(list(_COPY_FORMAT_MAP.keys()))
@@ -178,10 +225,19 @@ class ReviewPage(QWidget):
         self.timestamps_chk = QCheckBox("Timestamps")
         copy_layout.addWidget(self.timestamps_chk)
         self.copy_current_btn = QPushButton("Copy slide")
+        self.copy_current_btn.setStyleSheet(
+            f"font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px; "
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
         self.copy_current_btn.clicked.connect(self._copy_current_transcript)
         self.copy_selected_btn = QPushButton("Copy selected")
+        self.copy_selected_btn.setStyleSheet(
+            f"font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px; "
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
         self.copy_selected_btn.clicked.connect(self._copy_selected_transcripts)
         self.copy_full_btn = QPushButton("Copy full")
+        self.copy_full_btn.setStyleSheet(
+            f"font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px; "
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
         self.copy_full_btn.clicked.connect(self._copy_full_transcript)
         copy_layout.addWidget(self.copy_current_btn)
         copy_layout.addWidget(self.copy_selected_btn)
@@ -202,10 +258,14 @@ class ReviewPage(QWidget):
         rl.addWidget(self.transcript_table, 1)
 
         save_layout = QHBoxLayout()
+        save_layout.setSpacing(8)
         self.save_corrections_btn = QPushButton("Save corrections (Ctrl+S)")
         self.save_corrections_btn.setProperty("primary", True)
         self.save_corrections_btn.clicked.connect(self._save_corrections)
-        self.context_repair_btn = QPushButton("Context Repair…")
+        self.context_repair_btn = QPushButton("Context Repair\u2026")
+        self.context_repair_btn.setStyleSheet(
+            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
+            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
         self.context_repair_btn.clicked.connect(self.open_context_repair.emit)
         self.transcript_status_lbl = QLabel("")
         self.transcript_status_lbl.setProperty("chip", "ok")
@@ -234,7 +294,7 @@ class ReviewPage(QWidget):
         self.slides_view.clear()
         self.preview_lbl.setText("Select a slide to preview")
         self.preview_lbl.setPixmap(QPixmap())
-        self.slide_info_lbl.setText("Timestamp: —")
+        self.slide_info_lbl.setText("Timestamp: \u2014")
         self._current_candidate = None
         self._clear_study_controls()
         self.selected_count_lbl.setText("Selected: 0")
@@ -264,14 +324,11 @@ class ReviewPage(QWidget):
         if not selected_items:
             self.preview_lbl.setText("Select a slide to preview")
             self.preview_lbl.setPixmap(QPixmap())
-            self.slide_info_lbl.setText("Timestamp: —")
+            self.slide_info_lbl.setText("Timestamp: \u2014")
             self.transcript_table.setRowCount(0)
             self._current_candidate = None
             self._clear_study_controls()
             return
-        # Extended selections have a distinct current item.  It is the user's
-        # navigation anchor and must drive the preview even when earlier rows
-        # remain selected via Ctrl/Shift.
         primary_item = self.slides_view.currentItem()
         if primary_item is None or not primary_item.isSelected():
             primary_item = selected_items[0]
@@ -291,14 +348,14 @@ class ReviewPage(QWidget):
         else:
             self.preview_lbl.setText("Image missing.")
         self.slide_info_lbl.setText(
-            f"{cand.get('timestamp_formatted', '00:00:00')}  ·  frame {cand.get('frame_number', 0)}")
+            f"{cand.get('timestamp_formatted', '00:00:00')}  \u00b7  frame {cand.get('frame_number', 0)}")
         self._load_study_controls(cand)
         self.position_changed.emit(float(cand.get("timestamp_seconds", 0.0)))
 
     def _clear_study_controls(self):
         self.slide_bookmark_btn.blockSignals(True)
         self.slide_bookmark_btn.setChecked(False)
-        self.slide_bookmark_btn.setText("☆ Bookmark")
+        self.slide_bookmark_btn.setText("\u2606 Bookmark")
         self.slide_bookmark_btn.blockSignals(False)
         self.slide_bookmark_btn.setEnabled(False)
         self.slide_note_edit.blockSignals(True)
@@ -312,7 +369,7 @@ class ReviewPage(QWidget):
         bookmarked = bool(entry.get("bookmarked", False))
         self.slide_bookmark_btn.blockSignals(True)
         self.slide_bookmark_btn.setChecked(bookmarked)
-        self.slide_bookmark_btn.setText("★ Bookmarked" if bookmarked else "☆ Bookmark")
+        self.slide_bookmark_btn.setText("\u2605 Bookmarked" if bookmarked else "\u2606 Bookmark")
         self.slide_bookmark_btn.blockSignals(False)
         self.slide_bookmark_btn.setEnabled(self.job is not None)
         self.slide_note_edit.blockSignals(True)
@@ -325,7 +382,7 @@ class ReviewPage(QWidget):
             return
         from lecturepack.services import study_service
         bookmarked = self.slide_bookmark_btn.isChecked()
-        self.slide_bookmark_btn.setText("★ Bookmarked" if bookmarked else "☆ Bookmark")
+        self.slide_bookmark_btn.setText("\u2605 Bookmarked" if bookmarked else "\u2606 Bookmark")
         study_service.set_slide_study(
             self.job, self._current_candidate, bookmarked=bookmarked,
             note=self.slide_note_edit.text())
@@ -346,7 +403,6 @@ class ReviewPage(QWidget):
         self.preview_lbl.setFocus()
 
     def select_slide_near(self, timestamp: float):
-        """Selection sync: pick the slide whose interval contains ``timestamp``."""
         best_row, best_dt = -1, None
         for r in range(self.slides_view.count()):
             cand = self.slides_view.item(r).data(CAND_ROLE)
@@ -429,8 +485,8 @@ class ReviewPage(QWidget):
 
     def _style_segment_edit(self, widget, is_edited):
         if is_edited:
-            widget.setStyleSheet("background-color: #e8f5e9; border: 1px solid #c8e6c9; "
-                                 "color: #1b5e20; font-weight: bold;")
+            widget.setStyleSheet(f"background-color: {theme.SUCCESS}22; border: 1.5px solid {theme.SUCCESS}; "
+                                 f"border-radius: 6px; color: {theme.SUCCESS}; font-weight: 700;")
         else:
             widget.setStyleSheet("")
 
@@ -463,8 +519,6 @@ class ReviewPage(QWidget):
         from lecturepack.services import transcript_store as store
         edited_path = os.path.join(self.job.paths["transcript"], "edited.json")
         FileManager.write_json_atomic(edited_path, self.edited_data)
-        # write-through to the v1.1 working layer so the Transcript page and
-        # exports stay in sync with review-pane edits
         try:
             working = store.load_working(self.job.paths)
             raw_by_id = {s["id"]: s for s in self.raw_segments}
@@ -678,7 +732,7 @@ class ReviewPage(QWidget):
         items = self.slides_view.selectedItems()
         if not items or not self.job:
             return
-        out_dir = QFileDialog.getExistingDirectory(self, "Export selected slides to…")
+        out_dir = QFileDialog.getExistingDirectory(self, "Export selected slides to\u2026")
         if not out_dir:
             return
         n = 0

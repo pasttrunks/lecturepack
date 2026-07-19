@@ -309,7 +309,7 @@ class ExportService:
     <title>Lecture Study Pack - {title}</title>
     <style>
         body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Space Grotesk', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: #f4f6f9;
             color: #333;
             margin: 0;
