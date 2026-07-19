@@ -1135,6 +1135,7 @@ class MainWindow(QMainWindow):
         self.whisper_detector.cancel()
         self.transcript_page.shutdown()
         self.review_page.slides_view.shutdown()
+        self.study_page.slides_grid.shutdown()
         self._persist_ui_state()
         super().closeEvent(event)
 

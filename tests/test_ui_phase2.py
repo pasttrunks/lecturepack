@@ -297,3 +297,96 @@ def test_main_window_frameless_shell(app, qtbot, tmp_path):
     window.navigate_to(PAGE_SETTINGS)
     assert window.stack.currentIndex() == PAGE_SETTINGS
     window.close()
+
+
+# --------------------------------------------------------------------- M4 #
+def _ready_study_job(tmp_path):
+    from tests.test_ui_v11 import _make_job
+    from lecturepack.constants import STAGE_TRANSCRIBE
+    from lecturepack.services.export_service import ExportService
+    _data_dir, job = _make_job(tmp_path)
+    job.state["stages"][STAGE_TRANSCRIBE]["backend_used"] = "CPU"
+    job.save()
+    ExportService(job).align_and_export()
+    return job
+
+
+def _make_study_page(qtbot, tmp_path):
+    from lecturepack.ui.pages.study_page import StudyPage
+    job = _ready_study_job(tmp_path)
+    page = StudyPage()
+    qtbot.addWidget(page)
+    page.load_job(job)
+    return page
+
+
+def test_study_workspace_loads_slides_and_transcript(app, qtbot, tmp_path):
+    page = _make_study_page(qtbot, tmp_path)
+    assert not page.content.isHidden()
+    assert page.empty_lbl.isHidden()
+    assert page.slides_grid.count() > 0
+    assert page.transcript_view.segment_count() > 0
+    assert page.summary_lbl.text().strip() != ""
+    page.slides_grid.shutdown()
+
+
+def test_study_slide_click_seeks_transcript(app, qtbot, tmp_path):
+    page = _make_study_page(qtbot, tmp_path)
+    row = 1 if page.slides_grid.count() > 1 else 0
+    timestamp = float(page._candidates[row]["timestamp_seconds"])
+    expected = find_segment_index(page._segments, timestamp)
+    page.slides_grid.setCurrentRow(row)
+    qtbot.wait(20)
+    assert page.transcript_view.selected_index() == expected
+    assert page.transcript_view.block_at(expected).is_selected()
+    page.slides_grid.shutdown()
+
+
+def test_study_transcript_scroll_selects_nearest_slide(app, qtbot, tmp_path):
+    page = _make_study_page(qtbot, tmp_path)
+    index = min(5, page.transcript_view.segment_count() - 1)
+    expected = find_slide_index(
+        page._candidates, float(page._segments[index]["start"]))
+    page._on_transcript_viewed(index)
+    assert page.slides_grid.currentRow() == expected
+    page.slides_grid.shutdown()
+
+
+def test_study_block_click_selects_slide_without_navigating(app, qtbot, tmp_path):
+    page = _make_study_page(qtbot, tmp_path)
+    navigations = []
+    page.navigate_requested.connect(navigations.append)
+    timestamp = float(page._segments[min(3, len(page._segments) - 1)]["start"])
+    page.transcript_view.block_activated.emit(timestamp)
+    assert page.slides_grid.currentRow() == find_slide_index(
+        page._candidates, timestamp)
+    assert navigations == []
+    page.slides_grid.shutdown()
+
+
+def test_study_viewed_index_ignored_during_programmatic_scroll(app, qtbot, tmp_path):
+    page = _make_study_page(qtbot, tmp_path)
+    page._programmatic_scroll = True
+    page._on_transcript_viewed(0)
+    assert page.slides_grid.currentRow() == -1  # guard held: no re-entry
+    page.slides_grid.shutdown()
+
+
+def test_study_overview_card_collapses(app, qtbot, tmp_path):
+    page = _make_study_page(qtbot, tmp_path)
+    assert not page.overview_body.isHidden()
+    page.overview_toggle.click()
+    assert page.overview_body.isHidden()
+    page.overview_toggle.click()
+    assert not page.overview_body.isHidden()
+    page.slides_grid.shutdown()
+
+
+def test_study_workspace_empty_state_clears_panes(app, qtbot):
+    from lecturepack.ui.pages.study_page import StudyPage
+    page = StudyPage()
+    qtbot.addWidget(page)
+    page.load_job(None)
+    assert page.content.isHidden()
+    assert page.slides_grid.count() == 0
+    assert page.transcript_view.segment_count() == 0

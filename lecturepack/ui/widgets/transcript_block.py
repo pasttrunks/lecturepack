@@ -221,9 +221,14 @@ class TranscriptStreamView(QScrollArea):
             self._extend_to(min(len(self._blocks) + self._batch,
                                 len(self._segments)))
 
-    def scroll_to_index(self, index: int, smooth: bool = True) -> None:
+    def scroll_to_index(self, index: int, smooth: bool = True):
+        """Scroll so block ``index`` sits near the top of the viewport.
+
+        Returns the running ``QPropertyAnimation`` when animating (so callers
+        can gate feedback loops on its completion), else ``None``.
+        """
         if not self._segments:
-            return
+            return None
         self.ensure_materialized(index)
         block = self._blocks[min(max(0, index), len(self._blocks) - 1)]
         target = max(0, block.y() - 12)
@@ -238,8 +243,9 @@ class TranscriptStreamView(QScrollArea):
             anim.setEndValue(target)
             anim.start()
             self._scroll_anim = anim
-        else:
-            bar.setValue(target)
+            return anim
+        bar.setValue(target)
+        return None
 
     def select_index(self, index: int) -> None:
         old = self.block_at(self._selected_index)
