@@ -491,3 +491,52 @@ def test_process_page_live_transcript_is_block_stream(app, qtbot, tmp_path):
     assert block.property("live") is True
     page.reset_progress()
     assert page.live_transcript.segment_count() == 0
+
+
+# --------------------------------------------------------------------- M6 #
+def _make_window(qtbot, tmp_path):
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.ui.main_window import MainWindow
+    window = MainWindow(ConfigManager(str(tmp_path / "data")))
+    qtbot.addWidget(window)
+    return window
+
+
+def test_focus_mode_hides_and_restores_shell_chrome(app, qtbot, tmp_path):
+    window = _make_window(qtbot, tmp_path)
+    fm = window.focus_mode
+    assert not fm.is_active()
+    fm.enter()
+    qtbot.wait(320)
+    assert fm.is_active()
+    assert window._nav_rail.isHidden()
+    assert window._command_bar.isHidden()
+    assert window.statusBar().isHidden()
+    assert not fm.exit_btn.isHidden()
+    fm.exit()
+    qtbot.wait(320)
+    assert not fm.is_active()
+    assert not window._nav_rail.isHidden()
+    assert not window._command_bar.isHidden()
+    assert not window.statusBar().isHidden()
+    assert fm.exit_btn.isHidden()
+    window.close()
+
+
+def test_focus_mode_escape_exits(app, qtbot, tmp_path):
+    window = _make_window(qtbot, tmp_path)
+    window.focus_mode.enter()
+    window._on_escape()
+    assert not window.focus_mode.is_active()
+    window.close()
+
+
+def test_focus_mode_toggle_button_and_shortcut_registered(app, qtbot, tmp_path):
+    window = _make_window(qtbot, tmp_path)
+    assert window.focus_toggle_btn.objectName() == "focusToggleBtn"
+    assert window.shortcut_focus.key().toString() == "Ctrl+Shift+F"
+    window.focus_toggle_btn.click()
+    assert window.focus_mode.is_active()
+    window.focus_toggle_btn.click()
+    assert not window.focus_mode.is_active()
+    window.close()

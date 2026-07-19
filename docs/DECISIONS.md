@@ -4,6 +4,61 @@ Record of major technical decisions. Newest entries at the top.
 
 ---
 
+## AD-17: "Premium Glassmorphic Dark" UI Overhaul (Phase 2, v1.4)
+
+**Date:** 2026-07-19
+**Status:** Accepted
+
+**Context:** The v1.1 shell looked like an engineering console. Phase 2
+rebuilt the visual layer as a premium dark, glassmorphic desktop experience
+without touching the pipeline, services, or persistence.
+
+**Decision:**
+- **Theme:** a static `lecturepack/ui/themes/dark_theme.qss` (Catppuccin
+  Mocha palette: `#1E1E2E` base, `#89B4FA` accent) with literal hex values
+  (QSS has no CSS variables). `ui/theme.py` keeps its v1.1 API and gains the
+  matching `MOCHA_*` constants, the Mocha dark `QPalette`, a QSS loader, and
+  an `add_card_shadow` helper. The file QSS is appended last so it wins the
+  cascade over the structural v1.1 rules.
+- **Frameless shell:** `Qt.FramelessWindowHint` plus a custom
+  `TitleBarWidget` (drag, double-click maximize, min/max/close) and a
+  `QSizeGrip` in the status bar. Accepted tradeoff: Windows 11 snap layouts
+  and the native drop shadow are lost.
+- **Transcript rendering:** custom `TranscriptBlockWidget` cards inside a
+  lazily materialized `TranscriptStreamView` (batches of 120, extended on
+  scroll or via `ensure_materialized`) so long lectures never pay the full
+  widget cost; `bisect`-based pure helpers do O(log n) timestamp matching.
+- **Study workspace:** slide timeline (reused `SlideGridWidget`, accepted
+  slides only) left, transcript right, v1.2 overview in a collapsible card.
+  Bidirectional sync uses two guards — `_sync_guard` (transcript → grid)
+  and `_programmatic_scroll` (cleared when the smooth-scroll animation
+  finishes) — so the two directions cannot oscillate.
+- **Process page:** dropzone hero with an accent glow on drag-hover;
+  engine/VAD/detection settings moved into an animated-width (220 ms)
+  "Advanced Settings" drawer; Phase 1's live pane now uses the same block
+  widget (capped at 200 blocks). Every pre-existing widget attribute, object
+  name, and signal relied on by MainWindow/tests is preserved.
+- **Focus Mode:** fades exactly three shell widgets (nav rail, command bar,
+  status bar) via opacity animations, then hides them; floating
+  semi-transparent "Exit Focus" button plus `Esc`.
+- **Page transitions:** `AnimatedStackedWidget` (180 ms slide+fade) with a
+  rapid-navigation guard.
+- The dark theme remains **opt-in** (`dark_theme` config default unchanged);
+  flipping the default was outside the approved phase file list.
+
+**Alternatives considered:**
+- QSS generated in Python from constants (single source of truth): rejected
+  in favor of a readable, hand-tweakable static QSS file plus mirrored
+  constants for widget code.
+- Overlay (non-layout) settings drawer: rejected; in-layout animated
+  `maximumWidth` is simpler and avoids overlay geometry bugs.
+- Native title bar with dark theme only: rejected; the frameless shell is
+  core to the intended look.
+- Showing all slides (incl. rejected) in the Study workspace: rejected;
+  Study is a post-review reading surface, so it shows accepted slides only.
+
+---
+
 ## AD-16: Live Transcript Streaming from whisper.cpp stdout; No Controller Thread Move (v1.3)
 
 **Date:** 2026-07-18

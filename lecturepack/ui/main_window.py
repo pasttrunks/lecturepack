@@ -177,6 +177,7 @@ class MainWindow(QMainWindow):
         # ---- command bar -------------------------------------------------- #
         bar = QWidget()
         bar.setObjectName("CommandBar")
+        self._command_bar = bar
         bl = QHBoxLayout(bar)
         bl.setContentsMargins(12, 6, 12, 6)
         self.job_title_lbl = QLabel("No job")
@@ -193,6 +194,10 @@ class MainWindow(QMainWindow):
         self.bar_status_lbl = QLabel("")
         self.bar_status_lbl.setProperty("muted", True)
         bl.addWidget(self.bar_status_lbl)
+        self.focus_toggle_btn = QPushButton("◧ Focus")
+        self.focus_toggle_btn.setObjectName("focusToggleBtn")
+        self.focus_toggle_btn.setToolTip("Toggle Focus Mode (Ctrl+Shift+F)")
+        bl.addWidget(self.focus_toggle_btn)
         self.save_btn = QPushButton("Save")
         self.save_btn.clicked.connect(self._on_save_action)
         bl.addWidget(self.save_btn)
@@ -210,6 +215,7 @@ class MainWindow(QMainWindow):
 
         rail = QWidget()
         rail.setObjectName("NavRail")
+        self._nav_rail = rail
         rail.setFixedWidth(76)
         rl = QVBoxLayout(rail)
         rl.setContentsMargins(6, 10, 6, 10)
@@ -267,6 +273,12 @@ class MainWindow(QMainWindow):
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
+
+        # ---- focus mode (Phase 2) ---------------------------------------- #
+        from lecturepack.ui.widgets.focus_mode import FocusModeController
+        self.focus_mode = FocusModeController(
+            self, [self._nav_rail, self._command_bar, sb])
+        self.focus_toggle_btn.clicked.connect(self.focus_mode.toggle)
 
         # ---- page wiring --------------------------------------------------- #
         self.home_page.video_chosen.connect(self._on_video_selected_from_ui)
@@ -963,6 +975,12 @@ class MainWindow(QMainWindow):
         self.shortcut_f3 = sc("F3", self._search_next)
         self.shortcut_shift_f3 = sc("Shift+F3", self._search_prev)
         self.shortcut_select_all = sc("Ctrl+A", self._on_select_all)
+        self.shortcut_focus = sc("Ctrl+Shift+F", self.focus_mode.toggle)
+        self.shortcut_escape = sc("Esc", self._on_escape)
+
+    def _on_escape(self):
+        if self.focus_mode.is_active():
+            self.focus_mode.exit()
 
     def _on_delete_shortcut(self):
         if self.stack.currentIndex() == PAGE_REVIEW:
