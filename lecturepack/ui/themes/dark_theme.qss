@@ -65,6 +65,10 @@ QFrame#AppTitleBar {
     background: #181825;
     border-bottom: 1px solid #313244;
 }
+QLabel#AppTitleMark {
+    color: #89B4FA;
+    font-size: 14px;
+}
 QLabel#AppTitleText {
     color: #CDD6F4;
     font-weight: 600;

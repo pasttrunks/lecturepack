@@ -31,7 +31,7 @@ from PySide6.QtCore import QElapsedTimer, QRectF, QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QListWidget,
-    QMainWindow, QMessageBox, QProgressBar, QPushButton, QStackedWidget,
+    QMainWindow, QMessageBox, QProgressBar, QPushButton, QSizeGrip,
     QToolButton, QVBoxLayout, QWidget, QTableWidgetItem, QLineEdit, QTextEdit,
 )
 
@@ -50,6 +50,8 @@ from lecturepack.ui.pages.review_page import ReviewPage
 from lecturepack.ui.pages.study_page import StudyPage
 from lecturepack.ui.pages.transcript_page import TranscriptPage
 from lecturepack.ui.pages.settings_page import SettingsPage
+from lecturepack.ui.widgets.animated_stacked import AnimatedStackedWidget
+from lecturepack.ui.widgets.title_bar import TitleBarWidget
 
 PAGES = ["Home", "Process", "Review", "Transcript", "Exports", "Settings", "Study"]
 PAGE_ICONS = ["⌂", "▶", "▦", "¶", "⇩", "⚙", "◇"]
@@ -137,6 +139,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"LecturePack v{__version__}")
         self.resize(1360, 860)
         self.setAcceptDrops(True)
+        # Phase 2: frameless premium shell with a custom title bar.
+        self.setWindowFlags(Qt.WindowType.Window
+                            | Qt.WindowType.FramelessWindowHint)
 
         theme.apply_theme(
             __import__("PySide6.QtWidgets", fromlist=["QApplication"]).QApplication.instance(),
@@ -161,6 +166,13 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
+        # ---- custom frameless title bar (Phase 2) ------------------------- #
+        self.title_bar = TitleBarWidget(title=self.windowTitle())
+        self.title_bar.minimize_clicked.connect(self.showMinimized)
+        self.title_bar.toggle_maximize_clicked.connect(self._toggle_maximize)
+        self.title_bar.close_clicked.connect(self.close)
+        root.addWidget(self.title_bar)
 
         # ---- command bar -------------------------------------------------- #
         bar = QWidget()
@@ -218,7 +230,7 @@ class MainWindow(QMainWindow):
         rl.addStretch(1)
         hb.addWidget(rail)
 
-        self.stack = QStackedWidget()
+        self.stack = AnimatedStackedWidget()
         self.home_page = HomePage(self.config_manager)
         self.process_page = ProcessPage(self.config_manager)
         self.review_page = ReviewPage(self.config_manager)
@@ -251,6 +263,7 @@ class MainWindow(QMainWindow):
             sb.addWidget(w)
         sb.addPermanentWidget(self.sb_warn)
         sb.addPermanentWidget(self.sb_engine)
+        sb.addPermanentWidget(QSizeGrip(self))  # resize handle for frameless
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
@@ -408,6 +421,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
     # navigation & persistence
     # ------------------------------------------------------------------ #
+    def _toggle_maximize(self):
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+        self.title_bar.set_maximized(self.isMaximized())
+
     def navigate_to(self, index):
         self.stack.setCurrentIndex(index)
 

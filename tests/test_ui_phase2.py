@@ -182,3 +182,118 @@ def test_stream_view_clear_resets(app, qtbot):
     view.clear()
     assert view.segment_count() == 0
     assert view.materialized_count() == 0
+
+
+# --------------------------------------------------------------------- M3 #
+from PySide6.QtCore import QPoint  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget  # noqa: E402
+
+from lecturepack.ui.widgets.animated_stacked import (  # noqa: E402
+    AnimatedStackedWidget)
+from lecturepack.ui.widgets.title_bar import TitleBarWidget  # noqa: E402
+
+
+def test_title_bar_buttons_emit_signals(app, qtbot):
+    bar = TitleBarWidget(title="Test")
+    qtbot.addWidget(bar)
+    fired = []
+    bar.minimize_clicked.connect(lambda: fired.append("min"))
+    bar.toggle_maximize_clicked.connect(lambda: fired.append("max"))
+    bar.close_clicked.connect(lambda: fired.append("close"))
+    qtbot.mouseClick(bar.min_btn, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(bar.max_btn, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(bar.close_btn, Qt.MouseButton.LeftButton)
+    assert fired == ["min", "max", "close"]
+
+
+def test_title_bar_double_click_toggles_maximize(app, qtbot):
+    bar = TitleBarWidget()
+    qtbot.addWidget(bar)
+    fired = []
+    bar.toggle_maximize_clicked.connect(lambda: fired.append(True))
+    qtbot.mouseDClick(bar, Qt.MouseButton.LeftButton)
+    assert fired == [True]
+
+
+def test_title_bar_maximize_glyph_switches(app, qtbot):
+    bar = TitleBarWidget()
+    qtbot.addWidget(bar)
+    assert bar.max_btn.text() == "□"
+    bar.set_maximized(True)
+    assert bar.max_btn.text() == "▣"
+    bar.set_maximized(False)
+    assert bar.max_btn.text() == "□"
+
+
+def test_title_bar_drag_moves_host_window(app, qtbot):
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    layout.setContentsMargins(0, 0, 0, 0)
+    bar = TitleBarWidget(title="Drag")
+    layout.addWidget(bar)
+    layout.addStretch(1)
+    host.resize(400, 200)
+    host.move(300, 300)
+    host.show()
+    qtbot.wait(30)
+    start = host.pos()
+    QTest.mousePress(bar, Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.NoModifier, QPoint(60, 15))
+    QTest.mouseMove(bar, QPoint(160, 115))
+    QTest.mouseRelease(bar, Qt.MouseButton.LeftButton,
+                       Qt.KeyboardModifier.NoModifier, QPoint(160, 115))
+    delta = host.pos() - start
+    assert delta.x() == 100
+    assert delta.y() == 100
+
+
+def test_animated_stack_switches_and_cleans_up(app, qtbot):
+    stack = AnimatedStackedWidget()
+    qtbot.addWidget(stack)
+    pages = [QLabel(f"page {i}") for i in range(3)]
+    for page in pages:
+        stack.addWidget(page)
+    stack.resize(600, 400)
+    stack.show()
+    qtbot.wait(30)
+    stack.setCurrentIndex(1)
+    assert stack.currentIndex() == 1
+    qtbot.wait(260)
+    assert pages[1].graphicsEffect() is None
+
+
+def test_animated_stack_rapid_navigation_guard(app, qtbot):
+    stack = AnimatedStackedWidget()
+    qtbot.addWidget(stack)
+    for i in range(3):
+        stack.addWidget(QLabel(f"page {i}"))
+    stack.resize(600, 400)
+    stack.show()
+    qtbot.wait(30)
+    stack.setCurrentIndex(2)
+    stack.setCurrentIndex(0)  # interrupt the in-flight transition
+    qtbot.wait(260)
+    assert stack.currentIndex() == 0
+    assert stack.currentWidget().graphicsEffect() is None
+
+
+def test_animated_stack_same_index_is_noop(app, qtbot):
+    stack = AnimatedStackedWidget()
+    qtbot.addWidget(stack)
+    stack.addWidget(QLabel("only"))
+    stack.setCurrentIndex(0)
+    assert stack.currentIndex() == 0
+
+
+def test_main_window_frameless_shell(app, qtbot, tmp_path):
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.ui.main_window import MainWindow, PAGE_SETTINGS
+    window = MainWindow(ConfigManager(str(tmp_path / "data")))
+    qtbot.addWidget(window)
+    assert window.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert isinstance(window.title_bar, TitleBarWidget)
+    assert isinstance(window.stack, AnimatedStackedWidget)
+    window.navigate_to(PAGE_SETTINGS)
+    assert window.stack.currentIndex() == PAGE_SETTINGS
+    window.close()
