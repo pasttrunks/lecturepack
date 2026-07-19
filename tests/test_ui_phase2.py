@@ -390,3 +390,104 @@ def test_study_workspace_empty_state_clears_panes(app, qtbot):
     assert page.content.isHidden()
     assert page.slides_grid.count() == 0
     assert page.transcript_view.segment_count() == 0
+
+
+# --------------------------------------------------------------------- M5 #
+def _make_process_page(qtbot, tmp_path):
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.ui.pages.process_page import ProcessPage
+    page = ProcessPage(ConfigManager(str(tmp_path / "data")))
+    qtbot.addWidget(page)
+    return page
+
+
+def _ancestors(widget):
+    chain = []
+    current = widget.parentWidget()
+    while current is not None:
+        chain.append(current)
+        current = current.parentWidget()
+    return chain
+
+
+def test_process_page_dropzone_accepts_and_emits(app, qtbot, tmp_path):
+    from PySide6.QtCore import QMimeData, QUrl
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+    page = _make_process_page(qtbot, tmp_path)
+    path = "C:/lectures/week3.mp4"
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(path)])
+
+    enter = QDragEnterEvent(QPoint(10, 10), Qt.DropAction.CopyAction, mime,
+                            Qt.MouseButton.LeftButton,
+                            Qt.KeyboardModifier.NoModifier)
+    page.dropzone.dragEnterEvent(enter)
+    assert enter.isAccepted()
+    assert page.dropzone.property("dropActive") == "true"
+
+    chosen = []
+    page.video_chosen.connect(chosen.append)
+    drop = QDropEvent(QPoint(10, 10), Qt.DropAction.CopyAction, mime,
+                      Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    page.dropzone.dropEvent(drop)
+    assert chosen == [path]
+    assert page.video_path_edit.text() == path
+    assert page.dropzone.property("dropActive") == "false"
+
+
+def test_process_page_dropzone_ignores_non_video(app, qtbot, tmp_path):
+    from PySide6.QtCore import QMimeData, QUrl
+    from PySide6.QtGui import QDropEvent
+    page = _make_process_page(qtbot, tmp_path)
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile("C:/notes/readme.txt")])
+    chosen = []
+    page.video_chosen.connect(chosen.append)
+    drop = QDropEvent(QPoint(10, 10), Qt.DropAction.CopyAction, mime,
+                      Qt.MouseButton.LeftButton,
+                      Qt.KeyboardModifier.NoModifier)
+    page.dropzone.dropEvent(drop)
+    assert chosen == []
+    assert page.video_path_edit.text() == ""
+
+
+def test_process_page_advanced_drawer_animates_open_and_closed(app, qtbot, tmp_path):
+    page = _make_process_page(qtbot, tmp_path)
+    assert page._advanced_open is False
+    assert page.advanced_drawer.maximumWidth() == 0
+    page.set_advanced_open(True)
+    qtbot.waitUntil(lambda: page.advanced_drawer.maximumWidth() == 380,
+                    timeout=1500)
+    assert page._advanced_open is True
+    assert not page.advanced_drawer.isHidden()
+    page.set_advanced_open(False)
+    qtbot.waitUntil(lambda: page.advanced_drawer.maximumWidth() == 0,
+                    timeout=1500)
+    qtbot.wait(60)  # allow the finished->hide connection to fire
+    assert page.advanced_drawer.isHidden()
+
+
+def test_process_page_settings_widgets_live_in_drawer(app, qtbot, tmp_path):
+    page = _make_process_page(qtbot, tmp_path)
+    for widget in (page.transcription_mode_combo, page.profile_combo,
+                   page.engine_combo, page.vad_chk, page.preset_combo,
+                   page.crop_selector, page.diag_lbl):
+        assert page.advanced_drawer in _ancestors(widget), widget
+    # Primary controls stay on the main page.
+    assert page.advanced_drawer not in _ancestors(page.product_mode_combo)
+    assert page.advanced_drawer not in _ancestors(page.start_btn)
+    assert page.advanced_drawer not in _ancestors(page.video_path_edit)
+
+
+def test_process_page_live_transcript_is_block_stream(app, qtbot, tmp_path):
+    page = _make_process_page(qtbot, tmp_path)
+    assert isinstance(page.live_transcript, TranscriptStreamView)
+    page.on_transcript_segment({"start_ms": 5000, "end_ms": 8000,
+                                "text": "hello lecture"})
+    page.on_transcript_segment({"start_ms": 9000, "text": "   "})  # ignored
+    assert page.live_transcript.segment_count() == 1
+    block = page.live_transcript.block_at(0)
+    assert block.text_lbl.text() == "hello lecture"
+    assert block.property("live") is True
+    page.reset_progress()
+    assert page.live_transcript.segment_count() == 0

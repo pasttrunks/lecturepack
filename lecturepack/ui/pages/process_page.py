@@ -2,34 +2,42 @@
 lecturepack.ui.pages.process_page
 =================================
 
-Job setup + live processing view (v1.1, Phases 1+9).
+Job setup + live processing view (Phase 2 "minimalist dropzone" redesign).
 
-Left column: categorized, collapsible settings (video, output, transcription,
-slide detection with crop editor, context). Right column: stage-by-stage
-progress with elapsed time and estimated remaining, a live log drawer, and a
-Cancel button. No modal frozen periods: everything updates from controller
-signals.
+The page leads with a large dropzone hero (drag a video in; the dashed
+border glows accent-blue while a drag hovers). Engine knobs, VAD thresholds
+and slide-detection settings live behind an animated "Advanced Settings"
+slide-out drawer. The right column shows stage-by-stage progress, the live
+transcript (streamed whisper.cpp segments rendered as TranscriptBlockWidget
+cards; ephemeral view -- canonical text still derives from the raw layer)
+and the throttled log. Every pre-existing widget attribute, object name and
+signal used by MainWindow and the test-suite is preserved.
 """
 from __future__ import annotations
 
-import os
-
-from PySide6.QtCore import Qt, QElapsedTimer, QTimer, Signal, QRectF
+from PySide6.QtCore import (
+    QEasingCurve, QElapsedTimer, QPropertyAnimation, Qt, QTimer, Signal,
+)
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout,
-    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton,
-    QRadioButton, QButtonGroup, QScrollArea, QSpinBox, QSplitter, QTextEdit,
-    QToolButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame,
+    QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QProgressBar, QPushButton, QRadioButton, QButtonGroup, QScrollArea,
+    QSpinBox, QSplitter, QTextEdit, QToolButton, QVBoxLayout, QWidget,
 )
 
 from lecturepack.constants import (
-    STAGES, STAGE_EXPORT, SUPPORTED_VIDEO_EXTENSIONS,
+    STAGES, SUPPORTED_VIDEO_EXTENSIONS,
     PRODUCT_MODES, PRODUCT_MODE_LABELS, TRANSCRIPTION_MODE_LABELS,
     TRANSCRIPTION_BACKEND_LOCAL,
 )
 from lecturepack.infrastructure.transcription_engines import (
     ENGINE_AUTO, ENGINE_CPU, ENGINE_VULKAN, ENGINE_LABELS,
 )
+from lecturepack.ui import theme
+from lecturepack.ui.widgets.transcript_block import TranscriptStreamView
+
+DRAWER_WIDTH = 380
 
 
 class CollapsibleGroup(QFrame):
@@ -60,6 +68,78 @@ class CollapsibleGroup(QFrame):
         self.toggle.setText(("▾ " if open_ else "▸ ") + self._title)
 
 
+class DropzoneHero(QFrame):
+    """The big minimalist video drop target with an accent glow on drag."""
+
+    file_dropped = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("DropzoneHero")
+        self.setAcceptDrops(True)
+        self._glow = None
+        self._glow_anim = None
+
+    # ---- drag & drop ---------------------------------------------------- #
+    def dragEnterEvent(self, event):  # noqa: N802 (Qt naming)
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self._set_active(True)
+
+    def dragMoveEvent(self, event):  # noqa: N802
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):  # noqa: N802
+        self._set_active(False)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):  # noqa: N802
+        self._set_active(False)
+        urls = event.mimeData().urls()
+        if urls:
+            path = urls[0].toLocalFile()
+            if path.lower().endswith(SUPPORTED_VIDEO_EXTENSIONS):
+                event.acceptProposedAction()
+                self.file_dropped.emit(path)
+
+    # ---- glow state ------------------------------------------------------ #
+    def _set_active(self, active: bool):
+        self.setProperty("dropActive", "true" if active else "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
+        if active:
+            self._start_glow()
+        else:
+            self._stop_glow()
+
+    def _start_glow(self):
+        if self._glow is None:
+            self._glow = QGraphicsDropShadowEffect(self)
+            self._glow.setColor(QColor(theme.MOCHA_ACCENT))
+            self._glow.setXOffset(0.0)
+            self._glow.setYOffset(0.0)
+            self._glow.setBlurRadius(18.0)
+            self.setGraphicsEffect(self._glow)
+        if self._glow_anim is None:
+            anim = QPropertyAnimation(self._glow, b"blurRadius", self)
+            anim.setDuration(600)
+            anim.setStartValue(18.0)
+            anim.setKeyValueAt(0.5, 34.0)
+            anim.setEndValue(18.0)
+            anim.setLoopCount(-1)
+            anim.start()
+            self._glow_anim = anim
+
+    def _stop_glow(self):
+        if self._glow_anim is not None:
+            self._glow_anim.stop()
+            self._glow_anim = None
+        if self._glow is not None:
+            self.setGraphicsEffect(None)
+            self._glow = None
+
+
 class StageRow(QWidget):
     def __init__(self, stage, parent=None):
         super().__init__(parent)
@@ -87,12 +167,13 @@ class StageRow(QWidget):
 
     def set_state(self, state):
         self.state = state
-        icons = {"pending": ("○", ""), "running": ("◔", "color:#2563eb;font-weight:bold;"),
-                 "completed": ("●", "color:#16a34a;font-weight:bold;"),
-                 "failed": ("✕", "color:#dc2626;font-weight:bold;"),
-                 "cached": ("◍", "color:#16a34a;"),
-                 "skipped": ("–", "color:#8b93a1;"),
-                 "cancelled": ("◌", "color:#d97706;")}
+        icons = {"pending": ("○", ""),
+                 "running": ("◔", "color:#89B4FA;font-weight:bold;"),
+                 "completed": ("●", "color:#A6E3A1;font-weight:bold;"),
+                 "failed": ("✕", "color:#F38BA8;font-weight:bold;"),
+                 "cached": ("◍", "color:#A6E3A1;"),
+                 "skipped": ("–", "color:#A6ADC8;"),
+                 "cancelled": ("◌", "color:#F9E2AF;")}
         icon, style = icons.get(state, ("○", ""))
         self.icon.setText(icon)
         self.icon.setStyleSheet(style)
@@ -129,6 +210,8 @@ class ProcessPage(QWidget):
     def __init__(self, config_manager, parent=None):
         super().__init__(parent)
         self.config_manager = config_manager
+        self._advanced_open = False
+        self._drawer_anim = None
         self._build_ui()
         self._tick_timer = QTimer(self)
         self._tick_timer.setInterval(1000)
@@ -137,41 +220,144 @@ class ProcessPage(QWidget):
 
     # ------------------------------------------------------------------ #
     def _build_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(10, 8, 10, 8)
+        root.setSpacing(0)
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        layout.addWidget(self.splitter)
+        root.addWidget(self.splitter, 1)
 
-        # ---- left: settings --------------------------------------------- #
-        left_scroll = QScrollArea()
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        left = QWidget()
-        ll = QVBoxLayout(left)
-        ll.setContentsMargins(0, 0, 6, 0)
+        # ---- main column ------------------------------------------------ #
+        main = QWidget()
+        ml = QVBoxLayout(main)
+        ml.setContentsMargins(0, 0, 6, 0)
+        ml.setSpacing(8)
 
-        # Video
-        vid_grp = CollapsibleGroup("Lecture video")
+        # Dropzone hero
+        self.dropzone = DropzoneHero()
+        self.dropzone.setMinimumHeight(150)
+        dz = QVBoxLayout(self.dropzone)
+        dz.setContentsMargins(18, 14, 18, 14)
+        dz.addStretch(1)
+        hint_icon = QLabel("⇩")
+        hint_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint_icon.setStyleSheet("font-size: 30px; color: #89B4FA;")
+        dz.addWidget(hint_icon)
+        hint = QLabel("Drop a lecture video here")
+        hint.setProperty("dropHint", True)
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dz.addWidget(hint)
+        dz.addStretch(1)
         path_layout = QHBoxLayout()
         self.video_path_edit = QLineEdit()
-        self.video_path_edit.setPlaceholderText("Drop a video anywhere or browse…")
+        self.video_path_edit.setPlaceholderText("…or paste a video path")
         browse_video_btn = QPushButton("Browse")
         browse_video_btn.clicked.connect(self._browse_video)
-        path_layout.addWidget(self.video_path_edit)
+        path_layout.addWidget(self.video_path_edit, 1)
         path_layout.addWidget(browse_video_btn)
-        vid_grp.body_layout.addLayout(path_layout)
+        dz.addLayout(path_layout)
         self.metadata_lbl = QLabel("No video loaded.")
         self.metadata_lbl.setProperty("muted", True)
-        vid_grp.body_layout.addWidget(self.metadata_lbl)
-        ll.addWidget(vid_grp)
+        self.metadata_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dz.addWidget(self.metadata_lbl)
+        self.dropzone.file_dropped.connect(self._on_dropzone_file)
+        ml.addWidget(self.dropzone)
 
-        # Output / product mode
-        mode_grp = CollapsibleGroup("Output")
+        # Primary controls
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("Output:"))
         self.product_mode_combo = QComboBox()
         for m in PRODUCT_MODES:
             self.product_mode_combo.addItem(PRODUCT_MODE_LABELS[m], m)
-        mode_grp.body_layout.addWidget(self.product_mode_combo)
-        ll.addWidget(mode_grp)
+        controls.addWidget(self.product_mode_combo)
+        controls.addStretch(1)
+        self.advanced_toggle = QPushButton("Advanced Settings")
+        self.advanced_toggle.setObjectName("advancedSettingsToggle")
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.toggled.connect(self.set_advanced_open)
+        controls.addWidget(self.advanced_toggle)
+        ml.addLayout(controls)
+
+        act_row = QHBoxLayout()
+        self.start_btn = QPushButton("Start processing")
+        self.start_btn.setProperty("primary", True)
+        self.start_btn.setMinimumHeight(38)
+        self.start_btn.clicked.connect(self.start_requested.emit)
+        self.retranscribe_btn = QPushButton("Retranscribe only")
+        self.retranscribe_btn.setEnabled(False)
+        self.retranscribe_btn.clicked.connect(self.retranscribe_requested.emit)
+        act_row.addWidget(self.start_btn, 1)
+        act_row.addWidget(self.retranscribe_btn)
+        ml.addLayout(act_row)
+
+        self.stage_lbl = QLabel("Idle")
+        self.stage_lbl.setProperty("h1", True)
+        ml.addWidget(self.stage_lbl)
+
+        stages_card = QFrame()
+        stages_card.setProperty("card", True)
+        theme.add_card_shadow(stages_card)
+        sc = QVBoxLayout(stages_card)
+        self.stage_rows = {}
+        for stage in STAGES:
+            row = StageRow(stage)
+            self.stage_rows[stage] = row
+            sc.addWidget(row)
+        ml.addWidget(stages_card)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        ml.addWidget(self.progress_bar)
+
+        # Live transcript: segments streamed from whisper.cpp stdout while
+        # transcription runs (ephemeral view; canonical text comes from the
+        # raw transcript layer after the stage completes).
+        live_lbl = QLabel("Live transcript")
+        live_lbl.setProperty("muted", True)
+        ml.addWidget(live_lbl)
+        self.live_transcript = TranscriptStreamView(live=True, max_blocks=200)
+        self.live_transcript.setMinimumHeight(120)
+        self.live_transcript.setMaximumHeight(180)
+        ml.addWidget(self.live_transcript)
+
+        log_hdr = QHBoxLayout()
+        self.log_toggle = QToolButton()
+        self.log_toggle.setText("▾ Logs")
+        self.log_toggle.setCheckable(True)
+        self.log_toggle.setChecked(True)
+        self.log_toggle.setStyleSheet("QToolButton{border:none;font-weight:600;}")
+        self.log_toggle.clicked.connect(self._toggle_logs)
+        log_hdr.addWidget(self.log_toggle)
+        log_hdr.addStretch(1)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setProperty("danger", True)
+        self.cancel_btn.clicked.connect(self.cancel_requested.emit)
+        log_hdr.addWidget(self.cancel_btn)
+        ml.addLayout(log_hdr)
+
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setStyleSheet(
+            "background: #11111B; color: #A6E3A1; "
+            "font-family: Consolas, monospace; font-size: 11px;")
+        ml.addWidget(self.log_text, 1)
+
+        self.splitter.addWidget(main)
+
+        # ---- advanced settings slide-out drawer -------------------------- #
+        self.advanced_drawer = QFrame()
+        self.advanced_drawer.setObjectName("AdvancedDrawer")
+        drawer_outer = QVBoxLayout(self.advanced_drawer)
+        drawer_outer.setContentsMargins(8, 0, 0, 0)
+        drawer_title = QLabel("Advanced Settings")
+        drawer_title.setProperty("h2", True)
+        drawer_outer.addWidget(drawer_title)
+
+        drawer_scroll = QScrollArea()
+        drawer_scroll.setWidgetResizable(True)
+        drawer_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        drawer_body = QWidget()
+        dl = QVBoxLayout(drawer_body)
+        dl.setContentsMargins(0, 0, 6, 0)
 
         # Transcription
         tr_grp = CollapsibleGroup("Transcription")
@@ -262,8 +448,7 @@ class ProcessPage(QWidget):
         tr_grp.body_layout.addLayout(glossary_row)
         self.transcription_mode_combo.currentIndexChanged.connect(
             self._update_transcription_mode)
-        self._update_transcription_mode()
-        ll.addWidget(tr_grp)
+        dl.addWidget(tr_grp)
 
         # Slide detection
         det_grp = CollapsibleGroup("Slide detection")
@@ -299,93 +484,51 @@ class ProcessPage(QWidget):
         tools_layout.addWidget(self.ignore_radio)
         tools_layout.addWidget(clear_rects_btn)
         det_grp.body_layout.addLayout(tools_layout)
-        ll.addWidget(det_grp)
+        dl.addWidget(det_grp)
 
         # Diagnostics
         diag_grp = CollapsibleGroup("System diagnostics", collapsed=True)
         self.diag_lbl = QLabel("…")
         self.diag_lbl.setWordWrap(True)
         diag_grp.body_layout.addWidget(self.diag_lbl)
-        ll.addWidget(diag_grp)
+        dl.addWidget(diag_grp)
+        dl.addStretch(1)
 
-        # Actions
-        act_row = QHBoxLayout()
-        self.start_btn = QPushButton("Start processing")
-        self.start_btn.setProperty("primary", True)
-        self.start_btn.setMinimumHeight(38)
-        self.start_btn.clicked.connect(self.start_requested.emit)
-        self.retranscribe_btn = QPushButton("Retranscribe only")
-        self.retranscribe_btn.setEnabled(False)
-        self.retranscribe_btn.clicked.connect(self.retranscribe_requested.emit)
-        act_row.addWidget(self.start_btn, 1)
-        act_row.addWidget(self.retranscribe_btn)
-        ll.addLayout(act_row)
-        ll.addStretch(1)
+        drawer_scroll.setWidget(drawer_body)
+        drawer_outer.addWidget(drawer_scroll, 1)
+        self.advanced_drawer.setMinimumWidth(0)
+        self.advanced_drawer.setMaximumWidth(0)
+        self.advanced_drawer.setVisible(False)
+        root.addWidget(self.advanced_drawer)
 
-        left_scroll.setWidget(left)
-        self.splitter.addWidget(left_scroll)
+        self._update_transcription_mode()
 
-        # ---- right: progress -------------------------------------------- #
-        right = QWidget()
-        rl = QVBoxLayout(right)
-        rl.setContentsMargins(6, 0, 0, 0)
-        self.stage_lbl = QLabel("Idle")
-        self.stage_lbl.setProperty("h1", True)
-        rl.addWidget(self.stage_lbl)
-
-        stages_card = QFrame()
-        stages_card.setProperty("card", True)
-        sc = QVBoxLayout(stages_card)
-        self.stage_rows = {}
-        for stage in STAGES:
-            row = StageRow(stage)
-            self.stage_rows[stage] = row
-            sc.addWidget(row)
-        rl.addWidget(stages_card)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        rl.addWidget(self.progress_bar)
-
-        # Live transcript: segments streamed from whisper.cpp stdout while
-        # transcription runs (ephemeral view; canonical text comes from the
-        # raw transcript layer after the stage completes).
-        live_lbl = QLabel("Live transcript")
-        live_lbl.setProperty("muted", True)
-        rl.addWidget(live_lbl)
-        self.live_transcript = QTextEdit()
-        self.live_transcript.setReadOnly(True)
-        self.live_transcript.setPlaceholderText(
-            "Transcript segments appear here as they are transcribed…")
-        self.live_transcript.setMaximumHeight(150)
-        self.live_transcript.setStyleSheet(
-            "background: #14161a; color: #d7dce2; font-size: 12px;")
-        rl.addWidget(self.live_transcript)
-
-        log_hdr = QHBoxLayout()
-        self.log_toggle = QToolButton()
-        self.log_toggle.setText("▾ Logs")
-        self.log_toggle.setCheckable(True)
-        self.log_toggle.setChecked(True)
-        self.log_toggle.setStyleSheet("QToolButton{border:none;font-weight:600;}")
-        self.log_toggle.clicked.connect(self._toggle_logs)
-        log_hdr.addWidget(self.log_toggle)
-        log_hdr.addStretch(1)
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setProperty("danger", True)
-        self.cancel_btn.clicked.connect(self.cancel_requested.emit)
-        log_hdr.addWidget(self.cancel_btn)
-        rl.addLayout(log_hdr)
-
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setStyleSheet(
-            "background: #101214; color: #7dd97b; font-family: Consolas, monospace; font-size: 11px;")
-        rl.addWidget(self.log_text, 1)
-
-        self.splitter.addWidget(right)
-        self.splitter.setStretchFactor(0, 1)
-        self.splitter.setStretchFactor(1, 1)
+    # ------------------------------------------------------------------ #
+    # advanced settings drawer
+    # ------------------------------------------------------------------ #
+    def set_advanced_open(self, open_: bool):
+        open_ = bool(open_)
+        if open_ == self._advanced_open:
+            return
+        self._advanced_open = open_
+        self.advanced_toggle.blockSignals(True)
+        self.advanced_toggle.setChecked(open_)
+        self.advanced_toggle.blockSignals(False)
+        if self._drawer_anim is not None:
+            self._drawer_anim.stop()
+        anim = QPropertyAnimation(self.advanced_drawer, b"maximumWidth", self)
+        anim.setDuration(220)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.setStartValue(self.advanced_drawer.maximumWidth())
+        if open_:
+            self.advanced_drawer.setVisible(True)
+            anim.setEndValue(DRAWER_WIDTH)
+        else:
+            anim.setEndValue(0)
+            anim.finished.connect(
+                lambda: self.advanced_drawer.setVisible(False))
+        anim.start()
+        self._drawer_anim = anim
 
     # ------------------------------------------------------------------ #
     def _toggle_logs(self):
@@ -404,6 +547,10 @@ class ProcessPage(QWidget):
         if file_path:
             self.video_path_edit.setText(file_path)
             self.video_chosen.emit(file_path)
+
+    def _on_dropzone_file(self, file_path):
+        self.video_path_edit.setText(file_path)
+        self.video_chosen.emit(file_path)
 
     def _browse_vad_model(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select VAD Model", "",
@@ -431,19 +578,20 @@ class ProcessPage(QWidget):
         self.live_transcript.clear()
 
     def on_transcript_segment(self, segment):
-        """Append one live segment line; arrival rate is a few per second."""
+        """Append one live segment block; arrival rate is a few per second."""
+        text = str(segment.get("text", "")).strip()
+        if not text:
+            return
         try:
             start_ms = int(segment.get("start_ms", 0))
         except (TypeError, ValueError):
             start_ms = 0
-        text = str(segment.get("text", "")).strip()
-        if not text:
-            return
-        hours, rem = divmod(max(0, start_ms) // 1000, 3600)
-        minutes, seconds = divmod(rem, 60)
-        self.live_transcript.append(f"[{hours:02d}:{minutes:02d}:{seconds:02d}] {text}")
-        scrollbar = self.live_transcript.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        try:
+            end_ms = int(segment.get("end_ms", start_ms))
+        except (TypeError, ValueError):
+            end_ms = start_ms
+        self.live_transcript.append_segment(
+            max(0, start_ms) / 1000.0, max(0, end_ms) / 1000.0, text)
 
     def on_stage_started(self, stage):
         self.stage_lbl.setText(f"Running: {stage}")
