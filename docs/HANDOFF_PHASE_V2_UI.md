@@ -45,11 +45,11 @@ Plan doc: `docs/PLAN_PHASE_2_UI.md` (`e9d4a6d`). Decisions: `docs/DECISIONS.md` 
 
 ## Follow-ups for later phases
 
-1. **Packaging:** add `lecturepack/ui/themes/*.qss` to the PyInstaller spec
-   `datas` (Phase 5) — `theme.load_qss` degrades gracefully (logs, returns
-   "") if the file is missing, so nothing crashes.
-2. Consider making the dark theme the default for new installs (one-line
-   config change; needs explicit approval).
+1. ~~**Packaging:** add `lecturepack/ui/themes/*.qss` to the PyInstaller spec~~
+   **DONE** (finalization commit: `datas` glob + new widget modules in
+   `hiddenimports`).
+2. ~~Dark theme as default~~ **DONE** — `dark_theme: True` in
+   `ConfigManager.DEFAULT_SETTINGS` (approved post-acceptance).
 3. Manual visual pass on a real machine: check glyph rendering (◆ ⇩ ◔ ◍ □ ▣),
    focus-mode geometry on multi-monitor DPI scales, and sync smoothness on a
    long (2 h+) lecture.

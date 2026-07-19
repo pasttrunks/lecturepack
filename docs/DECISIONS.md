@@ -45,6 +45,9 @@ without touching the pipeline, services, or persistence.
   rapid-navigation guard.
 - The dark theme remains **opt-in** (`dark_theme` config default unchanged);
   flipping the default was outside the approved phase file list.
+  *(Addendum 2026-07-19: the user approved the flip after acceptance —
+  `dark_theme` now defaults to `True`, and `LecturePack.spec` ships the QSS
+  in `datas` plus the new widget modules in `hiddenimports`.)*
 
 **Alternatives considered:**
 - QSS generated in Python from constants (single source of truth): rejected
