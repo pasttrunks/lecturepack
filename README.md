@@ -7,7 +7,6 @@ Turn a lecture recording into a synchronized, editable study workspace — compl
 ![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-![LecturePack Hero](assets/hero.png)
 
 ---
 
