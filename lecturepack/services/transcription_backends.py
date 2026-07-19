@@ -42,6 +42,9 @@ class BackendCapabilities:
     supports_resume: bool
     accepted_audio_formats: tuple[str, ...] = ("wav",)
     max_upload_bytes: Optional[int] = None
+    # True when the backend emits segment_ready dicts while transcribing.
+    # Live segments are ephemeral view data; canonical output is unchanged.
+    supports_live_segments: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         payload = asdict(self)
@@ -103,6 +106,9 @@ class TranscriptionBackend(QObject):
     progress = Signal(str)
     backend_detected = Signal(str)
     finished = Signal(object)  # TranscriptionResult
+    # Optional live segment dicts: {"start_ms", "end_ms", "text", "seq"}.
+    # Only emitted when capabilities().supports_live_segments is True.
+    segment_ready = Signal(object)
 
     def capabilities(self) -> BackendCapabilities:  # pragma: no cover - interface
         raise NotImplementedError
@@ -137,6 +143,11 @@ class LocalWhisperCppBackend(TranscriptionBackend):
         wrapper.progress.connect(self.progress.emit)
         wrapper.backend_detected.connect(self._on_backend_detected)
         wrapper.finished.connect(self._on_finished)
+        # Guarded: test doubles and future wrappers without live streaming
+        # must not break the adapter contract.
+        segment_signal = getattr(wrapper, "segment_ready", None)
+        if segment_signal is not None:
+            segment_signal.connect(self.segment_ready.emit)
 
     def capabilities(self) -> BackendCapabilities:
         return BackendCapabilities(
@@ -152,6 +163,7 @@ class LocalWhisperCppBackend(TranscriptionBackend):
             supports_vad=True,
             supports_resume=False,
             accepted_audio_formats=("wav",),
+            supports_live_segments=True,
         )
 
     def start(self, request: TranscriptionRequest) -> None:
@@ -371,7 +383,9 @@ class GroqTranscriptionBackend(TranscriptionBackend):
             supports_word_timestamps=True, supports_prompt=False,
             supports_vad=False, supports_resume=True,
             accepted_audio_formats=("flac",),
-            max_upload_bytes=DEFAULT_MAX_UPLOAD_BYTES)
+            max_upload_bytes=DEFAULT_MAX_UPLOAD_BYTES,
+            # Online chunks are merged and published only at completion.
+            supports_live_segments=False)
 
     def start(self, request: TranscriptionRequest) -> None:
         if self.worker is not None and self.worker.isRunning():

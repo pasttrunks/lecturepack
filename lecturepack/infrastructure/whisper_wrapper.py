@@ -1,13 +1,94 @@
 import os
+import re
 import sys
 from PySide6.QtCore import QProcess, QObject, Signal
 from lecturepack.infrastructure.process_tree import terminate_qprocess_tree
+
+# whisper.cpp prints each decoded segment to stdout in real time:
+#   [00:00:12.340 --> 00:00:18.720]   And so the theorem follows...
+# These lines stream long before the final raw.json/srt/txt files exist, so
+# they are the source for the live (ephemeral, display-only) transcript view.
+_SEGMENT_LINE_RE = re.compile(
+    r"^\[(\d{2}:\d{2}:\d{2}\.\d{3}) --> (\d{2}:\d{2}:\d{2}\.\d{3})\]\s*(.*\S)\s*$")
+
+
+def _segment_timestamp_to_ms(timestamp):
+    """Convert a whisper.cpp 'HH:MM:SS.mmm' timestamp to milliseconds."""
+    hours, minutes, rest = timestamp.split(":")
+    seconds, millis = rest.split(".")
+    return ((int(hours) * 60 + int(minutes)) * 60 + int(seconds)) * 1000 + int(millis)
+
+
+class LiveSegmentParser:
+    """Incremental parser for whisper.cpp stdout segment lines.
+
+    Bytes are buffered across reads so multi-byte UTF-8 characters split
+    between chunks decode correctly, and both '\\n' and '\\r' terminate a
+    line because whisper's stderr progress updates (merged into the same
+    channel) use carriage returns without newlines. Only complete whisper
+    segment lines produce dicts; everything else (progress, VAD, timings)
+    is ignored. Pure Python, no Qt, so it is unit-testable in isolation.
+    """
+
+    def __init__(self):
+        self._buffer = b""
+        self.seq = 0
+
+    def reset(self):
+        self._buffer = b""
+        self.seq = 0
+
+    def feed(self, data):
+        """Consume raw stdout bytes; return any newly complete segments."""
+        self._buffer += data
+        # The text after the last line terminator may still grow; only parse
+        # up to the last terminator seen.
+        last = max(self._buffer.rfind(b"\n"), self._buffer.rfind(b"\r"))
+        if last < 0:
+            # Bound memory for pathological no-newline output.
+            if len(self._buffer) > 65536:
+                self._buffer = self._buffer[-4096:]
+            return []
+        complete = self._buffer[:last]
+        self._buffer = self._buffer[last + 1:]
+        segments = []
+        for raw_line in complete.replace(b"\r", b"\n").split(b"\n"):
+            segment = self._parse_line(raw_line)
+            if segment is not None:
+                segments.append(segment)
+        return segments
+
+    def flush(self):
+        """Parse any trailing unterminated line at end of process output."""
+        remainder = self._buffer
+        self._buffer = b""
+        segment = self._parse_line(remainder)
+        return [segment] if segment is not None else []
+
+    def _parse_line(self, raw_line):
+        line = raw_line.decode("utf-8", errors="replace").strip()
+        if not line:
+            return None
+        match = _SEGMENT_LINE_RE.match(line)
+        if not match:
+            return None
+        self.seq += 1
+        return {
+            "start_ms": _segment_timestamp_to_ms(match.group(1)),
+            "end_ms": _segment_timestamp_to_ms(match.group(2)),
+            "text": match.group(3).strip(),
+            "seq": self.seq,
+        }
+
 
 class WhisperWrapper(QObject):
     # Signals for asynchronous transcription
     progress = Signal(str)
     finished = Signal(bool, str) # success, error_message
     backend_detected = Signal(str)  # actual loaded backend, e.g. "Vulkan (Vulkan0)" or "CPU"
+    # Live segment dicts parsed from stdout: {"start_ms", "end_ms", "text", "seq"}.
+    # Ephemeral display data only; canonical transcripts still come from raw.json.
+    segment_ready = Signal(dict)
 
     def __init__(self, whisper_exe_path=""):
         super().__init__()
@@ -16,6 +97,7 @@ class WhisperWrapper(QObject):
         self.detected_backend = ""
         self._backend_probe_buffer = ""
         self.last_cancel_report = None
+        self._segment_parser = LiveSegmentParser()
 
     def get_supported_flags(self):
         """Supported CLI options for the CURRENT executable. Uses the async
@@ -61,6 +143,7 @@ class WhisperWrapper(QObject):
             self.whisper_exe_path = engine_exe
         self.detected_backend = ""
         self._backend_probe_buffer = ""
+        self._segment_parser.reset()
         if not self.whisper_exe_path:
             self.finished.emit(False, "Whisper executable path is not set.")
             return
@@ -166,7 +249,10 @@ class WhisperWrapper(QObject):
             self.last_cancel_report = terminate_qprocess_tree(self.process)
 
     def _handle_ready_read(self):
-        data = self.process.readAllStandardOutput().data().decode('utf-8', errors='ignore')
+        raw = bytes(self.process.readAllStandardOutput().data())
+        for segment in self._segment_parser.feed(raw):
+            self.segment_ready.emit(segment)
+        data = raw.decode('utf-8', errors='ignore')
         self._probe_backend(data)
         self.progress.emit(data)
 
@@ -194,6 +280,9 @@ class WhisperWrapper(QObject):
             self._backend_probe_buffer = self._backend_probe_buffer[-5000:]
 
     def _handle_finished(self, exit_code, exit_status):
+        # Emit a trailing segment line that ended without a newline.
+        for segment in self._segment_parser.flush():
+            self.segment_ready.emit(segment)
         if exit_status == QProcess.ExitStatus.NormalExit and exit_code == 0:
             self.finished.emit(True, "")
         else:

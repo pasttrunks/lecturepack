@@ -421,3 +421,24 @@ auto-downloaded. Backend is CPU-only in this build.
   runtime-proven backend that ultimately completed. Local fallback writes to a
   pending prefix and promotes all three canonical artifacts only on success,
   preserving a previously valid transcript if fallback also fails.
+
+## v1.3 live transcript streaming
+
+- `infrastructure/whisper_wrapper.py` — `LiveSegmentParser` (pure Python)
+  incrementally parses whisper.cpp stdout segment lines
+  (`[HH:MM:SS.mmm --> HH:MM:SS.mmm] text`) from a byte buffer split on `\n`
+  and `\r`; `WhisperWrapper.segment_ready` emits one dict per segment while
+  the process runs. Argument building, backend probing, and cancellation are
+  unchanged.
+- `services/transcription_backends.py` — `TranscriptionBackend.segment_ready`
+  is the optional provider-neutral live signal;
+  `BackendCapabilities.supports_live_segments` advertises it (local: True,
+  online: False — chunks merge at completion).
+- `controllers/job_controller.py` — relays live segments as
+  `transcript_segment`; coalesces transcribe-stage log chunks and flushes
+  them on a 200 ms `QTimer` so the GUI event loop is no longer saturated by
+  per-chunk log-widget relayouts. Live segments are ephemeral view data and
+  are never written to any persistence layer; the canonical transcript is
+  still derived from `raw.json` at stage completion.
+- `ui/pages/process_page.py` — read-only "Live transcript" pane fed by
+  `transcript_segment`; `ui/main_window.py` wires the signal.

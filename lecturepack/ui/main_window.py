@@ -804,6 +804,7 @@ class MainWindow(QMainWindow):
         c.stage_started.connect(self._on_stage_started)
         c.stage_progress.connect(self._on_stage_progress)
         c.stage_log.connect(self.process_page.on_stage_log)
+        c.transcript_segment.connect(self.process_page.on_transcript_segment)
         c.stage_finished.connect(self._on_stage_finished)
         c.stage_cached.connect(self.process_page.mark_stage_cached)
         c.pipeline_completed.connect(self._on_pipeline_completed)
