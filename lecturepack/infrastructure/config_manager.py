@@ -37,7 +37,9 @@ class ConfigManager:
         "groq_concurrency": 2,
         "groq_max_upload_bytes": 23 * 1024 * 1024,
         "online_fallback_local": True,
-        "dark_theme": False,
+        # Phase 2 (AD-17): the glassmorphic dark theme is the default
+        # first-launch experience; users can switch to light in Settings.
+        "dark_theme": True,
         "ollama": {},
     }
 

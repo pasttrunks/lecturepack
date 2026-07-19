@@ -1,15 +1,39 @@
-"""Study workspace: a deterministic landing page for completed lectures."""
+"""Study workspace: the Phase 2 spatial reading room.
+
+Layout: a ``QSplitter`` with the accepted-slide timeline (existing
+``SlideGridWidget``) on the left and the working transcript on the right,
+rendered as lazily-materialized ``TranscriptBlockWidget`` cards. The v1.2
+overview (summary, key terms, topics, bookmarks, quick actions) lives in a
+collapsible card above the transcript; every v1.2 public attribute, object
+name and signal is preserved.
+
+Bidirectional sync: clicking a slide smooth-scrolls the transcript to the
+containing segment; scrolling the transcript (debounced inside
+``TranscriptStreamView``) selects the nearest slide. Feedback loops are
+prevented by two guards: ``_sync_guard`` while the transcript drives the
+slide grid, and ``_programmatic_scroll`` while the smooth-scroll animation
+runs after a slide-driven seek.
+"""
 from __future__ import annotations
+
+import os
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
-    QScrollArea, QSplitter, QVBoxLayout, QWidget,
+    QSplitter, QToolButton, QVBoxLayout, QWidget,
 )
 
-from lecturepack.services import study_service
-from lecturepack.services.transcript_formats import fmt_clock
 from lecturepack.constants import STAGE_REVIEW_READY
+from lecturepack.infrastructure.file_manager import FileManager
+from lecturepack.services import study_service
+from lecturepack.services import transcript_store as store
+from lecturepack.services.transcript_formats import fmt_clock
+from lecturepack.ui import theme
+from lecturepack.ui.widgets.slide_grid import CAND_ROLE, SlideGridWidget
+from lecturepack.ui.widgets.transcript_block import (
+    TranscriptStreamView, find_segment_index, find_slide_index,
+)
 
 
 class StudyPage(QWidget):
@@ -21,8 +45,15 @@ class StudyPage(QWidget):
         super().__init__(parent)
         self.job = None
         self.overview = None
+        self._candidates = []
+        self._segments = []
+        self._sync_guard = False
+        self._programmatic_scroll = False
         self._build_ui()
 
+    # ------------------------------------------------------------------ #
+    # layout
+    # ------------------------------------------------------------------ #
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 10, 12, 10)
@@ -51,61 +82,73 @@ class StudyPage(QWidget):
         self.content = QSplitter(Qt.Orientation.Horizontal)
         self.content.setObjectName("studySplitter")
 
-        # Topics
-        topics = QWidget()
-        topics_layout = QVBoxLayout(topics)
-        topics_layout.setContentsMargins(0, 0, 0, 0)
-        topics_title = QLabel("Topics")
-        topics_title.setProperty("h2", True)
-        topics_layout.addWidget(topics_title)
-        self.topics_list = QListWidget()
-        self.topics_list.setObjectName("studyTopicsList")
-        self.topics_list.itemActivated.connect(self._open_topic)
-        topics_layout.addWidget(self.topics_list, 1)
-        self.content.addWidget(topics)
+        # ---- left: slide timeline ------------------------------------- #
+        slides_panel = QWidget()
+        slides_layout = QVBoxLayout(slides_panel)
+        slides_layout.setContentsMargins(0, 0, 0, 0)
+        slides_title = QLabel("Slides")
+        slides_title.setProperty("h2", True)
+        slides_layout.addWidget(slides_title)
+        self.slides_grid = SlideGridWidget()
+        self.slides_grid.setObjectName("studySlidesGrid")
+        slides_layout.addWidget(self.slides_grid, 1)
+        self.content.addWidget(slides_panel)
 
-        # Overview
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        center = QWidget()
-        center_layout = QVBoxLayout(center)
-        center_layout.setContentsMargins(8, 0, 8, 0)
+        # ---- right: overview card + transcript ------------------------- #
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(8, 0, 0, 0)
+        right_layout.setSpacing(8)
+
+        self.overview_card = QFrame()
+        self.overview_card.setProperty("card", True)
+        self.overview_card.setObjectName("studyOverviewCard")
+        card_layout = QVBoxLayout(self.overview_card)
+        self.overview_toggle = QToolButton()
+        self.overview_toggle.setObjectName("studyOverviewToggle")
+        self.overview_toggle.setText("Overview")
+        self.overview_toggle.setCheckable(True)
+        self.overview_toggle.setChecked(True)
+        self.overview_toggle.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.overview_toggle.setArrowType(Qt.ArrowType.DownArrow)
+        self.overview_toggle.toggled.connect(self._on_overview_toggled)
+        card_layout.addWidget(self.overview_toggle)
+
+        self.overview_body = QWidget()
+        body = QVBoxLayout(self.overview_body)
+        body.setContentsMargins(0, 0, 0, 0)
+
         self.meta_lbl = QLabel()
         self.meta_lbl.setObjectName("studyMetadata")
         self.meta_lbl.setWordWrap(True)
-        center_layout.addWidget(self.meta_lbl)
+        self.meta_lbl.setProperty("muted", True)
+        body.addWidget(self.meta_lbl)
 
-        summary_card = QFrame()
-        summary_card.setFrameShape(QFrame.Shape.StyledPanel)
-        summary_layout = QVBoxLayout(summary_card)
         summary_title = QLabel("Lecture overview")
         summary_title.setProperty("h2", True)
-        summary_layout.addWidget(summary_title)
+        body.addWidget(summary_title)
         self.summary_lbl = QLabel()
         self.summary_lbl.setObjectName("studySummary")
         self.summary_lbl.setWordWrap(True)
-        self.summary_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        summary_layout.addWidget(self.summary_lbl)
+        self.summary_lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        body.addWidget(self.summary_lbl)
         self.summary_source_lbl = QLabel()
         self.summary_source_lbl.setProperty("muted", True)
-        summary_layout.addWidget(self.summary_source_lbl)
-        center_layout.addWidget(summary_card)
+        body.addWidget(self.summary_source_lbl)
 
-        terms_card = QFrame()
-        terms_card.setFrameShape(QFrame.Shape.StyledPanel)
-        terms_layout = QVBoxLayout(terms_card)
         terms_title = QLabel("Key terms")
         terms_title.setProperty("h2", True)
-        terms_layout.addWidget(terms_title)
+        body.addWidget(terms_title)
         self.terms_lbl = QLabel()
         self.terms_lbl.setObjectName("studyKeyTerms")
         self.terms_lbl.setWordWrap(True)
-        terms_layout.addWidget(self.terms_lbl)
-        center_layout.addWidget(terms_card)
+        body.addWidget(self.terms_lbl)
 
         actions_title = QLabel("Continue studying")
         actions_title.setProperty("h2", True)
-        center_layout.addWidget(actions_title)
+        body.addWidget(actions_title)
         actions = QHBoxLayout()
         for text, target, object_name in (
             ("Read transcript", "transcript", "studyReadTranscript"),
@@ -119,40 +162,73 @@ class StudyPage(QWidget):
                 lambda checked=False, destination=target:
                 self.navigate_requested.emit(destination))
             actions.addWidget(button)
-        center_layout.addLayout(actions)
-        center_layout.addStretch(1)
-        scroll.setWidget(center)
-        self.content.addWidget(scroll)
+        actions.addStretch(1)
+        body.addLayout(actions)
 
-        # Bookmarks
-        bookmarks = QWidget()
-        bookmarks_layout = QVBoxLayout(bookmarks)
-        bookmarks_layout.setContentsMargins(0, 0, 0, 0)
-        bookmarks_title = QLabel("Bookmarks & notes")
-        bookmarks_title.setProperty("h2", True)
-        bookmarks_layout.addWidget(bookmarks_title)
-        self.slides_bookmarks_lbl = QLabel("Slides")
+        nav_row = QHBoxLayout()
+        topics_col = QVBoxLayout()
+        topics_title = QLabel("Topics")
+        topics_title.setProperty("h2", True)
+        topics_col.addWidget(topics_title)
+        self.topics_list = QListWidget()
+        self.topics_list.setObjectName("studyTopicsList")
+        self.topics_list.setMaximumHeight(130)
+        self.topics_list.itemActivated.connect(self._open_topic)
+        topics_col.addWidget(self.topics_list)
+        nav_row.addLayout(topics_col, 1)
+
+        bookmarks_col = QVBoxLayout()
+        self.slides_bookmarks_lbl = QLabel("Slide bookmarks")
         self.slides_bookmarks_lbl.setProperty("muted", True)
-        bookmarks_layout.addWidget(self.slides_bookmarks_lbl)
+        bookmarks_col.addWidget(self.slides_bookmarks_lbl)
         self.slide_bookmarks = QListWidget()
         self.slide_bookmarks.setObjectName("studySlideBookmarks")
+        self.slide_bookmarks.setMaximumHeight(60)
         self.slide_bookmarks.itemActivated.connect(self._open_bookmark)
-        bookmarks_layout.addWidget(self.slide_bookmarks, 1)
-        self.section_bookmarks_lbl = QLabel("Sections")
+        bookmarks_col.addWidget(self.slide_bookmarks)
+        self.section_bookmarks_lbl = QLabel("Section bookmarks")
         self.section_bookmarks_lbl.setProperty("muted", True)
-        bookmarks_layout.addWidget(self.section_bookmarks_lbl)
+        bookmarks_col.addWidget(self.section_bookmarks_lbl)
         self.section_bookmarks = QListWidget()
         self.section_bookmarks.setObjectName("studySectionBookmarks")
+        self.section_bookmarks.setMaximumHeight(60)
         self.section_bookmarks.itemActivated.connect(self._open_bookmark)
-        bookmarks_layout.addWidget(self.section_bookmarks, 1)
-        self.content.addWidget(bookmarks)
+        bookmarks_col.addWidget(self.section_bookmarks)
+        nav_row.addLayout(bookmarks_col, 1)
+        body.addLayout(nav_row)
+
+        card_layout.addWidget(self.overview_body)
+        theme.add_card_shadow(self.overview_card)
+        right_layout.addWidget(self.overview_card)
+
+        transcript_title = QLabel("Transcript")
+        transcript_title.setProperty("h2", True)
+        right_layout.addWidget(transcript_title)
+        self.transcript_view = TranscriptStreamView()
+        right_layout.addWidget(self.transcript_view, 1)
+        self.content.addWidget(right)
 
         self.content.setStretchFactor(0, 2)
-        self.content.setStretchFactor(1, 5)
-        self.content.setStretchFactor(2, 3)
+        self.content.setStretchFactor(1, 3)
         root.addWidget(self.content, 1)
+
+        # ---- bidirectional sync wiring ---------------------------------- #
+        self.slides_grid.currentItemChanged.connect(
+            self._on_slide_current_changed)
+        self.transcript_view.viewed_index_changed.connect(
+            self._on_transcript_viewed)
+        self.transcript_view.block_activated.connect(self._select_slide_near)
+
         self._set_empty(True)
 
+    def _on_overview_toggled(self, checked: bool):
+        self.overview_body.setVisible(checked)
+        self.overview_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+
+    # ------------------------------------------------------------------ #
+    # state
+    # ------------------------------------------------------------------ #
     def _set_empty(self, empty: bool):
         self.empty_lbl.setVisible(empty)
         self.content.setVisible(not empty)
@@ -162,10 +238,29 @@ class StudyPage(QWidget):
         self.job = job
         self.refresh()
 
+    def _clear_workspace(self):
+        self._candidates = []
+        self._segments = []
+        self.slides_grid.shutdown()
+        self.slides_grid.clear()
+        self.transcript_view.clear()
+
+    def _load_workspace(self):
+        """Populate slides + transcript blocks for the spatial workspace."""
+        candidates_path = os.path.join(self.job.paths["root"], "candidates.json")
+        candidates = FileManager.read_json_safe(candidates_path, []) or []
+        accepted = [c for c in candidates if c.get("decision") != "rejected"]
+        accepted.sort(key=lambda c: float(c.get("timestamp_seconds", 0.0)))
+        self._candidates = accepted
+        self.slides_grid.load_candidates(accepted, self.job.paths)
+        self._segments = store.load_working(self.job.paths) or []
+        self.transcript_view.set_segments(self._segments)
+
     def refresh(self):
         if self.job is None:
             self.overview = None
             self.title_lbl.setText("Study")
+            self._clear_workspace()
             self._set_empty(True)
             return
         if self.job.get_stage_status(STAGE_REVIEW_READY) != "completed":
@@ -173,6 +268,7 @@ class StudyPage(QWidget):
             self.title_lbl.setText(self.job.manifest.get("title", "Study"))
             self.empty_lbl.setText(
                 "The Study workspace will be ready when lecture processing completes.")
+            self._clear_workspace()
             self._set_empty(True)
             return
         self.empty_lbl.setText(
@@ -180,6 +276,7 @@ class StudyPage(QWidget):
         self.overview = study_service.build_overview(self.job)
         overview = self.overview
         self._set_empty(False)
+        self._load_workspace()
         self.title_lbl.setText(overview["title"])
         duration = fmt_clock(overview["duration_seconds"])
         self.meta_lbl.setText(
@@ -249,6 +346,51 @@ class StudyPage(QWidget):
         else:
             self.resume_btn.setText("Resume where I left off")
 
+    # ------------------------------------------------------------------ #
+    # bidirectional slide <-> transcript sync
+    # ------------------------------------------------------------------ #
+    def _on_slide_current_changed(self, current, _previous):
+        if self._sync_guard or current is None:
+            return
+        candidate = current.data(CAND_ROLE)
+        if isinstance(candidate, dict):
+            self._seek_transcript(float(candidate.get("timestamp_seconds", 0.0)))
+
+    def _on_transcript_viewed(self, index: int):
+        if self._programmatic_scroll:
+            return
+        segment = self.transcript_view.segment_at(index)
+        if segment:
+            self._select_slide_near(float(segment.get("start", 0.0)))
+
+    def _select_slide_near(self, timestamp: float):
+        index = find_slide_index(self._candidates, timestamp)
+        if index < 0 or index == self.slides_grid.currentRow():
+            return
+        self._sync_guard = True
+        try:
+            self.slides_grid.setCurrentRow(index)
+        finally:
+            self._sync_guard = False
+
+    def _seek_transcript(self, timestamp: float):
+        index = find_segment_index(self._segments, timestamp)
+        if index < 0:
+            return
+        self._programmatic_scroll = True
+        self.transcript_view.select_index(index)
+        animation = self.transcript_view.scroll_to_index(index, smooth=True)
+        if animation is not None:
+            animation.finished.connect(self._release_programmatic_scroll)
+        else:
+            self._programmatic_scroll = False
+
+    def _release_programmatic_scroll(self):
+        self._programmatic_scroll = False
+
+    # ------------------------------------------------------------------ #
+    # v1.2 navigation behavior (unchanged)
+    # ------------------------------------------------------------------ #
     def _open_topic(self, item: QListWidgetItem):
         value = item.data(Qt.ItemDataRole.UserRole)
         if value is not None:

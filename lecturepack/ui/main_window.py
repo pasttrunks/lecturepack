@@ -31,7 +31,7 @@ from PySide6.QtCore import QElapsedTimer, QRectF, QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QListWidget,
-    QMainWindow, QMessageBox, QProgressBar, QPushButton, QStackedWidget,
+    QMainWindow, QMessageBox, QProgressBar, QPushButton, QSizeGrip,
     QToolButton, QVBoxLayout, QWidget, QTableWidgetItem, QLineEdit, QTextEdit,
 )
 
@@ -50,6 +50,8 @@ from lecturepack.ui.pages.review_page import ReviewPage
 from lecturepack.ui.pages.study_page import StudyPage
 from lecturepack.ui.pages.transcript_page import TranscriptPage
 from lecturepack.ui.pages.settings_page import SettingsPage
+from lecturepack.ui.widgets.animated_stacked import AnimatedStackedWidget
+from lecturepack.ui.widgets.title_bar import TitleBarWidget
 
 PAGES = ["Home", "Process", "Review", "Transcript", "Exports", "Settings", "Study"]
 PAGE_ICONS = ["⌂", "▶", "▦", "¶", "⇩", "⚙", "◇"]
@@ -137,6 +139,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"LecturePack v{__version__}")
         self.resize(1360, 860)
         self.setAcceptDrops(True)
+        # Phase 2: frameless premium shell with a custom title bar.
+        self.setWindowFlags(Qt.WindowType.Window
+                            | Qt.WindowType.FramelessWindowHint)
 
         theme.apply_theme(
             __import__("PySide6.QtWidgets", fromlist=["QApplication"]).QApplication.instance(),
@@ -162,9 +167,17 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        # ---- custom frameless title bar (Phase 2) ------------------------- #
+        self.title_bar = TitleBarWidget(title=self.windowTitle())
+        self.title_bar.minimize_clicked.connect(self.showMinimized)
+        self.title_bar.toggle_maximize_clicked.connect(self._toggle_maximize)
+        self.title_bar.close_clicked.connect(self.close)
+        root.addWidget(self.title_bar)
+
         # ---- command bar -------------------------------------------------- #
         bar = QWidget()
         bar.setObjectName("CommandBar")
+        self._command_bar = bar
         bl = QHBoxLayout(bar)
         bl.setContentsMargins(12, 6, 12, 6)
         self.job_title_lbl = QLabel("No job")
@@ -181,6 +194,10 @@ class MainWindow(QMainWindow):
         self.bar_status_lbl = QLabel("")
         self.bar_status_lbl.setProperty("muted", True)
         bl.addWidget(self.bar_status_lbl)
+        self.focus_toggle_btn = QPushButton("◧ Focus")
+        self.focus_toggle_btn.setObjectName("focusToggleBtn")
+        self.focus_toggle_btn.setToolTip("Toggle Focus Mode (Ctrl+Shift+F)")
+        bl.addWidget(self.focus_toggle_btn)
         self.save_btn = QPushButton("Save")
         self.save_btn.clicked.connect(self._on_save_action)
         bl.addWidget(self.save_btn)
@@ -198,6 +215,7 @@ class MainWindow(QMainWindow):
 
         rail = QWidget()
         rail.setObjectName("NavRail")
+        self._nav_rail = rail
         rail.setFixedWidth(76)
         rl = QVBoxLayout(rail)
         rl.setContentsMargins(6, 10, 6, 10)
@@ -218,7 +236,7 @@ class MainWindow(QMainWindow):
         rl.addStretch(1)
         hb.addWidget(rail)
 
-        self.stack = QStackedWidget()
+        self.stack = AnimatedStackedWidget()
         self.home_page = HomePage(self.config_manager)
         self.process_page = ProcessPage(self.config_manager)
         self.review_page = ReviewPage(self.config_manager)
@@ -251,9 +269,16 @@ class MainWindow(QMainWindow):
             sb.addWidget(w)
         sb.addPermanentWidget(self.sb_warn)
         sb.addPermanentWidget(self.sb_engine)
+        sb.addPermanentWidget(QSizeGrip(self))  # resize handle for frameless
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
+
+        # ---- focus mode (Phase 2) ---------------------------------------- #
+        from lecturepack.ui.widgets.focus_mode import FocusModeController
+        self.focus_mode = FocusModeController(
+            self, [self._nav_rail, self._command_bar, sb])
+        self.focus_toggle_btn.clicked.connect(self.focus_mode.toggle)
 
         # ---- page wiring --------------------------------------------------- #
         self.home_page.video_chosen.connect(self._on_video_selected_from_ui)
@@ -408,6 +433,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
     # navigation & persistence
     # ------------------------------------------------------------------ #
+    def _toggle_maximize(self):
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+        self.title_bar.set_maximized(self.isMaximized())
+
     def navigate_to(self, index):
         self.stack.setCurrentIndex(index)
 
@@ -943,6 +975,12 @@ class MainWindow(QMainWindow):
         self.shortcut_f3 = sc("F3", self._search_next)
         self.shortcut_shift_f3 = sc("Shift+F3", self._search_prev)
         self.shortcut_select_all = sc("Ctrl+A", self._on_select_all)
+        self.shortcut_focus = sc("Ctrl+Shift+F", self.focus_mode.toggle)
+        self.shortcut_escape = sc("Esc", self._on_escape)
+
+    def _on_escape(self):
+        if self.focus_mode.is_active():
+            self.focus_mode.exit()
 
     def _on_delete_shortcut(self):
         if self.stack.currentIndex() == PAGE_REVIEW:
@@ -1115,6 +1153,7 @@ class MainWindow(QMainWindow):
         self.whisper_detector.cancel()
         self.transcript_page.shutdown()
         self.review_page.slides_view.shutdown()
+        self.study_page.slides_grid.shutdown()
         self._persist_ui_state()
         super().closeEvent(event)
 

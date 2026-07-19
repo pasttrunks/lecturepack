@@ -27,6 +27,26 @@ WARNING = "#d97706"
 SELECTION_OUTLINE_WIDTH = 3   # px, >= 2 required
 CHECKMARK_DIAMETER = 22
 
+# ------------------------------------------------------------------ #
+# Phase 2 "Premium Glassmorphic Dark" palette (Catppuccin Mocha).    #
+# Literal hex values, mirrored by ui/themes/dark_theme.qss (QSS has  #
+# no CSS variables). Widget code should use THESE constants so the   #
+# QSS file and Python never drift apart.                             #
+# ------------------------------------------------------------------ #
+MOCHA_BASE = "#1E1E2E"          # window background
+MOCHA_MANTLE = "#181825"        # rails, bars, sunken inputs
+MOCHA_SURFACE0 = "#313244"      # cards, blocks
+MOCHA_SURFACE1 = "#45475A"      # hover / strong borders
+MOCHA_TEXT = "#CDD6F4"
+MOCHA_SUBTEXT = "#A6ADC8"
+MOCHA_ACCENT = "#89B4FA"        # neon blue: selection, primary, focus
+MOCHA_ACCENT_HOVER = "#74A8F7"
+MOCHA_GREEN = "#A6E3A1"
+MOCHA_RED = "#F38BA8"
+MOCHA_YELLOW = "#F9E2AF"
+MOCHA_OVERLAY = "#6C7086"       # disabled text
+FONT_STACK = '"Segoe UI Variable Text", Inter, "Segoe UI", sans-serif'
+
 
 def selection_visuals(selected: bool, focused: bool, decision: str, dark: bool) -> dict:
     """Pure description of how a slide tile must be painted. Unit-testable
@@ -75,20 +95,20 @@ def _light_palette() -> QPalette:
 
 def _dark_palette() -> QPalette:
     p = QPalette()
-    p.setColor(QPalette.Window, QColor("#1e2126"))
-    p.setColor(QPalette.WindowText, QColor("#e6e9ee"))
-    p.setColor(QPalette.Base, QColor("#26292f"))
-    p.setColor(QPalette.AlternateBase, QColor("#2b2f36"))
-    p.setColor(QPalette.Text, QColor("#e6e9ee"))
-    p.setColor(QPalette.Button, QColor("#2b2f36"))
-    p.setColor(QPalette.ButtonText, QColor("#e6e9ee"))
-    p.setColor(QPalette.ToolTipBase, QColor("#2b2f36"))
-    p.setColor(QPalette.ToolTipText, QColor("#e6e9ee"))
-    p.setColor(QPalette.Highlight, QColor(ACCENT))
-    p.setColor(QPalette.HighlightedText, QColor("#ffffff"))
-    p.setColor(QPalette.PlaceholderText, QColor("#79808c"))
-    p.setColor(QPalette.Disabled, QPalette.Text, QColor("#6b727d"))
-    p.setColor(QPalette.Disabled, QPalette.ButtonText, QColor("#6b727d"))
+    p.setColor(QPalette.Window, QColor(MOCHA_BASE))
+    p.setColor(QPalette.WindowText, QColor(MOCHA_TEXT))
+    p.setColor(QPalette.Base, QColor(MOCHA_MANTLE))
+    p.setColor(QPalette.AlternateBase, QColor("#232334"))
+    p.setColor(QPalette.Text, QColor(MOCHA_TEXT))
+    p.setColor(QPalette.Button, QColor(MOCHA_SURFACE0))
+    p.setColor(QPalette.ButtonText, QColor(MOCHA_TEXT))
+    p.setColor(QPalette.ToolTipBase, QColor(MOCHA_SURFACE0))
+    p.setColor(QPalette.ToolTipText, QColor(MOCHA_TEXT))
+    p.setColor(QPalette.Highlight, QColor(MOCHA_ACCENT))
+    p.setColor(QPalette.HighlightedText, QColor(MOCHA_BASE))
+    p.setColor(QPalette.PlaceholderText, QColor(MOCHA_OVERLAY))
+    p.setColor(QPalette.Disabled, QPalette.Text, QColor(MOCHA_OVERLAY))
+    p.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(MOCHA_OVERLAY))
     return p
 
 
@@ -162,10 +182,49 @@ def _qss(dark: bool) -> str:
     """
 
 
+def load_qss(filename: str) -> str:
+    """Read a QSS file shipped next to this module under ``themes/``.
+
+    Returns an empty string (and logs a warning) when the file is missing so
+    a broken or unpackaged theme file never crashes startup.
+    """
+    import logging
+    import os
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "themes", filename)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        logging.getLogger(__name__).warning("Theme file not found: %s", path)
+        return ""
+
+
+def add_card_shadow(widget, blur: float = 24.0, y_offset: float = 3.0,
+                    alpha: int = 90):
+    """Attach a soft drop shadow so cards float above the dark background.
+
+    Returns the created ``QGraphicsDropShadowEffect`` (owned by ``widget``).
+    """
+    from PySide6.QtWidgets import QGraphicsDropShadowEffect
+    effect = QGraphicsDropShadowEffect(widget)
+    effect.setBlurRadius(blur)
+    effect.setXOffset(0.0)
+    effect.setYOffset(y_offset)
+    effect.setColor(QColor(0, 0, 0, alpha))
+    widget.setGraphicsEffect(effect)
+    return effect
+
+
 def apply_theme(app: QApplication, dark: bool = False) -> None:
     app.setStyle("Fusion")
     app.setPalette(_dark_palette() if dark else _light_palette())
-    app.setStyleSheet(_qss(dark))
+    qss = _qss(dark)
+    if dark:
+        # Appended last so the glassmorphic layer wins the cascade over the
+        # v1.1 structural rules above (equal specificity -> later rule wins).
+        qss = qss + "\n" + load_qss("dark_theme.qss")
+    app.setStyleSheet(qss)
     app.setProperty("lp_dark_theme", dark)
 
 

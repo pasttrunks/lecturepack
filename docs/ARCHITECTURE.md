@@ -442,3 +442,26 @@ auto-downloaded. Backend is CPU-only in this build.
   still derived from `raw.json` at stage completion.
 - `ui/pages/process_page.py` — read-only "Live transcript" pane fed by
   `transcript_segment`; `ui/main_window.py` wires the signal.
+
+## v1.4 glassmorphic dark UI overhaul (Phase 2)
+
+- `ui/themes/dark_theme.qss` — static Catppuccin-Mocha stylesheet (literal
+  hex; QSS has no variables), appended after the v1.1 structural QSS when the
+  dark theme is active. `ui/theme.py` owns the mirrored `MOCHA_*` constants,
+  the Mocha dark palette, `load_qss`, and `add_card_shadow`.
+- `ui/widgets/title_bar.py` — custom frameless title bar (drag, double-click
+  maximize, min/max/close); `ui/main_window.py` runs
+  `Qt.FramelessWindowHint` with a `QSizeGrip` in the status bar.
+- `ui/widgets/animated_stacked.py` — page stack with 180 ms slide+fade
+  transitions and a rapid-navigation guard.
+- `ui/widgets/transcript_block.py` — `TranscriptBlockWidget` cards +
+  `TranscriptStreamView` (lazy 120-block batches, capped live mode) and pure
+  `bisect` timestamp-matching helpers shared by both pages.
+- `ui/pages/study_page.py` — spatial workspace: accepted-slide grid left,
+  block transcript right, v1.2 overview in a collapsible card; bidirectional
+  sync with `_sync_guard` / `_programmatic_scroll` feedback protection.
+- `ui/pages/process_page.py` — dropzone hero with drag glow, animated-width
+  "Advanced Settings" drawer holding all engine/VAD/detection knobs, live
+  transcript rendered with the same block widgets.
+- `ui/widgets/focus_mode.py` — fades nav rail, command bar and status bar to
+  opacity 0 and hides them; floating "Exit Focus" button + `Esc`.

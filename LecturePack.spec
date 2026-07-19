@@ -17,6 +17,9 @@ a = Analysis(
     binaries=[],
     datas=[
         (os.path.join(spec_root, 'lecturepack', 'constants.py'), 'lecturepack'),
+        # Phase 2 theme files (loaded via __file__-relative path in ui/theme.py)
+        (os.path.join(spec_root, 'lecturepack', 'ui', 'themes', '*.qss'),
+         os.path.join('lecturepack', 'ui', 'themes')),
     ] + pyside6_datas,
     hiddenimports=[
         'lecturepack',
@@ -57,6 +60,10 @@ a = Analysis(
         'lecturepack.ui.widgets.crop_selector',
         'lecturepack.ui.widgets.slide_grid',
         'lecturepack.ui.widgets.context_repair_panel',
+        'lecturepack.ui.widgets.transcript_block',
+        'lecturepack.ui.widgets.title_bar',
+        'lecturepack.ui.widgets.animated_stacked',
+        'lecturepack.ui.widgets.focus_mode',
         'PySide6.QtWidgets',
         'PySide6.QtCore',
         'PySide6.QtGui',
