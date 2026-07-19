@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/HANDOFF_PHASE_V1_2_STUDY.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "v1.2 Study Workspace Handoff",
+  "summary": "Handoff for v1.2 study workspace phase.",
+  "scope": ["handoff", "v1.2", "study workspace"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

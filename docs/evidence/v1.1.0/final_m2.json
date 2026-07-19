@@ -1,0 +1,201 @@
+{
+  "video": "C:\\Users\\marsh\\Downloads\\Video\\m2-res_1080p.mp4",
+  "model": "C:\\Users\\marsh\\Documents\\LecturePack\\models\\ggml-base.en.bin",
+  "data_dir": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data",
+  "frozen": true,
+  "executable": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\LecturePack\\LecturePack.exe",
+  "approved_names": [
+    "Egypt",
+    "Tutankhamun",
+    "Abu Simbel",
+    "Giza",
+    "Khufu",
+    "Saqqara"
+  ],
+  "stage_times": {
+    "Inspect": 0.76,
+    "Extract Audio": 0.75,
+    "Detect Slides": 5.9,
+    "Transcribe": 8.1,
+    "Align": 0.38,
+    "Review Ready": 0.01
+  },
+  "errors": [],
+  "ok": true,
+  "binaries": {
+    "ffmpeg": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\LecturePack\\bin\\ffmpeg.exe",
+    "ffprobe": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\LecturePack\\bin\\ffprobe.exe",
+    "whisper_cli": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\LecturePack\\whisper-cli.exe",
+    "model": "C:\\Users\\marsh\\Documents\\LecturePack\\models\\ggml-base.en.bin",
+    "ffmpeg_ok": true,
+    "whisper_ok": true,
+    "model_ok": true
+  },
+  "product_mode": "study_pack",
+  "job_id": "c1d68359-c0e5-45a9-a6da-c0c5ab868ec5",
+  "job_path": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\c1d68359-c0e5-45a9-a6da-c0c5ab868ec5",
+  "pipeline_seconds": 10.01,
+  "pipeline_completed": true,
+  "stage_status": {
+    "Inspect": "completed",
+    "Extract Audio": "completed",
+    "Transcribe": "completed",
+    "Detect Slides": "completed",
+    "Align": "completed",
+    "Review Ready": "completed",
+    "Export": "pending"
+  },
+  "artifacts": {
+    "raw_json": [
+      true,
+      17096,
+      1784184593097017800
+    ],
+    "normalized_json": [
+      true,
+      1437,
+      1784184593185673400
+    ],
+    "context_candidates": [
+      true,
+      284,
+      1784184593186679300
+    ],
+    "audio_wav": [
+      true,
+      1344248,
+      1784184585087467800
+    ],
+    "candidates_json": [
+      true,
+      1365,
+      1784184591004033100
+    ]
+  },
+  "candidate_count": 2,
+  "context_repair": {
+    "approved_names": [
+      "Egypt",
+      "Tutankhamun",
+      "Abu Simbel",
+      "Giza",
+      "Khufu",
+      "Saqqara"
+    ],
+    "real_proposals": 0,
+    "mechanism_demo": true,
+    "total_proposals": 2,
+    "accepted_segment": 0,
+    "rejected_segment": 1,
+    "raw_hash": "de2918258209fd2363a00e4314b22bd8987105cd1d456ef56286436d38a66269",
+    "accepted_count": 1,
+    "rejected_count": 1,
+    "reversible": true
+  },
+  "exports": {
+    "slides.pdf": [
+      true,
+      4654365,
+      1784184593529404800
+    ],
+    "study-pack.html": [
+      true,
+      6217638,
+      1784184593577371800
+    ],
+    "transcript.txt": [
+      true,
+      324,
+      1784184593530400300
+    ],
+    "transcript.srt": [
+      true,
+      339,
+      1784184593530400300
+    ],
+    "transcript.json": [
+      true,
+      524,
+      1784184593531368900
+    ],
+    "transcript.md": [
+      true,
+      279,
+      1784184593532372300
+    ],
+    "transcript.jsonl": [
+      true,
+      377,
+      1784184593532372300
+    ],
+    "transcript.csv": [
+      true,
+      341,
+      1784184593533369800
+    ],
+    "transcript.vtt": [
+      true,
+      347,
+      1784184593533369800
+    ],
+    "transcript.normalized.txt": [
+      true,
+      230,
+      1784184593541399400
+    ],
+    "transcript.sections.md": [
+      true,
+      403,
+      1784184593534369500
+    ]
+  },
+  "exports_dir": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Clean Validate 1.1\\validation data\\jobs\\c1d68359-c0e5-45a9-a6da-c0c5ab868ec5\\exports",
+  "parse_checks": {
+    "json": {
+      "segments": 3,
+      "ordered": true
+    },
+    "jsonl": {
+      "rows": 3
+    },
+    "csv": {
+      "rows": 3
+    },
+    "transcript.srt": {
+      "has_arrows": true,
+      "chars": 327
+    },
+    "transcript.vtt": {
+      "has_arrows": true,
+      "chars": 334
+    }
+  },
+  "restore": {
+    "stage_status": {
+      "Inspect": "completed",
+      "Extract Audio": "completed",
+      "Transcribe": "completed",
+      "Detect Slides": "completed",
+      "Align": "completed",
+      "Review Ready": "completed",
+      "Export": "pending"
+    },
+    "edited_json_exists": false,
+    "corrections_json_exists": true,
+    "product_mode": "study_pack"
+  },
+  "reexport": {
+    "flipped_decision_at": 5.0,
+    "audio_unchanged": true,
+    "raw_unchanged": true,
+    "candidate_pngs_unchanged": true,
+    "export_status": "completed",
+    "no_rerun": true
+  },
+  "mode_expectations": {
+    "want_transcript": true,
+    "want_slides": true,
+    "transcript_txt_present": true,
+    "slides_pdf_present": true
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/PROJECT_HISTORY_AND_DECISIONS.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Project History and Decisions",
+  "summary": "Project history document with embedded technical decisions and rationale.",
+  "scope": ["project history", "decisions", "lessons learned"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": "Contains ADR-like decision entries but dominant genre is historical documentation."
+}

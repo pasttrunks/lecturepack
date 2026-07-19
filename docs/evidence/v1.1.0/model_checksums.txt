@@ -1,0 +1,10 @@
+Whisper model files (official ggerganov/whisper.cpp Hugging Face repo)
+Source URL pattern: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/<file>
+Downloaded: 2026-07-16 (small.en variants), pre-existing base.en verified.
+License: MIT (whisper.cpp conversions of OpenAI Whisper weights, MIT).
+NOT bundled in the portable ZIP by default; profiles resolve them from models/.
+
+SHA-256:
+a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002  ggml-base.en.bin      (141.1 MB, Fast profile)
+67a179f608ea6114bd3fdb9060e762b588a3fb3bd00c4387971be4d177958067  ggml-small.en-q8_0.bin (252.2 MB, Balanced profile)
+c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d  ggml-small.en.bin     (465.0 MB, Accurate profile)

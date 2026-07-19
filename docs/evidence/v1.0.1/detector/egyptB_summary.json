@@ -1,0 +1,21 @@
+{
+  "video": "C:\\Users\\marsh\\LecturePackData_validation\\egypt_excerpts\\egyptB_0500_0700.mp4",
+  "preset": "balanced",
+  "duration_sec": 120.0,
+  "candidate_count": 4,
+  "candidate_times_sec": [
+    1.5,
+    37.0,
+    46.5,
+    94.0
+  ],
+  "candidate_times_clock": [
+    "5:01",
+    "5:37",
+    "5:46",
+    "6:34"
+  ],
+  "dense_sheets": 1,
+  "sample_every": 4.0,
+  "offset": 300.0
+}

@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/RISK_REGISTER.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Lecture Pack -- Risk Register",
+  "summary": "Risk register documenting top technical assumptions and mitigations.",
+  "scope": ["risk management", "Vulkan stability", "slide detection", "performance", "packaging"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

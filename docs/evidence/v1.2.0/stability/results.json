@@ -1,0 +1,60 @@
+{
+  "phase": "stability and minor workflow bugs",
+  "starting_commit": "65c52eb",
+  "selection": {
+    "before": {
+      "current_row": 25,
+      "selected_rows": [0, 25],
+      "preview_text": "00:00:00.000 · frame 0"
+    },
+    "after": {
+      "current_row": 25,
+      "selected_rows": [0, 25],
+      "preview_text": "00:04:10.000 · frame 6250"
+    }
+  },
+  "close_latency_seconds": {
+    "worker_detach": 0.000038,
+    "context_repair_dialog": 0.012972,
+    "main_window": 0.004905
+  },
+  "process_cleanup": {
+    "strategy": "taskkill-pid-tree",
+    "helper_tree": {"root_pid": 9180, "finished": true, "taskkill_returncode": 0},
+    "ffmpeg_wrapper": {"root_pid": 18796, "child_pid": 2804, "finished": true, "taskkill_returncode": 0},
+    "whisper_wrapper": {"root_pid": 5544, "child_pid": 12356, "finished": true, "taskkill_returncode": 0},
+    "application_close": {"root_pid": 12012, "child_pid": 10748, "finished": true, "taskkill_returncode": 0},
+    "unrelated_control_survived": true
+  },
+  "settings_migration": {
+    "utf8_bom_loaded": true,
+    "legacy_backend_migrated_to_engine": "vulkan",
+    "missing_defaults_added": true,
+    "unknown_key_preserved": true,
+    "restart_persisted": true
+  },
+  "backend": {
+    "reported": "Vulkan (Vulkan0)",
+    "state_path": "stages.Transcribe.backend_used",
+    "persisted": true,
+    "reloaded_display": "loaded backend: Vulkan (Vulkan0)",
+    "capability_probe_does_not_overwrite_actual": true
+  },
+  "sorting_and_keyboard": {
+    "numeric_id_sort": true,
+    "chronological_timestamp_sort": true,
+    "arrow_navigation_updates_preview": true,
+    "existing_ctrl_shift_ctrl_a_delete_r_ctrl_z_matrix": true
+  },
+  "reexport": {
+    "protected_artifact_count": 13,
+    "sha256_size_mtime_ns_match": true,
+    "transcription_rerun": false,
+    "audio_extraction_rerun": false,
+    "slide_detection_rerun": false
+  },
+  "tests": {
+    "focused": {"passed": 55, "failed": 0, "seconds": 95.10},
+    "full": {"passed": 121, "failed": 0, "seconds": 150.53}
+  }
+}

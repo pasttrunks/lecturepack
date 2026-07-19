@@ -1,0 +1,49 @@
+{
+  "result": {
+    "name": "egypt_excerptB_calm_0500_0700",
+    "true_positives": 4,
+    "false_positives": 0,
+    "false_negatives": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "candidate_count": 4,
+    "meaningful_state_count": 4,
+    "mean_timestamp_error": 1.75,
+    "matched": [
+      {
+        "event": "b1_quote",
+        "candidate_sec": 1.5,
+        "error_sec": 1.5,
+        "label": "Archaeology quote slide (initial)"
+      },
+      {
+        "event": "b2_egyptology",
+        "candidate_sec": 37.0,
+        "error_sec": 2.0,
+        "label": "EGYPTOLOGY title slide"
+      },
+      {
+        "event": "b3_discipline",
+        "candidate_sec": 46.5,
+        "error_sec": 0.5,
+        "label": "Blue discipline definition slide"
+      },
+      {
+        "event": "b4_bullets",
+        "candidate_sec": 94.0,
+        "error_sec": 3.0,
+        "label": "Egypt and Archaeology bullet slide"
+      }
+    ],
+    "missed": [],
+    "spurious": [],
+    "distractor_hits": {}
+  },
+  "targets": {
+    "recall_ok": true,
+    "precision_ok": true,
+    "candidate_count_ok": true,
+    "no_missed_majors": true
+  }
+}

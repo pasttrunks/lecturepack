@@ -1,0 +1,199 @@
+{
+  "video": "C:\\Users\\marsh\\OneDrive\\Desktop\\UB\\CL100\\CL100 - Day 3 - Mesopotamia and Babylon.m4v\\CL100 - Day 3 - Mesopotamia and Babylon.m4v",
+  "model": "C:\\Users\\marsh\\Documents\\LecturePack\\models\\ggml-small.en-q8_0.bin",
+  "data_dir": "C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139",
+  "frozen": true,
+  "executable": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack V12 Baseline 20260716-173942\\LecturePack\\LecturePack.exe",
+  "approved_names": [
+    "Mesopotamia",
+    "Babylon",
+    "Nebuchadnezzar",
+    "Hammurabi",
+    "Sumer"
+  ],
+  "stage_times": {
+    "Inspect": 1.01,
+    "Extract Audio": 5.44,
+    "Detect Slides": 523.47,
+    "Transcribe": 605.41,
+    "Align": 7.39,
+    "Review Ready": 0.01
+  },
+  "errors": [],
+  "ok": true,
+  "binaries": {
+    "ffmpeg": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack V12 Baseline 20260716-173942\\LecturePack\\bin\\ffmpeg.exe",
+    "ffprobe": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack V12 Baseline 20260716-173942\\LecturePack\\bin\\ffprobe.exe",
+    "whisper_cli": "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack V12 Baseline 20260716-173942\\LecturePack\\whisper-cli.exe",
+    "model": "C:\\Users\\marsh\\Documents\\LecturePack\\models\\ggml-small.en-q8_0.bin",
+    "ffmpeg_ok": true,
+    "whisper_ok": true,
+    "model_ok": true
+  },
+  "product_mode": "study_pack",
+  "job_id": "dc72ed38-0977-4624-b00b-93779ed27692",
+  "job_path": "C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139\\jobs\\dc72ed38-0977-4624-b00b-93779ed27692",
+  "pipeline_seconds": 619.31,
+  "pipeline_completed": true,
+  "stage_status": {
+    "Inspect": "completed",
+    "Extract Audio": "completed",
+    "Transcribe": "completed",
+    "Detect Slides": "completed",
+    "Align": "completed",
+    "Review Ready": "completed",
+    "Export": "pending"
+  },
+  "artifacts": {
+    "raw_json": [
+      true,
+      3257783,
+      1784238721205905000
+    ],
+    "normalized_json": [
+      true,
+      236060,
+      1784238721467934500
+    ],
+    "context_candidates": [
+      true,
+      8547,
+      1784238721472906500
+    ],
+    "audio_wav": [
+      true,
+      143354506,
+      1784238116058645500
+    ],
+    "candidates_json": [
+      true,
+      122333,
+      1784238639554002100
+    ]
+  },
+  "candidate_count": 167,
+  "context_repair": {
+    "approved_names": [
+      "Mesopotamia",
+      "Babylon",
+      "Nebuchadnezzar",
+      "Hammurabi",
+      "Sumer"
+    ],
+    "real_proposals": 51,
+    "mechanism_demo": false,
+    "total_proposals": 51,
+    "accepted_segment": 10,
+    "rejected_segment": 12,
+    "raw_hash": "8271f589155c323cda86271669579986802095577f9eb4d19a2c9ba67b74a4bf",
+    "accepted_count": 1,
+    "rejected_count": 1,
+    "reversible": true
+  },
+  "exports": {
+    "slides.pdf": [
+      true,
+      125528026,
+      1784238725745757900
+    ],
+    "study-pack.html": [
+      true,
+      167768127,
+      1784238728856442600
+    ],
+    "transcript.txt": [
+      true,
+      72328,
+      1784238725761760100
+    ],
+    "transcript.srt": [
+      true,
+      76245,
+      1784238725769758900
+    ],
+    "transcript.json": [
+      true,
+      114322,
+      1784238725775763200
+    ],
+    "transcript.md": [
+      true,
+      63703,
+      1784238725777761400
+    ],
+    "transcript.jsonl": [
+      true,
+      86719,
+      1784238725782762200
+    ],
+    "transcript.csv": [
+      true,
+      71871,
+      1784238725789761100
+    ],
+    "transcript.vtt": [
+      true,
+      76253,
+      1784238725797762600
+    ],
+    "transcript.normalized.txt": [
+      true,
+      54009,
+      1784238725807760800
+    ],
+    "transcript.sections.md": [
+      true,
+      75782,
+      1784238725804759400
+    ]
+  },
+  "exports_dir": "C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139\\jobs\\dc72ed38-0977-4624-b00b-93779ed27692\\exports",
+  "parse_checks": {
+    "json": {
+      "segments": 575,
+      "ordered": true
+    },
+    "jsonl": {
+      "rows": 575
+    },
+    "csv": {
+      "rows": 575
+    },
+    "transcript.srt": {
+      "has_arrows": true,
+      "chars": 73944
+    },
+    "transcript.vtt": {
+      "has_arrows": true,
+      "chars": 73951
+    }
+  },
+  "restore": {
+    "stage_status": {
+      "Inspect": "completed",
+      "Extract Audio": "completed",
+      "Transcribe": "completed",
+      "Detect Slides": "completed",
+      "Align": "completed",
+      "Review Ready": "completed",
+      "Export": "pending"
+    },
+    "edited_json_exists": false,
+    "corrections_json_exists": true,
+    "product_mode": "study_pack"
+  },
+  "reexport": {
+    "flipped_decision_at": 1.5,
+    "audio_unchanged": true,
+    "raw_unchanged": true,
+    "candidate_pngs_unchanged": true,
+    "export_status": "completed",
+    "no_rerun": true
+  },
+  "mode_expectations": {
+    "want_transcript": true,
+    "want_slides": true,
+    "transcript_txt_present": true,
+    "slides_pdf_present": true
+  }
+}

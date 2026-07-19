@@ -1,0 +1,86 @@
+﻿{
+    "schema_version":  1,
+    "run_kind":  "v1.1.0 packaged cold-cache baseline",
+    "package_executable":  "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack V12 Baseline 20260716-173942\\LecturePack\\LecturePack.exe",
+    "package_zip_sha256":  "4017961e1a3c0865d4b33fcd687f0dcd7eea1cc49cde4ca47aebbd8ff51bea40",
+    "video":  "C:\\Users\\marsh\\OneDrive\\Desktop\\UB\\CL100\\CL100 - Day 3 - Mesopotamia and Babylon.m4v\\CL100 - Day 3 - Mesopotamia and Babylon.m4v",
+    "model":  "C:\\Users\\marsh\\Documents\\LecturePack\\models\\ggml-small.en-q8_0.bin",
+    "data_dir":  "C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139",
+    "started_at":  "2026-07-16T17:41:45.1716533-04:00",
+    "ended_at":  "2026-07-16T17:52:20.2190583-04:00",
+    "total_process_seconds":  635.05,
+    "exit_code":  null,
+    "sample_interval_seconds":  2,
+    "sample_count":  126,
+    "logical_processors":  12,
+    "process_tree_cpu_percent":  {
+                                     "average":  19.57,
+                                     "peak":  67.99
+                                 },
+    "system_cpu_percent":  {
+                               "average":  48.35,
+                               "peak":  99
+                           },
+    "gpu_engine_percent_sum":  {
+                                   "samples_available":  26,
+                                   "peak":  86.62,
+                                   "note":  "Sum of Windows GPU Engine utilization counters attributed to the monitored process tree; sampled every 10 seconds."
+                               },
+    "peak_working_set_bytes":  1658843136,
+    "peak_private_bytes":  3185405952,
+    "observed_processes":  [
+                               {
+                                   "pid":  19736,
+                                   "parent_pid":  9268,
+                                   "name":  "conhost.exe",
+                                   "executable_path":  "C:\\WINDOWS\\system32\\conhost.exe",
+                                   "command_line":  "\\??\\C:\\WINDOWS\\system32\\conhost.exe 0x4"
+                               },
+                               {
+                                   "pid":  22044,
+                                   "parent_pid":  6748,
+                                   "name":  "ffmpeg.exe",
+                                   "executable_path":  "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack V12 Baseline 20260716-173942\\LecturePack\\bin\\ffmpeg.exe",
+                                   "command_line":  "\"C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack V12 Baseline 20260716-173942\\LecturePack\\bin\\ffmpeg.exe\" -hide_banner -nostats -loglevel error -i \"C:\\Users\\marsh\\OneDrive\\Desktop\\UB\\CL100\\CL100 - Day 3 - Mesopotamia and Babylon.m4v\\CL100 - Day 3 - Mesopotamia and Babylon.m4v\" -t 4479.900 -vf fps=4.0,crop=1024:768:0:0,scale=480:360:flags=area,format=gray -f rawvideo -pix_fmt gray pipe:1"
+                               },
+                               {
+                                   "pid":  6748,
+                                   "parent_pid":  3656,
+                                   "name":  "LecturePack.exe",
+                                   "executable_path":  "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack V12 Baseline 20260716-173942\\LecturePack\\LecturePack.exe",
+                                   "command_line":  "\"C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack V12 Baseline 20260716-173942\\LecturePack\\LecturePack.exe\" --run-acceptance \"C:\\Users\\marsh\\OneDrive\\Desktop\\UB\\CL100\\CL100 - Day 3 - Mesopotamia and Babylon.m4v\\CL100 - Day 3 - Mesopotamia and Babylon.m4v\" \"C:\\Users\\marsh\\Documents\\LecturePack\\models\\ggml-small.en-q8_0.bin\" \"C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139\" \"C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139\\acceptance.json\" --names \"Mesopotamia,Babylon,Nebuchadnezzar,Hammurabi,Sumer\" --mode study_pack "
+                               },
+                               {
+                                   "pid":  21484,
+                                   "parent_pid":  22044,
+                                   "name":  "conhost.exe",
+                                   "executable_path":  "C:\\WINDOWS\\system32\\conhost.exe",
+                                   "command_line":  "\\??\\C:\\WINDOWS\\system32\\conhost.exe 0x4"
+                               },
+                               {
+                                   "pid":  9268,
+                                   "parent_pid":  6748,
+                                   "name":  "whisper-cli.exe",
+                                   "executable_path":  "C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack V12 Baseline 20260716-173942\\LecturePack\\bin\\vulkan\\whisper-cli.exe",
+                                   "command_line":  "\"C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack V12 Baseline 20260716-173942\\LecturePack\\bin\\vulkan\\whisper-cli.exe\"  -m C:\\Users\\marsh\\Documents\\LecturePack\\models\\ggml-small.en-q8_0.bin -f C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139\\jobs\\dc72ed38-0977-4624-b00b-93779ed27692\\audio\\lecture-16khz-mono.wav -of C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139\\jobs\\dc72ed38-0977-4624-b00b-93779ed27692\\transcript\\raw --output-json-full -osrt -otxt --threads 8 --prompt \"Mesopotamia, Babylon, Nebuchadnezzar, Hammurabi, Sumer\" --carry-initial-prompt"
+                               }
+                           ],
+    "lingering_observed_child_pids":  [
+
+                                      ],
+    "source_immutability":  {
+                                "length_before":  1484812483,
+                                "length_after":  1484812483,
+                                "last_write_utc_before":  "2026-07-16T21:02:37.2961218Z",
+                                "last_write_utc_after":  "2026-07-16T21:02:37.2961218Z",
+                                "sha256_before":  "55ca9f4aede0315cd98846545b7f5ab86d61ba53c8ff63d3bf092a8b36c11c7a",
+                                "sha256_after":  "55ca9f4aede0315cd98846545b7f5ab86d61ba53c8ff63d3bf092a8b36c11c7a",
+                                "unchanged":  true
+                            },
+    "artifacts":  {
+                      "acceptance_report":  "C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139\\acceptance.json",
+                      "stdout":  "C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139\\acceptance.stdout.log",
+                      "stderr":  "C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139\\acceptance.stderr.log",
+                      "samples":  "C:\\Users\\marsh\\LecturePackV12BaselineData-20260716-174139\\performance_samples.jsonl"
+                  }
+}

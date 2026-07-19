@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/WINDOWS_PORTABLE_INSTALL.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Windows Portable Install",
+  "summary": "Install guide for Windows portable release of LecturePack.",
+  "scope": ["Windows", "install", "portable", "setup"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

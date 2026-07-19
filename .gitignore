@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+env/
+ENV/
+
+# Build and IDEs
+build/
+dist/
+dist-release/
+.idea/
+.vscode/
+
+# Project-specific
+bin/
+models/
+LecturePackData/
+*.mp4
+*.avi
+*.wav
+*.log
+!docs/**/*.md
+!AGENTS.md
+!requirements*.txt
+!pyproject.toml
+!pytest.ini
+!lecturepack/**/*.py
+!tests/**/*.py
+
+# Test outputs
+tests/fixtures/m2_job/
+tests/fixtures/m2_temp/

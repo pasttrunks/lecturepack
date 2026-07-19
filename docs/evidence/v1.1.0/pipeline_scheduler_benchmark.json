@@ -1,0 +1,56 @@
+{
+  "staged_cpu": {
+    "ok": true,
+    "error": null,
+    "wall_seconds": 113.25,
+    "stage_times": {
+      "Inspect": 0.98,
+      "Extract Audio": 0.49,
+      "Transcribe": 63.49,
+      "Detect Slides": 47.84,
+      "Align": 0.41,
+      "Review Ready": 0.01
+    },
+    "backend_info": [
+      "engine: whispercpp-cpu",
+      "whisper backend: CPU",
+      "detector decode: piped"
+    ]
+  },
+  "parallel_cpu": {
+    "ok": true,
+    "error": null,
+    "wall_seconds": 76.31,
+    "stage_times": {
+      "Inspect": 0.11,
+      "Extract Audio": 0.52,
+      "Detect Slides": 58.37,
+      "Transcribe": 75.3,
+      "Align": 0.34,
+      "Review Ready": 0.01
+    },
+    "backend_info": [
+      "engine: whispercpp-cpu",
+      "whisper backend: CPU",
+      "detector decode: piped"
+    ]
+  },
+  "parallel_vulkan": {
+    "ok": true,
+    "error": null,
+    "wall_seconds": 47.75,
+    "stage_times": {
+      "Inspect": 0.14,
+      "Extract Audio": 0.44,
+      "Transcribe": 35.67,
+      "Detect Slides": 46.84,
+      "Align": 0.31,
+      "Review Ready": 0.01
+    },
+    "backend_info": [
+      "engine: whispercpp-vulkan",
+      "whisper backend: Vulkan (Vulkan0)",
+      "detector decode: piped"
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/HANDOFF_PHASE_V1_2_BASELINE.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "v1.2 Baseline Handoff",
+  "summary": "Handoff for v1.2 baseline phase documenting findings and completion status.",
+  "scope": ["handoff", "v1.2", "baseline"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

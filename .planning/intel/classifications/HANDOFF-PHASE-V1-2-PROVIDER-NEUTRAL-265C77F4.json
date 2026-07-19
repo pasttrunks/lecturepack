@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/HANDOFF_PHASE_V1_2_PROVIDER_NEUTRAL.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "v1.2 Provider-Neutral Seam Handoff",
+  "summary": "Handoff for v1.2 provider-neutral transcription seam phase.",
+  "scope": ["handoff", "v1.2", "provider-neutral", "transcription"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

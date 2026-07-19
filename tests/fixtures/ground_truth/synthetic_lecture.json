@@ -1,0 +1,23 @@
+{
+    "name": "synthetic_lecture",
+    "source": "tests/fixtures/synthetic_lecture.mp4",
+    "provenance": "Derived from the deterministic construction schedule in tests/fixtures/generate_test_video.py (NOT from detector output). 65s, 640x480, 25fps.",
+    "notes": "Eight meaningful slide states. Slide 2 appears twice (0:05 and 0:55) and both occurrences must be preserved as separate timeline events. Distractor windows must NOT produce separate slide candidates.",
+    "events": [
+        {"id": "s1_title",        "nominal_sec": 0.0,  "t_min": 0.0,  "t_max": 3.0,  "label": "Slide 1 title (initial frame)"},
+        {"id": "s2_bullets_ab",   "nominal_sec": 5.0,  "t_min": 5.0,  "t_max": 8.0,  "label": "Slide 2 bullets A,B (major change)"},
+        {"id": "s3_build_c",      "nominal_sec": 20.0, "t_min": 20.0, "t_max": 23.0, "label": "Slide 3 progressive build adds Topic C"},
+        {"id": "s4_diagram",      "nominal_sec": 25.0, "t_min": 25.0, "t_max": 28.0, "label": "Slide 4 diagram (major change)"},
+        {"id": "s5_code",         "nominal_sec": 33.0, "t_min": 33.0, "t_max": 37.0, "label": "Slide 5 code (after fade transition)"},
+        {"id": "s6_whiteboard",   "nominal_sec": 50.0, "t_min": 50.0, "t_max": 53.0, "label": "Slide 6 whiteboard (major change)"},
+        {"id": "s2_repeat",       "nominal_sec": 55.0, "t_min": 55.0, "t_max": 58.0, "label": "Slide 2 repeated (later occurrence, must not dedupe)"},
+        {"id": "s7_final",        "nominal_sec": 60.0, "t_min": 60.0, "t_max": 63.0, "label": "Slide 7 final thank-you (major change)"}
+    ],
+    "distractors": [
+        {"id": "mouse_pointer",   "t_min": 15.0, "t_max": 20.0, "max_allowed": 0, "label": "Moving mouse pointer over slide 2"},
+        {"id": "fade_transition", "t_min": 30.0, "t_max": 33.0, "max_allowed": 0, "label": "Fade transition slide4->slide5 (no intermediate capture)"},
+        {"id": "webcam_overlay",  "t_min": 40.0, "t_max": 45.0, "max_allowed": 0, "label": "Changing webcam noise bottom-right"},
+        {"id": "captions",        "t_min": 45.0, "t_max": 50.0, "max_allowed": 0, "label": "Changing live captions bottom 10%"},
+        {"id": "ink_build_steps", "t_min": 50.5, "t_max": 55.0, "max_allowed": 1, "label": "Rapid whiteboard ink strokes (must not explode into many candidates)"}
+    ]
+}

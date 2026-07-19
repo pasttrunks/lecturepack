@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/OLLAMA_SETUP.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Ollama Setup",
+  "summary": "Setup guide for Ollama local LLM server integration.",
+  "scope": ["Ollama", "setup", "LLM", "local AI"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/TRANSCRIPTION_AND_CONTEXT_REPAIR.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Transcription and Context Repair",
+  "summary": "Documentation of transcription and context repair architecture.",
+  "scope": ["transcription", "context repair", "AI", "transcript pipeline"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

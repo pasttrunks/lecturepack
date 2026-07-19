@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/STUDY_WORKSPACE.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Study Workspace",
+  "summary": "Documentation for the study workspace feature with bookmarks and notes.",
+  "scope": ["study workspace", "bookmarks", "notes", "study pack"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

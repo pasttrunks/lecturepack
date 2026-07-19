@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/ARCHITECTURE.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Lecture Pack -- Architecture",
+  "summary": "Technical architecture spec: layered 4-tier design with PySide6 Qt GUI and async pipeline.",
+  "scope": ["4-layer architecture", "PySide6", "state machine", "pipeline", "threading"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

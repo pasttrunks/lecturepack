@@ -1,0 +1,20 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\marsh\Documents\LecturePack\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+PySide6 6.11.1 -- Qt runtime 6.11.1 -- Qt compiled 6.11.1
+rootdir: C:\Users\marsh\Documents\LecturePack
+configfile: pytest.ini
+plugins: qt-4.5.0
+collecting ... collected 9 items
+
+tests/test_study_workspace_v12.py::test_deterministic_overview_uses_loaded_backend_and_old_job_empty_state PASSED [ 11%]
+tests/test_study_workspace_v12.py::test_slide_bookmark_note_and_resume_survive_restart PASSED [ 22%]
+tests/test_study_workspace_v12.py::test_section_bookmark_and_jump_are_persistent PASSED [ 33%]
+tests/test_study_workspace_v12.py::test_completed_job_lands_on_study_and_quick_navigation_works PASSED [ 44%]
+tests/test_study_workspace_v12.py::test_study_page_empty_state PASSED    [ 55%]
+tests/test_study_workspace_v12.py::test_study_exports_include_user_data_without_mutating_sources PASSED [ 66%]
+tests/test_study_workspace_v12.py::test_study_copy_full_transcript_works PASSED [ 77%]
+tests/test_timestamp_links_navigate_correctly PASSED [ 88%]
+tests/test_keyboard_navigation_on_study_page PASSED [100%]
+
+============================== 9 passed in 4.14s ==============================

@@ -1,0 +1,13 @@
+{
+  "source_path": "docs/HANDOFF_PHASE_V1_2_GROQ.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "v1.2 Groq Backends Handoff",
+  "summary": "Handoff for v1.2 Groq backend integration phase.",
+  "scope": ["handoff", "v1.2", "Groq", "transcription backends"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}
