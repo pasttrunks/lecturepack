@@ -114,8 +114,8 @@ def test_completed_job_lands_on_study_and_quick_navigation_works(qtbot, tmp_path
     assert window.review_page.slides_view.currentRow() >= 0
 
 
-def test_study_page_empty_state(qtbot):
-    page = StudyPage()
+def test_study_page_empty_state(qtbot, tmp_path):
+    page = StudyPage(ConfigManager(str(tmp_path / "data")))
     qtbot.addWidget(page)
     page.load_job(None)
     assert page.empty_lbl.isVisible() is False or page.empty_lbl.text().startswith("No completed")
@@ -173,7 +173,7 @@ def test_study_copy_full_transcript_works(qtbot, tmp_path):
 
 def test_timestamp_links_navigate_correctly(qtbot, tmp_path):
     data_dir, job = _ready_job(tmp_path)
-    page = StudyPage()
+    page = StudyPage(ConfigManager(data_dir))
     qtbot.addWidget(page)
     page.load_job(job)
 
@@ -192,7 +192,7 @@ def test_timestamp_links_navigate_correctly(qtbot, tmp_path):
 
 def test_keyboard_navigation_on_study_page(qtbot, tmp_path):
     data_dir, job = _ready_job(tmp_path)
-    page = StudyPage()
+    page = StudyPage(ConfigManager(data_dir))
     qtbot.addWidget(page)
     page.load_job(job)
 

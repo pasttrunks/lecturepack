@@ -1,12 +1,12 @@
 """
 lecturepack.ui.pages.settings_page
-==================================
+=================================
 
 Settings (v1.1, Phases 1+5+7): binaries, transcription engines and model
 profiles, AI (Ollama) configuration with live model discovery and a Test
 Model action, appearance, and pipeline options.
 
-All Ollama interactions run off the GUI thread.
+All Ollama interactions run off the GUI thread.  Studio visual layout.
 """
 from __future__ import annotations
 
@@ -24,11 +24,8 @@ from lecturepack.infrastructure.transcription_engines import (
     EngineRegistry, ENGINE_AUTO, ENGINE_CPU, ENGINE_VULKAN, ENGINE_LABELS,
     MODEL_PROFILES, model_search_dirs, resolve_profile_model,
 )
+from lecturepack.ui import theme
 
-# Order = preference. Benchmarked 2026-07-16 on the target PC (see
-# docs/evidence/v1.1.0/ollama_model_benchmark.json): qwen3:1.7b matched the
-# 9B model's repair recall (5/8) at 2.3x the speed of qwen3.5:4b; its rare
-# extra proposals are safe because nothing is ever auto-accepted.
 RECOMMENDED_MODELS = ["qwen3:1.7b", "qwen3.5:4b", "qwen3.5:9b", "qwen3:0.6b",
                       "gemma3:1b", "ministral-3:3b"]
 
@@ -45,149 +42,207 @@ class SettingsPage(QWidget):
         self.reload()
 
     # ------------------------------------------------------------------ #
-    def _card(self, title, layout):
+    def _card(self, title_text, inner_layout):
         card = QFrame()
         card.setProperty("card", True)
+        theme.add_card_shadow(card)
         cl = QVBoxLayout(card)
-        cl.setContentsMargins(12, 10, 12, 12)
-        lbl = QLabel(title)
-        lbl.setProperty("h2", True)
+        cl.setContentsMargins(20, 20, 22, 22)
+        lbl = QLabel(title_text)
+        lbl.setStyleSheet("font-weight: 700; font-size: 16px; margin-bottom: 13px;")
         cl.addWidget(lbl)
-        cl.addLayout(layout)
+        cl.addLayout(inner_layout)
         return card
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 12, 14, 12)
-        title = QLabel("Settings")
-        title.setProperty("h1", True)
-        outer.addWidget(title)
+        outer.setContentsMargins(0, 0, 0, 0)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        inner = QWidget()
-        layout = QVBoxLayout(inner)
-        layout.setContentsMargins(0, 0, 8, 0)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        # ---- binaries ---------------------------------------------------- #
-        bin_grid = QGridLayout()
-        bin_grid.addWidget(QLabel("whisper-cli (CPU, verified):"), 0, 0)
-        self.whisper_exe_edit = QLineEdit()
-        bin_grid.addWidget(self.whisper_exe_edit, 0, 1)
-        b1 = QPushButton("…")
-        b1.setFixedWidth(28)
-        b1.clicked.connect(lambda: self._pick_file(self.whisper_exe_edit, "Executables (*.exe *.bat *.py)"))
-        bin_grid.addWidget(b1, 0, 2)
-        bin_grid.addWidget(QLabel("Whisper model:"), 1, 0)
-        self.whisper_model_edit = QLineEdit()
-        bin_grid.addWidget(self.whisper_model_edit, 1, 1)
-        b2 = QPushButton("…")
-        b2.setFixedWidth(28)
-        b2.clicked.connect(lambda: self._pick_file(self.whisper_model_edit, "Model files (*.bin)"))
-        bin_grid.addWidget(b2, 1, 2)
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(44, 34, 44, 52)
+        layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+        wrapper = QWidget()
+        wrapper.setMaximumWidth(800)
+        wl = QVBoxLayout(wrapper)
+        wl.setContentsMargins(0, 0, 0, 0)
+        wl.setSpacing(16)
+
+        title = QLabel("Settings")
+        title.setStyleSheet("font-size: 30px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 10px;")
+        wl.addWidget(title)
+
+        # ---- whisper model ---- #
+        wm_grid = QHBoxLayout()
+        wm_grid.setSpacing(10)
+        wm_path = QLineEdit()
+        wm_path.setReadOnly(True)
+        wm_grid.addWidget(wm_path, 1)
+        wm_browse = QPushButton("Browse")
+        wm_browse.clicked.connect(lambda: self._pick_file(wm_path, "Model files (*.bin)"))
+        wm_grid.addWidget(wm_browse)
+        wm_layout = QVBoxLayout()
+        wm_layout.addLayout(wm_grid)
         self.diag_lbl = QLabel("")
+        wm_layout.addWidget(self.diag_lbl)
         self.diag_lbl.setWordWrap(True)
-        self.diag_lbl.setProperty("muted", True)
-        bin_grid.addWidget(self.diag_lbl, 2, 0, 1, 3)
-        layout.addWidget(self._card("Binaries && models", bin_grid))
+        self.diag_lbl.setStyleSheet(f"font-size: 12px; color: {theme.c('muted')}; border: none;")
+        wl.addWidget(self._card("Whisper model", wm_layout))
+        self.whisper_exe_edit = QLineEdit()
+        self.whisper_model_edit = wm_path
 
-        # ---- engines ------------------------------------------------------ #
-        eng_grid = QGridLayout()
-        eng_grid.addWidget(QLabel("Default engine:"), 0, 0)
+        # ---- compute engine ---- #
+        eng_layout = QVBoxLayout()
+        eng_row = QHBoxLayout()
+        eng_row.setSpacing(10)
         self.engine_combo = QComboBox()
         for key in (ENGINE_AUTO, ENGINE_CPU, ENGINE_VULKAN):
             self.engine_combo.addItem(ENGINE_LABELS[key], key)
-        eng_grid.addWidget(self.engine_combo, 0, 1)
+        eng_row.addWidget(self.engine_combo, 1)
+        eng_layout.addLayout(eng_row)
         self.engines_status_lbl = QLabel("")
         self.engines_status_lbl.setWordWrap(True)
-        eng_grid.addWidget(self.engines_status_lbl, 1, 0, 1, 2)
-        self.vulkan_ok_chk = QCheckBox(
-            "Vulkan benchmarked faster on this PC (allows Auto to pick Vulkan)")
-        eng_grid.addWidget(self.vulkan_ok_chk, 2, 0, 1, 2)
+        self.engines_status_lbl.setStyleSheet(f"font-size: 12px; color: {theme.c('muted')}; border: none;")
+        eng_layout.addWidget(self.engines_status_lbl)
+        self.vulkan_ok_chk = QCheckBox("Vulkan benchmarked faster on this PC")
+        eng_layout.addWidget(self.vulkan_ok_chk)
         self.parallel_chk = QCheckBox("Run transcription and slide detection concurrently")
         self.parallel_chk.setChecked(True)
-        eng_grid.addWidget(self.parallel_chk, 3, 0, 1, 2)
+        eng_layout.addWidget(self.parallel_chk)
         self.profiles_lbl = QLabel("")
         self.profiles_lbl.setWordWrap(True)
-        self.profiles_lbl.setProperty("muted", True)
-        eng_grid.addWidget(self.profiles_lbl, 4, 0, 1, 2)
-        layout.addWidget(self._card("Transcription engine && pipeline", eng_grid))
+        self.profiles_lbl.setStyleSheet(f"font-size: 12px; color: {theme.c('muted')}; border: none;")
+        eng_layout.addWidget(self.profiles_lbl)
+        wl.addWidget(self._card("Compute engine", eng_layout))
 
-        groq = QGridLayout()
-        self.groq_status_lbl = QLabel("")
-        self.groq_status_lbl.setWordWrap(True)
-        groq.addWidget(self.groq_status_lbl, 0, 0, 1, 3)
-        self.groq_set_btn = QPushButton("Set API key")
-        self.groq_set_btn.clicked.connect(self.set_groq_key)
-        groq.addWidget(self.groq_set_btn, 1, 0)
-        self.groq_test_btn = QPushButton("Test key")
-        self.groq_test_btn.clicked.connect(self.test_groq_key)
-        groq.addWidget(self.groq_test_btn, 1, 1)
-        self.groq_remove_btn = QPushButton("Remove key")
-        self.groq_remove_btn.clicked.connect(self.remove_groq_key)
-        groq.addWidget(self.groq_remove_btn, 1, 2)
-        groq_note = QLabel(
-            "Online transcription is opt-in. Only audio chunks are uploaded. "
-            "The key is never written to LecturePack settings or job files.")
-        groq_note.setWordWrap(True)
-        groq_note.setProperty("muted", True)
-        groq.addWidget(groq_note, 2, 0, 1, 3)
-        layout.addWidget(self._card("Groq online transcription", groq))
-
-        # ---- Ollama -------------------------------------------------------- #
-        ol = QGridLayout()
-        self.ollama_enabled_chk = QCheckBox("Enable AI assistance (local Ollama)")
-        ol.addWidget(self.ollama_enabled_chk, 0, 0, 1, 3)
-        ol.addWidget(QLabel("Server:"), 1, 0)
+        # ---- local AI endpoint ---- #
+        ai_layout = QVBoxLayout()
+        ai_header = QHBoxLayout()
+        ai_header.addStretch(1)
+        self.ollama_status_lbl = QLabel("")
+        self.ollama_status_lbl.setWordWrap(True)
+        ai_header.addWidget(self.ollama_status_lbl)
+        ai_layout.addLayout(ai_header)
+        ai_url_row = QHBoxLayout()
+        ai_url_row.setSpacing(10)
         self.ollama_url_edit = QLineEdit("http://localhost:11434")
-        ol.addWidget(self.ollama_url_edit, 1, 1, 1, 2)
-        ol.addWidget(QLabel("Model:"), 2, 0)
+        ai_url_row.addWidget(self.ollama_url_edit, 1)
+        self.test_model_btn = QPushButton("Test")
+        self.test_model_btn.clicked.connect(self.test_ollama_model)
+        ai_url_row.addWidget(self.test_model_btn)
+        ai_layout.addLayout(ai_url_row)
+        ai_model_row = QHBoxLayout()
+        ai_model_row.setSpacing(10)
         self.ollama_model_combo = QComboBox()
         self.ollama_model_combo.setEditable(True)
-        ol.addWidget(self.ollama_model_combo, 2, 1)
+        ai_model_row.addWidget(self.ollama_model_combo, 1)
         self.refresh_models_btn = QPushButton("Refresh")
         self.refresh_models_btn.clicked.connect(self.refresh_ollama_models)
-        ol.addWidget(self.refresh_models_btn, 2, 2)
-        ol.addWidget(QLabel("Keep model loaded:"), 3, 0)
+        ai_model_row.addWidget(self.refresh_models_btn)
+        ai_layout.addLayout(ai_model_row)
+        self.ollama_enabled_chk = QCheckBox("Enable AI assistance (local Ollama)")
+        ai_layout.addWidget(self.ollama_enabled_chk)
+        ai_keep_row = QHBoxLayout()
+        ai_keep_row.setSpacing(10)
+        ai_keep_row.addWidget(QLabel("Keep model loaded:"))
         self.keep_alive_combo = QComboBox()
         self.keep_alive_combo.addItems(["5m", "10m", "30m", "0 (unload immediately)"])
         self.keep_alive_combo.setCurrentText("10m")
-        ol.addWidget(self.keep_alive_combo, 3, 1)
-        self.test_model_btn = QPushButton("Test model")
-        self.test_model_btn.clicked.connect(self.test_ollama_model)
-        ol.addWidget(self.test_model_btn, 3, 2)
-        self.ollama_status_lbl = QLabel("Ollama status unknown — click Refresh.")
-        self.ollama_status_lbl.setWordWrap(True)
-        ol.addWidget(self.ollama_status_lbl, 4, 0, 1, 3)
+        ai_keep_row.addWidget(self.keep_alive_combo)
+        ai_keep_row.addStretch(1)
+        ai_layout.addLayout(ai_keep_row)
         note = QLabel("AI proposes corrections and headings only; it never modifies the raw "
                       "transcript, never applies silently, and exports never wait for it.")
         note.setProperty("muted", True)
         note.setWordWrap(True)
-        ol.addWidget(note, 5, 0, 1, 3)
-        layout.addWidget(self._card("AI (Ollama)", ol))
+        ai_layout.addWidget(note)
+        wl.addWidget(self._card("Local AI endpoint", ai_layout))
 
-        # ---- appearance --------------------------------------------------- #
-        ap = QGridLayout()
-        ap.addWidget(QLabel("Theme:"), 0, 0)
+        # ---- Groq ---- #
+        groq_layout = QVBoxLayout()
+        self.groq_status_lbl = QLabel("")
+        self.groq_status_lbl.setWordWrap(True)
+        groq_layout.addWidget(self.groq_status_lbl)
+        groq_btns = QHBoxLayout()
+        self.groq_set_btn = QPushButton("Set API key")
+        self.groq_set_btn.clicked.connect(self.set_groq_key)
+        groq_btns.addWidget(self.groq_set_btn)
+        self.groq_test_btn = QPushButton("Test key")
+        self.groq_test_btn.clicked.connect(self.test_groq_key)
+        groq_btns.addWidget(self.groq_test_btn)
+        self.groq_remove_btn = QPushButton("Remove key")
+        self.groq_remove_btn.clicked.connect(self.remove_groq_key)
+        groq_btns.addWidget(self.groq_remove_btn)
+        groq_layout.addLayout(groq_btns)
+        groq_note = QLabel(
+            "Online transcription is opt-in. Only audio chunks are uploaded.")
+        groq_note.setWordWrap(True)
+        groq_note.setStyleSheet(f"font-size: 12px; color: {theme.c('muted')}; border: none;")
+        groq_layout.addWidget(groq_note)
+        wl.addWidget(self._card("Groq online transcription", groq_layout))
+
+        # ---- appearance ---- #
+        ap_layout = QVBoxLayout()
+        ap_row = QHBoxLayout()
+        ap_row.setSpacing(10)
+        ap_row.addWidget(QLabel("Theme:"))
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["Light", "Dark"])
-        ap.addWidget(self.theme_combo, 0, 1)
-        ap.addWidget(QLabel("Data directory:"), 1, 0)
+        ap_row.addWidget(self.theme_combo)
+        ap_row.addStretch(1)
+        ap_layout.addLayout(ap_row)
+        ap_dir_row = QHBoxLayout()
+        ap_dir_row.setSpacing(10)
+        ap_dir_row.addWidget(QLabel("Data directory:"))
         self.data_dir_lbl = QLabel("")
-        ap.addWidget(self.data_dir_lbl, 1, 1)
-        layout.addWidget(self._card("Appearance && storage", ap))
+        self.data_dir_lbl.setStyleSheet("border: none;")
+        ap_dir_row.addWidget(self.data_dir_lbl, 1)
+        ap_layout.addLayout(ap_dir_row)
+        wl.addWidget(self._card("Appearance", ap_layout))
+
+        # ---- privacy ---- #
+        privacy_layout = QHBoxLayout()
+        privacy_layout.setSpacing(12)
+        priv_lbl = QLabel("\u2713")
+        priv_lbl.setStyleSheet(
+            f"font-size: 22px; color: {theme.c('secondary_ink')}; border: none;")
+        privacy_layout.addWidget(priv_lbl)
+        priv_text = QLabel(
+            "<b>100% local.</b> No telemetry, no uploads, no account. "
+            "Job data stays in <span style='font: 500 12px monospace'>~/LecturePackData</span>.")
+        priv_text.setTextFormat(Qt.TextFormat.RichText)
+        priv_text.setWordWrap(True)
+        priv_text.setStyleSheet("font-size: 13px; line-height: 1.5; border: none;")
+        privacy_layout.addWidget(priv_text, 1)
+        privacy_card = QFrame()
+        privacy_card.setStyleSheet(
+            f"background: {theme.c('secondary_soft')}; border: 1.5px solid {theme.c('secondary')}; "
+            f"border-radius: 13px; padding: 16px 20px;")
+        privacy_card.setLayout(privacy_layout)
+        wl.addWidget(privacy_card)
+
+        wl.addSpacing(10)
 
         save_row = QHBoxLayout()
         save_row.addStretch(1)
         self.save_btn = QPushButton("Save settings")
-        self.save_btn.setProperty("primary", True)
+        self.save_btn.setStyleSheet(
+            f"font: 700 14px sans-serif; background: {theme.c('primary')}; color: #fff; "
+            f"border: 1.5px solid {theme.c('primary_hover')}; border-radius: 9px; "
+            f"padding: 10px 22px;")
         self.save_btn.clicked.connect(self.save)
         save_row.addWidget(self.save_btn)
-        layout.addLayout(save_row)
-        layout.addStretch(1)
+        wl.addLayout(save_row)
+        wl.addStretch(1)
 
-        scroll.setWidget(inner)
+        layout.addWidget(wrapper)
+        scroll.setWidget(container)
         outer.addWidget(scroll)
 
     def _pick_file(self, edit, filt):
@@ -216,6 +271,9 @@ class SettingsPage(QWidget):
         self.refresh_engine_status()
         self.refresh_diagnostics()
         self.refresh_groq_status()
+
+    def _load_settings(self):
+        self.reload()
 
     def save(self):
         cm = self.config_manager
@@ -311,10 +369,10 @@ class SettingsPage(QWidget):
         lines = []
         for key in (ENGINE_CPU, ENGINE_VULKAN):
             e = engines[key]
-            state = "available" if e.available else f"unavailable — {e.reason}"
-            lines.append(f"• {e.label}: {state}")
+            state = "available" if e.available else f"unavailable \u2014 {e.reason}"
+            lines.append(f"\u2022 {e.label}: {state}")
         resolved = self.engine_registry.resolve(self.engine_combo.currentData() or ENGINE_AUTO)
-        lines.append(f"→ Active choice: {resolved.label} ({resolved.reason or 'default'})")
+        lines.append(f"\u2192 Active choice: {resolved.label} ({resolved.reason or 'default'})")
         self.engines_status_lbl.setText("\n".join(lines))
         dirs = model_search_dirs(self.config_manager)
         plines = []
@@ -323,14 +381,14 @@ class SettingsPage(QWidget):
                 continue
             found = resolve_profile_model(key, dirs)
             plines.append(f"{prof['label']}: {os.path.basename(found) if found else 'model not downloaded'}")
-        self.profiles_lbl.setText("Model profiles — " + " · ".join(plines))
+        self.profiles_lbl.setText("Model profiles \u2014 " + " \u00b7 ".join(plines))
 
     def refresh_diagnostics(self):
         diag = self.config_manager.check_diagnostics()
 
         def fmt(key, label):
             e = diag[key]
-            return f"{label}: {'OK' if e['valid'] else 'MISSING'} ({os.path.basename(e['path']) if e['path'] else '—'})"
+            return f"{label}: {'OK' if e['valid'] else 'MISSING'} ({os.path.basename(e['path']) if e['path'] else '\u2014'})"
 
         self.diag_lbl.setText("   ".join([
             fmt("ffmpeg", "FFmpeg"), fmt("ffprobe", "FFprobe"),
@@ -363,7 +421,7 @@ class SettingsPage(QWidget):
     def refresh_ollama_models(self):
         from lecturepack.infrastructure.ollama_client import OllamaClient, OllamaError
         base = self.ollama_url_edit.text().strip() or "http://localhost:11434"
-        self.ollama_status_lbl.setText("Checking Ollama…")
+        self.ollama_status_lbl.setText("Checking Ollama\u2026")
         self.refresh_models_btn.setEnabled(False)
 
         def work():
@@ -386,10 +444,9 @@ class SettingsPage(QWidget):
                 self.ollama_model_combo.clear()
                 for m in models:
                     size_gb = m["size_bytes"] / (1024 ** 3)
-                    label = (f"{m['name']}  —  {m['parameter_size'] or '?'} "
-                             f"{m['quantization_level'] or ''}  ·  {size_gb:.1f} GB")
+                    label = (f"{m['name']}  \u2014  {m['parameter_size'] or '?'} "
+                             f"{m['quantization_level'] or ''}  \u00b7  {size_gb:.1f} GB")
                     self.ollama_model_combo.addItem(label, m["name"])
-                # plain names win for the editable text
                 for i in range(self.ollama_model_combo.count()):
                     self.ollama_model_combo.setItemText(
                         i, self.ollama_model_combo.itemText(i))
@@ -404,7 +461,7 @@ class SettingsPage(QWidget):
                 extra = f" Recommended installed model: {rec}." if rec else \
                     " Consider `ollama pull qwen3:1.7b` for a light default."
                 self.ollama_status_lbl.setText(
-                    f"Ollama v{version} — {len(models)} model(s) installed.{extra}")
+                    f"Ollama v{version} \u2014 {len(models)} model(s) installed.{extra}")
             elif result[0] == "offline":
                 self.ollama_status_lbl.setText(
                     f"Ollama not reachable at {base}. AI features stay disabled; "
@@ -422,7 +479,7 @@ class SettingsPage(QWidget):
         if not model:
             self.ollama_status_lbl.setText("Pick a model first.")
             return
-        self.ollama_status_lbl.setText(f"Testing {model} (schema-constrained request)…")
+        self.ollama_status_lbl.setText(f"Testing {model} (schema-constrained request)\u2026")
         self.test_model_btn.setEnabled(False)
 
         schema = {"type": "object",
@@ -455,6 +512,6 @@ class SettingsPage(QWidget):
                     f"Test {verdict}: {speed:.1f} tok/s (load {load_s:.1f}s). "
                     f"Structured output {'OK' if valid else 'check the model'}.")
             else:
-                self.ollama_status_lbl.setText(f"Test failed — {result[1]}")
+                self.ollama_status_lbl.setText(f"Test failed \u2014 {result[1]}")
 
         self._run_bg(work, done)

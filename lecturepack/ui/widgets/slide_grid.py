@@ -144,7 +144,8 @@ class SlideTileDelegate(QStyledItemDelegate):
             dy = img_rect.y() + (img_rect.height() - scaled.height()) // 2
             painter.drawPixmap(dx, dy, scaled)
         else:
-            painter.setPen(QPen(QColor("#9aa1ac")))
+            muted_c = QColor(theme.DARK_MUTED if theme.is_dark() else theme.LIGHT_MUTED)
+            painter.setPen(QPen(muted_c))
             painter.drawText(img_rect, Qt.AlignCenter, "…")
 
         # Label: timestamp + decision

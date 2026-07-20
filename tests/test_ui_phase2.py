@@ -1,4 +1,4 @@
-"""Phase 2 "Premium Glassmorphic Dark" UI overhaul tests.
+"""Neobrutalist UI overhaul tests.
 
 M1: theme layer (QSS file, palette, shadow helper).
 """
@@ -22,21 +22,21 @@ def app():
 
 
 # --------------------------------------------------------------------- M1 #
-def test_dark_palette_uses_mocha_colors(app):
+def test_dark_palette_uses_neobrutalist_colors(app):
     theme.apply_theme(app, dark=True)
     palette = app.palette()
-    assert palette.color(QPalette.Window).name() == "#1e1e2e"
-    assert palette.color(QPalette.Base).name() == "#181825"
-    assert palette.color(QPalette.Text).name() == "#cdd6f4"
-    assert palette.color(QPalette.Highlight).name() == "#89b4fa"
+    assert palette.color(QPalette.Window).name() == "#131519"
+    assert palette.color(QPalette.Base).name() == "#1b1e24"
+    assert palette.color(QPalette.Text).name() == "#ece7db"
+    assert palette.color(QPalette.Highlight).name() == "#ff6c36"
 
 
 def test_dark_qss_file_loaded_only_when_dark(app):
     theme.apply_theme(app, dark=True)
-    assert "#1e1e2e" in app.styleSheet().lower()
-    assert "#89b4fa" in app.styleSheet().lower()
+    assert "#131519" in app.styleSheet().lower()
+    assert "#ff6c36" in app.styleSheet().lower()
     theme.apply_theme(app, dark=False)
-    assert "#1e1e2e" not in app.styleSheet().lower()
+    assert "#131519" not in app.styleSheet().lower()
     theme.apply_theme(app, dark=True)  # leave the app dark for other tests
 
 
@@ -44,8 +44,8 @@ def test_qss_uses_literal_hex_not_css_variables():
     qss = theme.load_qss("dark_theme.qss")
     assert qss.strip(), "dark_theme.qss must exist and be non-empty"
     assert "var(" not in qss
-    assert "#1E1E2E" in qss
-    assert "#89B4FA" in qss
+    assert "#131519" in qss
+    assert "#FF6C36" in qss
 
 
 def test_load_qss_missing_file_returns_empty_string():
@@ -53,9 +53,8 @@ def test_load_qss_missing_file_returns_empty_string():
 
 
 def test_selection_visuals_api_unchanged():
-    # v1.1 contract relied on by test_ui_v11 and the slide delegate.
     vis = theme.selection_visuals(True, True, "accepted", True)
-    assert vis["outline_color"].name() == theme.ACCENT
+    assert vis["outline_color"].name() == theme.ACCENT.lower()
     assert vis["outline_width"] >= 2
 
 
@@ -63,8 +62,9 @@ def test_add_card_shadow_attaches_effect(app):
     frame = QFrame()
     effect = theme.add_card_shadow(frame)
     assert frame.graphicsEffect() is effect
-    assert effect.blurRadius() == 24.0
-    assert effect.yOffset() == 3.0
+    assert effect.blurRadius() == 14.0
+    assert effect.yOffset() == 6.0
+    assert effect.xOffset() == 0.0
     assert effect.color().alpha() == 90
 
 
@@ -191,11 +191,11 @@ from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget  # noqa: E402
 
 from lecturepack.ui.widgets.animated_stacked import (  # noqa: E402
     AnimatedStackedWidget)
-from lecturepack.ui.widgets.title_bar import TitleBarWidget  # noqa: E402
+from lecturepack.ui.widgets.title_bar import HeaderBarWidget  # noqa: E402
 
 
 def test_title_bar_buttons_emit_signals(app, qtbot):
-    bar = TitleBarWidget(title="Test")
+    bar = HeaderBarWidget(title="Test")
     qtbot.addWidget(bar)
     fired = []
     bar.minimize_clicked.connect(lambda: fired.append("min"))
@@ -208,7 +208,7 @@ def test_title_bar_buttons_emit_signals(app, qtbot):
 
 
 def test_title_bar_double_click_toggles_maximize(app, qtbot):
-    bar = TitleBarWidget()
+    bar = HeaderBarWidget()
     qtbot.addWidget(bar)
     fired = []
     bar.toggle_maximize_clicked.connect(lambda: fired.append(True))
@@ -217,20 +217,20 @@ def test_title_bar_double_click_toggles_maximize(app, qtbot):
 
 
 def test_title_bar_maximize_glyph_switches(app, qtbot):
-    bar = TitleBarWidget()
+    bar = HeaderBarWidget()
     qtbot.addWidget(bar)
-    assert bar.max_btn.text() == "□"
+    assert bar.max_btn.text() == "\u25A1"
     bar.set_maximized(True)
-    assert bar.max_btn.text() == "▣"
+    assert bar.max_btn.text() == "\u25A3"
     bar.set_maximized(False)
-    assert bar.max_btn.text() == "□"
+    assert bar.max_btn.text() == "\u25A1"
 
 
 def test_title_bar_drag_moves_host_window(app, qtbot):
     host = QWidget()
     layout = QVBoxLayout(host)
     layout.setContentsMargins(0, 0, 0, 0)
-    bar = TitleBarWidget(title="Drag")
+    bar = HeaderBarWidget(title="Drag")
     layout.addWidget(bar)
     layout.addStretch(1)
     host.resize(400, 200)
@@ -292,7 +292,7 @@ def test_main_window_frameless_shell(app, qtbot, tmp_path):
     window = MainWindow(ConfigManager(str(tmp_path / "data")))
     qtbot.addWidget(window)
     assert window.windowFlags() & Qt.WindowType.FramelessWindowHint
-    assert isinstance(window.title_bar, TitleBarWidget)
+    assert isinstance(window.header_bar, HeaderBarWidget)
     assert isinstance(window.stack, AnimatedStackedWidget)
     window.navigate_to(PAGE_SETTINGS)
     assert window.stack.currentIndex() == PAGE_SETTINGS
@@ -313,8 +313,9 @@ def _ready_study_job(tmp_path):
 
 def _make_study_page(qtbot, tmp_path):
     from lecturepack.ui.pages.study_page import StudyPage
+    from lecturepack.infrastructure.config_manager import ConfigManager
     job = _ready_study_job(tmp_path)
-    page = StudyPage()
+    page = StudyPage(ConfigManager(str(tmp_path / "data")))
     qtbot.addWidget(page)
     page.load_job(job)
     return page
@@ -382,9 +383,10 @@ def test_study_overview_card_collapses(app, qtbot, tmp_path):
     page.slides_grid.shutdown()
 
 
-def test_study_workspace_empty_state_clears_panes(app, qtbot):
+def test_study_workspace_empty_state_clears_panes(app, qtbot, tmp_path):
     from lecturepack.ui.pages.study_page import StudyPage
-    page = StudyPage()
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    page = StudyPage(ConfigManager(str(tmp_path / "data")))
     qtbot.addWidget(page)
     page.load_job(None)
     assert page.content.isHidden()
@@ -507,18 +509,18 @@ def test_focus_mode_hides_and_restores_shell_chrome(app, qtbot, tmp_path):
     fm = window.focus_mode
     assert not fm.is_active()
     fm.enter()
-    qtbot.wait(320)
+    qtbot.wait(500)
     assert fm.is_active()
     assert window._nav_rail.isHidden()
-    assert window._command_bar.isHidden()
-    assert window.statusBar().isHidden()
+    assert window.header_bar.isHidden()
+    assert window._status_footer.isHidden()
     assert not fm.exit_btn.isHidden()
     fm.exit()
-    qtbot.wait(320)
+    qtbot.wait(500)
     assert not fm.is_active()
     assert not window._nav_rail.isHidden()
-    assert not window._command_bar.isHidden()
-    assert not window.statusBar().isHidden()
+    assert not window.header_bar.isHidden()
+    assert not window._status_footer.isHidden()
     assert fm.exit_btn.isHidden()
     window.close()
 
@@ -533,10 +535,9 @@ def test_focus_mode_escape_exits(app, qtbot, tmp_path):
 
 def test_focus_mode_toggle_button_and_shortcut_registered(app, qtbot, tmp_path):
     window = _make_window(qtbot, tmp_path)
-    assert window.focus_toggle_btn.objectName() == "focusToggleBtn"
     assert window.shortcut_focus.key().toString() == "Ctrl+Shift+F"
-    window.focus_toggle_btn.click()
+    window.focus_mode.toggle()
     assert window.focus_mode.is_active()
-    window.focus_toggle_btn.click()
+    window.focus_mode.toggle()
     assert not window.focus_mode.is_active()
     window.close()

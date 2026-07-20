@@ -2,16 +2,14 @@
 lecturepack.ui.pages.process_page
 =================================
 
-Job setup + live processing view (Phase 2 "minimalist dropzone" redesign).
+Job setup + live processing view (Studio layout).
 
-The page leads with a large dropzone hero (drag a video in; the dashed
-border glows accent-blue while a drag hovers). Engine knobs, VAD thresholds
-and slide-detection settings live behind an animated "Advanced Settings"
-slide-out drawer. The right column shows stage-by-stage progress, the live
-transcript (streamed whisper.cpp segments rendered as TranscriptBlockWidget
-cards; ephemeral view -- canonical text still derives from the raw layer)
-and the throttled log. Every pre-existing widget attribute, object name and
-signal used by MainWindow and the test-suite is preserved.
+The page uses a two-column layout:
+  Left (drawer): Source path, Transcription, Slide detection, Diagnostics
+  Right (flex): Output mode, Pipeline progress, Live transcript, Live log
+
+Every pre-existing widget attribute, object name and signal used by
+MainWindow and the test-suite is preserved.
 """
 from __future__ import annotations
 
@@ -40,8 +38,33 @@ from lecturepack.ui.widgets.transcript_block import TranscriptStreamView
 DRAWER_WIDTH = 380
 
 
+def _card(title: str = "", parent=None) -> tuple[QFrame, QVBoxLayout]:
+    card = QFrame(parent)
+    card.setProperty("card", True)
+    theme.add_card_shadow(card)
+    # NOTE: card background/border/radius come from the global
+    # `QFrame[card="true"]` QSS rule (theme.py) so they stay correct across
+    # theme toggles. A local literal `QFrame{...}` override here would be a
+    # bare type selector that cascades onto every QFrame-derived descendant
+    # (QLabel included, since QLabel subclasses QFrame) and both boxes every
+    # child label and freezes the color to whatever theme was active at
+    # construction time.
+    lay = QVBoxLayout(card)
+    lay.setContentsMargins(15, 13, 15, 13)
+    lay.setSpacing(6)
+    if title:
+        lbl = QLabel(title)
+        lbl.setProperty("muted", True)
+        lbl.setStyleSheet(
+            f"font:500 10px '{theme.FONT_MONO}';letter-spacing:0.12em;"
+            f"text-transform:uppercase;border:none;background:transparent;margin-bottom:3px;"
+        )
+        lay.addWidget(lbl)
+    return card, lay
+
+
 class CollapsibleGroup(QFrame):
-    """A titled, collapsible settings card (VideoTranscriber-inspired)."""
+    """A titled, collapsible settings card."""
 
     def __init__(self, title, parent=None, collapsed=False):
         super().__init__(parent)
@@ -52,7 +75,7 @@ class CollapsibleGroup(QFrame):
         self.toggle.setText(("▸ " if collapsed else "▾ ") + title)
         self.toggle.setCheckable(True)
         self.toggle.setChecked(not collapsed)
-        self.toggle.setStyleSheet("QToolButton{border:none;font-weight:600;font-size:13px;}")
+        self.toggle.setStyleSheet("QToolButton{border:none;font-weight:700;font-size:13px;}")
         self.toggle.clicked.connect(self._on_toggle)
         self._title = title
         outer.addWidget(self.toggle)
@@ -80,21 +103,20 @@ class DropzoneHero(QFrame):
         self._glow = None
         self._glow_anim = None
 
-    # ---- drag & drop ---------------------------------------------------- #
-    def dragEnterEvent(self, event):  # noqa: N802 (Qt naming)
+    def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
             self._set_active(True)
 
-    def dragMoveEvent(self, event):  # noqa: N802
+    def dragMoveEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
-    def dragLeaveEvent(self, event):  # noqa: N802
+    def dragLeaveEvent(self, event):
         self._set_active(False)
         super().dragLeaveEvent(event)
 
-    def dropEvent(self, event):  # noqa: N802
+    def dropEvent(self, event):
         self._set_active(False)
         urls = event.mimeData().urls()
         if urls:
@@ -103,7 +125,6 @@ class DropzoneHero(QFrame):
                 event.acceptProposedAction()
                 self.file_dropped.emit(path)
 
-    # ---- glow state ------------------------------------------------------ #
     def _set_active(self, active: bool):
         self.setProperty("dropActive", "true" if active else "false")
         self.style().unpolish(self)
@@ -116,7 +137,7 @@ class DropzoneHero(QFrame):
     def _start_glow(self):
         if self._glow is None:
             self._glow = QGraphicsDropShadowEffect(self)
-            self._glow.setColor(QColor(theme.MOCHA_ACCENT))
+            self._glow.setColor(QColor(theme.DARK_PRIMARY if theme.is_dark() else theme.LIGHT_PRIMARY))
             self._glow.setXOffset(0.0)
             self._glow.setYOffset(0.0)
             self._glow.setBlurRadius(18.0)
@@ -167,13 +188,19 @@ class StageRow(QWidget):
 
     def set_state(self, state):
         self.state = state
+        if theme.is_dark():
+            _run_c = theme.DARK_PRIMARY
+            _muted_c = theme.DARK_MUTED
+        else:
+            _run_c = theme.LIGHT_PRIMARY
+            _muted_c = theme.LIGHT_MUTED
         icons = {"pending": ("○", ""),
-                 "running": ("◔", "color:#89B4FA;font-weight:bold;"),
-                 "completed": ("●", "color:#A6E3A1;font-weight:bold;"),
-                 "failed": ("✕", "color:#F38BA8;font-weight:bold;"),
-                 "cached": ("◍", "color:#A6E3A1;"),
-                 "skipped": ("–", "color:#A6ADC8;"),
-                 "cancelled": ("◌", "color:#F9E2AF;")}
+                 "running": ("◔", f"color:{_run_c};font-weight:700;"),
+                 "completed": ("●", f"color:{theme.SUCCESS};font-weight:700;"),
+                 "failed": ("✕", f"color:{theme.DANGER};font-weight:700;"),
+                 "cached": ("◍", f"color:{theme.SUCCESS};"),
+                 "skipped": ("–", f"color:{_muted_c};"),
+                 "cancelled": ("◌", f"color:{theme.WARNING};")}
         icon, style = icons.get(state, ("○", ""))
         self.icon.setText(icon)
         self.icon.setStyleSheet(style)
@@ -218,194 +245,85 @@ class ProcessPage(QWidget):
         self._tick_timer.timeout.connect(self._tick)
         self._tick_timer.start()
 
-    # ------------------------------------------------------------------ #
     def _build_ui(self):
         root = QHBoxLayout(self)
-        root.setContentsMargins(10, 8, 10, 8)
+        root.setContentsMargins(22, 18, 22, 18)
         root.setSpacing(0)
+
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        root.addWidget(self.splitter, 1)
+        self.splitter.setHandleWidth(0)
+        self.splitter.setStyleSheet("QSplitter::handle{background:transparent;}")
+        root.addWidget(self.splitter)
 
-        # ---- main column ------------------------------------------------ #
-        main = QWidget()
-        ml = QVBoxLayout(main)
-        ml.setContentsMargins(0, 0, 6, 0)
-        ml.setSpacing(8)
-
-        # Dropzone hero
-        self.dropzone = DropzoneHero()
-        self.dropzone.setMinimumHeight(150)
-        dz = QVBoxLayout(self.dropzone)
-        dz.setContentsMargins(18, 14, 18, 14)
-        dz.addStretch(1)
-        hint_icon = QLabel("⇩")
-        hint_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint_icon.setStyleSheet("font-size: 30px; color: #89B4FA;")
-        dz.addWidget(hint_icon)
-        hint = QLabel("Drop a lecture video here")
-        hint.setProperty("dropHint", True)
-        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        dz.addWidget(hint)
-        dz.addStretch(1)
-        path_layout = QHBoxLayout()
-        self.video_path_edit = QLineEdit()
-        self.video_path_edit.setPlaceholderText("…or paste a video path")
-        browse_video_btn = QPushButton("Browse")
-        browse_video_btn.clicked.connect(self._browse_video)
-        path_layout.addWidget(self.video_path_edit, 1)
-        path_layout.addWidget(browse_video_btn)
-        dz.addLayout(path_layout)
-        self.metadata_lbl = QLabel("No video loaded.")
-        self.metadata_lbl.setProperty("muted", True)
-        self.metadata_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        dz.addWidget(self.metadata_lbl)
-        self.dropzone.file_dropped.connect(self._on_dropzone_file)
-        ml.addWidget(self.dropzone)
-
-        # Primary controls
-        controls = QHBoxLayout()
-        controls.addWidget(QLabel("Output:"))
-        self.product_mode_combo = QComboBox()
-        for m in PRODUCT_MODES:
-            self.product_mode_combo.addItem(PRODUCT_MODE_LABELS[m], m)
-        controls.addWidget(self.product_mode_combo)
-        controls.addStretch(1)
-        self.advanced_toggle = QPushButton("Advanced Settings")
-        self.advanced_toggle.setObjectName("advancedSettingsToggle")
-        self.advanced_toggle.setCheckable(True)
-        self.advanced_toggle.toggled.connect(self.set_advanced_open)
-        controls.addWidget(self.advanced_toggle)
-        ml.addLayout(controls)
-
-        act_row = QHBoxLayout()
-        self.start_btn = QPushButton("Start processing")
-        self.start_btn.setProperty("primary", True)
-        self.start_btn.setMinimumHeight(38)
-        self.start_btn.clicked.connect(self.start_requested.emit)
-        self.retranscribe_btn = QPushButton("Retranscribe only")
-        self.retranscribe_btn.setEnabled(False)
-        self.retranscribe_btn.clicked.connect(self.retranscribe_requested.emit)
-        act_row.addWidget(self.start_btn, 1)
-        act_row.addWidget(self.retranscribe_btn)
-        ml.addLayout(act_row)
-
-        self.stage_lbl = QLabel("Idle")
-        self.stage_lbl.setProperty("h1", True)
-        ml.addWidget(self.stage_lbl)
-
-        stages_card = QFrame()
-        stages_card.setProperty("card", True)
-        theme.add_card_shadow(stages_card)
-        sc = QVBoxLayout(stages_card)
-        self.stage_rows = {}
-        for stage in STAGES:
-            row = StageRow(stage)
-            self.stage_rows[stage] = row
-            sc.addWidget(row)
-        ml.addWidget(stages_card)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        ml.addWidget(self.progress_bar)
-
-        # Live transcript: segments streamed from whisper.cpp stdout while
-        # transcription runs (ephemeral view; canonical text comes from the
-        # raw transcript layer after the stage completes).
-        live_lbl = QLabel("Live transcript")
-        live_lbl.setProperty("muted", True)
-        ml.addWidget(live_lbl)
-        self.live_transcript = TranscriptStreamView(live=True, max_blocks=200)
-        self.live_transcript.setMinimumHeight(120)
-        self.live_transcript.setMaximumHeight(180)
-        ml.addWidget(self.live_transcript)
-
-        log_hdr = QHBoxLayout()
-        self.log_toggle = QToolButton()
-        self.log_toggle.setText("▾ Logs")
-        self.log_toggle.setCheckable(True)
-        self.log_toggle.setChecked(True)
-        self.log_toggle.setStyleSheet("QToolButton{border:none;font-weight:600;}")
-        self.log_toggle.clicked.connect(self._toggle_logs)
-        log_hdr.addWidget(self.log_toggle)
-        log_hdr.addStretch(1)
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setProperty("danger", True)
-        self.cancel_btn.clicked.connect(self.cancel_requested.emit)
-        log_hdr.addWidget(self.cancel_btn)
-        ml.addLayout(log_hdr)
-
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setStyleSheet(
-            "background: #11111B; color: #A6E3A1; "
-            "font-family: Consolas, monospace; font-size: 11px;")
-        ml.addWidget(self.log_text, 1)
-
-        self.splitter.addWidget(main)
-
-        # ---- advanced settings slide-out drawer -------------------------- #
+        # ── Left: Advanced settings drawer (styled as Studio config column) ── #
         self.advanced_drawer = QFrame()
         self.advanced_drawer.setObjectName("AdvancedDrawer")
-        drawer_outer = QVBoxLayout(self.advanced_drawer)
-        drawer_outer.setContentsMargins(8, 0, 0, 0)
-        drawer_title = QLabel("Advanced Settings")
-        drawer_title.setProperty("h2", True)
-        drawer_outer.addWidget(drawer_title)
-
+        self.advanced_drawer.setStyleSheet(
+            "QFrame#AdvancedDrawer{background:transparent;border:none;}"
+        )
         drawer_scroll = QScrollArea()
         drawer_scroll.setWidgetResizable(True)
         drawer_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        drawer_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        drawer_scroll.setStyleSheet("QScrollArea{background:transparent;border:none;}")
         drawer_body = QWidget()
+        drawer_body.setStyleSheet("background:transparent;")
         dl = QVBoxLayout(drawer_body)
-        dl.setContentsMargins(0, 0, 6, 0)
+        dl.setContentsMargins(0, 0, 14, 0)
+        dl.setSpacing(14)
 
-        # Transcription
-        tr_grp = CollapsibleGroup("Transcription")
-        grid = QGridLayout()
-        grid.addWidget(QLabel("Processing:"), 0, 0)
+        # -- Transcription card (inside drawer) --
+        tr_card, tr_lay = _card("Transcription")
+        tr_lay.addWidget(QLabel("Engine:"))
         self.transcription_mode_combo = QComboBox()
         for key, label in TRANSCRIPTION_MODE_LABELS.items():
             self.transcription_mode_combo.addItem(label, key)
-        grid.addWidget(self.transcription_mode_combo, 0, 1)
-        grid.addWidget(QLabel("Profile:"), 1, 0)
+        tr_lay.addWidget(self.transcription_mode_combo)
+
+        tr_lay.addWidget(QLabel("Profile:"))
         self.profile_combo = QComboBox()
         self.profile_combo.addItems(["Fast", "Balanced", "Accurate", "Custom"])
-        grid.addWidget(self.profile_combo, 1, 1)
-        grid.addWidget(QLabel("Engine:"), 2, 0)
+        tr_lay.addWidget(self.profile_combo)
+
+        tr_lay.addWidget(QLabel("Compute engine:"))
         self.engine_combo = QComboBox()
         for key in (ENGINE_AUTO, ENGINE_CPU, ENGINE_VULKAN):
             self.engine_combo.addItem(ENGINE_LABELS[key], key)
-        grid.addWidget(self.engine_combo, 2, 1)
-        grid.addWidget(QLabel("Threads:"), 3, 0)
+        tr_lay.addWidget(self.engine_combo)
+
+        tr_lay.addWidget(QLabel("Threads:"))
         self.threads_spin = QSpinBox()
         self.threads_spin.setRange(1, 32)
         self.threads_spin.setValue(8)
-        grid.addWidget(self.threads_spin, 3, 1)
-        grid.addWidget(QLabel("Online requests:"), 4, 0)
+        tr_lay.addWidget(self.threads_spin)
+
+        tr_lay.addWidget(QLabel("Online requests:"))
         self.groq_concurrency_spin = QSpinBox()
         self.groq_concurrency_spin.setRange(1, 4)
         self.groq_concurrency_spin.setValue(
             int(self.config_manager.get("groq_concurrency", 2)))
-        grid.addWidget(self.groq_concurrency_spin, 4, 1)
-        tr_grp.body_layout.addLayout(grid)
+        tr_lay.addWidget(self.groq_concurrency_spin)
+
         self.online_fallback_chk = QCheckBox(
-            "Fall back to Private Local if the online provider is unavailable")
+            "Fall back to Private Local if online unavailable")
         self.online_fallback_chk.setChecked(bool(
             self.config_manager.get("online_fallback_local", True)))
-        tr_grp.body_layout.addWidget(self.online_fallback_chk)
+        tr_lay.addWidget(self.online_fallback_chk)
+
         self.online_notice_lbl = QLabel(
             "Online modes upload only lossless 16 kHz mono audio chunks to Groq. "
             "Slides, video, transcripts, and job metadata stay local.")
         self.online_notice_lbl.setWordWrap(True)
         self.online_notice_lbl.setProperty("muted", True)
-        tr_grp.body_layout.addWidget(self.online_notice_lbl)
+        tr_lay.addWidget(self.online_notice_lbl)
+
         self.engine_status_lbl = QLabel("")
         self.engine_status_lbl.setProperty("muted", True)
         self.engine_status_lbl.setWordWrap(True)
-        tr_grp.body_layout.addWidget(self.engine_status_lbl)
+        tr_lay.addWidget(self.engine_status_lbl)
 
         self.vad_chk = QCheckBox("Voice Activity Detection (VAD)")
-        tr_grp.body_layout.addWidget(self.vad_chk)
+        tr_lay.addWidget(self.vad_chk)
         vad_row = QHBoxLayout()
         self.vad_model_edit = QLineEdit()
         self.vad_model_edit.setPlaceholderText("VAD model (.bin)…")
@@ -414,7 +332,7 @@ class ProcessPage(QWidget):
         vad_browse.clicked.connect(self._browse_vad_model)
         vad_row.addWidget(self.vad_model_edit)
         vad_row.addWidget(vad_browse)
-        tr_grp.body_layout.addLayout(vad_row)
+        tr_lay.addLayout(vad_row)
         vgrid = QGridLayout()
         vgrid.addWidget(QLabel("Threshold:"), 0, 0)
         self.vad_thresh_spin = QDoubleSpinBox()
@@ -438,44 +356,46 @@ class ProcessPage(QWidget):
         self.vad_advanced.setLayout(vgrid)
         self.vad_advanced.setVisible(False)
         self.vad_chk.toggled.connect(self.vad_advanced.setVisible)
-        tr_grp.body_layout.addWidget(self.vad_advanced)
+        tr_lay.addWidget(self.vad_advanced)
 
         glossary_row = QHBoxLayout()
         glossary_row.addWidget(QLabel("Glossary:"))
         self.glossary_edit = QLineEdit()
-        self.glossary_edit.setPlaceholderText("Comma separated key terms, names, acronyms…")
+        self.glossary_edit.setPlaceholderText("Comma separated key terms…")
         glossary_row.addWidget(self.glossary_edit)
-        tr_grp.body_layout.addLayout(glossary_row)
+        tr_lay.addLayout(glossary_row)
         self.transcription_mode_combo.currentIndexChanged.connect(
             self._update_transcription_mode)
-        dl.addWidget(tr_grp)
+        dl.addWidget(tr_card)
 
-        # Slide detection
-        det_grp = CollapsibleGroup("Slide detection")
-        det_row = QHBoxLayout()
-        det_row.addWidget(QLabel("Sensitivity:"))
+        # -- Slide detection card (inside drawer) --
+        det_card, det_lay = _card("Slide sensitivity")
+        det_lay.addWidget(QLabel("Sensitivity:"))
         self.preset_combo = QComboBox()
         self.preset_combo.addItems(["Conservative", "Balanced", "Detailed"])
         self.preset_combo.setCurrentIndex(1)
-        det_row.addWidget(self.preset_combo)
+        det_lay.addWidget(self.preset_combo)
+
         self.preview_btn = QPushButton("Preview detection…")
         self.preview_btn.clicked.connect(self.preview_detection_requested.emit)
-        det_row.addWidget(self.preview_btn)
-        det_grp.body_layout.addLayout(det_row)
+        det_lay.addWidget(self.preview_btn)
 
         from lecturepack.ui.widgets.crop_selector import CropSelector
-        det_grp.body_layout.addWidget(
-            QLabel("Crop (green) and ignore regions (red) — draw on the preview:"))
+        det_lay.addWidget(
+            QLabel("Crop (green) and ignore regions (red):"))
         self.crop_selector = CropSelector()
-        self.crop_selector.setMinimumHeight(200)
-        det_grp.body_layout.addWidget(self.crop_selector)
+        self.crop_selector.setMinimumHeight(150)
+        det_lay.addWidget(self.crop_selector)
+
         tools_layout = QHBoxLayout()
         self.mode_group = QButtonGroup(self)
         self.crop_radio = QRadioButton("Draw crop")
         self.crop_radio.setChecked(True)
-        self.crop_radio.toggled.connect(lambda: self.crop_selector.set_draw_mode("crop"))
-        self.ignore_radio = QRadioButton("Draw ignore region (max 3)")
-        self.ignore_radio.toggled.connect(lambda: self.crop_selector.set_draw_mode("ignore"))
+        self.crop_radio.toggled.connect(
+            lambda: self.crop_selector.set_draw_mode("crop"))
+        self.ignore_radio = QRadioButton("Draw ignore region")
+        self.ignore_radio.toggled.connect(
+            lambda: self.crop_selector.set_draw_mode("ignore"))
         self.mode_group.addButton(self.crop_radio)
         self.mode_group.addButton(self.ignore_radio)
         clear_rects_btn = QPushButton("Clear")
@@ -483,29 +403,186 @@ class ProcessPage(QWidget):
         tools_layout.addWidget(self.crop_radio)
         tools_layout.addWidget(self.ignore_radio)
         tools_layout.addWidget(clear_rects_btn)
-        det_grp.body_layout.addLayout(tools_layout)
-        dl.addWidget(det_grp)
+        det_lay.addLayout(tools_layout)
+        dl.addWidget(det_card)
 
-        # Diagnostics
-        diag_grp = CollapsibleGroup("System diagnostics", collapsed=True)
+        # -- Diagnostics card (inside drawer) --
+        diag_card, diag_lay = _card("System diagnostics")
         self.diag_lbl = QLabel("…")
         self.diag_lbl.setWordWrap(True)
-        diag_grp.body_layout.addWidget(self.diag_lbl)
-        dl.addWidget(diag_grp)
-        dl.addStretch(1)
+        diag_lay.addWidget(self.diag_lbl)
+        dl.addWidget(diag_card)
 
+        dl.addStretch(1)
         drawer_scroll.setWidget(drawer_body)
-        drawer_outer.addWidget(drawer_scroll, 1)
+
+        drawer_inner = QVBoxLayout(self.advanced_drawer)
+        drawer_inner.setContentsMargins(0, 0, 0, 0)
+        drawer_inner.addWidget(drawer_scroll)
+
         self.advanced_drawer.setMinimumWidth(0)
         self.advanced_drawer.setMaximumWidth(0)
         self.advanced_drawer.setVisible(False)
-        root.addWidget(self.advanced_drawer)
+        self.splitter.addWidget(self.advanced_drawer)
+
+        # ── Right: Main content column ─────────────────────────────── #
+        main = QWidget()
+        main_lay = QVBoxLayout(main)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.setSpacing(14)
+
+        # Source card (outside drawer for test compat)
+        src_card, src_lay = _card("Source")
+        self.dropzone = DropzoneHero()
+        self.dropzone.setMinimumHeight(60)
+        self.dropzone.setMaximumHeight(80)
+        dz_lay = QVBoxLayout(self.dropzone)
+        dz_lay.setContentsMargins(10, 6, 10, 6)
+        hint = QLabel("Drop video or browse…")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint.setProperty("muted", True)
+        hint.setStyleSheet("font-size:11px;border:none;background:transparent;")
+        dz_lay.addWidget(hint)
+        self.dropzone.file_dropped.connect(self._on_dropzone_file)
+        src_lay.addWidget(self.dropzone)
+
+        path_row = QHBoxLayout()
+        path_row.setSpacing(6)
+        self.video_path_edit = QLineEdit()
+        self.video_path_edit.setPlaceholderText("Video path…")
+        self.video_path_edit.setStyleSheet(
+            "QLineEdit{padding:5px 8px;border-radius:7px;font-size:12px;}"
+        )
+        browse_btn = QPushButton("Browse")
+        browse_btn.setFixedWidth(62)
+        browse_btn.setStyleSheet(
+            "QPushButton{padding:5px 8px;border-radius:7px;font-size:12px;font-weight:600;}"
+        )
+        browse_btn.clicked.connect(self._browse_video)
+        path_row.addWidget(self.video_path_edit, 1)
+        path_row.addWidget(browse_btn)
+        src_lay.addLayout(path_row)
+
+        self.metadata_lbl = QLabel("No video loaded.")
+        self.metadata_lbl.setProperty("muted", True)
+        self.metadata_lbl.setStyleSheet("font:500 11px 'JetBrains Mono';border:none;background:transparent;")
+        src_lay.addWidget(self.metadata_lbl)
+        main_lay.addWidget(src_card)
+
+        # Action buttons row
+        act_row = QHBoxLayout()
+        act_row.setSpacing(10)
+        self.start_btn = QPushButton("Start processing")
+        self.start_btn.setProperty("primary", True)
+        self.start_btn.setMinimumHeight(38)
+        self.start_btn.clicked.connect(self.start_requested.emit)
+        self.retranscribe_btn = QPushButton("Retranscribe only")
+        self.retranscribe_btn.setEnabled(False)
+        self.retranscribe_btn.clicked.connect(self.retranscribe_requested.emit)
+        self.advanced_toggle = QPushButton("Advanced Settings")
+        self.advanced_toggle.setObjectName("advancedSettingsToggle")
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.toggled.connect(self.set_advanced_open)
+        act_row.addWidget(self.start_btn, 1)
+        act_row.addWidget(self.retranscribe_btn)
+        act_row.addWidget(self.advanced_toggle)
+        main_lay.addLayout(act_row)
+
+        # Output mode card
+        out_card, out_lay = _card("Output mode")
+        self.product_mode_combo = QComboBox()
+        for m in PRODUCT_MODES:
+            self.product_mode_combo.addItem(PRODUCT_MODE_LABELS[m], m)
+        self.product_mode_combo.setProperty("outputMode", True)
+        self.product_mode_combo.setStyleSheet(
+            "QComboBox{padding:7px 10px;border-radius:9px;font-weight:600;font-size:13px;}"
+        )
+        out_lay.addWidget(self.product_mode_combo)
+        main_lay.addWidget(out_card)
+
+        # Pipeline progress card
+        prog_card, prog_lay = _card()
+        self.stage_lbl = QLabel("Idle")
+        self.stage_lbl.setStyleSheet("font-weight:700;font-size:20px;")
+        prog_lay.addWidget(self.stage_lbl)
+        prog_lay.addSpacing(6)
+
+        self.stage_rows = {}
+        for stage in STAGES:
+            row = StageRow(stage)
+            self.stage_rows[stage] = row
+            prog_lay.addWidget(row)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setMaximumHeight(8)
+        self.progress_bar.setTextVisible(False)
+        prog_lay.addWidget(self.progress_bar)
+        main_lay.addWidget(prog_card)
+
+        # Live transcript
+        live_lbl = QLabel("Live transcript")
+        live_lbl.setProperty("muted", True)
+        main_lay.addWidget(live_lbl)
+        self.live_transcript = TranscriptStreamView(live=True, max_blocks=200)
+        self.live_transcript.setMinimumHeight(80)
+        self.live_transcript.setMaximumHeight(150)
+        main_lay.addWidget(self.live_transcript)
+
+        # Live log card
+        log_card = QFrame()
+        log_card.setProperty("card", True)
+        theme.add_card_shadow(log_card)
+        log_lay = QVBoxLayout(log_card)
+        log_lay.setContentsMargins(0, 0, 0, 0)
+        log_lay.setSpacing(0)
+
+        log_header = QHBoxLayout()
+        log_header.setContentsMargins(16, 12, 16, 10)
+        log_title = QLabel("Live log")
+        log_title.setProperty("muted", True)
+        log_title.setStyleSheet(
+            f"font:500 10px '{theme.FONT_MONO}';letter-spacing:0.12em;"
+            f"text-transform:uppercase;border:none;background:transparent;"
+        )
+        log_header.addWidget(log_title)
+        log_header.addStretch(1)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setProperty("danger", True)
+        self.cancel_btn.clicked.connect(self.cancel_requested.emit)
+        log_header.addWidget(self.cancel_btn)
+        log_lay.addLayout(log_header)
+
+        log_sep = QFrame()
+        log_sep.setFrameShape(QFrame.Shape.HLine)
+        log_sep.setStyleSheet(f"color:{theme.c('line')};")
+        log_lay.addWidget(log_sep)
+
+        self.log_toggle = QToolButton()
+        self.log_toggle.setText("▾ Logs")
+        self.log_toggle.setCheckable(True)
+        self.log_toggle.setChecked(True)
+        self.log_toggle.setStyleSheet("QToolButton{border:none;font-weight:700;}")
+        self.log_toggle.clicked.connect(self._toggle_logs)
+
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setProperty("logConsole", True)
+        self.log_text.setStyleSheet(
+            f"font-family: {theme.FONT_MONO}; font-size: 11px;")
+        self.log_text.setMinimumHeight(120)
+
+        log_lay.addWidget(self.log_toggle)
+        log_lay.addWidget(self.log_text, 1)
+        main_lay.addWidget(log_card, 1)
+
+        self.splitter.addWidget(main)
+
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
 
         self._update_transcription_mode()
 
-    # ------------------------------------------------------------------ #
-    # advanced settings drawer
-    # ------------------------------------------------------------------ #
     def set_advanced_open(self, open_: bool):
         open_ = bool(open_)
         if open_ == self._advanced_open:
@@ -530,7 +607,6 @@ class ProcessPage(QWidget):
         anim.start()
         self._drawer_anim = anim
 
-    # ------------------------------------------------------------------ #
     def _toggle_logs(self):
         open_ = self.log_toggle.isChecked()
         self.log_text.setVisible(open_)
@@ -554,7 +630,7 @@ class ProcessPage(QWidget):
 
     def _browse_vad_model(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select VAD Model", "",
-                                                   "Model files (*.bin)")
+                                                    "Model files (*.bin)")
         if file_path:
             self.vad_model_edit.setText(file_path)
 
@@ -567,7 +643,6 @@ class ProcessPage(QWidget):
         self.online_fallback_chk.setVisible(not local)
         self.online_notice_lbl.setVisible(not local)
 
-    # ---- controller feedback -------------------------------------------- #
     def reset_progress(self):
         for row in self.stage_rows.values():
             row.set_state("pending")
@@ -578,7 +653,6 @@ class ProcessPage(QWidget):
         self.live_transcript.clear()
 
     def on_transcript_segment(self, segment):
-        """Append one live segment block; arrival rate is a few per second."""
         text = str(segment.get("text", "")).strip()
         if not text:
             return

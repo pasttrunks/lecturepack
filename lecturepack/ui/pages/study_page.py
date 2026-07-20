@@ -7,6 +7,11 @@ overview (summary, key terms, topics, bookmarks, quick actions) lives in a
 collapsible card above the transcript; every v1.2 public attribute, object
 name and signal is preserved.
 
+Studio 3-column layout:
+  - Left (210px): topics list
+  - Center: overview card + assistant / transcript
+  - Right (240px): bookmarks + stats
+
 Bidirectional sync: clicking a slide smooth-scrolls the transcript to the
 containing segment; scrolling the transcript (debounced inside
 ``TranscriptStreamView``) selects the nearest slide. Feedback loops are
@@ -21,7 +26,7 @@ import os
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
-    QSplitter, QToolButton, QVBoxLayout, QWidget,
+    QScrollArea, QSplitter, QTabWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
 from lecturepack.constants import STAGE_REVIEW_READY
@@ -31,6 +36,8 @@ from lecturepack.services import transcript_store as store
 from lecturepack.services.transcript_formats import fmt_clock
 from lecturepack.ui import theme
 from lecturepack.ui.widgets.slide_grid import CAND_ROLE, SlideGridWidget
+from lecturepack.ui.widgets.study_assistant_panel import StudyAssistantPanel
+from lecturepack.ui.widgets.timeline_spine import TopicTimeline
 from lecturepack.ui.widgets.transcript_block import (
     TranscriptStreamView, find_segment_index, find_slide_index,
 )
@@ -41,8 +48,9 @@ class StudyPage(QWidget):
     seek_requested = Signal(float)
     resume_requested = Signal(str, float)
 
-    def __init__(self, parent=None):
+    def __init__(self, config_manager, parent=None):
         super().__init__(parent)
+        self.config_manager = config_manager
         self.job = None
         self.overview = None
         self._candidates = []
@@ -52,15 +60,29 @@ class StudyPage(QWidget):
         self._build_ui()
 
     # ------------------------------------------------------------------ #
-    # layout
-    # ------------------------------------------------------------------ #
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 10, 12, 10)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        container = QWidget()
+        cl = QVBoxLayout(container)
+        cl.setContentsMargins(44, 30, 44, 52)
+        cl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+        wrapper = QWidget()
+        wrapper.setMaximumWidth(1140)
+        wl = QVBoxLayout(wrapper)
+        wl.setContentsMargins(0, 0, 0, 0)
+        wl.setSpacing(16)
 
         title_row = QHBoxLayout()
         self.title_lbl = QLabel("Study")
-        self.title_lbl.setProperty("h1", True)
+        self.title_lbl.setStyleSheet("font-size: 30px; font-weight: 700; letter-spacing: -0.02em;")
         self.title_lbl.setObjectName("studyTitle")
         title_row.addWidget(self.title_lbl)
         title_row.addStretch(1)
@@ -69,64 +91,109 @@ class StudyPage(QWidget):
         self.resume_btn.setObjectName("studyResumeButton")
         self.resume_btn.clicked.connect(self._resume)
         title_row.addWidget(self.resume_btn)
-        root.addLayout(title_row)
+        wl.addLayout(title_row)
 
         self.empty_lbl = QLabel(
             "No completed lecture is open. Process a lecture or choose one from Home.")
         self.empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_lbl.setProperty("muted", True)
+        self.empty_lbl.setStyleSheet("font-size: 15px;")
         self.empty_lbl.setWordWrap(True)
         self.empty_lbl.setObjectName("studyEmptyState")
-        root.addWidget(self.empty_lbl, 1)
+        wl.addWidget(self.empty_lbl, 1)
+
+        self.timeline_card = QFrame()
+        self.timeline_card.setProperty("card", True)
+        theme.add_card_shadow(self.timeline_card)
+        tc_lay = QVBoxLayout(self.timeline_card)
+        tc_lay.setContentsMargins(18, 13, 18, 13)
+        tc_lay.setSpacing(0)
+
+        tc_head = QHBoxLayout()
+        tc_head.setSpacing(12)
+        tc_title = QLabel("Study timeline")
+        tc_title.setStyleSheet(
+            f"font:500 10px '{theme.FONT_MONO}';letter-spacing:0.12em;"
+            f"text-transform:uppercase;color:{theme.c('secondary')};border:none;background:transparent;")
+        tc_head.addWidget(tc_title)
+        self._study_timeline_meta_lbl = QLabel("0 topics · 0 slides")
+        self._study_timeline_meta_lbl.setProperty("muted", True)
+        self._study_timeline_meta_lbl.setStyleSheet(
+            f"font:500 11px '{theme.FONT_MONO}';border:none;background:transparent;")
+        tc_head.addWidget(self._study_timeline_meta_lbl)
+        tc_head.addStretch(1)
+        self._study_bookmarks_count_lbl = QLabel("0 bookmarks")
+        self._study_bookmarks_count_lbl.setStyleSheet(
+            f"font:500 11px '{theme.FONT_MONO}';color:{theme.c('primary_ink')};border:none;background:transparent;")
+        tc_head.addWidget(self._study_bookmarks_count_lbl)
+        tc_lay.addLayout(tc_head)
+        tc_lay.addSpacing(9)
+
+        self.topic_timeline = TopicTimeline()
+        self.topic_timeline.topic_clicked.connect(self._on_topic_timeline_clicked)
+        tc_lay.addWidget(self.topic_timeline)
+        tc_lay.addSpacing(5)
+
+        self._topic_labels_row = QHBoxLayout()
+        tc_lay.addLayout(self._topic_labels_row)
+        wl.addWidget(self.timeline_card)
 
         self.content = QSplitter(Qt.Orientation.Horizontal)
         self.content.setObjectName("studySplitter")
 
         # ---- left: slide timeline ------------------------------------- #
         slides_panel = QWidget()
+        slides_panel.setMinimumWidth(200)
+        slides_panel.setMaximumWidth(260)
         slides_layout = QVBoxLayout(slides_panel)
         slides_layout.setContentsMargins(0, 0, 0, 0)
+        slides_layout.setSpacing(8)
         slides_title = QLabel("Slides")
-        slides_title.setProperty("h2", True)
+        slides_title.setStyleSheet("font-weight: 700; font-size: 16px;")
         slides_layout.addWidget(slides_title)
         self.slides_grid = SlideGridWidget()
         self.slides_grid.setObjectName("studySlidesGrid")
         slides_layout.addWidget(self.slides_grid, 1)
         self.content.addWidget(slides_panel)
 
-        # ---- right: overview card + transcript ------------------------- #
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(8, 0, 0, 0)
-        right_layout.setSpacing(8)
+        # ---- center: overview + transcript ---------------------------- #
+        center = QWidget()
+        center_layout = QVBoxLayout(center)
+        center_layout.setContentsMargins(14, 0, 14, 0)
+        center_layout.setSpacing(10)
 
         self.overview_card = QFrame()
         self.overview_card.setProperty("card", True)
         self.overview_card.setObjectName("studyOverviewCard")
+        theme.add_card_shadow(self.overview_card)
         card_layout = QVBoxLayout(self.overview_card)
+        card_layout.setContentsMargins(20, 18, 20, 18)
+        card_layout.setSpacing(8)
         self.overview_toggle = QToolButton()
         self.overview_toggle.setObjectName("studyOverviewToggle")
         self.overview_toggle.setText("Overview")
         self.overview_toggle.setCheckable(True)
         self.overview_toggle.setChecked(True)
-        self.overview_toggle.setToolButtonStyle(
-            Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.overview_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.overview_toggle.setArrowType(Qt.ArrowType.DownArrow)
+        self.overview_toggle.setStyleSheet("font-weight: 700; font-size: 15px;")
         self.overview_toggle.toggled.connect(self._on_overview_toggled)
         card_layout.addWidget(self.overview_toggle)
 
         self.overview_body = QWidget()
         body = QVBoxLayout(self.overview_body)
         body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(6)
 
         self.meta_lbl = QLabel()
         self.meta_lbl.setObjectName("studyMetadata")
         self.meta_lbl.setWordWrap(True)
         self.meta_lbl.setProperty("muted", True)
+        self.meta_lbl.setStyleSheet("font-size: 12px;")
         body.addWidget(self.meta_lbl)
 
         summary_title = QLabel("Lecture overview")
-        summary_title.setProperty("h2", True)
+        summary_title.setStyleSheet("font-weight: 700; font-size: 15px;")
         body.addWidget(summary_title)
         self.summary_lbl = QLabel()
         self.summary_lbl.setObjectName("studySummary")
@@ -136,10 +203,11 @@ class StudyPage(QWidget):
         body.addWidget(self.summary_lbl)
         self.summary_source_lbl = QLabel()
         self.summary_source_lbl.setProperty("muted", True)
+        self.summary_source_lbl.setStyleSheet("font-size: 12px;")
         body.addWidget(self.summary_source_lbl)
 
         terms_title = QLabel("Key terms")
-        terms_title.setProperty("h2", True)
+        terms_title.setStyleSheet("font-weight: 700; font-size: 15px;")
         body.addWidget(terms_title)
         self.terms_lbl = QLabel()
         self.terms_lbl.setObjectName("studyKeyTerms")
@@ -147,9 +215,10 @@ class StudyPage(QWidget):
         body.addWidget(self.terms_lbl)
 
         actions_title = QLabel("Continue studying")
-        actions_title.setProperty("h2", True)
+        actions_title.setStyleSheet("font-weight: 700; font-size: 15px;")
         body.addWidget(actions_title)
         actions = QHBoxLayout()
+        actions.setSpacing(6)
         for text, target, object_name in (
             ("Read transcript", "transcript", "studyReadTranscript"),
             ("Review slides", "review", "studyReviewSlides"),
@@ -158,59 +227,86 @@ class StudyPage(QWidget):
         ):
             button = QPushButton(text)
             button.setObjectName(object_name)
+            button.setProperty("softPanel", True)
+            button.setStyleSheet("font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px;")
             button.clicked.connect(
                 lambda checked=False, destination=target:
                 self.navigate_requested.emit(destination))
             actions.addWidget(button)
         actions.addStretch(1)
         body.addLayout(actions)
+        card_layout.addWidget(self.overview_body)
+        center_layout.addWidget(self.overview_card)
 
-        nav_row = QHBoxLayout()
-        topics_col = QVBoxLayout()
+        self.center_tabs = QTabWidget()
+        self.center_tabs.setObjectName("studyCenterTabs")
+
+        transcript_tab = QWidget()
+        tt_lay = QVBoxLayout(transcript_tab)
+        tt_lay.setContentsMargins(0, 8, 0, 0)
+        self.transcript_view = TranscriptStreamView()
+        tt_lay.addWidget(self.transcript_view, 1)
+        self.center_tabs.addTab(transcript_tab, "Transcript")
+
+        self.assistant_panel = StudyAssistantPanel(self.config_manager)
+        self.assistant_panel.status_message.connect(self._on_assistant_status)
+        self.center_tabs.addTab(self.assistant_panel, "Study assistant")
+
+        center_layout.addWidget(self.center_tabs, 1)
+        self.content.addWidget(center)
+
+        # ---- right: bookmarks + stats --------------------------------- #
+        right_panel = QWidget()
+        right_panel.setMinimumWidth(200)
+        right_panel.setMaximumWidth(280)
+        rp_layout = QVBoxLayout(right_panel)
+        rp_layout.setContentsMargins(0, 0, 0, 0)
+        rp_layout.setSpacing(12)
+
         topics_title = QLabel("Topics")
-        topics_title.setProperty("h2", True)
-        topics_col.addWidget(topics_title)
+        topics_title.setStyleSheet("font-weight: 700; font-size: 15px;")
+        rp_layout.addWidget(topics_title)
         self.topics_list = QListWidget()
         self.topics_list.setObjectName("studyTopicsList")
-        self.topics_list.setMaximumHeight(130)
+        self.topics_list.setMinimumHeight(120)
         self.topics_list.itemActivated.connect(self._open_topic)
-        topics_col.addWidget(self.topics_list)
-        nav_row.addLayout(topics_col, 1)
+        rp_layout.addWidget(self.topics_list)
 
-        bookmarks_col = QVBoxLayout()
+        bookmarks_title = QLabel("Bookmarks")
+        bookmarks_title.setStyleSheet("font-weight: 700; font-size: 15px;")
+        rp_layout.addWidget(bookmarks_title)
+
         self.slides_bookmarks_lbl = QLabel("Slide bookmarks")
         self.slides_bookmarks_lbl.setProperty("muted", True)
-        bookmarks_col.addWidget(self.slides_bookmarks_lbl)
+        self.slides_bookmarks_lbl.setStyleSheet("font-size: 12px;")
+        rp_layout.addWidget(self.slides_bookmarks_lbl)
         self.slide_bookmarks = QListWidget()
         self.slide_bookmarks.setObjectName("studySlideBookmarks")
-        self.slide_bookmarks.setMaximumHeight(60)
+        self.slide_bookmarks.setMinimumHeight(80)
         self.slide_bookmarks.itemActivated.connect(self._open_bookmark)
-        bookmarks_col.addWidget(self.slide_bookmarks)
+        rp_layout.addWidget(self.slide_bookmarks)
+
         self.section_bookmarks_lbl = QLabel("Section bookmarks")
         self.section_bookmarks_lbl.setProperty("muted", True)
-        bookmarks_col.addWidget(self.section_bookmarks_lbl)
+        self.section_bookmarks_lbl.setStyleSheet("font-size: 12px;")
+        rp_layout.addWidget(self.section_bookmarks_lbl)
         self.section_bookmarks = QListWidget()
         self.section_bookmarks.setObjectName("studySectionBookmarks")
-        self.section_bookmarks.setMaximumHeight(60)
+        self.section_bookmarks.setMinimumHeight(80)
         self.section_bookmarks.itemActivated.connect(self._open_bookmark)
-        bookmarks_col.addWidget(self.section_bookmarks)
-        nav_row.addLayout(bookmarks_col, 1)
-        body.addLayout(nav_row)
+        rp_layout.addWidget(self.section_bookmarks)
 
-        card_layout.addWidget(self.overview_body)
-        theme.add_card_shadow(self.overview_card)
-        right_layout.addWidget(self.overview_card)
-
-        transcript_title = QLabel("Transcript")
-        transcript_title.setProperty("h2", True)
-        right_layout.addWidget(transcript_title)
-        self.transcript_view = TranscriptStreamView()
-        right_layout.addWidget(self.transcript_view, 1)
-        self.content.addWidget(right)
+        rp_layout.addStretch(1)
+        self.content.addWidget(right_panel)
 
         self.content.setStretchFactor(0, 2)
         self.content.setStretchFactor(1, 3)
-        root.addWidget(self.content, 1)
+        self.content.setStretchFactor(2, 2)
+        wl.addWidget(self.content, 1)
+
+        cl.addWidget(wrapper)
+        scroll.setWidget(container)
+        root.addWidget(scroll)
 
         # ---- bidirectional sync wiring ---------------------------------- #
         self.slides_grid.currentItemChanged.connect(
@@ -233,10 +329,14 @@ class StudyPage(QWidget):
         self.empty_lbl.setVisible(empty)
         self.content.setVisible(not empty)
         self.resume_btn.setVisible(not empty)
+        self.timeline_card.setVisible(not empty)
 
     def load_job(self, job):
         self.job = job
         self.refresh()
+
+    def shutdown(self):
+        self.assistant_panel.shutdown()
 
     def _clear_workspace(self):
         self._candidates = []
@@ -244,9 +344,9 @@ class StudyPage(QWidget):
         self.slides_grid.shutdown()
         self.slides_grid.clear()
         self.transcript_view.clear()
+        self.assistant_panel.load_job(None, [])
 
     def _load_workspace(self):
-        """Populate slides + transcript blocks for the spatial workspace."""
         candidates_path = os.path.join(self.job.paths["root"], "candidates.json")
         candidates = FileManager.read_json_safe(candidates_path, []) or []
         accepted = [c for c in candidates if c.get("decision") != "rejected"]
@@ -255,6 +355,10 @@ class StudyPage(QWidget):
         self.slides_grid.load_candidates(accepted, self.job.paths)
         self._segments = store.load_working(self.job.paths) or []
         self.transcript_view.set_segments(self._segments)
+        self.assistant_panel.load_job(self.job, self._segments)
+
+    def _on_assistant_status(self, message: str):
+        pass
 
     def refresh(self):
         if self.job is None:
@@ -280,13 +384,13 @@ class StudyPage(QWidget):
         self.title_lbl.setText(overview["title"])
         duration = fmt_clock(overview["duration_seconds"])
         self.meta_lbl.setText(
-            f"{duration}  ·  {overview['accepted_slide_count']} accepted slides  ·  "
+            f"{duration}  \u00b7  {overview['accepted_slide_count']} accepted slides  \u00b7  "
             f"{overview['transcript_segment_count']} transcript segments\n"
-            f"Mode: {overview['product_mode']}  ·  Loaded backend: {overview['backend']}  ·  "
+            f"Mode: {overview['product_mode']}  \u00b7  Loaded backend: {overview['backend']}  \u00b7  "
             f"Needs review: {overview['needs_review_count']}")
         self.summary_lbl.setText(overview["summary"])
         self.summary_source_lbl.setText(f"Source: {overview['summary_source']}")
-        self.terms_lbl.setText("  ·  ".join(overview["key_terms"]) or "No key terms yet.")
+        self.terms_lbl.setText("  \u00b7  ".join(overview["key_terms"]) or "No key terms yet.")
 
         self.topics_list.clear()
         for section in overview["sections"]:
@@ -300,6 +404,32 @@ class StudyPage(QWidget):
             item.setFlags(Qt.ItemFlag.NoItemFlags)
             self.topics_list.addItem(item)
 
+        sections = overview["sections"]
+        self.topic_timeline.set_topics(
+            [{"start": float(s["start"]), "label": s["heading"]} for s in sections],
+            overview["duration_seconds"])
+        self._study_timeline_meta_lbl.setText(
+            f"{len(sections)} topics · {overview['accepted_slide_count']} slides")
+        bookmark_count = sum(
+            1 for e in overview["bookmarked_slides"].values() if e.get("bookmarked")
+        ) + len(overview["bookmarked_sections"])
+        self._study_bookmarks_count_lbl.setText(
+            f"{bookmark_count} bookmark{'s' if bookmark_count != 1 else ''}")
+        while self._topic_labels_row.count():
+            item = self._topic_labels_row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        for section in sections[:5]:
+            lbl = QLabel(str(section["heading"]))
+            lbl.setProperty("muted", True)
+            lbl.setStyleSheet(f"font:500 10px '{theme.FONT_MONO}';border:none;background:transparent;")
+            self._topic_labels_row.addWidget(lbl)
+            self._topic_labels_row.addStretch(1)
+        if sections:
+            self._topic_labels_row.takeAt(self._topic_labels_row.count() - 1)
+
         self.slide_bookmarks.clear()
         slide_entries = sorted(
             overview["bookmarked_slides"].values(),
@@ -310,9 +440,9 @@ class StudyPage(QWidget):
             note = str(entry.get("note") or "").strip()
             label = f"{fmt_clock(float(entry.get('timestamp_seconds', 0.0)))}"
             if entry.get("bookmarked"):
-                label = "★ " + label
+                label = "\u2605 " + label
             if note:
-                label += f" — {note}"
+                label += f" \u2014 {note}"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole,
                          float(entry.get("timestamp_seconds", 0.0)))
@@ -328,7 +458,7 @@ class StudyPage(QWidget):
             key=lambda entry: float(entry.get("start", 0.0)))
         for entry in section_entries:
             item = QListWidgetItem(
-                f"★ {fmt_clock(float(entry.get('start', 0.0)))}  "
+                f"\u2605 {fmt_clock(float(entry.get('start', 0.0)))}  "
                 f"{entry.get('heading', 'Untitled section')}")
             item.setData(Qt.ItemDataRole.UserRole, float(entry.get("start", 0.0)))
             self.section_bookmarks.addItem(item)
@@ -396,6 +526,14 @@ class StudyPage(QWidget):
         if value is not None:
             self.navigate_requested.emit("transcript")
             self.seek_requested.emit(float(value))
+
+    def _on_topic_timeline_clicked(self, index: int):
+        if self.overview is None:
+            return
+        sections = self.overview.get("sections") or []
+        if 0 <= index < len(sections):
+            self.navigate_requested.emit("transcript")
+            self.seek_requested.emit(float(sections[index]["start"]))
 
     def _open_bookmark(self, item: QListWidgetItem):
         value = item.data(Qt.ItemDataRole.UserRole)
