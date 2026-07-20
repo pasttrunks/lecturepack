@@ -42,18 +42,22 @@ def _card(title: str = "", parent=None) -> tuple[QFrame, QVBoxLayout]:
     card = QFrame(parent)
     card.setProperty("card", True)
     theme.add_card_shadow(card)
-    card.setStyleSheet(
-        card.styleSheet()
-        + f"QFrame{{background:{theme.c('panel')};border:1.5px solid {theme.c('border')};border-radius:13px;}}"
-    )
+    # NOTE: card background/border/radius come from the global
+    # `QFrame[card="true"]` QSS rule (theme.py) so they stay correct across
+    # theme toggles. A local literal `QFrame{...}` override here would be a
+    # bare type selector that cascades onto every QFrame-derived descendant
+    # (QLabel included, since QLabel subclasses QFrame) and both boxes every
+    # child label and freezes the color to whatever theme was active at
+    # construction time.
     lay = QVBoxLayout(card)
     lay.setContentsMargins(15, 13, 15, 13)
     lay.setSpacing(6)
     if title:
         lbl = QLabel(title)
+        lbl.setProperty("muted", True)
         lbl.setStyleSheet(
             f"font:500 10px '{theme.FONT_MONO}';letter-spacing:0.12em;"
-            f"text-transform:uppercase;color:{theme.c('muted')};margin-bottom:3px;"
+            f"text-transform:uppercase;border:none;background:transparent;margin-bottom:3px;"
         )
         lay.addWidget(lbl)
     return card, lay
@@ -432,15 +436,12 @@ class ProcessPage(QWidget):
         self.dropzone = DropzoneHero()
         self.dropzone.setMinimumHeight(60)
         self.dropzone.setMaximumHeight(80)
-        self.dropzone.setStyleSheet(
-            f"DropzoneHero{{border:1.5px dashed {theme.c('line')};border-radius:9px;"
-            f"background:{theme.c('sunk')};}}"
-        )
         dz_lay = QVBoxLayout(self.dropzone)
         dz_lay.setContentsMargins(10, 6, 10, 6)
         hint = QLabel("Drop video or browse…")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint.setStyleSheet(f"font-size:11px;color:{theme.c('muted')};")
+        hint.setProperty("muted", True)
+        hint.setStyleSheet("font-size:11px;border:none;background:transparent;")
         dz_lay.addWidget(hint)
         self.dropzone.file_dropped.connect(self._on_dropzone_file)
         src_lay.addWidget(self.dropzone)
@@ -450,14 +451,12 @@ class ProcessPage(QWidget):
         self.video_path_edit = QLineEdit()
         self.video_path_edit.setPlaceholderText("Video path…")
         self.video_path_edit.setStyleSheet(
-            f"QLineEdit{{padding:5px 8px;border:1.5px solid {theme.c('line')};border-radius:7px;"
-            f"font-size:12px;background:{theme.c('sunk')};}}"
+            "QLineEdit{padding:5px 8px;border-radius:7px;font-size:12px;}"
         )
         browse_btn = QPushButton("Browse")
         browse_btn.setFixedWidth(62)
         browse_btn.setStyleSheet(
-            f"QPushButton{{padding:5px 8px;border:1.5px solid {theme.c('line')};border-radius:7px;"
-            f"font-size:12px;font-weight:600;}}"
+            "QPushButton{padding:5px 8px;border-radius:7px;font-size:12px;font-weight:600;}"
         )
         browse_btn.clicked.connect(self._browse_video)
         path_row.addWidget(self.video_path_edit, 1)
@@ -466,7 +465,7 @@ class ProcessPage(QWidget):
 
         self.metadata_lbl = QLabel("No video loaded.")
         self.metadata_lbl.setProperty("muted", True)
-        self.metadata_lbl.setStyleSheet(f"font:500 11px 'JetBrains Mono';color:{theme.c('muted')};")
+        self.metadata_lbl.setStyleSheet("font:500 11px 'JetBrains Mono';border:none;background:transparent;")
         src_lay.addWidget(self.metadata_lbl)
         main_lay.addWidget(src_card)
 
@@ -494,9 +493,9 @@ class ProcessPage(QWidget):
         self.product_mode_combo = QComboBox()
         for m in PRODUCT_MODES:
             self.product_mode_combo.addItem(PRODUCT_MODE_LABELS[m], m)
+        self.product_mode_combo.setProperty("outputMode", True)
         self.product_mode_combo.setStyleSheet(
-            f"QComboBox{{padding:7px 10px;border:1.5px solid {theme.c('primary')};border-radius:9px;"
-            f"font-weight:600;font-size:13px;background:{theme.c('primary_soft')};}}"
+            "QComboBox{padding:7px 10px;border-radius:9px;font-weight:600;font-size:13px;}"
         )
         out_lay.addWidget(self.product_mode_combo)
         main_lay.addWidget(out_card)
@@ -534,10 +533,6 @@ class ProcessPage(QWidget):
         log_card = QFrame()
         log_card.setProperty("card", True)
         theme.add_card_shadow(log_card)
-        log_card.setStyleSheet(
-            log_card.styleSheet()
-            + f"QFrame{{background:{theme.c('panel')};border:1.5px solid {theme.c('border')};border-radius:13px;}}"
-        )
         log_lay = QVBoxLayout(log_card)
         log_lay.setContentsMargins(0, 0, 0, 0)
         log_lay.setSpacing(0)
@@ -545,9 +540,10 @@ class ProcessPage(QWidget):
         log_header = QHBoxLayout()
         log_header.setContentsMargins(16, 12, 16, 10)
         log_title = QLabel("Live log")
+        log_title.setProperty("muted", True)
         log_title.setStyleSheet(
             f"font:500 10px '{theme.FONT_MONO}';letter-spacing:0.12em;"
-            f"text-transform:uppercase;color:{theme.c('muted')};"
+            f"text-transform:uppercase;border:none;background:transparent;"
         )
         log_header.addWidget(log_title)
         log_header.addStretch(1)
@@ -571,9 +567,8 @@ class ProcessPage(QWidget):
 
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        _log_bg = theme.DARK_SUNK if theme.is_dark() else theme.LIGHT_SUNK
+        self.log_text.setProperty("logConsole", True)
         self.log_text.setStyleSheet(
-            f"background: {_log_bg}; color: {theme.SUCCESS}; "
             f"font-family: {theme.FONT_MONO}; font-size: 11px;")
         self.log_text.setMinimumHeight(120)
 

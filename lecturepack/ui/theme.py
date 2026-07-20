@@ -422,6 +422,12 @@ def _qss(dark):
         padding: 8px 12px; font: 500 13px {FONT_STACK}; color: {ink};
     }}
     QComboBox:hover {{ border-color: {secondary}; }}
+    QComboBox[outputMode="true"] {{
+        background: {primary_soft}; border: 1.5px solid {primary}; color: {primary_ink};
+    }}
+    QFrame#DropzoneHero {{
+        background: {sunk}; border: 1.5px dashed {line}; border-radius: 9px;
+    }}
     QComboBox::drop-down {{
         border: none; width: 24px;
     }}
@@ -437,6 +443,10 @@ def _qss(dark):
     QTextEdit:focus, QPlainTextEdit:focus {{
         border-color: {secondary};
     }}
+    QTextEdit[logConsole="true"] {{
+        background: {sunk}; color: {green}; border: 1.5px solid {line};
+        border-radius: 8px; padding: 10px 12px;
+    }}
     QPushButton {{
         font: 600 13px {FONT_STACK}; background: {card_bg};
         color: {ink}; border: 1.5px solid {border}; border-radius: 9px;
@@ -445,6 +455,12 @@ def _qss(dark):
     QPushButton:hover {{ background: {panel2}; }}
     QPushButton:pressed {{ background: {sunk}; }}
     QPushButton:disabled {{ background: {sunk}; color: {muted}; border-color: {sunk}; }}
+    QPushButton[softPanel="true"], QToolButton[softPanel="true"] {{
+        background: {card_bg}; border: 1.5px solid {line};
+    }}
+    QLabel[previewPane="true"] {{
+        background: {panel2}; border: 1.5px solid {border};
+    }}
     """
 
 

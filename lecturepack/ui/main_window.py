@@ -618,6 +618,11 @@ class MainWindow(QMainWindow):
         self.header_bar.set_theme_label(dark)
         self.header_bar.set_wordmark_theme(dark)
         self._refresh_nav_icons()
+        # Job cards bake theme colors into per-instance stylesheets at
+        # construction time, so they must be rebuilt on every theme toggle
+        # to avoid stale (invisible) colors from the previous theme.
+        if hasattr(self, "home_page"):
+            self.home_page.refresh_jobs()
 
     def _on_theme_toggle(self):
         dark = not theme.is_dark()

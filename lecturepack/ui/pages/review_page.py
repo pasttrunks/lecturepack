@@ -63,12 +63,6 @@ class ReviewPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.splitter.setStyleSheet(f"""
-            QSplitter::handle {{
-                background: {theme.c('line')};
-                width: 1px;
-            }}
-        """)
 
         # ---- left: slide timeline -------------------------------------- #
         left = QWidget()
@@ -107,23 +101,28 @@ class ReviewPage(QWidget):
         self.slides_view.activate_preview_requested.connect(self._focus_preview)
         ll.addWidget(self.slides_view, 1)
 
-        actions = QHBoxLayout()
+        # Two rows — the 250-300px slide column can't fit "Keep" + "Reject
+        # (Del)" + "Restore (R)" on one line without clipping button text.
+        actions = QVBoxLayout()
         actions.setSpacing(6)
+        actions_row1 = QHBoxLayout()
+        actions_row1.setSpacing(6)
         self.bulk_keep_btn = QPushButton("Keep")
+        self.bulk_keep_btn.setProperty("softPanel", True)
         self.bulk_keep_btn.setStyleSheet(
-            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            "font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px;")
         self.bulk_keep_btn.clicked.connect(self._bulk_keep)
         self.bulk_reject_btn = QPushButton("Reject (Del)")
         self.bulk_reject_btn.setProperty("danger", True)
         self.bulk_reject_btn.clicked.connect(self._bulk_reject)
+        actions_row1.addWidget(self.bulk_keep_btn, 1)
+        actions_row1.addWidget(self.bulk_reject_btn, 1)
+        actions.addLayout(actions_row1)
         self.bulk_restore_btn = QPushButton("Restore (R)")
+        self.bulk_restore_btn.setProperty("softPanel", True)
         self.bulk_restore_btn.setStyleSheet(
-            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            "font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px;")
         self.bulk_restore_btn.clicked.connect(self._bulk_restore)
-        actions.addWidget(self.bulk_keep_btn)
-        actions.addWidget(self.bulk_reject_btn)
         actions.addWidget(self.bulk_restore_btn)
         ll.addLayout(actions)
         self.splitter.addWidget(left)
@@ -137,27 +136,25 @@ class ReviewPage(QWidget):
         self.preview_lbl = QLabel("Select a slide to preview")
         self.preview_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_lbl.setMinimumHeight(240)
-        border_c = theme.c('border')
-        muted_c = theme.c('muted')
-        bg_c = theme.c('panel2')
-        self.preview_lbl.setStyleSheet(
-            f"background: {bg_c}; border: 1.5px solid {border_c}; border-radius: 10px; color: {muted_c};")
+        self.preview_lbl.setProperty("muted", True)
+        self.preview_lbl.setProperty("previewPane", True)
+        self.preview_lbl.setStyleSheet("border-radius: 10px;")
         cl.addWidget(self.preview_lbl, 1)
 
         nav = QHBoxLayout()
         nav.setSpacing(8)
         prev_btn = QPushButton("\u25c0 Prev")
+        prev_btn.setProperty("softPanel", True)
         prev_btn.setStyleSheet(
-            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            "font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px;")
         prev_btn.clicked.connect(lambda: self._step_selection(-1))
         self.slide_info_lbl = QLabel("Timestamp: \u2014")
         self.slide_info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.slide_info_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
         next_btn = QPushButton("Next \u25b6")
+        next_btn.setProperty("softPanel", True)
         next_btn.setStyleSheet(
-            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            "font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px;")
         next_btn.clicked.connect(lambda: self._step_selection(1))
         nav.addWidget(prev_btn)
         nav.addWidget(self.slide_info_lbl, 1)
@@ -170,9 +167,9 @@ class ReviewPage(QWidget):
         self.slide_bookmark_btn.setCheckable(True)
         self.slide_bookmark_btn.setObjectName("slideBookmarkButton")
         self.slide_bookmark_btn.setEnabled(False)
+        self.slide_bookmark_btn.setProperty("softPanel", True)
         self.slide_bookmark_btn.setStyleSheet(
-            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            "font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px;")
         self.slide_bookmark_btn.toggled.connect(self._save_slide_study)
         self.slide_note_edit = QLineEdit()
         self.slide_note_edit.setObjectName("slideNoteEdit")
@@ -202,46 +199,53 @@ class ReviewPage(QWidget):
         self.search_input.setPlaceholderText("Search (Ctrl+F, F3/Shift+F3)\u2026")
         self.search_input.textChanged.connect(self._on_search_text_changed)
         self.search_prev_btn = QPushButton("Prev")
+        self.search_prev_btn.setProperty("softPanel", True)
         self.search_prev_btn.setStyleSheet(
-            f"font: 600 13px sans-serif; padding: 6px 10px; border-radius: 6px; "
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            "font: 600 13px sans-serif; padding: 6px 10px; border-radius: 6px;")
         self.search_prev_btn.clicked.connect(self._search_prev)
         self.search_next_btn = QPushButton("Next")
+        self.search_next_btn.setProperty("softPanel", True)
         self.search_next_btn.setStyleSheet(
-            f"font: 600 13px sans-serif; padding: 6px 10px; border-radius: 6px; "
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            "font: 600 13px sans-serif; padding: 6px 10px; border-radius: 6px;")
         self.search_next_btn.clicked.connect(self._search_next)
         search_layout.addWidget(self.search_input, 1)
         search_layout.addWidget(self.search_prev_btn)
         search_layout.addWidget(self.search_next_btn)
         rl.addLayout(search_layout)
 
-        copy_layout = QHBoxLayout()
-        copy_layout.setSpacing(6)
-        copy_layout.addWidget(QLabel("Copy as:"))
+        # Row 1: format + timestamps. Row 2: copy actions (own row — six
+        # widgets in one row clipped down to unreadable button labels in the
+        # ~320-420px right panel).
+        copy_fmt_layout = QHBoxLayout()
+        copy_fmt_layout.setSpacing(6)
+        copy_fmt_layout.addWidget(QLabel("Copy as:"))
         self.copy_format_combo = QComboBox()
         self.copy_format_combo.addItems(list(_COPY_FORMAT_MAP.keys()))
-        copy_layout.addWidget(self.copy_format_combo)
+        copy_fmt_layout.addWidget(self.copy_format_combo, 1)
         self.timestamps_chk = QCheckBox("Timestamps")
-        copy_layout.addWidget(self.timestamps_chk)
+        copy_fmt_layout.addWidget(self.timestamps_chk)
+        rl.addLayout(copy_fmt_layout)
+
+        copy_layout = QHBoxLayout()
+        copy_layout.setSpacing(6)
         self.copy_current_btn = QPushButton("Copy slide")
+        self.copy_current_btn.setProperty("softPanel", True)
         self.copy_current_btn.setStyleSheet(
-            f"font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px; "
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            "font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px;")
         self.copy_current_btn.clicked.connect(self._copy_current_transcript)
         self.copy_selected_btn = QPushButton("Copy selected")
+        self.copy_selected_btn.setProperty("softPanel", True)
         self.copy_selected_btn.setStyleSheet(
-            f"font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px; "
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            "font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px;")
         self.copy_selected_btn.clicked.connect(self._copy_selected_transcripts)
         self.copy_full_btn = QPushButton("Copy full")
+        self.copy_full_btn.setProperty("softPanel", True)
         self.copy_full_btn.setStyleSheet(
-            f"font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px; "
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            "font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px;")
         self.copy_full_btn.clicked.connect(self._copy_full_transcript)
-        copy_layout.addWidget(self.copy_current_btn)
-        copy_layout.addWidget(self.copy_selected_btn)
-        copy_layout.addWidget(self.copy_full_btn)
+        copy_layout.addWidget(self.copy_current_btn, 1)
+        copy_layout.addWidget(self.copy_selected_btn, 1)
+        copy_layout.addWidget(self.copy_full_btn, 1)
         rl.addLayout(copy_layout)
 
         self.transcript_table = QTableWidget()
@@ -263,9 +267,9 @@ class ReviewPage(QWidget):
         self.save_corrections_btn.setProperty("primary", True)
         self.save_corrections_btn.clicked.connect(self._save_corrections)
         self.context_repair_btn = QPushButton("Context Repair\u2026")
+        self.context_repair_btn.setProperty("softPanel", True)
         self.context_repair_btn.setStyleSheet(
-            f"font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px; "
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            "font: 600 13px sans-serif; padding: 7px 14px; border-radius: 7px;")
         self.context_repair_btn.clicked.connect(self.open_context_repair.emit)
         self.transcript_status_lbl = QLabel("")
         self.transcript_status_lbl.setProperty("chip", "ok")

@@ -149,8 +149,8 @@ class HomePage(QWidget):
         headline.setWordWrap(True)
         headline.setMaximumWidth(680)
         headline.setStyleSheet(
-            f"font-size: 40px; font-weight: 700; letter-spacing: -0.025em; "
-            f"line-height: 1.08; margin-top: 12px; margin-bottom: 12px; color: {theme.c('ink')};")
+            "font-size: 40px; font-weight: 700; letter-spacing: -0.025em; "
+            "line-height: 1.08; margin-top: 12px; margin-bottom: 12px;")
         wl.addWidget(headline)
 
         subtitle = QLabel(
@@ -158,9 +158,9 @@ class HomePage(QWidget):
             "exported beautifully, entirely on your machine.")
         subtitle.setWordWrap(True)
         subtitle.setMaximumWidth(540)
+        subtitle.setProperty("muted", True)
         subtitle.setStyleSheet(
-            f"font-size: 16px; color: {theme.c('muted')}; "
-            f"line-height: 1.55; margin-bottom: 30px;")
+            "font-size: 16px; line-height: 1.55; margin-bottom: 30px;")
         wl.addWidget(subtitle)
 
         drop_card = QFrame()
@@ -188,11 +188,11 @@ class HomePage(QWidget):
         drop_info = QVBoxLayout()
         drop_info.setSpacing(3)
         drop_title = QLabel("Drop a lecture video anywhere")
-        drop_title.setStyleSheet(f"font-weight: 700; font-size: 18px; color: {theme.c('ink')}; border: none;")
+        drop_title.setStyleSheet("font-weight: 700; font-size: 18px; border: none;")
         drop_info.addWidget(drop_title)
         drop_sub = QLabel(".mp4 \u00b7 .mkv \u00b7 .mov \u00b7 .m4v \u00b7 .webm \u2014 any length")
-        drop_sub.setStyleSheet(
-            f"font: 500 12px monospace; color: {theme.c('muted')}; border: none;")
+        drop_sub.setProperty("muted", True)
+        drop_sub.setStyleSheet("font: 500 12px monospace; border: none;")
         drop_info.addWidget(drop_sub)
         dc_l.addLayout(drop_info, 1)
         browse_btn = QPushButton("Browse for video")
@@ -211,11 +211,11 @@ class HomePage(QWidget):
         jobs_header.setSpacing(11)
         recent_lbl = QLabel("RECENT JOBS")
         recent_lbl.setStyleSheet(
-            f"font: 500 12px monospace; letter-spacing: 0.14em; "
-            f"text-transform: uppercase; border: none; color: {theme.c('ink')};")
+            "font: 500 12px monospace; letter-spacing: 0.14em; "
+            "text-transform: uppercase; border: none;")
         self._jobs_count_lbl = QLabel("0")
-        self._jobs_count_lbl.setStyleSheet(
-            f"font: 500 12px monospace; color: {theme.c('muted')}; border: none;")
+        self._jobs_count_lbl.setProperty("muted", True)
+        self._jobs_count_lbl.setStyleSheet("font: 500 12px monospace; border: none;")
         jobs_header.addWidget(recent_lbl)
         jobs_header.addWidget(self._jobs_count_lbl)
         jobs_header.addStretch(1)
@@ -248,8 +248,8 @@ class HomePage(QWidget):
             "No jobs yet. Drop a lecture video above or browse to get started.")
         self._empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_state.setWordWrap(True)
-        self._empty_state.setStyleSheet(
-            f"color: {theme.c('muted')}; font-size: 15px; padding: 40px 20px;")
+        self._empty_state.setProperty("muted", True)
+        self._empty_state.setStyleSheet("font-size: 15px; padding: 40px 20px;")
         self._empty_state.setVisible(False)
         wl.addWidget(self._empty_state)
 

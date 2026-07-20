@@ -186,6 +186,12 @@ class TranscriptStreamView(QScrollArea):
             item = self._block_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                # takeAt() only detaches the item from the layout — the
+                # widget stays a visible child of the container at its old
+                # geometry until deleteLater()'s deferred event fires, so it
+                # renders stacked on top of the freshly laid-out replacement
+                # blocks. Reparenting immediately hides it right away.
+                widget.setParent(None)
                 widget.deleteLater()
 
     # ------------------------------------------------------------------ #
@@ -287,6 +293,7 @@ class TranscriptStreamView(QScrollArea):
         while len(self._blocks) > self._max_blocks:
             block = self._blocks.pop(0)
             self._block_layout.removeWidget(block)
+            block.setParent(None)
             block.deleteLater()
             if self._selected_index >= 0:
                 self._selected_index -= 1
