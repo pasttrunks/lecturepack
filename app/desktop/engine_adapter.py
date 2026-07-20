@@ -56,6 +56,9 @@ class EngineAdapter(QObject):
         New-job overlay via status/log signals, then wait for start_processing."""
         raise NotImplementedError
 
+    def open_job(self, job_id: str) -> None:
+        """Open an existing job from the Home grid; push its review/study data."""
+
     def notify_drag_over(self):
         """Optional: UI feedback while a file is dragged over the window."""
 
@@ -382,6 +385,7 @@ class LecturePackAdapter(EngineAdapter):
                  if sd.get("status") == "running"), None)
             if running_stage:
                 rows.append({
+                    "id": job_id,
                     "name": title, "status": "running",
                     "stage": running_stage, "pct": 0, "eta": "",
                 })
@@ -400,6 +404,7 @@ class LecturePackAdapter(EngineAdapter):
                     bits.append(date)
                 done = stages.get(constants.STAGE_REVIEW_READY, {}).get("status") == "completed"
                 rows.append({
+                    "id": job_id,
                     "name": title, "file": filename,
                     "meta": "  ·  ".join(bits),
                     "status": "done" if (done or overall == "completed") else "pending",
@@ -488,6 +493,22 @@ class LecturePackAdapter(EngineAdapter):
                 self._push_study_data()
             except Exception:
                 self.current_job = None
+
+    def open_job(self, job_id: str):
+        """Open a completed job from the Home grid: load it and push its review /
+        study data so Review/Transcript/Study reflect the selection."""
+        jobs_dir = os.path.join(self.config.data_dir, "jobs")
+        if not job_id or not os.path.isdir(os.path.join(jobs_dir, job_id)):
+            self._log("[error]", f"job not found: {job_id}", "error")
+            return
+        try:
+            self.current_job = Job(self.config.data_dir, job_id=job_id)
+        except Exception as exc:
+            self._log("[error]", f"failed to open job: {exc}", "error")
+            return
+        self._push_review_data()
+        self._push_study_data()
+        self._log("[review]", f"opened job {self.current_job.manifest.get('title', job_id)}", "detect")
 
     # ------------------------------------------------------------------ import
     def browse_video(self, parent):

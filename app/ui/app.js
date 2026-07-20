@@ -151,7 +151,7 @@
           '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(j.stage) + ' · ' + (j.pct || 0) + '% · ' + esc(j.eta || '') + '</div>'
         : '<div style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(j.name) + '</div>' +
           '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted);line-height:1.7">' + esc(j.file || '') + '<br>' + esc(j.meta || '') + '</div>';
-      return '<div class="lp-card" style="background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
+      return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'style="background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
         '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + thumb(30, 'var(--muted)') + badge + '</div>' +
         '<div style="padding:14px 16px">' + body + '</div></div>';
     }).join('');
@@ -636,6 +636,15 @@
 
     $('btn-show-empty').addEventListener('click', function () { setJobsEmpty(true); });
     $('btn-load-jobs').addEventListener('click', function () { setJobsEmpty(false); });
+
+    // Open a job from the Home grid -> load its data and jump to Review.
+    $('jobs-grid').addEventListener('click', function (e) {
+      var card = e.target.closest('[data-job]');
+      if (!card) return;
+      var running = card.querySelector('span[style*="animation:lpblink"]');
+      if (lpBridge.connected()) lpBridge.call('open_job', card.dataset.job);
+      setScreen(running ? 'process' : 'review');
+    });
 
     // onboarding overlay
     $('onb-overlay').addEventListener('click', function (e) { if (e.target === this) setOnb(null); });

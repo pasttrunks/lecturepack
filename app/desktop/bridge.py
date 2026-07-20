@@ -117,6 +117,10 @@ class Backend(QObject):
     def start_processing(self, mode: str):
         self._adapter.start_processing(mode)
 
+    @Slot(str)
+    def open_job(self, job_id: str):
+        self._adapter.open_job(job_id)
+
     @Slot()
     def cancel_job(self):
         self._adapter.cancel_job()

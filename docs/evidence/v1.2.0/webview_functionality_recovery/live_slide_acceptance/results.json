@@ -1,0 +1,85 @@
+{
+  "checks": [
+    {
+      "name": "egypt-excerpt: slides listed",
+      "ok": true,
+      "detail": "11 slides"
+    },
+    {
+      "name": "egypt-excerpt: all thumbnails render",
+      "ok": true,
+      "detail": "11/11 naturalWidth>0"
+    },
+    {
+      "name": "egypt-excerpt: large preview renders",
+      "ok": true,
+      "detail": "naturalWidth=1024 src=lpasset://job/egypt-live-fast-validation/slide_1305_43500.pn"
+    },
+    {
+      "name": "egypt-excerpt: preview belongs to this job",
+      "ok": true,
+      "detail": "lpasset://job/egypt-live-fast-validation/slide_1305_43500.png"
+    },
+    {
+      "name": "full(Mesopotamia): slides listed",
+      "ok": true,
+      "detail": "167 slides"
+    },
+    {
+      "name": "full(Mesopotamia): all thumbnails render",
+      "ok": true,
+      "detail": "167/167 naturalWidth>0"
+    },
+    {
+      "name": "full(Mesopotamia): large preview renders",
+      "ok": true,
+      "detail": "naturalWidth=1024 src=lpasset://job/454b0c62-76d5-4aaf-acb9-06ebe9c252ea/slide_265"
+    },
+    {
+      "name": "full(Mesopotamia): preview belongs to this job",
+      "ok": true,
+      "detail": "lpasset://job/454b0c62-76d5-4aaf-acb9-06ebe9c252ea/slide_2655_88500.png"
+    },
+    {
+      "name": "short(m2-1080p): slides listed",
+      "ok": true,
+      "detail": "7 slides"
+    },
+    {
+      "name": "short(m2-1080p): all thumbnails render",
+      "ok": true,
+      "detail": "7/7 naturalWidth>0"
+    },
+    {
+      "name": "short(m2-1080p): large preview renders",
+      "ok": true,
+      "detail": "naturalWidth=1920 src=lpasset://job/75432ce6-1c37-45a6-a70c-57746339356f/slide_510"
+    },
+    {
+      "name": "short(m2-1080p): preview belongs to this job",
+      "ok": true,
+      "detail": "lpasset://job/75432ce6-1c37-45a6-a70c-57746339356f/slide_510_17000.png"
+    },
+    {
+      "name": "next changes preview",
+      "ok": true,
+      "detail": "2ea/slide_2655_88500.png -> ea/slide_5070_169000.png"
+    },
+    {
+      "name": "job switch clears stale image",
+      "ok": true,
+      "detail": "lpasset://job/75432ce6-1c37-45a6-a70c-57746339356f/slide_690_23000.png"
+    },
+    {
+      "name": "open_job via Home card renders that job",
+      "ok": true,
+      "detail": "clicked=clicked slides=11 thumbs=11/11 src=lpasset://job/egypt-live-fast-validation/slide_168"
+    },
+    {
+      "name": "missing file shows explicit marker",
+      "ok": true,
+      "detail": "placeholder display=flex"
+    }
+  ],
+  "ok": true
+}

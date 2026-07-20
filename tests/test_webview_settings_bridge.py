@@ -100,6 +100,16 @@ def test_theme_is_ui_only_no_config_write(tmp_path):
     assert a.config.settings == before  # engine config untouched
 
 
+def test_open_missing_job_is_safe(tmp_path):
+    # Opening a non-existent job must not raise or set current_job; it logs.
+    a = _make_adapter(tmp_path)
+    a.current_job = None
+    a.open_job("does-not-exist")
+    assert a.current_job is None
+    logs = " ".join(a.backend.log_line.emissions)
+    assert "not found" in logs
+
+
 def test_settings_payload_reflects_config(tmp_path):
     a = _make_adapter(tmp_path)
     a.config.set("engine", "vulkan")

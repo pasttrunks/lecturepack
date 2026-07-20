@@ -8,6 +8,37 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## Phase 1 — Live slide-preview acceptance (PASSED) + open-job fix
+
+**Validation:** Built a real-backend headless harness (`docs/evidence/.../live_slide_acceptance/`)
+that boots the actual `MainWindow` (Backend + QWebChannel + lpasset handler +
+LecturePackAdapter over `~/LecturePackData`) offscreen at 1360×860 and drives the
+production UI. **16/16 checks ALL_OK** across 3 real jobs: egypt (11), Mesopotamia
+(167), m2-1080p (7) — every thumbnail + preview renders, correct job attribution,
+prev/next, job-switch clears stale, open_job via Home card, missing-file marker.
+
+**Finding 1 (perf, P2):** m2 job stores 1920×1080 ~2.5 MB PNGs; on a cold 1.1 s
+settle 0/7 had decoded, but all rendered with more time (naturalWidth=1920).
+Correctness fine — off-critical-path thumbnail generation is a P2 win.
+
+**Finding 2 (FIXED): no open-job control.** Home job cards had `cursor:pointer`
+but no handler/bridge slot — only the latest completed job was reachable.
+- `engine_adapter`: added `open_job(job_id)` (loads Job, pushes review+study) and
+  `id` to `_list_jobs` rows (both running + done branches); base interface stub.
+- `bridge`: `@Slot(str) open_job`.
+- `app.js`: `#jobs-grid` click handler → `open_job` + jump to Review (or Process
+  if running); job cards carry `data-job`.
+- Tests: `test_open_missing_job_is_safe` (guard); happy path via the harness.
+
+**Files touched:** `app/desktop/engine_adapter.py`, `app/desktop/bridge.py`,
+`app/ui/app.js`, `tests/test_webview_settings_bridge.py`,
+`docs/evidence/.../live_slide_acceptance/*`.
+
+**Remaining risk:** validated headless (offscreen) — a real windowed pass on the
+user's GPU is still worthwhile; large-PNG thumbnail perf (Finding 1) open for P2.
+
+---
+
 ## P1.7 — Timeline hover popup clipped above the app (FIXED)
 
 **Issue:** The timeline scrub preview rendered `position:absolute; bottom:34px`
