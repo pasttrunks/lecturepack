@@ -738,6 +738,13 @@
       $('ai-status').innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>' + esc(s.label || 'Local');
       if (s.model) $('ai-model-name').textContent = s.model;
     });
+    lpBridge.on('onboarding', function (json) {
+      var d = JSON.parse(json);
+      if (d.name) $('onb-file-name').textContent = d.name;
+      if (d.meta) $('onb-file-meta').textContent = d.meta;
+      setScreen('home');
+      setOnb('detected');
+    });
     lpBridge.on('update_available', function (json) { showWhatsNew(JSON.parse(json), 'available'); });
     lpBridge.on('update_progress', function (pct) {
       $('whatsnew-progress').hidden = false;

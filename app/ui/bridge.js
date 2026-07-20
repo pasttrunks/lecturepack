@@ -19,7 +19,7 @@ window.lpBridge = (function () {
     'jobs_changed', 'pipeline_changed', 'log_line', 'status_changed',
     'slides_changed', 'transcript_changed', 'study_changed',
     'export_progress', 'export_done',
-    'ai_token', 'ai_done', 'ai_status',
+    'ai_token', 'ai_done', 'ai_status', 'onboarding',
     'update_available', 'update_progress', 'update_ready', 'update_error', 'whatsnew',
     'settings_changed'
   ];

@@ -36,6 +36,7 @@ class Backend(QObject):
     ai_token = Signal(str)
     ai_done = Signal()
     ai_status = Signal(str)
+    onboarding = Signal(str)
     update_available = Signal(str)
     update_progress = Signal(float)
     update_ready = Signal()
