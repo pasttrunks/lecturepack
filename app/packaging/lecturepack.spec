@@ -10,13 +10,20 @@ which is slow. onedir keeps startup fast and pairs cleanly with the installer.
 """
 
 import os
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
 SPEC_DIR = os.path.abspath(os.path.dirname(SPECPATH))
+REPO_ROOT = os.path.dirname(SPEC_DIR)  # the engine package `lecturepack` lives here
 UI_DIR = os.path.join(SPEC_DIR, "ui")
 ICON = os.path.join(SPEC_DIR, "packaging", "lecturepack.ico")
+
+# The desktop shell (app/) imports the engine package (lecturepack/) from the
+# repo root. Pull in every engine submodule so dynamically-imported stages
+# (transcription engines, backends, cv_engine) are frozen too.
+engine_hiddenimports = collect_submodules("lecturepack")
+engine_datas = collect_data_files("lecturepack")
 
 # Bundle the entire web UI (html/css/js/fonts) next to the exe under ui/.
 ui_datas = []
@@ -28,14 +35,14 @@ for root, _dirs, files in os.walk(UI_DIR):
 
 a = Analysis(
     [os.path.join(SPEC_DIR, "desktop", "main.py")],
-    pathex=[SPEC_DIR],
+    pathex=[SPEC_DIR, REPO_ROOT],
     binaries=[],
-    datas=ui_datas,
+    datas=ui_datas + engine_datas,
     hiddenimports=[
         "PySide6.QtWebEngineWidgets",
         "PySide6.QtWebEngineCore",
         "PySide6.QtWebChannel",
-    ],
+    ] + engine_hiddenimports,
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "PySide6.QtQuick3D", "PySide6.Qt3DCore"],

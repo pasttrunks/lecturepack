@@ -214,8 +214,18 @@ class DemoAdapter(EngineAdapter):
 
 # Deferred engine imports (kept lazy so the shell can boot even if the engine
 # package has an import-time problem — make_adapter() falls back to DemoAdapter).
+import sys
 import threading
 import time
+
+# The engine package (`lecturepack`) lives at the repository root, one level
+# above app/. When run from source it is not on sys.path; add it. When frozen
+# by PyInstaller the package is bundled and already importable, so this is a
+# harmless no-op.
+from .paths import app_root as _app_root
+_repo_root = os.path.dirname(_app_root())
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
 
 from lecturepack import constants
 from lecturepack.controllers.job_controller import JobController
