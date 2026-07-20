@@ -11,11 +11,11 @@ import os
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
-from lecturepack.constants import SUPPORTED_VIDEO_EXTENSIONS, STAGES, STAGE_REVIEW_READY
+from lecturepack.constants import STAGES, STAGE_REVIEW_READY
 from lecturepack.infrastructure.file_manager import FileManager
 from lecturepack.ui import theme
 
@@ -108,7 +108,7 @@ class _JobCard(QFrame):
 
 
 class HomePage(QWidget):
-    video_chosen = Signal(str)
+    new_job_requested = Signal()
     job_selected = Signal(str, str)      # job_id, source_path
     archive_requested = Signal()
     restore_requested = Signal()
@@ -200,7 +200,7 @@ class HomePage(QWidget):
             f"font: 600 15px sans-serif; background: {theme.c('primary')}; "
             f"color: #fff; border: 1.5px solid {theme.c('primary_hover')}; "
             f"border-radius: 11px; padding: 12px 22px;")
-        browse_btn.clicked.connect(self._browse_video)
+        browse_btn.clicked.connect(self.new_job_requested.emit)
         dc_l.addWidget(browse_btn)
         theme.add_card_shadow(drop_card)
         wl.addWidget(drop_card)
@@ -258,13 +258,6 @@ class HomePage(QWidget):
         layout.addWidget(wrapper)
         scroll.setWidget(container)
         outer.addWidget(scroll)
-
-    def _browse_video(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Lecture Video", "",
-            f"Video Files (*{' *'.join(SUPPORTED_VIDEO_EXTENSIONS)})")
-        if file_path:
-            self.video_chosen.emit(file_path)
 
     def refresh_jobs(self):
         for card in self._job_cards:

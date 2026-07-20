@@ -43,6 +43,7 @@ from lecturepack.controllers.job_controller import JobController
 from lecturepack.infrastructure.file_manager import FileManager
 from lecturepack.models.job import Job
 from lecturepack.ui import theme
+from lecturepack.ui.new_job_dialog import NewJobDialog
 from lecturepack.ui.pages.exports_page import ExportsPage
 from lecturepack.ui.pages.home_page import HomePage
 from lecturepack.ui.pages.process_page import ProcessPage
@@ -344,11 +345,13 @@ class MainWindow(QMainWindow):
 
         # ---- focus mode --------------------------------------------------- #
         from lecturepack.ui.widgets.focus_mode import FocusModeController
-        chrome_widgets = [w for w in [self._nav_rail, self.header_bar, footer] if w is not None]
-        self.focus_mode = FocusModeController(self, chrome_widgets)
+        chrome_widgets = [
+            (self._nav_rail, "width"), (self.header_bar, "height"), (footer, "height"),
+        ]
+        self.focus_mode = FocusModeController(self, chrome_widgets, content_widget=self.stack)
 
         # ---- page wiring --------------------------------------------------- #
-        self.home_page.video_chosen.connect(self._on_video_selected_from_ui)
+        self.home_page.new_job_requested.connect(self._open_new_job_dialog)
         self.home_page.job_selected.connect(self._on_home_job_selected)
         self.home_page.archive_requested.connect(self._archive_current_job)
         self.home_page.restore_requested.connect(self._restore_archived_job)
@@ -645,16 +648,26 @@ class MainWindow(QMainWindow):
         if urls:
             file_path = urls[0].toLocalFile()
             if file_path.lower().endswith(SUPPORTED_VIDEO_EXTENSIONS):
-                self.process_page.video_path_edit.setText(file_path)
-                self._on_video_selected(file_path)
-                self.navigate_to(PAGE_PROCESS)
+                self._open_new_job_dialog(initial_path=file_path)
 
     # ------------------------------------------------------------------ #
     # job lifecycle
     # ------------------------------------------------------------------ #
-    def _on_video_selected_from_ui(self, file_path):
+    def _open_new_job_dialog(self, initial_path=None):
+        """Onboarding modal: confirm the video + output mode, then hand off
+        to the Process page for real transcription/crop settings."""
+        dlg = NewJobDialog(self.controller.ffmpeg_wrapper, initial_path=initial_path, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selected_path:
+            return
+        self._on_video_selected_from_ui(dlg.selected_path, product_mode=dlg.selected_mode)
+
+    def _on_video_selected_from_ui(self, file_path, product_mode=None):
         self.process_page.video_path_edit.setText(file_path)
         self._on_video_selected(file_path)
+        if product_mode is not None:
+            idx = self.process_page.product_mode_combo.findData(product_mode)
+            if idx >= 0:
+                self.process_page.product_mode_combo.setCurrentIndex(idx)
         self.navigate_to(PAGE_PROCESS)
 
     def _maybe_load_typed_video(self):
