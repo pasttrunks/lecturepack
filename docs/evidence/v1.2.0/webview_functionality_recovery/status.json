@@ -1,33 +1,36 @@
 {
   "phase": "webview_functionality_recovery",
   "completed": [
-    "P0.1 slide thumbnails and full preview (central lpasset asset resolver)",
+    "P0.1 slide thumbnails + full preview (central lpasset asset resolver)",
     "P0.1 LIVE acceptance: 16/16 on 3 real jobs via real-backend headless harness",
+    "P0 slide preview READABILITY: fill-canvas fit + zoom/pan controls (55%->92% width)",
     "P0.4 Settings controls wired to engine config (on_setting_changed bridge)",
     "P0.3 Vulkan selection wiring + actual-backend reporting (live GPU run unverified)",
     "P1.4 Ollama model discovery and selection",
     "P0.5 content hygiene verified clean + guard test",
     "P1.7 timeline hover popup body-portal + collision-aware placement",
-    "open-job from Home grid (bridge open_job + adapter + click handler)",
+    "open-job from Home grid",
     "Phase 2 packaging: frozen exe now BOOTS (entry wrapper + _MEIPASS ui path)"
   ],
   "in_progress": null,
   "blocked": [
     "P0.3 Vulkan LIVE activation (needs GPU + whisper_vulkan_exe)",
-    "P0.2 online/Groq transcription live validation (needs live Groq key)",
-    "Phase 2 interactive packaged acceptance (needs a human at the native GUI)"
+    "Groq online transcription live validation (needs live Groq key)",
+    "Interactive native-window + packaged screenshots & 125/150% DPI (needs a human)"
   ],
   "not_started": [
-    "P0.2 pipeline profiling (baseline.json) + online-fast transcription",
-    "P1.1-1.3 configurable quizzes + navigation + session persistence",
-    "P1 configurable flashcards",
-    "P1 study assistant tabs (Ask/Quiz/Flashcards/Notes)",
-    "P3 dark-mode secondary palette + icon currentColor",
-    "accent swatch removal"
+    "Vulkan Benchmark/Validate action + fallback-reason UI (§3)",
+    "performance baseline.json profiling (§4)",
+    "lazy thumbnail cache / thumbnailUrl-vs-fullImageUrl split (§5)",
+    "Groq secure modes in WebView (§6)",
+    "configurable quizzes (§7)",
+    "configurable flashcards (§8)",
+    "study assistant tabs (§9)",
+    "dark-theme secondary palette (§10)"
   ],
-  "next_action": "Phase 4: profile a 60-75min lecture -> performance/baseline.json; OR Phase 5: configurable quizzes via the study bridge",
-  "last_green_commit": "6d847d0",
-  "working_tree_clean": false,
-  "full_suite": "245 passed at 6d847d0 (source); packaged exe boots (PACKAGED_SMOKE_OK)",
-  "exit_outcome": "B+ (P0 core validated live + packaged-boot; P1 study tools pending)"
+  "next_action": "§5 lazy thumbnail cache (bounded, testable) OR §7 quizzes via study bridge; §3/§4/§6 need GPU/key/long profiling",
+  "last_green_commit": "2bba754",
+  "working_tree_clean": true,
+  "full_suite": "245 passed at 2bba754",
+  "exit_outcome": "B (P0 usability complete incl. preview readability; Study tools + speed pending)"
 }

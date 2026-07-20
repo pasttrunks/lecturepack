@@ -4,21 +4,24 @@
 - Path: `C:\Users\marsh\Documents\LecturePack`
 - Branch: `feat/desktop-webengine`
 - Original starting commit: `d7f4b80` (session 1) → this session started at `b35e743` (= e504551 + docs)
-- Ending commit: `6d847d0`
-- Last fully green commit: `6d847d0` (full suite 245 passed)
+- Ending commit: `2bba754`
+- Last fully green commit: `2bba754` (full suite 245 passed)
 - Safety tags: `safety/start-webview-functionality-recovery` (= d7f4b80),
-  `safety/start-post-e504551-continuation` (= e504551)
-- Working tree: docs + one untracked scratch harness only (see below).
+  `safety/start-post-e504551-continuation` (= e504551),
+  `safety/start-post-6d847d0-continuation` (= 6d847d0)
+- Working tree: clean.
 
 ## Exit outcome
-**Outcome B+ — P0 core validated live (source) and packaged app now boots; P1
-study tools still pending.** All committed work is green: full suite **245 passed
-at `6d847d0`**; packaged exe boots (`PACKAGED_SMOKE_OK`).
+**Outcome B — P0 usability complete (incl. preview readability), validated live
+(source) and packaged app boots; Study tools + speed still pending.** All
+committed work is green: full suite **245 passed at `2bba754`**; packaged exe
+boots (`PACKAGED_SMOKE_OK`).
 
 ## Completed (with evidence)
 | # | Item | Status | Evidence |
 |---|------|--------|----------|
 | P0.1 | Blank slide thumbnails + large preview | **FIXED + LIVE-VALIDATED** | `tests/test_webview_assets.py` (17); `live_slide_acceptance/` **16/16 ALL_OK** on 3 real jobs (egypt 11, Mesopotamia 167, m2 7) |
+| P0 | Main preview tiny (unreadable) | **FIXED** | `slide_preview_scaling/` — 55%→**92%** width; zoom ZOOM_OK; fill-canvas + zoom/pan `previewCtl` |
 | — | Open job from Home grid | **FIXED** | `open_job` bridge/adapter + click handler; harness `open_job via Home card` |
 | P0.4 | Settings controls not wired to backend | **FIXED** | `tests/test_webview_settings_bridge.py` (10) |
 | P0.3 | Vulkan selection did nothing | **WIRED** (live GPU run unverified → C) | settings-bridge tests; `start_processing` applies `engine` |
@@ -29,9 +32,10 @@ at `6d847d0`**; packaged exe boots (`PACKAGED_SMOKE_OK`).
 
 Details for each in `docs/WORKLOG_WEBVIEW_RECOVERY.md`.
 
-## This session (post-e504551) added commits
+## This session's commits
 - `9c5dc62` feat(review): open-job from Home + live slide-preview acceptance (16/16)
 - `6d847d0` fix(packaging): frozen WebEngine app boots (entry wrapper + _MEIPASS ui path)
+- `2bba754` fix(review): fit full-resolution slides to preview canvas (+ zoom/pan)
 
 ## Untracked / dirty
 - `tests/scratch/live_slide_acceptance.py`, `tests/scratch/smoke_packaged_launch.py`
