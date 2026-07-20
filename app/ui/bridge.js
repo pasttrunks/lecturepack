@@ -21,7 +21,7 @@ window.lpBridge = (function () {
     'export_progress', 'export_done',
     'ai_token', 'ai_done', 'ai_status', 'onboarding',
     'update_available', 'update_progress', 'update_ready', 'update_error', 'whatsnew',
-    'settings_changed'
+    'settings_changed', 'ollama_models'
   ];
 
   function connectQt() {

@@ -534,6 +534,51 @@
     $('btn-set-dark').addEventListener('click', function () { setTheme('dark'); });
     $('btn-browse-model').addEventListener('click', function () { lpBridge.call('browse_model'); });
     $('btn-test-endpoint').addEventListener('click', function () { lpBridge.call('test_endpoint'); });
+
+    // Compute engine (CPU / Vulkan) — reflects the persisted engine and writes
+    // it back so a Vulkan selection actually reaches the transcription backend.
+    function reflectEngine(engine) {
+      var isGpu = engine === 'vulkan';
+      var cpu = $('compute-cpu'), gpu = $('compute-gpu');
+      if (!cpu || !gpu) return;
+      cpu.style.background = isGpu ? 'transparent' : 'var(--blue)';
+      cpu.style.color = isGpu ? 'var(--muted)' : '#fff';
+      cpu.style.border = '1.5px solid ' + (isGpu ? 'var(--line)' : 'var(--blue)');
+      cpu.style.fontWeight = isGpu ? '500' : '700';
+      cpu.style.cursor = 'pointer';
+      gpu.style.background = isGpu ? 'var(--blue)' : 'transparent';
+      gpu.style.color = isGpu ? '#fff' : 'var(--muted)';
+      gpu.style.border = '1.5px solid ' + (isGpu ? 'var(--blue)' : 'var(--line)');
+      gpu.style.fontWeight = isGpu ? '700' : '500';
+    }
+    $('compute-cpu').classList.add('lp-hit');
+    $('compute-cpu').addEventListener('click', function () {
+      reflectEngine('cpu'); lpBridge.call('set_setting', 'engine', 'cpu');
+    });
+    $('compute-gpu').addEventListener('click', function () {
+      reflectEngine('vulkan'); lpBridge.call('set_setting', 'engine', 'vulkan');
+    });
+
+    // Local AI endpoint — editable, committed on blur / Enter.
+    var epEl = $('ai-endpoint-url');
+    epEl.addEventListener('blur', function () {
+      lpBridge.call('set_setting', 'ollama_base_url', epEl.value.trim());
+    });
+    epEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); epEl.blur(); }
+    });
+
+    // Ollama model discovery + selection.
+    $('btn-refresh-models').addEventListener('click', function () {
+      $('ai-model-select').innerHTML = '<option value="">loading…</option>';
+      lpBridge.call('list_ollama_models');
+    });
+    $('ai-model-select').addEventListener('change', function () {
+      if (this.value) {
+        lpBridge.call('set_setting', 'ollama_model', this.value);
+        $('ai-model-name').textContent = this.value;
+      }
+    });
     $('btn-check-updates').addEventListener('click', function () {
       $('update-status').textContent = 'Checking…';
       if (lpBridge.connected()) { lpBridge.call('check_updates'); }
@@ -794,12 +839,39 @@
       if (s.theme) setTheme(s.theme);
       if (s.version) { LP.data.version = s.version; $('app-version').textContent = s.version; }
       if (s.model_path) $('setting-model-path').textContent = s.model_path;
-      if (s.endpoint) $('ai-endpoint-url').textContent = s.endpoint;
+      if (s.endpoint) {
+        var ep = $('ai-endpoint-url');
+        if (ep && document.activeElement !== ep) ep.value = s.endpoint;
+      }
+      if (s.engine) reflectEngine(s.engine);
+      if (s.ollama_model) {
+        $('ai-model-name').textContent = s.ollama_model;
+        var msel = $('ai-model-select');
+        if (msel && msel.querySelector('option[value="' + s.ollama_model + '"]')) msel.value = s.ollama_model;
+      }
+      if (s.actual_backend) $('status-right').textContent = s.actual_backend;
       if (s.export_dir) $('export-dir').textContent = s.export_dir;
       if (s.update_status) $('update-status').textContent = s.update_status;
     });
+    lpBridge.on('ollama_models', function (json) {
+      var d = JSON.parse(json), sel = $('ai-model-select');
+      if (!sel) return;
+      if (!d.available) {
+        sel.innerHTML = '<option value="">Ollama unavailable — ' + esc(d.error || 'not reachable') + '</option>';
+        return;
+      }
+      var models = d.models || [];
+      if (!models.length) { sel.innerHTML = '<option value="">no models installed</option>'; return; }
+      sel.innerHTML = models.map(function (m) {
+        var bits = [m.parameter_size, m.quantization_level].filter(Boolean).join(' ');
+        var label = m.name + (bits ? '  ·  ' + bits : '');
+        return '<option value="' + esc(m.name) + '"' + (m.name === d.selected ? ' selected' : '') + '>' + esc(label) + '</option>';
+      }).join('');
+      if (d.selected) sel.value = d.selected;
+    });
 
     lpBridge.ready(function (backend) {
+      if (backend && backend.list_ollama_models) lpBridge.call('list_ollama_models');
       if (backend && backend.get_bootstrap) {
         lpBridge.call('get_bootstrap').then(function (json) {
           if (!json) return;

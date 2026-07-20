@@ -104,6 +104,9 @@ class EngineAdapter(QObject):
     def test_endpoint(self) -> None:
         """Ping the local AI endpoint; emit ai_status({label, model})."""
 
+    def list_ollama_models(self) -> None:
+        """List installed Ollama models; emit ollama_models({models, selected})."""
+
     def browse_model(self, parent) -> None:
         """Pick a whisper model file; emit settings_changed({model_path})."""
 
@@ -409,18 +412,52 @@ class LecturePackAdapter(EngineAdapter):
     # ------------------------------------------------------------------ lifecycle
     def on_ui_ready(self):
         # Settings fields.
-        self._emit("settings_changed", {
-            "version": self._app_version(),
-            "model_path": self.config.get("whisper_model", "") or "(not set)",
-            "endpoint": (self._ollama_settings().get("base_url")
-                         or "http://localhost:11434"),
-            "export_dir": self.config.data_dir,
-        })
+        self._emit("settings_changed", self._settings_payload())
         self._push_jobs()
         self._probe_ollama_async()
         # Show the most recent completed job's data so Review/Transcript/Study
         # aren't empty on launch.
         self._load_latest_completed_job()
+
+    def _settings_payload(self) -> dict:
+        """Current engine-config values the Settings screen reflects."""
+        o = self._ollama_settings()
+        return {
+            "version": self._app_version(),
+            "model_path": self.config.get("whisper_model", "") or "(not set)",
+            "endpoint": o.get("base_url") or "http://localhost:11434",
+            "engine": self.config.get("engine", "auto"),
+            "ollama_model": o.get("model", ""),
+            "export_dir": self.config.data_dir,
+        }
+
+    def on_setting_changed(self, key: str, value: str):
+        """Bridge UI setting changes into the engine's ConfigManager.
+
+        The Backend persists every setting in QSettings (UI state), but the
+        engine reads its own config.json — so without this bridge the compute
+        engine, endpoint, model path and Ollama model chosen in Settings never
+        reach processing/AI. ``theme`` is intentionally UI-only.
+        """
+        if key == "theme":
+            return
+        if key == "engine":
+            engine = value if value in ("auto", "cpu", "vulkan") else "auto"
+            self.config.set("engine", engine)
+            self._log("[engine]", f"compute engine set to {engine}", "engine")
+        elif key == "whisper_model":
+            self.config.set("whisper_model", value)
+        elif key == "ollama_base_url":
+            o = dict(self.config.get("ollama", {}) or {})
+            o["base_url"] = value
+            self.config.set("ollama", o)
+        elif key == "ollama_model":
+            o = dict(self.config.get("ollama", {}) or {})
+            o["model"] = value
+            self.config.set("ollama", o)
+            self._log("[ai]", f"study/repair model set to {value}", "ai")
+        # Re-emit so the UI reflects the persisted value.
+        self._emit("settings_changed", self._settings_payload())
 
     def _app_version(self) -> str:
         try:
@@ -495,6 +532,10 @@ class LecturePackAdapter(EngineAdapter):
         w_model = self.config.get("whisper_model", "")
         if w_model:
             job.settings.setdefault("whisper", {})["model"] = w_model
+        # Apply the compute-engine choice (cpu/vulkan/auto) so a Vulkan
+        # selection in Settings actually reaches the transcription backend.
+        job.settings.setdefault("whisper", {})["engine"] = \
+            self.config.get("engine", "auto")
         job.save()
         self.current_job = job
 
@@ -599,6 +640,8 @@ class LecturePackAdapter(EngineAdapter):
 
     def _on_backend_info(self, text: str):
         self._log("[engine]", text, "engine")
+        # Surface the ACTUAL loaded backend (not the requested one) in the UI.
+        self._emit("settings_changed", {"actual_backend": text})
 
     def _on_transcript_segment(self, seg: dict):
         t0 = _fmt_hhmmss(seg.get("start_ms", 0) / 1000.0)
@@ -915,6 +958,26 @@ class LecturePackAdapter(EngineAdapter):
     # ------------------------------------------------------------------ settings / misc
     def test_endpoint(self):
         self._probe_ollama_async(announce=True)
+
+    def list_ollama_models(self):
+        """Fetch installed Ollama models (/api/tags) and emit them for the
+        Settings model picker. Never hard-hardcodes a single model."""
+        o = self._ollama_settings()
+        base = o.get("base_url") or "http://localhost:11434"
+        selected = o.get("model", "")
+
+        def worker():
+            try:
+                from lecturepack.infrastructure.ollama_client import OllamaClient
+                models = OllamaClient(base).list_models()
+                self._emit("ollama_models", {
+                    "models": models, "selected": selected, "available": True})
+            except Exception as exc:
+                self._emit("ollama_models", {
+                    "models": [], "selected": selected,
+                    "available": False, "error": str(exc)})
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _probe_ollama_async(self, announce: bool = False):
         o = self._ollama_settings()

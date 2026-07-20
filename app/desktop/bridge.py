@@ -43,6 +43,7 @@ class Backend(QObject):
     update_error = Signal(str)
     whatsnew = Signal(str)
     settings_changed = Signal(str)
+    ollama_models = Signal(str)
 
     def __init__(self, window):
         super().__init__()
@@ -90,6 +91,10 @@ class Backend(QObject):
     @Slot()
     def test_endpoint(self):
         self._adapter.test_endpoint()
+
+    @Slot()
+    def list_ollama_models(self):
+        self._adapter.list_ollama_models()
 
     @Slot()
     def save_project(self):
