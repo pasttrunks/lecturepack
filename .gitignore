@@ -36,3 +36,11 @@ LecturePackData/
 # Test outputs
 tests/fixtures/m2_job/
 tests/fixtures/m2_temp/
+
+# WebEngine desktop app build output
+app/build/
+app/dist/
+*.egg-info/
+verify_shots/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,99 @@
+/* LecturePack UI — ported 1:1 from LecturePack.dc.html (Claude Design handoff).
+   Do not "improve" values here: colors, borders, shadows and animations are the design. */
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{width:100vw;height:100vh;overflow:hidden}
+[hidden]{display:none !important}
+
+/* thin glowing scrollbars */
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{background:transparent;border:4px solid transparent;background-clip:padding-box;border-radius:20px;transition:background .2s}
+*:hover::-webkit-scrollbar-thumb{background:var(--muted);background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:var(--blue);background-clip:padding-box;box-shadow:0 0 10px var(--blue)}
+::-webkit-scrollbar-track{background:transparent}
+
+a{color:var(--blue-ink);text-decoration:none;font-weight:600}
+a:hover{color:var(--orange)}
+[contenteditable]:focus{outline:2px solid var(--blue);outline-offset:2px;border-radius:3px}
+input:focus{outline:2px solid var(--blue);outline-offset:0}
+
+/* micro-interactions */
+.lp-hit{transition:transform .12s ease,box-shadow .12s ease,background .12s ease}
+.lp-hit:hover{transform:translateY(-1px)}
+.lp-hit:active{transform:translateY(0)}
+.lp-card{transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease}
+.lp-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-hi);border-color:var(--blue)}
+.lp-nav:hover{background:var(--panel2)}
+.lp-tick{transition:transform .12s ease}
+.lp-tick:hover{transform:scaleY(1.35)}
+
+/* ===== design tokens ===== */
+:root{
+  --bg:#F3F0E8; --panel:#FFFFFF; --panel2:#F7F4ED; --sunk:#F0ECE2;
+  --ink:#1C1A16; --muted:#8A8173; --border:#241F19; --line:#E3DCCD;
+  --blue:#3FB4C7; --blue-strong:#2A93A6; --blue-soft:#DDF5F9; --blue-ink:#0C6675; --blue-tint:#EDFAFC;
+  --glass:rgba(255,255,255,.70); --glow-a:#EF5A1E; --glow-b:#B3EBF2; --glow-op:.30;
+  --orange:#EF5A1E; --orange-ink:#C6430E; --orange-soft:#FBE2D5;
+  --green:#128A52; --green-soft:#D3F0DF; --red:#D63A2C; --red-soft:#FADAD5; --yellow:#D99400; --yellow-soft:#FBEDC6;
+  --nav-ink:#4A4438;
+  --shadow-soft:0 1px 2px rgba(28,26,22,.06),0 4px 14px rgba(28,26,22,.05);
+  --shadow-hi:0 2px 6px rgba(28,26,22,.10),0 14px 34px rgba(28,26,22,.10);
+  --glass:var(--panel);
+}
+[data-theme="dark"]{
+  --bg:#131519; --panel:#1B1E24; --panel2:#21252C; --sunk:#171A1F;
+  --ink:#ECE7DB; --muted:#8C93A2; --border:#000000; --line:#2C313A;
+  --blue:#B3EBF2; --blue-strong:#8FE0EA; --blue-soft:#123840; --blue-ink:#B3EBF2; --blue-tint:#102A30;
+  --glass:var(--panel);
+  --orange:#FF6C36; --orange-ink:#FF8A5C; --orange-soft:#38220F;
+  --green:#4CCB86; --green-soft:#123020; --red:#FF6E5E; --red-soft:#361715; --yellow:#F2C24A; --yellow-soft:#332810;
+  --nav-ink:#AEB3BF;
+  --shadow-soft:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.35);
+  --shadow-hi:0 2px 8px rgba(0,0,0,.5),0 18px 40px rgba(0,0,0,.5);
+}
+
+@keyframes lpblink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes lpbar{0%{background-position:0 0}100%{background-position:26px 0}}
+@keyframes lpin{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
+@keyframes lpiris{0%{transform:scale(.965);opacity:.4}55%{transform:scale(1.028)}100%{transform:scale(1.02);opacity:1}}
+
+/* ===== focus mode (camera iris) ===== */
+.lp-chrome{transition:opacity .42s cubic-bezier(.4,0,.2,1),transform .42s cubic-bezier(.5,-.3,.3,1.3),width .5s cubic-bezier(.4,0,.2,1),height .5s cubic-bezier(.4,0,.2,1),padding .5s ease,border-color .5s ease}
+.lp-main{transition:transform .55s cubic-bezier(.4,0,.2,1)}
+[data-focus="true"] .lp-chrome{opacity:0;pointer-events:none}
+[data-focus="true"] header.lp-chrome{height:0 !important;padding-top:0 !important;padding-bottom:0 !important;border-bottom-width:0 !important;overflow:hidden;transform:translateY(-14px)}
+[data-focus="true"] footer.lp-chrome{height:0 !important;padding:0 !important;border-top-width:0 !important;overflow:hidden;transform:translateY(14px)}
+[data-focus="true"] aside.lp-chrome{width:0 !important;padding:0 !important;border-right-width:0 !important;overflow:hidden;transform:translateX(-20px)}
+[data-focus="true"] .lp-main{animation:lpiris .55s cubic-bezier(.4,0,.2,1) forwards}
+
+/* ===== staggered content reveal ===== */
+.lp-stagger>*{animation:lpin .5s cubic-bezier(.2,.7,.3,1) backwards}
+.lp-stagger>*:nth-child(1){animation-delay:.02s}
+.lp-stagger>*:nth-child(2){animation-delay:.09s}
+.lp-stagger>*:nth-child(3){animation-delay:.16s}
+.lp-stagger>*:nth-child(4){animation-delay:.23s}
+.lp-stagger>*:nth-child(5){animation-delay:.30s}
+
+/* ===== ported dynamic style-strings (state-driven) =====
+   These reproduce the prototype's navStyle()/tabStyle()/optStyle()/bubble strings verbatim. */
+
+.lp-nav{display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;border:1.5px solid transparent;border-radius:9px;background:transparent;color:var(--nav-ink);cursor:pointer;font:600 13.5px 'Space Grotesk';text-align:left;transition:background .12s ease,color .12s ease}
+.lp-nav.active{border-color:var(--blue);background:var(--blue-soft);color:var(--blue-ink);font-weight:700}
+.lp-nav.active:hover{background:var(--blue-soft)}
+
+.lp-tab{flex:1;text-align:center;font:600 12px 'Space Grotesk';padding:9px 0;border-radius:8px;border:2px solid transparent;background:transparent;color:var(--muted);cursor:pointer}
+.lp-tab.active{font-weight:700;border-color:var(--border);background:var(--orange);color:#fff}
+
+.lp-opt{display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:2px solid var(--border);border-radius:11px;padding:12px 14px;background:var(--panel);color:var(--ink);cursor:pointer;font:600 14px 'Space Grotesk'}
+.lp-opt.correct{background:var(--green-soft);border-color:var(--green)}
+.lp-opt.wrong{background:var(--red-soft);border-color:var(--red)}
+.lp-opt.dim{opacity:.55}
+
+.lp-bubble-user{align-self:flex-end;max-width:78%;background:var(--orange);color:#fff;border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:14px;line-height:1.55;box-shadow:var(--shadow-soft)}
+.lp-bubble-ai{align-self:flex-start;max-width:82%;background:var(--panel);border:2px solid var(--line);border-radius:14px 14px 14px 4px;padding:12px 15px;font-size:14px;line-height:1.6;box-shadow:var(--shadow-soft)}
+.lp-caret{display:inline-block;width:7px;height:15px;background:var(--orange);margin-left:2px;vertical-align:-2px;animation:lpblink .8s steps(1) infinite}
+
+/* theme picker buttons (Settings › Appearance) */
+.lp-theme-btn{flex:1;text-align:center;font:700 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid var(--line);border-radius:9px;background:var(--panel);color:var(--muted);cursor:pointer}
+.lp-theme-btn.active{border-color:var(--blue);background:var(--blue);color:#fff}
