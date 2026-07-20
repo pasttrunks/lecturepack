@@ -15,6 +15,17 @@
 
   var THUMB_SVG = '<svg width="{S}" height="{S}" viewBox="0 0 24 24" fill="none" stroke="{C}" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
   function thumb(size, color) { return THUMB_SVG.replace(/\{S\}/g, size).replace('{C}', color); }
+
+  // Slide image with graceful fallback: on load error the <img> hides and its
+  // placeholder sibling (the frame-icon) is revealed, so a missing file shows
+  // an explicit marker rather than a silent blank box.
+  function slideImg(url, imgStyle, phSize, phColor) {
+    if (!url) { return thumb(phSize, phColor); }
+    var ph = '<span class="lp-img-ph" style="display:none;flex-direction:column;align-items:center;gap:4px">' +
+      thumb(phSize, phColor) + '</span>';
+    return '<img src="' + esc(url) + '" style="' + imgStyle + '" ' +
+      'onerror="this.style.display=\'none\';var p=this.parentNode.querySelector(\'.lp-img-ph\');if(p)p.style.display=\'flex\'">' + ph;
+  }
   var CHECK_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
   /* ======================= demo data (design content) ======================= */
@@ -192,14 +203,32 @@
         wrap = 'background:var(--panel);border:1.5px solid var(--line);border-left:5px solid var(--blue);border-radius:11px;padding:8px;cursor:pointer';
         label = 'accepted'; labelColor = 'var(--blue-ink)';
       }
+      var thumbImg = slideImg(s.img, 'width:100%;height:100%;object-fit:cover;border-radius:5px;display:block', 16, icon);
       return '<div class="lp-hit" data-slide="' + i + '" style="display:flex;align-items:center;gap:11px;' + wrap + '">' +
-        '<div style="width:60px;height:38px;flex:none;background:var(--sunk);border:1.5px solid ' + thumbBd + ';border-radius:6px;display:flex;align-items:center;justify-content:center">' + thumb(16, icon) + '</div>' +
+        '<div style="width:60px;height:38px;flex:none;overflow:hidden;background:var(--sunk);border:1.5px solid ' + thumbBd + ';border-radius:6px;display:flex;align-items:center;justify-content:center">' + thumbImg + '</div>' +
         '<div><div style="font:700 13px \'JetBrains Mono\'">' + esc(s.time) + '</div><div style="font:700 10px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</div></div></div>';
     }).join('');
     var selCount = LP.data.slides.filter(function (s) { return s.sel; }).length;
     $('slides-sel').textContent = '· ' + selCount + ' sel';
     var cur = LP.data.slides[v];
-    $('slide-frame-label').textContent = 'slide frame · ' + cur.time;
+    var frame = $('slide-frame');
+    if (cur && cur.img) {
+      frame.style.border = 'none';
+      frame.style.background = 'transparent';
+      frame.innerHTML = slideImg(cur.img,
+        'max-width:100%;max-height:100%;object-fit:contain;border-radius:9px;box-shadow:var(--shadow-soft)', 34, 'var(--muted)') +
+        '<span class="lp-img-ph" style="display:none;flex-direction:column;align-items:center;gap:10px">' +
+        thumb(34, 'var(--muted)') +
+        '<span style="font:500 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.1em;color:var(--red)">slide image missing</span></span>';
+      // the helper already emits one placeholder; keep only the labelled one
+      var phs = frame.querySelectorAll('.lp-img-ph');
+      if (phs.length > 1) { phs[0].remove(); }
+    } else {
+      frame.style.border = '1.5px solid var(--line)';
+      frame.style.background = 'var(--panel)';
+      frame.innerHTML = thumb(34, 'var(--muted)') +
+        '<span id="slide-frame-label" style="font:500 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.1em;color:var(--muted);white-space:nowrap">slide frame · ' + esc(cur ? cur.time : '') + '</span>';
+    }
     $('slide-frame-meta').innerHTML = esc(cur.time) + '.500 <span style="color:var(--muted);font-weight:400">· frame ' + (cur.frame || Math.round(cur.pct * 30)) + '</span>';
     renderTimeline();
   }

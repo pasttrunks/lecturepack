@@ -24,6 +24,7 @@ import os
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QFileDialog
 
+from .assets import asset_url
 from .paths import data_dir
 
 
@@ -635,11 +636,13 @@ class LecturePackAdapter(EngineAdapter):
         for c in candidates:
             ts = float(c.get("timestamp_seconds", 0.0))
             pct = (ts / duration * 100.0) if duration else 0.0
+            img_name = c.get("image_filename") or ""
             slides.append({
                 "pct": round(pct, 2),
                 "time": _fmt_hhmmss(ts),
                 "state": "accepted" if c.get("decision") == "accepted" else "rejected",
                 "frame": c.get("frame_number"),
+                "img": asset_url(job.job_id, img_name) if img_name else "",
             })
             self._slide_frames.append(c.get("frame_number"))
         if slides:

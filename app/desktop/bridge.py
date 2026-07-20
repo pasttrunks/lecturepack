@@ -51,6 +51,14 @@ class Backend(QObject):
         self._adapter = make_adapter(self)
         self._updater = Updater(self)
 
+    def log_asset_error(self, tag: str, text: str, level: str = "error"):
+        """Diagnostics hook for the asset resolver (see main.py). Surfaces a
+        missing/blocked slide asset in the UI log instead of failing silently."""
+        import sys
+        print(f"[{tag}] {text}", file=sys.stderr)
+        self.log_line.emit(json.dumps(
+            {"tag": f"[{tag}]", "color": "var(--red)", "text": str(text)}))
+
     # ------------------------------------------------------------- lifecycle
 
     @Slot()
