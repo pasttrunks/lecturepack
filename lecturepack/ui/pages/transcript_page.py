@@ -112,9 +112,7 @@ class TranscriptPage(QWidget):
         wl.addWidget(title)
 
         toolbar = QFrame()
-        toolbar.setStyleSheet(
-            f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')}; "
-            f"border-radius: 10px;")
+        toolbar.setProperty("card", True)
         tb_l = QHBoxLayout(toolbar)
         tb_l.setContentsMargins(14, 10, 14, 10)
         tb_l.setSpacing(8)
@@ -126,7 +124,8 @@ class TranscriptPage(QWidget):
         self.search_edit.textChanged.connect(self._reset_search)
         tb_l.addWidget(self.search_edit, 1)
         self.search_count_lbl = QLabel("")
-        self.search_count_lbl.setStyleSheet(f"color: {theme.c('muted')}; border: none;")
+        self.search_count_lbl.setProperty("muted", True)
+        self.search_count_lbl.setStyleSheet("border: none;")
         tb_l.addWidget(self.search_count_lbl)
 
         self.timestamps_chk = QCheckBox("Timestamps")
@@ -148,6 +147,15 @@ class TranscriptPage(QWidget):
         tb_l.addWidget(self.copy_selected_btn)
         self.copy_full_btn = QPushButton("Copy full transcript")
         self.copy_full_btn.setProperty("primary", True)
+        # The [primary="true"] global rule intermittently fails to paint a
+        # background for this specific button (border/text/font-weight all
+        # apply correctly, only the fill doesn't — a Qt QSS selector quirk
+        # that didn't reproduce for primary buttons elsewhere in the app).
+        # An instance-level literal stylesheet always wins over the app
+        # stylesheet for its own widget, sidestepping the issue outright.
+        self.copy_full_btn.setStyleSheet(
+            f"background-color: {theme.c('primary')}; color: #FFFFFF; font-weight: 700; "
+            f"border: 1.5px solid {theme.c('primary_hover')}; border-radius: 9px; padding: 9px 17px;")
         self.copy_full_btn.clicked.connect(self.copy_full_transcript)
         tb_l.addWidget(self.copy_full_btn)
         wl.addWidget(toolbar)
@@ -179,7 +187,8 @@ class TranscriptPage(QWidget):
         filt_row.addWidget(self.seg_filter_combo)
         filt_row.addStretch(1)
         self.seg_info_lbl = QLabel("")
-        self.seg_info_lbl.setStyleSheet(f"color: {theme.c('muted')}; border: none;")
+        self.seg_info_lbl.setProperty("muted", True)
+        self.seg_info_lbl.setStyleSheet("border: none;")
         filt_row.addWidget(self.seg_info_lbl)
         sl.addLayout(filt_row)
 
@@ -219,9 +228,8 @@ class TranscriptPage(QWidget):
                 ("Undo", self.undo, "Ctrl+Z"), ("Redo", self.redo, "Ctrl+Y")]:
             b = QPushButton(label)
             b.setToolTip(tip)
-            b.setStyleSheet(
-                f"font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px; "
-                f"background: {theme.c('panel')}; border: 1.5px solid {theme.c('line')};")
+            b.setProperty("softPanel", True)
+            b.setStyleSheet("font: 600 12px sans-serif; padding: 5px 10px; border-radius: 6px;")
             b.clicked.connect(slot)
             ed_hdr.addWidget(b)
         self.save_btn = QPushButton("Save (Ctrl+S)")
@@ -357,9 +365,11 @@ class TranscriptPage(QWidget):
         self._render_sections()
 
     def _render_full(self):
+        ink = theme.c("ink")
+        muted = theme.c("muted")
+        secondary = theme.c("secondary_ink")
         if not self.segments:
-            muted_c = theme.DARK_MUTED if theme.is_dark() else theme.LIGHT_MUTED
-            self.full_view.setHtml(f"<p style='color:{muted_c}'>No transcript yet. "
+            self.full_view.setHtml(f"<p style='color:{muted}'>No transcript yet. "
                                    "Process a lecture or open a job.</p>")
             return
         show_ts = self.timestamps_chk.isChecked()
@@ -367,16 +377,33 @@ class TranscriptPage(QWidget):
         sec_starts = {}
         for sec in self._sections:
             sec_starts.setdefault(round(sec["start"], 1), sec)
-        parts = [f"<style>a{{text-decoration:none;color:{theme.ACCENT}}}"
-                 "p{line-height:1.55;margin:0 0 10px 0;}"
-                 "h3{margin:18px 0 6px 0;}</style>"]
+        # A magazine-style reading layout: a right-aligned timestamp gutter
+        # column next to a large, generously spaced paragraph column (mirrors
+        # the design mockup's <div style="display:flex;gap:18px"> rows \u2014
+        # QTextBrowser's rich-text engine only understands table layout, not
+        # flexbox, so a 2-column table stands in for it).
+        parts = [
+            f"<style>a{{text-decoration:none;color:{secondary};font-weight:700;}}"
+            f"body{{color:{ink};}}"
+            f"table{{border-collapse:collapse;width:100%;}}"
+            f"td{{padding:0 0 24px 0;vertical-align:top;}}"
+            f"td.gutter{{width:58px;text-align:right;padding-right:18px;"
+            f"font:700 12px '{theme.FONT_MONO}';color:{muted};}}"
+            f"p{{margin:0;font-size:17px;line-height:1.72;}}"
+            f"h3{{margin:22px 0 10px 0;font-size:15px;}}</style>"]
         emitted_secs = set()
         buf = []
+        buf_start = None
 
         def flush():
+            nonlocal buf_start
             if buf:
-                parts.append("<p>" + " ".join(buf) + "</p>")
+                ts_cell = (f"<td class='gutter'>{_fmt_time(buf_start)}</td>"
+                           if show_ts and buf_start is not None else "<td class='gutter'></td>")
+                parts.append(f"<table><tr>{ts_cell}"
+                             f"<td><p>{' '.join(buf)}</p></td></tr></table>")
                 buf.clear()
+                buf_start = None
 
         for seg in self.segments:
             for st, sec in sec_starts.items():
@@ -391,12 +418,12 @@ class TranscriptPage(QWidget):
             text = _esc(seg["text"])
             if query:
                 text = _highlight(text, query)
-            chunk = ""
+            if buf_start is None:
+                buf_start = seg["start"]
             if show_ts:
-                chunk += (f"<a href='seek:{seg['start']}' title='Select slide near "
-                          f"{_fmt_time(seg['start'])}'>[{_fmt_time(seg['start'])}]</a> ")
-            chunk += text
-            buf.append(chunk)
+                text = (f"<a href='seek:{seg['start']}' title='Select slide near "
+                       f"{_fmt_time(seg['start'])}'>&middot;</a> ") + text
+            buf.append(text)
             if seg["text"].strip().endswith((".", "!", "?")) and len(buf) >= 4:
                 flush()
         flush()

@@ -43,6 +43,9 @@ def empty_study_data() -> dict[str, Any]:
         "bookmarked_slides": {},
         "bookmarked_sections": {},
         "last_position": {},
+        "chat_messages": [],
+        "quiz": {},
+        "flashcards": {},
     }
 
 
@@ -53,6 +56,11 @@ def load_study_data(job) -> dict[str, Any]:
     result = dict(data)
     result["schema_version"] = SCHEMA_VERSION
     for key in ("bookmarked_slides", "bookmarked_sections", "last_position"):
+        if not isinstance(result.get(key), dict):
+            result[key] = {}
+    if not isinstance(result.get("chat_messages"), list):
+        result["chat_messages"] = []
+    for key in ("quiz", "flashcards"):
         if not isinstance(result.get(key), dict):
             result[key] = {}
     return result
@@ -133,6 +141,44 @@ def save_position(job, *, page: str, timestamp_seconds: float = 0.0,
     if section is not None:
         pos["section_key"] = section_key(section)
     data["last_position"] = pos
+    save_study_data(job, data)
+
+
+def load_chat_messages(job) -> list[dict[str, Any]]:
+    return list(load_study_data(job)["chat_messages"])
+
+
+def append_chat_message(job, role: str, text: str) -> None:
+    data = load_study_data(job)
+    data["chat_messages"].append({
+        "role": str(role), "text": str(text), "updated_at": _updated_at(),
+    })
+    save_study_data(job, data)
+
+
+def clear_chat_messages(job) -> None:
+    data = load_study_data(job)
+    data["chat_messages"] = []
+    save_study_data(job, data)
+
+
+def load_quiz(job) -> dict[str, Any]:
+    return dict(load_study_data(job)["quiz"])
+
+
+def save_quiz(job, questions: list[dict[str, Any]]) -> None:
+    data = load_study_data(job)
+    data["quiz"] = {"questions": questions, "updated_at": _updated_at()}
+    save_study_data(job, data)
+
+
+def load_flashcards(job) -> dict[str, Any]:
+    return dict(load_study_data(job)["flashcards"])
+
+
+def save_flashcards(job, cards: list[dict[str, Any]]) -> None:
+    data = load_study_data(job)
+    data["flashcards"] = {"cards": cards, "updated_at": _updated_at()}
     save_study_data(job, data)
 
 

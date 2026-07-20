@@ -30,8 +30,10 @@ from PySide6.QtWidgets import (
 from lecturepack.infrastructure.file_manager import FileManager
 from lecturepack.services.export_service import datetime_from_seconds
 from lecturepack.services import transcript_formats as tf
+from lecturepack.services.transcript_formats import fmt_clock
 from lecturepack.ui import theme
 from lecturepack.ui.widgets.slide_grid import SlideGridWidget, CAND_ROLE
+from lecturepack.ui.widgets.timeline_spine import TimelineSpine
 
 _COPY_FORMAT_MAP = {
     "plain text": "txt", "markdown": "markdown", "json": "json",
@@ -60,7 +62,59 @@ class ReviewPage(QWidget):
     # ------------------------------------------------------------------ #
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
+
+        timeline_card = QFrame()
+        timeline_card.setProperty("card", True)
+        theme.add_card_shadow(timeline_card)
+        tc_lay = QVBoxLayout(timeline_card)
+        tc_lay.setContentsMargins(18, 13, 18, 13)
+        tc_lay.setSpacing(0)
+
+        tc_head = QHBoxLayout()
+        tc_head.setSpacing(12)
+        tc_title = QLabel("Lecture timeline")
+        tc_title.setStyleSheet(
+            f"font:500 10px '{theme.FONT_MONO}';letter-spacing:0.12em;"
+            f"text-transform:uppercase;color:{theme.c('secondary')};border:none;background:transparent;")
+        tc_head.addWidget(tc_title)
+        self._timeline_meta_lbl = QLabel("0 slides · 0:00:00")
+        self._timeline_meta_lbl.setProperty("muted", True)
+        self._timeline_meta_lbl.setStyleSheet(
+            f"font:500 11px '{theme.FONT_MONO}';border:none;background:transparent;")
+        tc_head.addWidget(self._timeline_meta_lbl)
+        tc_head.addStretch(1)
+        for swatch_color, swatch_text in (("secondary", "accepted"), ("red", "rejected"), ("primary", "viewing")):
+            dot = QLabel("■")
+            dot.setStyleSheet(f"color:{theme.c(swatch_color)};font-size:9px;border:none;background:transparent;")
+            legend_lbl = QLabel(swatch_text)
+            legend_lbl.setProperty("muted", True)
+            legend_lbl.setStyleSheet(f"font:500 11px '{theme.FONT_MONO}';border:none;background:transparent;")
+            tc_head.addWidget(dot)
+            tc_head.addWidget(legend_lbl)
+        tc_lay.addLayout(tc_head)
+        tc_lay.addSpacing(11)
+
+        self.timeline_spine = TimelineSpine()
+        self.timeline_spine.seek_requested.connect(self._on_timeline_seek)
+        tc_lay.addWidget(self.timeline_spine)
+        tc_lay.addSpacing(5)
+
+        tc_foot = QHBoxLayout()
+        self._timeline_start_lbl = QLabel("0:00")
+        self._timeline_mid_lbl = QLabel("0:00")
+        self._timeline_end_lbl = QLabel("0:00")
+        for lbl in (self._timeline_start_lbl, self._timeline_mid_lbl, self._timeline_end_lbl):
+            lbl.setProperty("muted", True)
+            lbl.setStyleSheet(f"font:500 10px '{theme.FONT_MONO}';border:none;background:transparent;")
+        tc_foot.addWidget(self._timeline_start_lbl)
+        tc_foot.addStretch(1)
+        tc_foot.addWidget(self._timeline_mid_lbl)
+        tc_foot.addStretch(1)
+        tc_foot.addWidget(self._timeline_end_lbl)
+        tc_lay.addLayout(tc_foot)
+        layout.addWidget(timeline_card)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -304,6 +358,10 @@ class ReviewPage(QWidget):
         self.selected_count_lbl.setText("Selected: 0")
         self.transcript_table.setRowCount(0)
         if self.job is None:
+            self.timeline_spine.set_job_paths(None)
+            self.timeline_spine.set_candidates([])
+            self.timeline_spine.set_duration(0.0)
+            self._update_timeline_meta(0, 0.0)
             return
 
         self.raw_segments = store.load_raw_segments(self.job.paths)
@@ -312,6 +370,22 @@ class ReviewPage(QWidget):
         candidates_path = os.path.join(self.job.paths["root"], "candidates.json")
         candidates = FileManager.read_json_safe(candidates_path, [])
         self.slides_view.load_candidates(candidates, self.job.paths)
+
+        duration = float(self.job.source.get("duration", 0.0)) if self.job.source else 0.0
+        self.timeline_spine.set_job_paths(self.job.paths)
+        self.timeline_spine.set_duration(duration)
+        self.timeline_spine.set_candidates(candidates)
+        self.timeline_spine.set_current_seconds(None)
+        self._update_timeline_meta(len(candidates), duration)
+
+    def _update_timeline_meta(self, slide_count, duration):
+        self._timeline_meta_lbl.setText(f"{slide_count} slides \u00b7 {fmt_clock(duration)}")
+        self._timeline_start_lbl.setText(fmt_clock(0.0))
+        self._timeline_mid_lbl.setText(fmt_clock(duration / 2.0))
+        self._timeline_end_lbl.setText(fmt_clock(duration))
+
+    def _on_timeline_seek(self, seconds):
+        self.select_slide_near(seconds)
 
     # ------------------------------------------------------------------ #
     # selection + preview
@@ -332,6 +406,7 @@ class ReviewPage(QWidget):
             self.transcript_table.setRowCount(0)
             self._current_candidate = None
             self._clear_study_controls()
+            self.timeline_spine.set_current_seconds(None)
             return
         primary_item = self.slides_view.currentItem()
         if primary_item is None or not primary_item.isSelected():
@@ -354,7 +429,9 @@ class ReviewPage(QWidget):
         self.slide_info_lbl.setText(
             f"{cand.get('timestamp_formatted', '00:00:00')}  \u00b7  frame {cand.get('frame_number', 0)}")
         self._load_study_controls(cand)
-        self.position_changed.emit(float(cand.get("timestamp_seconds", 0.0)))
+        seconds = float(cand.get("timestamp_seconds", 0.0))
+        self.timeline_spine.set_current_seconds(seconds)
+        self.position_changed.emit(seconds)
 
     def _clear_study_controls(self):
         self.slide_bookmark_btn.blockSignals(True)

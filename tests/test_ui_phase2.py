@@ -25,18 +25,18 @@ def app():
 def test_dark_palette_uses_neobrutalist_colors(app):
     theme.apply_theme(app, dark=True)
     palette = app.palette()
-    assert palette.color(QPalette.Window).name() == "#121417"
-    assert palette.color(QPalette.Base).name() == "#1b1f23"
-    assert palette.color(QPalette.Text).name() == "#f0e9df"
-    assert palette.color(QPalette.Highlight).name() == "#ff6b35"
+    assert palette.color(QPalette.Window).name() == "#131519"
+    assert palette.color(QPalette.Base).name() == "#1b1e24"
+    assert palette.color(QPalette.Text).name() == "#ece7db"
+    assert palette.color(QPalette.Highlight).name() == "#ff6c36"
 
 
 def test_dark_qss_file_loaded_only_when_dark(app):
     theme.apply_theme(app, dark=True)
-    assert "#121417" in app.styleSheet().lower()
-    assert "#ff6b35" in app.styleSheet().lower()
+    assert "#131519" in app.styleSheet().lower()
+    assert "#ff6c36" in app.styleSheet().lower()
     theme.apply_theme(app, dark=False)
-    assert "#121417" not in app.styleSheet().lower()
+    assert "#131519" not in app.styleSheet().lower()
     theme.apply_theme(app, dark=True)  # leave the app dark for other tests
 
 
@@ -44,8 +44,8 @@ def test_qss_uses_literal_hex_not_css_variables():
     qss = theme.load_qss("dark_theme.qss")
     assert qss.strip(), "dark_theme.qss must exist and be non-empty"
     assert "var(" not in qss
-    assert "#121417" in qss
-    assert "#FF6B35" in qss
+    assert "#131519" in qss
+    assert "#FF6C36" in qss
 
 
 def test_load_qss_missing_file_returns_empty_string():
@@ -313,8 +313,9 @@ def _ready_study_job(tmp_path):
 
 def _make_study_page(qtbot, tmp_path):
     from lecturepack.ui.pages.study_page import StudyPage
+    from lecturepack.infrastructure.config_manager import ConfigManager
     job = _ready_study_job(tmp_path)
-    page = StudyPage()
+    page = StudyPage(ConfigManager(str(tmp_path / "data")))
     qtbot.addWidget(page)
     page.load_job(job)
     return page
@@ -382,9 +383,10 @@ def test_study_overview_card_collapses(app, qtbot, tmp_path):
     page.slides_grid.shutdown()
 
 
-def test_study_workspace_empty_state_clears_panes(app, qtbot):
+def test_study_workspace_empty_state_clears_panes(app, qtbot, tmp_path):
     from lecturepack.ui.pages.study_page import StudyPage
-    page = StudyPage()
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    page = StudyPage(ConfigManager(str(tmp_path / "data")))
     qtbot.addWidget(page)
     page.load_job(None)
     assert page.content.isHidden()

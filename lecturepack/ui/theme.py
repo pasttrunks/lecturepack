@@ -1,15 +1,16 @@
-﻿"""
+"""
 lecturepack.ui.theme
 ====================
 
-Studio refined orange-primary/teal-secondary light/dark theme.
+Studio refined orange-primary/cyan-secondary light/dark theme.
 Uses Fusion style with QPalette + QSS for header, sidebar, footer,
 cards, and status chips.
 
-Design language: 1.5px borders, soft multi-layer shadows, rounded corners
-(7-16px), Space Grotesk + JetBrains Mono typography.
+Design language: 2px structural borders (1-1.5px hairline dividers),
+soft multi-layer shadows, rounded corners (7-16px), Space Grotesk +
+JetBrains Mono typography.
 
-Brand: Orange = primary, Teal/cyan = secondary.
+Brand: Orange = primary, Cyan/blue = secondary.
 """
 from __future__ import annotations
 
@@ -21,15 +22,15 @@ from PySide6.QtWidgets import QApplication
 # ------------------------------------------------------------------ #
 # Shared semantic colors                                              #
 # ------------------------------------------------------------------ #
-PRIMARY = "#F15A24"
-PRIMARY_HOVER = "#D94812"
+PRIMARY = "#EF5A1E"
+PRIMARY_HOVER = "#C6430E"
 PRIMARY_SOFT_LIGHT = "#FBE2D5"
-PRIMARY_SOFT_DARK = "#3B241A"
+PRIMARY_SOFT_DARK = "#38220F"
 
-SECONDARY = "#159EAE"
-SECONDARY_HOVER = "#0C7F8D"
-SECONDARY_SOFT_LIGHT = "#DDF3F4"
-SECONDARY_SOFT_DARK = "#15353A"
+SECONDARY = "#3FB4C7"
+SECONDARY_HOVER = "#2A93A6"
+SECONDARY_SOFT_LIGHT = "#DDF5F9"
+SECONDARY_SOFT_DARK = "#123840"
 
 DANGER = "#D63A2C"
 SUCCESS = "#128A52"
@@ -46,24 +47,25 @@ CHECKMARK_DIAMETER = 22
 # ------------------------------------------------------------------ #
 # Dark palette                                                        #
 # ------------------------------------------------------------------ #
-DARK_BG = "#121417"
-DARK_PANEL = "#1B1F23"
-DARK_PANEL2 = "#22272D"
-DARK_SUNK = "#15191D"
-DARK_INK = "#F0E9DF"
-DARK_MUTED = "#949BA5"
-DARK_BORDER = "#090A0C"
-DARK_LINE = "#30363D"
+DARK_BG = "#131519"
+DARK_PANEL = "#1B1E24"
+DARK_PANEL2 = "#21252C"
+DARK_SUNK = "#171A1F"
+DARK_INK = "#ECE7DB"
+DARK_MUTED = "#8C93A2"
+DARK_BORDER = "#000000"
+DARK_LINE = "#2C313A"
 
-DARK_PRIMARY = "#FF6B35"
-DARK_PRIMARY_HOVER = "#FF8259"
-DARK_PRIMARY_SOFT = "#3B241A"
-DARK_PRIMARY_INK = "#FF9A76"
+DARK_PRIMARY = "#FF6C36"
+DARK_PRIMARY_HOVER = "#FF8A5C"
+DARK_PRIMARY_SOFT = "#38220F"
+DARK_PRIMARY_INK = "#FF8A5C"
 
-DARK_SECONDARY = "#45C6D3"
-DARK_SECONDARY_HOVER = "#69D7E0"
-DARK_SECONDARY_SOFT = "#15353A"
-DARK_SECONDARY_INK = "#A6EBEF"
+DARK_SECONDARY = "#B3EBF2"
+DARK_SECONDARY_HOVER = "#8FE0EA"
+DARK_SECONDARY_SOFT = "#123840"
+DARK_SECONDARY_INK = "#B3EBF2"
+DARK_SECONDARY_TINT = "#102A30"
 
 DARK_GREEN = "#4CCB86"
 DARK_GREEN_SOFT = "#123020"
@@ -76,24 +78,25 @@ DARK_NAV_INK = "#AEB3BF"
 # ------------------------------------------------------------------ #
 # Light palette                                                       #
 # ------------------------------------------------------------------ #
-LIGHT_BG = "#F4EFE6"
+LIGHT_BG = "#F3F0E8"
 LIGHT_PANEL = "#FFFFFF"
-LIGHT_PANEL2 = "#F9F5ED"
-LIGHT_SUNK = "#EEE8DD"
-LIGHT_INK = "#1D1915"
-LIGHT_MUTED = "#81786B"
-LIGHT_BORDER = "#2A241E"
-LIGHT_LINE = "#DDD3C4"
+LIGHT_PANEL2 = "#F7F4ED"
+LIGHT_SUNK = "#F0ECE2"
+LIGHT_INK = "#1C1A16"
+LIGHT_MUTED = "#8A8173"
+LIGHT_BORDER = "#241F19"
+LIGHT_LINE = "#E3DCCD"
 
-LIGHT_PRIMARY = "#F15A24"
-LIGHT_PRIMARY_HOVER = "#D94812"
+LIGHT_PRIMARY = "#EF5A1E"
+LIGHT_PRIMARY_HOVER = "#C6430E"
 LIGHT_PRIMARY_SOFT = "#FBE2D5"
-LIGHT_PRIMARY_INK = "#B73A0B"
+LIGHT_PRIMARY_INK = "#C6430E"
 
-LIGHT_SECONDARY = "#159EAE"
-LIGHT_SECONDARY_HOVER = "#0C7F8D"
-LIGHT_SECONDARY_SOFT = "#DDF3F4"
-LIGHT_SECONDARY_INK = "#095F69"
+LIGHT_SECONDARY = "#3FB4C7"
+LIGHT_SECONDARY_HOVER = "#2A93A6"
+LIGHT_SECONDARY_SOFT = "#DDF5F9"
+LIGHT_SECONDARY_INK = "#0C6675"
+LIGHT_SECONDARY_TINT = "#EDFAFC"
 
 LIGHT_GREEN = "#128A52"
 LIGHT_GREEN_SOFT = "#D3F0DF"
@@ -182,6 +185,7 @@ def _qss(dark):
         secondary_hover = DARK_SECONDARY_HOVER
         secondary_soft = DARK_SECONDARY_SOFT
         secondary_ink = DARK_SECONDARY_INK
+        secondary_tint = DARK_SECONDARY_TINT
         sidebar_bg = DARK_PANEL
         card_bg = DARK_PANEL
         panel2 = DARK_PANEL2
@@ -204,6 +208,7 @@ def _qss(dark):
         secondary_hover = LIGHT_SECONDARY_HOVER
         secondary_soft = LIGHT_SECONDARY_SOFT
         secondary_ink = LIGHT_SECONDARY_INK
+        secondary_tint = LIGHT_SECONDARY_TINT
         sidebar_bg = LIGHT_PANEL
         card_bg = LIGHT_PANEL
         panel2 = LIGHT_PANEL2
@@ -219,7 +224,7 @@ def _qss(dark):
     /* ===== HEADER BAR ===== */
     QFrame#AppHeaderBar {{
         background: {card_bg};
-        border-bottom: 1.5px solid {border};
+        border-bottom: 2px solid {border};
     }}
     QFrame#LogoMark {{
         background: {primary};
@@ -238,7 +243,7 @@ def _qss(dark):
         letter-spacing: 0.04em;
         background: {card_bg};
         color: {ink};
-        border: 1.5px solid {border};
+        border: 2px solid {border};
         border-radius: 9px;
         padding: 8px 11px;
     }}
@@ -247,7 +252,7 @@ def _qss(dark):
         font: 600 13.5px {FONT_STACK};
         background: {card_bg};
         color: {ink};
-        border: 1.5px solid {border};
+        border: 2px solid {border};
         border-radius: 9px;
         padding: 9px 15px;
     }}
@@ -265,7 +270,7 @@ def _qss(dark):
     /* ===== SIDEBAR ===== */
     QWidget#NavSidebar {{
         background: {sidebar_bg};
-        border-right: 1.5px solid {border};
+        border-right: 2px solid {border};
     }}
     QLabel#SidebarSectionLabel {{
         font: 500 11px {FONT_MONO};
@@ -315,7 +320,7 @@ def _qss(dark):
     /* ===== STATUS FOOTER ===== */
     QFrame#AppStatusFooter {{
         background: {card_bg};
-        border-top: 1.5px solid {border};
+        border-top: 2px solid {border};
     }}
     QLabel#FooterStage {{
         font: 600 12px {FONT_MONO};
@@ -338,7 +343,7 @@ def _qss(dark):
     /* ===== COMMON ELEMENTS ===== */
     QFrame[card="true"] {{
         background: {card_bg};
-        border: 1.5px solid {border};
+        border: 2px solid {border};
         border-radius: 13px;
     }}
     QLabel[h1="true"] {{ font-size: 22px; font-weight: 700; }}
@@ -371,7 +376,7 @@ def _qss(dark):
     QSplitter::handle {{ background: {line}; }}
     QSplitter::handle:horizontal {{ width: 1.5px; }}
     QSplitter::handle:vertical {{ height: 1.5px; }}
-    QStatusBar {{ background: {card_bg}; border-top: 1.5px solid {border}; }}
+    QStatusBar {{ background: {card_bg}; border-top: 2px solid {border}; }}
 
     /* ===== STUDIO PAGE ELEMENTS ===== */
     QScrollArea {{ background: transparent; border: none; }}
@@ -400,7 +405,7 @@ def _qss(dark):
         border: 1.5px solid {muted}; background: transparent;
     }}
     QRadioButton::indicator:checked {{
-        border: 1.5px solid {primary}; background: radial-gradient({primary} 42%, transparent 46%);
+        border: 1.5px solid {secondary}; background: radial-gradient({secondary} 42%, transparent 46%);
     }}
     QCheckBox {{
         spacing: 8px; font-size: 13px;
@@ -410,20 +415,20 @@ def _qss(dark):
         border: 1.5px solid {muted}; background: transparent;
     }}
     QCheckBox::indicator:checked {{
-        background: {primary}; border-color: {primary};
+        background: {secondary}; border-color: {secondary};
     }}
     QLineEdit {{
-        background: {sunk}; border: 1.5px solid {line}; border-radius: 9px;
+        background: {sunk}; border: 2px solid {border}; border-radius: 9px;
         padding: 10px 13px; font: 500 13px {FONT_STACK}; color: {ink};
     }}
     QLineEdit:focus {{ border-color: {secondary}; }}
     QComboBox {{
-        background: {card_bg}; border: 1.5px solid {border}; border-radius: 9px;
+        background: {card_bg}; border: 2px solid {border}; border-radius: 9px;
         padding: 8px 12px; font: 500 13px {FONT_STACK}; color: {ink};
     }}
     QComboBox:hover {{ border-color: {secondary}; }}
     QComboBox[outputMode="true"] {{
-        background: {primary_soft}; border: 1.5px solid {primary}; color: {primary_ink};
+        background: {primary_soft}; border: 2px solid {primary}; color: {primary_ink};
     }}
     QFrame#DropzoneHero {{
         background: {sunk}; border: 1.5px dashed {line}; border-radius: 9px;
@@ -432,34 +437,44 @@ def _qss(dark):
         border: none; width: 24px;
     }}
     QComboBox QAbstractItemView {{
-        background: {card_bg}; border: 1.5px solid {border}; border-radius: 8px;
+        background: {card_bg}; border: 2px solid {border}; border-radius: 8px;
         selection-background-color: {secondary_soft}; selection-color: {ink};
         outline: none; padding: 4px;
     }}
     QTextEdit, QPlainTextEdit {{
-        background: {sunk}; border: 1.5px solid {line}; border-radius: 8px;
+        background: {sunk}; border: 2px solid {border}; border-radius: 8px;
         padding: 10px 12px; font: 500 13px {FONT_STACK}; color: {ink};
     }}
     QTextEdit:focus, QPlainTextEdit:focus {{
         border-color: {secondary};
     }}
     QTextEdit[logConsole="true"] {{
-        background: {sunk}; color: {green}; border: 1.5px solid {line};
+        background: {sunk}; color: {green}; border: 2px solid {border};
         border-radius: 8px; padding: 10px 12px;
     }}
     QPushButton {{
         font: 600 13px {FONT_STACK}; background: {card_bg};
-        color: {ink}; border: 1.5px solid {border}; border-radius: 9px;
+        color: {ink}; border: 2px solid {border}; border-radius: 9px;
         padding: 9px 15px;
     }}
     QPushButton:hover {{ background: {panel2}; }}
     QPushButton:pressed {{ background: {sunk}; }}
     QPushButton:disabled {{ background: {sunk}; color: {muted}; border-color: {sunk}; }}
     QPushButton[softPanel="true"], QToolButton[softPanel="true"] {{
-        background: {card_bg}; border: 1.5px solid {line};
+        background: {card_bg}; border: 2px solid {border};
+    }}
+    QToolButton {{
+        background: transparent; color: {ink}; border: none;
     }}
     QLabel[previewPane="true"] {{
-        background: {panel2}; border: 1.5px solid {border};
+        background: {panel2}; border: 2px solid {border};
+    }}
+    QWidget[tint="true"] {{
+        background: {secondary_tint}; border: 1.5px solid {secondary}; border-radius: 9px;
+    }}
+    QLabel[accentPill="true"] {{
+        background: {secondary}; color: #FFFFFF; border-radius: 9px; font-weight: 700;
+        padding: 1px 11px;
     }}
     """
 
@@ -519,7 +534,7 @@ def c(attr):
 
     Attributes: panel, panel2, sunk, border, line, ink, muted,
                 primary, primary_hover, primary_soft, primary_ink,
-                secondary, secondary_soft, secondary_ink,
+                secondary, secondary_soft, secondary_ink, secondary_tint,
                 green, red, danger, success, warning.
     """
     dark = is_dark()
@@ -538,6 +553,7 @@ def c(attr):
         "secondary": (DARK_SECONDARY, LIGHT_SECONDARY),
         "secondary_soft": (DARK_SECONDARY_SOFT, LIGHT_SECONDARY_SOFT),
         "secondary_ink": (DARK_SECONDARY_INK, LIGHT_SECONDARY_INK),
+        "secondary_tint": (DARK_SECONDARY_TINT, LIGHT_SECONDARY_TINT),
         "green": (DARK_GREEN, LIGHT_GREEN),
         "green_soft": (DARK_GREEN_SOFT, LIGHT_GREEN_SOFT),
         "red": (DARK_RED, LIGHT_RED),

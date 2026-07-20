@@ -83,7 +83,7 @@ def test_selection_visuals_pure_state():
     for dark in (False, True):
         vis = theme.selection_visuals(True, True, "accepted", dark)
         assert vis["outline_width"] >= 2
-        assert vis["outline_color"].name() == theme.ACCENT
+        assert vis["outline_color"].name() == theme.ACCENT.lower()
         assert vis["checkmark_visible"] is True
         assert vis["focus_ring_visible"] is True
         # selected background contrasts with the unselected one
@@ -93,7 +93,7 @@ def test_selection_visuals_pure_state():
         assert unsel["outline_width"] == 0
         # rejected tiles keep a distinct badge colour
         rej = theme.selection_visuals(False, False, "rejected", dark)
-        assert rej["decision_badge_color"].name() == theme.DANGER
+        assert rej["decision_badge_color"].name() == theme.DANGER.lower()
 
 
 def test_selected_tile_pixels_show_accent_outline(window, qtbot):

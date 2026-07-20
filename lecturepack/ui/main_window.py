@@ -291,7 +291,7 @@ class MainWindow(QMainWindow):
         self.transcript_page = TranscriptPage(self.config_manager)
         self.exports_page = ExportsPage()
         self.settings_page = SettingsPage(self.config_manager)
-        self.study_page = StudyPage()
+        self.study_page = StudyPage(self.config_manager)
         for w in (self.home_page, self.process_page, self.review_page,
                   self.transcript_page, self.exports_page, self.settings_page,
                   self.study_page):
@@ -1304,6 +1304,7 @@ class MainWindow(QMainWindow):
         self.transcript_page.shutdown()
         self.review_page.slides_view.shutdown()
         self.study_page.slides_grid.shutdown()
+        self.study_page.shutdown()
         self._persist_ui_state()
         super().closeEvent(event)
 
