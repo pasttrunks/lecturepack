@@ -1,0 +1,30 @@
+{
+  "phase": "webview_functionality_recovery",
+  "completed": [
+    "P0.1 slide thumbnails and full preview (central lpasset asset resolver)",
+    "P0.4 Settings controls wired to engine config (on_setting_changed bridge)",
+    "P0.3 Vulkan selection wiring + actual-backend reporting (live GPU run unverified)",
+    "P1.4 Ollama model discovery and selection",
+    "P0.5 content hygiene verified clean + guard test",
+    "P1.7 timeline hover popup body-portal + collision-aware placement"
+  ],
+  "in_progress": null,
+  "blocked": [
+    "P0.3 Vulkan LIVE activation (needs GPU + whisper_vulkan_exe)",
+    "P0.2 online/Groq transcription live validation (needs live Groq key)"
+  ],
+  "not_started": [
+    "P0.2 pipeline profiling + online-fast transcription",
+    "P1.1-1.3 configurable quizzes + navigation",
+    "P1 configurable flashcards",
+    "P1 study assistant tabs (Ask/Quiz/Flashcards/Notes)",
+    "P3 dark-mode secondary palette + icon currentColor",
+    "accent swatch removal",
+    "packaged .exe validation"
+  ],
+  "next_action": "Profile the pipeline for baseline_performance.json OR start configurable quizzes (study bridge)",
+  "last_green_commit": "e504551",
+  "working_tree_clean": true,
+  "full_suite": "240 passed (at 8eb83a4); frontend-only e504551 node-checked + headless-validated",
+  "exit_outcome": "B"
+}
