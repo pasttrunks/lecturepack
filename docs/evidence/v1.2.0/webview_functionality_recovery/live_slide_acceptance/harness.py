@@ -15,8 +15,14 @@ import sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --no-sandbox")
 
-APP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))), "app")
+# Walk up from this file until we find the repo's app/desktop package, so the
+# harness runs from anywhere (tests/scratch or this evidence directory).
+_d = os.path.dirname(os.path.abspath(__file__))
+while _d != os.path.dirname(_d):
+    if os.path.isdir(os.path.join(_d, "app", "desktop")):
+        break
+    _d = os.path.dirname(_d)
+APP_DIR = os.path.join(_d, "app")
 sys.path.insert(0, APP_DIR)
 
 from PySide6.QtCore import QTimer  # noqa: E402
@@ -134,7 +140,7 @@ def step_missing(nxt):
               "document.querySelector('#slide-list [data-slide]').click();" % FULL)
     js(inject, lambda _: QTimer.singleShot(2200, chk))
     def chk():
-        js("(function(){var ph=document.querySelector('#slide-frame .lp-img-ph');"
+        js("(function(){var ph=document.getElementById('preview-ph');"
            "return ph?getComputedStyle(ph).display:'none';})()",
            lambda disp: (record("missing file shows explicit marker",
                                 disp and disp != "none", f'placeholder display={disp}'), nxt()))

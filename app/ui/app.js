@@ -182,6 +182,157 @@
     if (stick) logEl.scrollTop = logEl.scrollHeight;
   }
 
+  // Main slide preview: fills the canvas at Fit (preserving aspect ratio) and
+  // supports zoom/pan. Uses the full-resolution candidate image (cur.img), NOT
+  // the small thumbnail box. scale is natural-pixel -> CSS-pixel (100% = 1:1).
+  var previewCtl = (function () {
+    var ZMIN = 0.25, ZMAX = 4, PAD = 16;
+    var st = { natW: 1, natH: 1, scale: 1, fit: 1, mode: 'fit', panX: 0, panY: 0, url: '' };
+    var frame, img, ph, phLabel, zoom, zlabel, built = false, drag = null;
+
+    function zbtn(z, txt) {
+      return '<button data-z="' + z + '" style="font:600 11px \'JetBrains Mono\';background:var(--sunk);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:3px 7px;cursor:pointer;line-height:1.1">' + txt + '</button>';
+    }
+
+    function build() {
+      if (built) return;
+      frame = $('slide-frame');
+      frame.style.border = 'none';
+      frame.style.background = 'transparent';
+      frame.innerHTML =
+        '<img id="preview-img" alt="" draggable="false" style="display:none;user-select:none;-webkit-user-drag:none;box-shadow:var(--shadow-soft);border-radius:6px;will-change:transform;max-width:none;max-height:none">' +
+        '<span id="preview-ph" style="display:none;flex-direction:column;align-items:center;gap:10px">' +
+        thumb(34, 'var(--muted)') +
+        '<span id="preview-ph-label" style="font:500 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">slide frame</span></span>' +
+        '<div id="preview-zoom" style="position:absolute;top:10px;right:10px;display:none;align-items:center;gap:5px;background:var(--panel);border:1.5px solid var(--border);border-radius:8px;padding:4px 6px;box-shadow:var(--shadow-soft);z-index:3">' +
+        zbtn('out', '&minus;') + '<span id="preview-zoom-label" style="font:700 11px \'JetBrains Mono\';min-width:40px;text-align:center">100%</span>' +
+        zbtn('in', '+') + zbtn('fit', 'Fit') + zbtn('100', '100%') + zbtn('reset', 'Reset') + '</div>';
+      img = $('preview-img'); ph = $('preview-ph'); phLabel = $('preview-ph-label');
+      zoom = $('preview-zoom'); zlabel = $('preview-zoom-label');
+      wire();
+      built = true;
+    }
+
+    function computeFit() {
+      var r = frame.getBoundingClientRect();
+      var aw = Math.max(1, r.width - PAD * 2), ah = Math.max(1, r.height - PAD * 2);
+      st.fit = Math.min(aw / st.natW, ah / st.natH);
+    }
+    function clampPan() {
+      var r = frame.getBoundingClientRect();
+      var mx = Math.max(0, (st.natW * st.scale - (r.width - PAD * 2)) / 2);
+      var my = Math.max(0, (st.natH * st.scale - (r.height - PAD * 2)) / 2);
+      st.panX = Math.max(-mx, Math.min(mx, st.panX));
+      st.panY = Math.max(-my, Math.min(my, st.panY));
+    }
+    function apply() {
+      img.style.width = (st.natW * st.scale) + 'px';
+      img.style.height = (st.natH * st.scale) + 'px';
+      img.style.transform = 'translate(' + Math.round(st.panX) + 'px,' + Math.round(st.panY) + 'px)';
+      img.style.cursor = st.scale > st.fit + 1e-3 ? (drag ? 'grabbing' : 'grab') : 'default';
+      if (zlabel) zlabel.textContent = Math.round(st.scale * 100) + '%';
+    }
+    function setMode(mode) {
+      computeFit();
+      st.mode = mode; st.panX = 0; st.panY = 0;
+      st.scale = Math.max(ZMIN, Math.min(ZMAX, mode === '100' ? 1 : st.fit));
+      apply();
+    }
+    function zoomTo(s) {
+      st.scale = Math.max(ZMIN, Math.min(ZMAX, s));
+      st.mode = Math.abs(st.scale - st.fit) < 1e-3 ? 'fit' : 'custom';
+      clampPan(); apply();
+    }
+    function zoomAt(f, cx, cy) {
+      var r = frame.getBoundingClientRect();
+      var ox = cx - (r.left + r.width / 2) - st.panX;
+      var oy = cy - (r.top + r.height / 2) - st.panY;
+      var ns = Math.max(ZMIN, Math.min(ZMAX, st.scale * f)), k = ns / st.scale;
+      st.panX -= ox * (k - 1); st.panY -= oy * (k - 1); st.scale = ns;
+      st.mode = Math.abs(ns - st.fit) < 1e-3 ? 'fit' : 'custom';
+      clampPan(); apply();
+    }
+    function onLoad() {
+      st.natW = img.naturalWidth || 1; st.natH = img.naturalHeight || 1;
+      ph.style.display = 'none'; img.style.display = 'block'; zoom.style.display = 'flex';
+      setMode('fit');
+    }
+    function onError() {
+      img.style.display = 'none'; zoom.style.display = 'none';
+      phLabel.textContent = 'slide image missing'; phLabel.style.color = 'var(--red)';
+      ph.style.display = 'flex';
+    }
+    function wire() {
+      img.addEventListener('load', onLoad);
+      img.addEventListener('error', onError);
+      zoom.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-z]'); if (!b) return;
+        var z = b.dataset.z;
+        if (z === 'fit' || z === 'reset') setMode('fit');
+        else if (z === '100') setMode('100');
+        else if (z === 'in') zoomTo(st.scale * 1.25);
+        else if (z === 'out') zoomTo(st.scale * 0.8);
+      });
+      frame.addEventListener('wheel', function (e) {
+        if (!e.ctrlKey || img.style.display === 'none') return;
+        e.preventDefault();
+        zoomAt(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX, e.clientY);
+      }, { passive: false });
+      frame.addEventListener('dblclick', function () {
+        if (img.style.display === 'none') return;
+        setMode(Math.abs(st.scale - st.fit) < 1e-3 ? '100' : 'fit');
+      });
+      img.addEventListener('mousedown', function (e) {
+        if (st.scale <= st.fit + 1e-3) return;
+        e.preventDefault(); drag = { x: e.clientX, y: e.clientY, px: st.panX, py: st.panY };
+        apply();
+      });
+      window.addEventListener('mousemove', function (e) {
+        if (!drag) return;
+        st.panX = drag.px + (e.clientX - drag.x); st.panY = drag.py + (e.clientY - drag.y);
+        clampPan(); apply();
+      });
+      window.addEventListener('mouseup', function () { if (drag) { drag = null; apply(); } });
+      if (window.ResizeObserver) {
+        new ResizeObserver(function () {
+          if (img.style.display === 'none') return;
+          computeFit();
+          if (st.mode === 'fit') st.scale = st.fit;
+          clampPan(); apply();
+        }).observe(frame);
+      }
+    }
+
+    function refit() {
+      // Recompute Fit against the CURRENT frame size — call when the Review
+      // panel becomes visible/resizes (renderSlides may run while it's hidden,
+      // i.e. 0x0, which would otherwise clamp the image to the minimum zoom).
+      if (!built || img.style.display === 'none') return;
+      computeFit();
+      if (st.mode === 'fit') { st.scale = Math.max(ZMIN, Math.min(ZMAX, st.fit)); }
+      clampPan(); apply();
+    }
+
+    function show(cur) {
+      build();
+      if (cur && cur.img) {
+        if (cur.img !== st.url) {
+          st.url = cur.img;
+          img.style.display = 'none'; zoom.style.display = 'none';
+          img.src = cur.img;
+          if (img.complete && img.naturalWidth > 0) onLoad();
+        }
+      } else {
+        st.url = ''; img.removeAttribute('src'); img.style.display = 'none';
+        zoom.style.display = 'none';
+        phLabel.textContent = 'slide frame' + (cur ? ' · ' + cur.time : '');
+        phLabel.style.color = 'var(--muted)';
+        ph.style.display = 'flex';
+      }
+    }
+    return { show: show, refit: refit };
+  })();
+
   function renderSlides() {
     var v = LP.state.viewingSlide;
     var list = $('slide-list');
@@ -211,25 +362,10 @@
     var selCount = LP.data.slides.filter(function (s) { return s.sel; }).length;
     $('slides-sel').textContent = '· ' + selCount + ' sel';
     var cur = LP.data.slides[v];
-    var frame = $('slide-frame');
-    if (cur && cur.img) {
-      frame.style.border = 'none';
-      frame.style.background = 'transparent';
-      frame.innerHTML = slideImg(cur.img,
-        'max-width:100%;max-height:100%;object-fit:contain;border-radius:9px;box-shadow:var(--shadow-soft)', 34, 'var(--muted)') +
-        '<span class="lp-img-ph" style="display:none;flex-direction:column;align-items:center;gap:10px">' +
-        thumb(34, 'var(--muted)') +
-        '<span style="font:500 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.1em;color:var(--red)">slide image missing</span></span>';
-      // the helper already emits one placeholder; keep only the labelled one
-      var phs = frame.querySelectorAll('.lp-img-ph');
-      if (phs.length > 1) { phs[0].remove(); }
-    } else {
-      frame.style.border = '1.5px solid var(--line)';
-      frame.style.background = 'var(--panel)';
-      frame.innerHTML = thumb(34, 'var(--muted)') +
-        '<span id="slide-frame-label" style="font:500 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.1em;color:var(--muted);white-space:nowrap">slide frame · ' + esc(cur ? cur.time : '') + '</span>';
-    }
-    $('slide-frame-meta').innerHTML = esc(cur.time) + '.500 <span style="color:var(--muted);font-weight:400">· frame ' + (cur.frame || Math.round(cur.pct * 30)) + '</span>';
+    previewCtl.show(cur);
+    $('slide-frame-meta').innerHTML = cur
+      ? (esc(cur.time) + '.500 <span style="color:var(--muted);font-weight:400">· frame ' + (cur.frame || Math.round(cur.pct * 30)) + '</span>')
+      : '';
     renderTimeline();
   }
 
@@ -382,6 +518,11 @@
       b.classList.toggle('active', b.dataset.nav === name);
     });
     $('crumb').textContent = CRUMBS[name] || name;
+    // The preview may have been laid out while Review was hidden (0x0) — refit
+    // now that it's visible so the slide fills the canvas.
+    if (name === 'review') {
+      requestAnimationFrame(function () { previewCtl.refit(); });
+    }
   }
 
   function setTheme(theme) {

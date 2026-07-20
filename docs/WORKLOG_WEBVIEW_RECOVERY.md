@@ -8,6 +8,42 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## P0 — Main slide preview was tiny (FIXED)
+
+**Issue:** the slide image loaded but rendered tiny in the center preview,
+surrounded by unused canvas — text unreadable.
+
+**Graph path (from prior sessions, no re-scan):** `renderSlides` (app.js) →
+`#slide-frame` (index.html) → image element/CSS.
+
+**Root cause (measured):** `#slide-frame` was locked to `width:74%` +
+`aspect-ratio:16/9`; a 4:3 image was letterboxed inside that fixed 16:9 frame, so
+it occupied only **55% width / 19% area** of the canvas (egypt, 1024×768). Not the
+thumbnail URL/component — purely the fixed frame sizing.
+
+**Fix (app.js + index.html):** `#slide-frame` is now a fill-canvas
+(`width/height:100%`, 16px padding, `overflow:hidden`). New `previewCtl` module
+renders the full-resolution `cur.img` and fits it with
+`fit = min(availW/natW, availH/natH)`, re-fitting on Review-show (`setScreen`) and
+on resize (ResizeObserver) — needed because `renderSlides` can run while Review is
+`display:none` (0×0), which otherwise clamped to min zoom. Adds Fit / 100% / − / +
+/ Reset controls, Ctrl+wheel zoom-at-cursor, double-click Fit↔100%, drag-pan when
+zoomed. Zoom range 25–400% (natural-pixel scale). Missing image → `#preview-ph`
+marker + red label.
+
+**Evidence:** `docs/evidence/.../slide_preview_scaling/` — after: **92% width**
+(egypt 4:3 + m2 16:9); zoom probe ZOOM_OK (Fit 422 / 100% 1024 / +1280 / reset 422).
+Live acceptance harness re-run **16/16 ALL_OK** (missing-file check updated to
+`#preview-ph`; harness made path-robust).
+
+**Note:** full-res vs downscaled-thumbnail split (`thumbnailUrl`/`fullImageUrl`)
+deferred to the thumbnail-perf task (§5); preview already uses full-res `cur.img`.
+
+**Remaining risk:** native-window screenshots + 125/150% DPI need a human; fit math
+is resolution-independent.
+
+---
+
 ## Phase 2 — Packaged WebEngine validation (2 frozen blockers FIXED)
 
 Rebuilt the onedir package and found the packaged app was **dead on arrival**
