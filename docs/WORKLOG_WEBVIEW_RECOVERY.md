@@ -8,6 +8,32 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## Phase 2 — Packaged WebEngine validation (2 frozen blockers FIXED)
+
+Rebuilt the onedir package and found the packaged app was **dead on arrival**
+(both bugs pre-existing, not from this recovery):
+
+1. **Startup ImportError** — PyInstaller ran `desktop/main.py` as `__main__`, so
+   `from . import version` crashed with "attempted relative import with no known
+   parent package". Fix: new entry wrapper `app/lecturepack_desktop.py`
+   (`from desktop.main import main`); spec Analysis now points at it.
+2. **UI not found when frozen** — `paths.app_root()` returned `dirname(exe)` but
+   PyInstaller 6 bundles data under `sys._MEIPASS` (onedir `_internal/`). Fix:
+   `app_root()` returns `_MEIPASS` when it contains `ui/`, else exe-dir fallback.
+
+**Files:** `app/desktop/paths.py`, `app/lecturepack_desktop.py` (new),
+`app/packaging/lecturepack.spec`, `tests/test_webview_packaging.py` (new, 4).
+
+**Evidence:** `docs/evidence/.../packaged/` — `PACKAGED_SMOKE_OK`: bundle copied to
+a spaces path, `_internal/ui/{index.html,app.js}` current, exe boots offscreen and
+stays alive with no startup traceback.
+
+**Remaining risk:** interactive packaged acceptance (clicking thumbnails/settings/
+ollama/hover in the native window) still needs a human — can't drive a packaged
+GUI from tooling. The startup blockers that prevented ALL of it are fixed.
+
+---
+
 ## Phase 1 — Live slide-preview acceptance (PASSED) + open-job fix
 
 **Validation:** Built a real-backend headless harness (`docs/evidence/.../live_slide_acceptance/`)

@@ -34,7 +34,10 @@ for root, _dirs, files in os.walk(UI_DIR):
         ui_datas.append((src, rel))
 
 a = Analysis(
-    [os.path.join(SPEC_DIR, "desktop", "main.py")],
+    # Enter through the package wrapper, not desktop/main.py directly: a
+    # PyInstaller entry script runs as __main__ with no package, so main.py's
+    # relative imports (from . import ...) would crash at startup.
+    [os.path.join(SPEC_DIR, "lecturepack_desktop.py")],
     pathex=[SPEC_DIR, REPO_ROOT],
     binaries=[],
     datas=ui_datas + engine_datas,
