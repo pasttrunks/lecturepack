@@ -8,6 +8,31 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## P1.7 — Timeline hover popup clipped above the app (FIXED)
+
+**Issue:** The timeline scrub preview rendered `position:absolute; bottom:34px`
+inside `#timeline-strip`, always above the strip. On the Review page the timeline
+sits near the top of the window, so the popup was clipped off the top; it also had
+no horizontal clamping (half off-screen at the ends).
+
+**Fix (app.js + index.html):** Portal `#scrub-preview` to `<body>` (escapes the
+timeline card's overflow), switch it to `position:fixed`, and compute placement in
+`onScrub`: prefer above, flip below when there isn't room, clamp left to
+`[pad, vw-pw-pad]`. Show the real slide image in the preview thumb. Hide on
+mouseleave, screen change (`setScreen`), job change (`slides_changed`), and
+scroll/resize.
+
+**Evidence:** headless real-viewport validation
+`docs/evidence/v1.2.0/webview_functionality_recovery/timeline_hover_result.txt`
+— viewport 1360×860, hover near the left edge of a top-anchored timeline →
+`parentBody:true, display:block`, rect fully inside the viewport, **flipped below**
+the strip (top 152 > stripTop 114). No console errors on load.
+
+**Remaining risk:** DPI scaling (125/150%) and both themes not explicitly checked;
+placement math is resolution-independent so low risk.
+
+---
+
 ## P0.3 / P0.4 / P1.4 — Settings controls wired to the backend (FIXED)
 
 **Issue:** Visible Settings controls were dead. The Vulkan GPU button, the endpoint

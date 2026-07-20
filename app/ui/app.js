@@ -369,6 +369,7 @@
 
   function setScreen(name) {
     LP.state.screen = name;
+    if (typeof hideScrub === 'function') hideScrub();
     Array.prototype.forEach.call(document.querySelectorAll('main [data-screen]'), function (sec) {
       var show = sec.dataset.screen === name;
       if (show === !sec.hidden) return;
@@ -460,8 +461,17 @@
 
   /* ======================= scrub ======================= */
 
+  // The hover preview is portaled to <body> so it escapes the timeline's
+  // overflow clipping; positioned with fixed coords + collision-aware flip.
+  function hideScrub() {
+    var w = $('scrub-wrap'), pv = $('scrub-preview');
+    if (w) w.hidden = true;
+    if (pv) pv.style.display = 'none';
+  }
+
   function onScrub(e) {
     var strip = $('timeline-strip');
+    if (!strip || !LP.data.slides.length) return;
     var r = strip.getBoundingClientRect();
     var pct = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100));
     var best = LP.data.slides[0], bd = 1e9;
@@ -469,11 +479,34 @@
       var d = Math.abs(s.pct - pct);
       if (d < bd) { bd = d; best = s; best._i = i; }
     });
+
+    // Needle stays inside the strip.
     $('scrub-wrap').hidden = false;
-    $('scrub-preview').style.left = best.pct + '%';
     $('scrub-needle').style.left = best.pct + '%';
     $('scrub-time').textContent = best.time;
     $('scrub-state').textContent = best._i === LP.state.viewingSlide ? 'viewing' : best.state;
+
+    // Real slide image in the preview thumb (falls back to placeholder).
+    var thumb = $('scrub-thumb');
+    if (thumb) {
+      thumb.innerHTML = slideImg(best.img, 'width:100%;height:100%;object-fit:cover', 20, 'var(--muted)');
+    }
+
+    // Fixed-position, collision-aware placement.
+    var pv = $('scrub-preview');
+    pv.style.display = 'block';
+    var pw = pv.offsetWidth || 150;
+    var ph = pv.offsetHeight || 110;
+    var vw = window.innerWidth, vh = window.innerHeight, gap = 12, pad = 8;
+    var tickX = r.left + r.width * (best.pct / 100);
+    var left = Math.max(pad, Math.min(tickX - pw / 2, vw - pw - pad));
+    var top = r.top - ph - gap;              // prefer above
+    if (top < pad) {                         // not enough room -> below
+      var below = r.bottom + gap;
+      top = (below + ph + pad <= vh) ? below : Math.max(pad, r.top - ph - gap);
+    }
+    pv.style.left = left + 'px';
+    pv.style.top = top + 'px';
   }
 
   /* ======================= export ======================= */
@@ -632,8 +665,15 @@
 
     // review
     var strip = $('timeline-strip');
+    // Portal the hover preview out of the timeline so it can never be clipped
+    // by the timeline card's overflow.
+    var scrubPv = $('scrub-preview');
+    if (scrubPv && scrubPv.parentNode !== document.body) document.body.appendChild(scrubPv);
     strip.addEventListener('mousemove', onScrub);
-    strip.addEventListener('mouseleave', function () { $('scrub-wrap').hidden = true; });
+    strip.addEventListener('mouseleave', hideScrub);
+    // Position is stale once the layout shifts — hide on scroll/resize.
+    window.addEventListener('resize', hideScrub);
+    window.addEventListener('scroll', hideScrub, true);
     strip.addEventListener('click', function (e) {
       var t = e.target.closest('[data-slide]');
       if (t) { LP.state.viewingSlide = +t.dataset.slide; renderSlides(); }
@@ -783,6 +823,7 @@
       if (d.duration) LP.data.duration = d.duration;
       if (d.durationMid) LP.data.durationMid = d.durationMid;
       if (LP.state.viewingSlide >= LP.data.slides.length) LP.state.viewingSlide = 0;
+      hideScrub();  // job changed — drop any stale hover preview
       renderSlides();
     });
     lpBridge.on('transcript_changed', function (json) {

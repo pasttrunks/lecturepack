@@ -1,0 +1,15 @@
+Headless validation of the timeline hover popup placement (P1.7).
+
+Command:
+  QT_QPA_PLATFORM=offscreen .venv/Scripts/python.exe \
+    docs/evidence/v1.2.0/webview_functionality_recovery/smoke_timeline_hover.py
+
+Probe (viewport 1360x860, hovering near the left edge of a top-anchored timeline):
+  {"parentBody":true,"display":"block","vw":1360,"vh":860,
+   "left":194,"top":152,"right":344,"bottom":265,"stripTop":114}
+Result: HOVER_OK (exit 0)
+
+Confirms: preview is portaled to <body> (escapes timeline overflow), fully inside
+the viewport (no negative/overflowing edges), and correctly FLIPPED BELOW the strip
+(top 152 > stripTop 114) because there was no room above — the exact clipping bug
+from the screenshot.
