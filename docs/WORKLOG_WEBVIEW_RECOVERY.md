@@ -8,6 +8,33 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## §5 — Lazy thumbnail cache (DONE)
+
+**Issue:** list/grid decoded full-res ~2.5 MB PNGs into 60×38 boxes (167×2.5 MB ≈
+400 MB on a long job).
+
+**Fix (assets.py + engine_adapter + app.js):** new `lpasset://thumb/...` host;
+`resolve_thumb` is non-blocking — serves fresh cached WebP if present, else serves
+full-res immediately and generates the thumbnail on a 2-worker background pool
+(deduped). Thumbs: WebP (JPEG fallback), max 320px, cached at
+`frames/thumbs/v1/<name>.webp`, fresh when `thumb.mtime>=src.mtime`, schema-dir
+bump invalidates; live+archived; originals untouched. Slides payload carries
+`img` (full-res, preview/export) + `thumb` (list/grid/hover).
+
+**Why non-blocking:** first attempt generated synchronously in the handler →
+starved the main thread (2/167 thumbs + preview naturalWidth=0 in the harness).
+Background generation fixed it (16/16 ALL_OK again).
+
+**Evidence:** `docs/evidence/.../thumbnail_cache/` — WebP reduction **192×** (m2
+1080p), **63×** (Mesopotamia sample). Tests: `test_webview_assets.py` (+5). Live
+harness 16/16.
+
+**Remaining risk:** first (cold) open still renders full-res while thumbs warm in
+background; a real windowed cold-vs-warm scroll timing needs a human. Executor is
+app-lifetime (not explicitly shut down).
+
+---
+
 ## P0 — Main slide preview was tiny (FIXED)
 
 **Issue:** the slide image loaded but rendered tiny in the center preview,

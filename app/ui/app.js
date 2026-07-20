@@ -354,7 +354,7 @@
         wrap = 'background:var(--panel);border:1.5px solid var(--line);border-left:5px solid var(--blue);border-radius:11px;padding:8px;cursor:pointer';
         label = 'accepted'; labelColor = 'var(--blue-ink)';
       }
-      var thumbImg = slideImg(s.img, 'width:100%;height:100%;object-fit:cover;border-radius:5px;display:block', 16, icon);
+      var thumbImg = slideImg(s.thumb || s.img, 'width:100%;height:100%;object-fit:cover;border-radius:5px;display:block', 16, icon);
       return '<div class="lp-hit" data-slide="' + i + '" style="display:flex;align-items:center;gap:11px;' + wrap + '">' +
         '<div style="width:60px;height:38px;flex:none;overflow:hidden;background:var(--sunk);border:1.5px solid ' + thumbBd + ';border-radius:6px;display:flex;align-items:center;justify-content:center">' + thumbImg + '</div>' +
         '<div><div style="font:700 13px \'JetBrains Mono\'">' + esc(s.time) + '</div><div style="font:700 10px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</div></div></div>';
@@ -630,7 +630,7 @@
     // Real slide image in the preview thumb (falls back to placeholder).
     var thumb = $('scrub-thumb');
     if (thumb) {
-      thumb.innerHTML = slideImg(best.img, 'width:100%;height:100%;object-fit:cover', 20, 'var(--muted)');
+      thumb.innerHTML = slideImg(best.thumb || best.img, 'width:100%;height:100%;object-fit:cover', 20, 'var(--muted)');
     }
 
     // Fixed-position, collision-aware placement.

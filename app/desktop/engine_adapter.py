@@ -24,7 +24,7 @@ import os
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QFileDialog
 
-from .assets import asset_url
+from .assets import asset_url, thumb_url
 from .paths import data_dir
 
 
@@ -706,7 +706,9 @@ class LecturePackAdapter(EngineAdapter):
                 "time": _fmt_hhmmss(ts),
                 "state": "accepted" if c.get("decision") == "accepted" else "rejected",
                 "frame": c.get("frame_number"),
+                # img = full-resolution (preview/export); thumb = cached downscale (list/grid)
                 "img": asset_url(job.job_id, img_name) if img_name else "",
+                "thumb": thumb_url(job.job_id, img_name) if img_name else "",
             })
             self._slide_frames.append(c.get("frame_number"))
         if slides:

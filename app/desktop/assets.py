@@ -26,11 +26,20 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from urllib.parse import quote, unquote
 
 SCHEME = "lpasset"
 SCHEME_BYTES = b"lpasset"
 HOST = "job"
+THUMB_HOST = "thumb"
+
+# Downscaled thumbnail cache: longest side in px, dir schema version (bump to
+# invalidate all cached thumbnails). Kept off the processing critical path —
+# generated lazily on first request and cached to disk beside the frames.
+THUMB_MAX = 320
+THUMB_SCHEMA = "v1"
+THUMB_QUALITY = 80
 
 # job ids are UUIDs or validation slugs — never contain path separators.
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -54,8 +63,34 @@ def guess_mime(filename: str) -> str:
 
 
 def asset_url(job_id: str, filename: str) -> str:
-    """Build the ``lpasset://`` URL the UI puts in an <img src>."""
+    """Build the full-resolution ``lpasset://`` URL (main preview / decode)."""
     return f"{SCHEME}://{HOST}/{quote(str(job_id))}/{quote(str(filename))}"
+
+
+def thumb_url(job_id: str, filename: str) -> str:
+    """Build the thumbnail ``lpasset://`` URL (slide list/grid)."""
+    return f"{SCHEME}://{THUMB_HOST}/{quote(str(job_id))}/{quote(str(filename))}"
+
+
+_THUMB_FMT = None  # cached (qt_format, mime, ext); resolved once at runtime
+
+
+def _thumb_format():
+    """Prefer WebP; fall back to JPEG if the WebP writer isn't available
+    (e.g. the imageformats plugin wasn't bundled in a packaged build)."""
+    global _THUMB_FMT
+    if _THUMB_FMT is None:
+        try:
+            from PySide6.QtGui import QImageWriter
+            fmts = {bytes(f).decode().lower()
+                    for f in QImageWriter.supportedImageFormats()}
+        except Exception:
+            fmts = set()
+        if "webp" in fmts:
+            _THUMB_FMT = ("WEBP", "image/webp", ".webp")
+        else:
+            _THUMB_FMT = ("JPG", "image/jpeg", ".jpg")
+    return _THUMB_FMT
 
 
 class AssetResolver:
@@ -63,6 +98,28 @@ class AssetResolver:
 
     def __init__(self, data_dir: str):
         self.data_dir = data_dir
+        self._pool = None            # lazy background thumbnail generator
+        self._pending = set()        # dst paths currently being generated
+        self._lock = threading.Lock()
+
+    def _schedule_thumb(self, src: str, dst: str) -> None:
+        """Generate a thumbnail off the main thread (deduped by dst path)."""
+        with self._lock:
+            if dst in self._pending:
+                return
+            self._pending.add(dst)
+            if self._pool is None:
+                from concurrent.futures import ThreadPoolExecutor
+                self._pool = ThreadPoolExecutor(max_workers=2,
+                                                thread_name_prefix="lp-thumb")
+
+        def work():
+            try:
+                _make_thumb(src, dst)
+            finally:
+                with self._lock:
+                    self._pending.discard(dst)
+        self._pool.submit(work)
 
     def _job_frames_roots(self, job_id: str) -> list[str]:
         """Candidate frames/ directories for a job (live, then archived)."""
@@ -115,6 +172,79 @@ class AssetResolver:
             return None
         return guess_mime(filename), data
 
+    def thumb_path(self, src_path: str) -> str:
+        """Cache path for a source frame's thumbnail (inside frames/thumbs/<v>)."""
+        d = os.path.dirname(src_path)
+        while os.path.basename(d) != "frames" and d != os.path.dirname(d):
+            d = os.path.dirname(d)
+        _, _, ext = _thumb_format()
+        return os.path.join(d, "thumbs", THUMB_SCHEMA,
+                            os.path.basename(src_path) + ext)
+
+    def resolve_thumb(self, job_id: str, filename: str) -> tuple[str, bytes] | None:
+        """Return ``(mime, bytes)`` for a downscaled thumbnail.
+
+        NON-BLOCKING: if a fresh cached thumbnail exists it is served; otherwise
+        the full-resolution original is served immediately and the thumbnail is
+        generated in a background thread for next time. This keeps the scheme
+        handler (main thread) from stalling on 100+ decodes when a long job is
+        first opened, and never starves the full-resolution preview request.
+        """
+        src = self.resolve_path(job_id, filename)
+        if src is None:
+            return None
+        _, mime, _ = _thumb_format()
+        dst = self.thumb_path(src)
+        try:
+            if os.path.isfile(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
+                with open(dst, "rb") as fh:
+                    return mime, fh.read()
+        except OSError:
+            pass
+        # Not cached yet — generate in the background, serve full-res meanwhile.
+        self._schedule_thumb(src, dst)
+        try:
+            with open(src, "rb") as fh:
+                return guess_mime(filename), fh.read()
+        except OSError:
+            return None
+
+    def make_thumb_now(self, job_id: str, filename: str) -> tuple[str, bytes] | None:
+        """Synchronous generate+return — for tests/prewarming, not the handler."""
+        src = self.resolve_path(job_id, filename)
+        if src is None:
+            return None
+        _, mime, _ = _thumb_format()
+        data = _make_thumb(src, self.thumb_path(src))
+        return (mime, data) if data is not None else None
+
+
+def _make_thumb(src: str, dst: str) -> bytes | None:
+    """Generate a downscaled thumbnail from ``src`` into ``dst`` (atomic) and
+    return its bytes, or None on failure. Requires a running QApplication."""
+    try:
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QImage
+    except Exception:
+        return None
+    img = QImage(src)
+    if img.isNull():
+        return None
+    scaled = img.scaled(THUMB_MAX, THUMB_MAX,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation)
+    fmt, _, _ = _thumb_format()
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        tmp = dst + ".tmp"
+        if not scaled.save(tmp, fmt, THUMB_QUALITY):
+            return None
+        os.replace(tmp, dst)
+        with open(dst, "rb") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
 
 # --------------------------------------------------------------------------- Qt
 
@@ -158,7 +288,9 @@ def install_asset_handler(profile, resolver: AssetResolver, logger=None):
 
         def requestStarted(self, job):  # noqa: N802 (Qt override)
             url = job.requestUrl()
+            # host selects full-res ("job") vs thumbnail ("thumb");
             # path is "/<job_id>/<filename>"
+            is_thumb = url.host() == THUMB_HOST
             parts = [p for p in url.path().split("/") if p]
             if len(parts) < 2:
                 if logger:
@@ -166,7 +298,8 @@ def install_asset_handler(profile, resolver: AssetResolver, logger=None):
                 job.fail(not_found)
                 return
             job_id, filename = parts[0], "/".join(parts[1:])
-            result = resolver.resolve(job_id, filename)
+            result = (resolver.resolve_thumb(job_id, filename) if is_thumb
+                      else resolver.resolve(job_id, filename))
             if result is None:
                 if logger:
                     logger("asset", f"asset missing: {job_id}/{filename}", "error")
