@@ -8,6 +8,27 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## P0.5 — Inappropriate bundled demo content (VERIFIED CLEAN + guarded)
+
+**Finding:** No inappropriate content exists in tracked product/demo files. The
+strings "dashcam"/"vulgar" appear nowhere in readable text (confirmed via
+`strings`, `grep -ao`, and `git grep` — the one binary "match" in
+`tests/fixtures/synthetic_lecture.mp4` was a non-printable byte coincidence; that
+fixture is a legitimate geometric slide-detection test video referenced across the
+suite). The shipped demo/placeholder content (app.js, index.html) is the wholesome
+"Great Pyramid of Giza" educational sample matching the screenshots. The premise
+of bundled inappropriate content predates the current tree state.
+
+**Action:** Added `tests/test_content_hygiene.py` — a regression tripwire that
+scans tracked product/demo text files (app/, lecturepack/, assets/, tests text
+fixtures) and fails if banned substrings ("dashcam", "vulgar") or whole-word
+profanity reappear. No product code changed (nothing to remove). Real user data
+in ~/LecturePackData is never touched.
+
+**Tests:** 2 passing.
+
+---
+
 ## P0.1 — Blank slide thumbnails & preview (FIXED)
 
 **Issue:** Slide detection completes and timestamps/acceptance states render, but
