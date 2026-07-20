@@ -7,7 +7,7 @@ Turn a lecture recording into a synchronized, editable study workspace — compl
 ![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-![LecturePack Hero](assets/hero.png)
+![LecturePack — Study workspace with the AI Study Assistant](assets/hero.png)
 
 ---
 
@@ -23,25 +23,45 @@ LecturePack ingests a recorded university lecture video and produces a complete 
 6. **Review** — correct slides and transcript, approve or reject context repairs
 7. **Export** — slides PDF, HTML study pack, transcripts in 7+ formats
 
-All processing runs **locally**. The optional Context Repair LLM only talks to an endpoint you configure (Ollama, LM Studio, or any OpenAI-compatible server on localhost).
+All processing runs **locally**. The optional AI features only talk to an endpoint you configure (Ollama, LM Studio, or any OpenAI-compatible server on localhost).
+
+---
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/showcase_home_dark.png" width="49%" alt="Home page, dark theme">
+  <img src="assets/showcase_home_light.png" width="49%" alt="Home page, light theme">
+</p>
+<p align="center"><img src="assets/showcase_flashcards.png" width="70%" alt="AI-generated flashcards in the Study Assistant"></p>
 
 ---
 
 ## Features
 
-### Premium Glassmorphic Dark UI
+### Studio Design Language
 
-Frameless window with Catppuccin Mocha dark theme, custom title bar, animated page transitions, and a sleek glassmorphic design language built entirely in Qt Widgets.
+An orange-and-cyan "Studio" interface built entirely in Qt Widgets: frameless window with a custom title bar, a scrubbable timeline spine, soft multi-layer shadows, 2px structural borders, animated page transitions, and full light/dark theming with Space Grotesk + JetBrains Mono type.
 
-### Spatial Study Workspace
+### AI Study Assistant
 
-A bidirectional sync workspace: accepted-slide grid on the left, block transcript on the right. Click a slide to jump to the transcript; click a transcript block to highlight the matching slide. Overview card with bookmarks, key terms, and topic navigation.
+A local chat, quiz, and flashcard generator for whatever you just transcribed — grounded in the actual lecture transcript, backed by your own local Ollama model, and fully optional (the app works completely without it). Nothing leaves your machine.
 
-![Study Workspace](assets/focus_mode.png)
+### Study Workspace
+
+A three-column workspace: an accepted-slide rail on the left, a tabbed Overview/Transcript/AI Assistant panel in the center, and Topics + Bookmarks on the right. A segmented Study Timeline across the top shows every topic at a glance — click any segment to jump straight to it.
+
+<p align="center"><img src="assets/showcase_review.png" width="49%" alt="Review page with the lecture timeline spine"> <img src="assets/showcase_transcript.png" width="49%" alt="Transcript magazine reading view"></p>
+
+### Guided Onboarding
+
+Drop a video or browse for one, confirm the real inspected file details, and pick an output mode (Study Pack / Transcript Only / Slides Only) — all in one focused "New job" dialog before handing off to processing.
 
 ### Focus & Flow Mode
 
-Fade the nav rail, command bar, and status bar to full transparency — leaving only your study content. Press `Esc` to exit.
+Collapse the nav rail, command bar, and status bar away with a smooth iris-style transition — leaving only your study content and a floating exit button. Press `Esc` to exit.
+
+<p align="center"><img src="assets/showcase_new_job.png" width="49%" alt="New job onboarding dialog"> <img src="assets/showcase_focus_mode.png" width="49%" alt="Focus mode with the chrome collapsed"></p>
 
 ### Incremental Streaming Transcription
 
@@ -82,8 +102,8 @@ Transcription and slide detection run **concurrently** after audio extraction. O
 
 ```bash
 # Clone
-git clone https://github.com/your-user/LecturePack.git
-cd LecturePack
+git clone https://github.com/pasttrunks/lecturepack.git
+cd lecturepack
 
 # Create venv and install
 python -m venv .venv
@@ -163,7 +183,7 @@ python build_release.py
 
 ## Optional: Local AI (Ollama)
 
-With [Ollama](https://ollama.com) installed, LecturePack can propose transcript corrections and section headings (recommended: `qwen3:1.7b`). Proposals are schema-validated, cached, generated off the GUI thread, and **never auto-accepted**. Without Ollama, the deterministic offline provider still works.
+With [Ollama](https://ollama.com) installed, LecturePack can propose transcript corrections and section headings, and power the Study Assistant's chat, quiz, and flashcard generation (recommended: `qwen3:1.7b`). All output is schema-validated, generated off the GUI thread, and transcript corrections are **never auto-accepted** — you review and approve them explicitly. Without Ollama, the app still works: the deterministic offline provider handles corrections, and the Study Assistant simply stays off.
 
 Setup: [docs/OLLAMA_SETUP.md](docs/OLLAMA_SETUP.md)
 
