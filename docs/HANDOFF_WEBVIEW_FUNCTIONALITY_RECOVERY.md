@@ -4,8 +4,8 @@
 - Path: `C:\Users\marsh\Documents\LecturePack`
 - Branch: `feat/desktop-webengine`
 - Original starting commit: `d7f4b80` (session 1) → this session started at `b35e743` (= e504551 + docs)
-- Ending commit: `2bba754`
-- Last fully green commit: `2bba754` (full suite 245 passed)
+- Ending commit: `655aed6` (+ docs commit)
+- Last fully green commit: `655aed6` (full suite 250 passed)
 - Safety tags: `safety/start-webview-functionality-recovery` (= d7f4b80),
   `safety/start-post-e504551-continuation` (= e504551),
   `safety/start-post-6d847d0-continuation` (= 6d847d0)
@@ -36,6 +36,7 @@ Details for each in `docs/WORKLOG_WEBVIEW_RECOVERY.md`.
 - `9c5dc62` feat(review): open-job from Home + live slide-preview acceptance (16/16)
 - `6d847d0` fix(packaging): frozen WebEngine app boots (entry wrapper + _MEIPASS ui path)
 - `2bba754` fix(review): fit full-resolution slides to preview canvas (+ zoom/pan)
+- `655aed6` perf(review): lazy background thumbnail cache (WebP, 192× smaller)
 
 ## Untracked / dirty
 - `tests/scratch/live_slide_acceptance.py`, `tests/scratch/smoke_packaged_launch.py`
@@ -82,8 +83,39 @@ Details for each in `docs/WORKLOG_WEBVIEW_RECOVERY.md`.
 7. **Interactive packaged acceptance** — open the (now-booting) exe and click
    through thumbnails/Settings/Ollama/hover. Needs a human.
 
+## §7 Quiz plan — READY TO EXECUTE (contract already learned this session)
+Existing infra to reuse (do NOT reinvent):
+- `lecturepack/services/study_assistant_service.py`: `StudyAssistantWorker(task, transcript_text, ollama, history=, question=, count=)`
+  with `task="quiz"` → `finished_ok(task, result)` / `failed(kind,msg,details)`;
+  `_quiz_prompt(text, count)` defines the question schema. QThread — wire exactly
+  like `LecturePackAdapter.ask_ai` (engine_adapter.py ~890).
+- `lecturepack/services/study_service.py`: `save_quiz(job, questions)` /
+  `load_quiz(job)` persist under `study.json` `"quiz"` key (separate from the raw
+  transcript — satisfies the "persist separately" requirement). Also
+  `load_study_data`/`save_study_data` for session state (add a `"quiz_session"` key).
+Steps:
+1. engine_adapter: `generate_quiz(opts)` — build transcript_text (respect scope
+   later; start with entire lecture), run `StudyAssistantWorker("quiz", …, count)`;
+   on ok → `save_quiz` + emit `quiz_changed` {questions, provider, model}; on
+   fail/AI-off → deterministic fallback quiz from `study_service.build_overview`
+   key_terms/sections (no LLM) so it always works. Add `cancel` (worker.stop).
+2. bridge.py: `@Slot(str) generate_quiz(json)`, `@Slot() cancel_quiz`,
+   `@Slot(str) save_quiz_session(json)`; signals `quiz_changed`, `quiz_status`.
+   Add both to bridge.js SIGNALS.
+3. app.js: replace the static demo quiz (renderQuiz, `#quiz-options`,
+   `quizPicked/quizAnswered`, `btn-retry-quiz`) with a session state machine over
+   `LP.data.quiz.questions`: index/total, Previous/Next, Submit, score, correct
+   answer ENABLES Next (fixes "correct answer doesn't advance"), explanation,
+   finish, retry-incorrect, restart; persist via `save_quiz_session`.
+   Setup controls (count now; difficulty/scope/type/source next) + Generate/
+   Regenerate/Cancel + provider/model indicator.
+4. Tests (tests/test_study_workflow.py style): deterministic fallback generation
+   (no Ollama), save/load round-trip, session scoring/navigation logic. AI path via
+   the existing worker tests / mock.
+Then §8 flashcards mirror this (StudyAssistantWorker "flashcards", save_flashcards).
+
 ## Exact next steps
-- Next graph query: `quiz generate -> Study bridge -> enrichment service -> UI state`.
+- Next graph query: `quiz generate -> Study bridge -> enrichment service -> UI state` (contract above).
 - Next files: `app/desktop/engine_adapter.py` (`ask_ai`, `_push_study_data`,
   study.json around lines 760–830) and `app/ui/app.js` quiz render (`#quiz-question`,
   `#quiz-*`, study tabs ~line 260+) + `app/ui/index.html` quiz markup (~line 288).
