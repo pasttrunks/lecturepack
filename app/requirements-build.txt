@@ -1,0 +1,2 @@
+# Build-time only (installed by the release workflow / build script).
+pyinstaller>=6.3
