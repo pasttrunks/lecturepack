@@ -2,29 +2,32 @@
   "phase": "webview_functionality_recovery",
   "completed": [
     "P0.1 slide thumbnails and full preview (central lpasset asset resolver)",
+    "P0.1 LIVE acceptance: 16/16 on 3 real jobs via real-backend headless harness",
     "P0.4 Settings controls wired to engine config (on_setting_changed bridge)",
     "P0.3 Vulkan selection wiring + actual-backend reporting (live GPU run unverified)",
     "P1.4 Ollama model discovery and selection",
     "P0.5 content hygiene verified clean + guard test",
-    "P1.7 timeline hover popup body-portal + collision-aware placement"
+    "P1.7 timeline hover popup body-portal + collision-aware placement",
+    "open-job from Home grid (bridge open_job + adapter + click handler)",
+    "Phase 2 packaging: frozen exe now BOOTS (entry wrapper + _MEIPASS ui path)"
   ],
   "in_progress": null,
   "blocked": [
     "P0.3 Vulkan LIVE activation (needs GPU + whisper_vulkan_exe)",
-    "P0.2 online/Groq transcription live validation (needs live Groq key)"
+    "P0.2 online/Groq transcription live validation (needs live Groq key)",
+    "Phase 2 interactive packaged acceptance (needs a human at the native GUI)"
   ],
   "not_started": [
-    "P0.2 pipeline profiling + online-fast transcription",
-    "P1.1-1.3 configurable quizzes + navigation",
+    "P0.2 pipeline profiling (baseline.json) + online-fast transcription",
+    "P1.1-1.3 configurable quizzes + navigation + session persistence",
     "P1 configurable flashcards",
     "P1 study assistant tabs (Ask/Quiz/Flashcards/Notes)",
     "P3 dark-mode secondary palette + icon currentColor",
-    "accent swatch removal",
-    "packaged .exe validation"
+    "accent swatch removal"
   ],
-  "next_action": "Profile the pipeline for baseline_performance.json OR start configurable quizzes (study bridge)",
-  "last_green_commit": "e504551",
-  "working_tree_clean": true,
-  "full_suite": "240 passed (at 8eb83a4); frontend-only e504551 node-checked + headless-validated",
-  "exit_outcome": "B"
+  "next_action": "Phase 4: profile a 60-75min lecture -> performance/baseline.json; OR Phase 5: configurable quizzes via the study bridge",
+  "last_green_commit": "6d847d0",
+  "working_tree_clean": false,
+  "full_suite": "245 passed at 6d847d0 (source); packaged exe boots (PACKAGED_SMOKE_OK)",
+  "exit_outcome": "B+ (P0 core validated live + packaged-boot; P1 study tools pending)"
 }
