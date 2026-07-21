@@ -1,0 +1,11 @@
+NAMED-SCENARIO ACCEPTANCE (headless backend; no AI; temp data)
+================================================================
+[quiz  3] delivered=3 provider='Built-in (no AI)' state=ready
+          shape_ok=True sample='Fill in the blank: The _____ was a massive terraced temple a'
+[quiz 20] delivered=20 provider='Built-in (no AI)' (fallback caps at usable grounded terms)
+[quiz  session] persisted index=2 ok=True
+[flash 5] delivered=5 provider='Built-in (no AI)' state=ready
+[flash 20] delivered=20 provider='Built-in (no AI)'
+[flash session] persisted index=3 ok=True
+================================================================
+RESULT: NAMED_SCENARIOS_OK

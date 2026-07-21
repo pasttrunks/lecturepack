@@ -1,164 +1,153 @@
 # Handoff — WebView Functionality Recovery
 
-## Repository / branch
+> **Corrected 2026-07-21** during the post-`08f649f` verification & live-acceptance
+> pass. All stale sections (HEAD `6d847d0`, `245 passed`, the "Quiz plan — READY TO
+> EXECUTE" block, and the contradictory clean/dirty scratch-file notes) were removed
+> because current-code inspection + a green suite prove those features are shipped.
+> This file now contains only verified current truth.
+
+## Repository / branch / state (verified)
 - Path: `C:\Users\marsh\Documents\LecturePack`
 - Branch: `feat/desktop-webengine`
-- Original starting commit: `d7f4b80` (session 1)
-- Ending commit: `08f649f` (+ docs)
-- Last fully green commit: `08f649f` (full suite **291 passed**, exit 0)
-- Safety tags: `safety/start-webview-functionality-recovery` (= d7f4b80),
-  `safety/start-post-e504551-continuation` (= e504551),
-  `safety/start-post-6d847d0-continuation` (= 6d847d0)
-- Working tree: clean.
+- **HEAD: `76d69e8`** — one docs-only commit above `08f649f`
+  (`git diff --stat 08f649f 76d69e8` = only this handoff + `status.json`).
+  The **code under test is byte-identical to `08f649f`**.
+- **Last fully green commit: `76d69e8`** — full suite **291 passed in 200s, exit 0**
+  (run this session; supersedes the old "245 at 6d847d0").
+- Working tree: **clean**. The scratch files a prior handoff listed as untracked
+  (`tests/scratch/live_slide_acceptance.py`, `.../smoke_packaged_launch.py`) **do
+  not exist**; the tracked copies live under `docs/evidence/...`.
+- Safety tags: `safety/start-08f649f-live-acceptance` (=`08f649f`, this pass),
+  plus prior `safety/start-webview-functionality-recovery` (=`d7f4b80`),
+  `safety/start-post-e504551-continuation` (=`e504551`),
+  `safety/start-post-6d847d0-continuation` (=`6d847d0`).
 
 ## Exit outcome
-**All V3 phases (P0/P1 + §3–§10) IMPLEMENTED + tested; full suite 291 passed;
-packaged exe boots.** Three items remain **live-validation-blocked (Outcome C)**,
-with architecture + tests complete and exact steps documented:
-- §3 live CPU-vs-Vulkan wall-time benchmark (user-runnable; Vulkan confirmed working)
-- §4 cold `baseline.json` (needs a real unprocessed 60–75 min lecture run; the
-  instrumentation writes it automatically)
-- §6 live Groq Online Fast/Accurate (needs a real Groq API key)
-Interactive native-window/packaged click-through still benefits from a human pass
-(everything so far is headless/offscreen-validated).
+All P0/P1 + §3–§10 features are **implemented, tested, and committed**; suite is
+green at HEAD. Automated/headless acceptance is complete. **Three items remain
+live-validation-blocked (Outcome C)** — real GPU benchmark, a real long-lecture
+cold run, and a real Groq key — and a **human windowed/packaged click-through**
+is the remaining manual acceptance. None of these are code gaps.
 
-## Completed (with evidence)
-| # | Item | Status | Evidence |
-|---|------|--------|----------|
-| P0.1 | Blank slide thumbnails + large preview | **FIXED + LIVE-VALIDATED** | `tests/test_webview_assets.py` (17); `live_slide_acceptance/` **16/16 ALL_OK** on 3 real jobs (egypt 11, Mesopotamia 167, m2 7) |
-| P0 | Main preview tiny (unreadable) | **FIXED** | `slide_preview_scaling/` — 55%→**92%** width; zoom ZOOM_OK; fill-canvas + zoom/pan `previewCtl` |
-| — | Open job from Home grid | **FIXED** | `open_job` bridge/adapter + click handler; harness `open_job via Home card` |
-| P0.4 | Settings controls not wired to backend | **FIXED** | `tests/test_webview_settings_bridge.py` (10) |
-| P0.3 | Vulkan selection did nothing | **WIRED** (live GPU run unverified → C) | settings-bridge tests; `start_processing` applies `engine` |
-| P1.4 | Ollama model discovery/selection | **FIXED** | `list_ollama_models`/`ollama_models` + UI picker |
-| P0.5 | Inappropriate bundled demo content | **VERIFIED CLEAN + guarded** | `tests/test_content_hygiene.py` (2) |
-| P1.7 | Timeline hover popup clipped | **FIXED** | `docs/evidence/.../timeline_hover_result.txt` (HOVER_OK) |
-| Ph2 | Packaged exe was dead on arrival | **FIXED (boots)** | `docs/evidence/.../packaged/` PACKAGED_SMOKE_OK; `tests/test_webview_packaging.py` (4) |
-| §5 | Full-res PNGs decoded for tiny thumbs | **FIXED** | `thumbnail_cache/` WebP 192× smaller; non-blocking bg gen; `test_webview_assets.py` |
-| user | Delete jobs (free space) | **DONE** | Recycle Bin (send2trash) + confirm modal; `test_webview_jobs.py` (delete tests) |
-| user | Group lectures by course/subject | **DONE** | manifest `group` + derived default; grouped Home; `test_webview_jobs.py` |
+## Feature-by-feature verified status (this pass)
+Verified by code inspection (paths below) + the green suite + the named-scenario
+harness. "UI control" = present in the rendered `#quiz-root`/`#flash-root` markup.
 
-Details for each in `docs/WORKLOG_WEBVIEW_RECOVERY.md`.
+### Quiz (§7) — VERIFIED WORKING
+- Controls present: **count** (3/5/10/20 + custom 1–50), **difficulty**
+  (Easy/Medium/Hard/Mixed), **type** (Multiple choice / True-false / Mixed),
+  **source** (Transcript/Slides/Both), **Generate**, **Resume last**, **Cancel**
+  (in the progress bar → `cancel_quiz`), **Prev/Next**, **Submit**, **Finish**,
+  **Flag**, **auto-advance**, live **score**, **explanation reveal**,
+  **Retry incorrect**, **Restart**, **Copy**, **New quiz settings** (= regenerate),
+  **persistence/resume** (`save_quiz_session` → `study.json`).
+- Correct answer ENABLES Next (the old "correct answer doesn't advance" bug is gone).
+- Model handling: `generate_quiz` resolves the model from Settings via
+  `_ollama_settings()`; provider shown as `Local · <model>` or **`Built-in (no AI)`**
+  for the deterministic grounded-cloze fallback — no hardcoded model override.
+- Named-scenario acceptance: **3-question and 20-question** runs deliver 3 and 20,
+  `state=ready`, valid shape, session save/restore OK
+  (`named_scenario_acceptance/result.txt` → `NAMED_SCENARIOS_OK`).
+- **Documented gaps (enhancement, not defects — not fixed in this verify pass):**
+  `scope` is recorded in settings but has **no UI selector**; questions carry an
+  `explanation` but **no explicit transcript/slide source citation**.
+- Code: `app/desktop/engine_adapter.py` `generate_quiz`/`cancel_quiz`/`_save_quiz`/
+  `_fallback_quiz_questions`/`_normalize_quiz`; `app/ui/app.js` `renderQuiz`/
+  `renderQuizQuestion`/`renderQuizSummary`/`quizAction`; tests `tests/test_webview_quiz.py`.
 
-## This session's commits
-- `9c5dc62` feat(review): open-job from Home + live slide-preview acceptance (16/16)
-- `6d847d0` fix(packaging): frozen WebEngine app boots (entry wrapper + _MEIPASS ui path)
-- `2bba754` fix(review): fit full-resolution slides to preview canvas (+ zoom/pan)
-- `655aed6` perf(review): lazy background thumbnail cache (WebP, 192× smaller)
-- `a1ff43d` feat(home): delete jobs to Recycle Bin + group lectures by course
-- `b760fef` feat(study): configurable quiz sessions (§7)
-- `70897f9` feat(study): configurable flashcard sessions (§8)
-- `1b2ece7` feat(study): Ask/Notes tabs, model indicator, copy/export (§9)
-- `7b6b0c0` feat(study): progress bar + ETA, grounded quizzes, remove key-terms
-- `e1894b9` fix(theme): deep-blue secondary surfaces + cyan text (§10)
-- `40d759c`+`b5832ba` fix(backends): Vulkan validate action + honest status (§3)
-- `daf7281` feat(perf): per-stage timing instrumentation → performance.json (§4)
-- `08f649f` feat(transcription): expose secure Groq online modes in WebView (§6)
+### Flashcards (§8) — VERIFIED WORKING
+- Controls present: **count** (5/10/20/30 + custom 1–60), **depth/difficulty**
+  (Basic/Detailed/Exam-focused), **style** (Term→def / Q→A / Concept→explanation /
+  Mixed), **Generate**, **Resume**, **Cancel** (`cancel_flashcards`), **Flip**,
+  **Prev/Next**, **Known**, **Unsure**, **Shuffle**, **Restart**, **Review unsure**
+  (retry), progress counts, **persistence/resume** (`save_flashcard_session`).
+- Named-scenario acceptance: **5-card and 20-card** runs deliver 5 and 20,
+  `state=ready`, session save/restore OK.
+- **Documented gap:** `scope` recorded but no UI selector; cards use the grounding
+  sentence as the back but no explicit clickable source link.
+- Code: `engine_adapter.generate_flashcards`/`_fallback_flashcards`/
+  `_normalize_flashcards`; `app.js` `renderCard`/`renderCardSession`/`flashAction`;
+  tests `tests/test_webview_flashcards.py`.
 
-## Untracked / dirty
-- `tests/scratch/live_slide_acceptance.py`, `tests/scratch/smoke_packaged_launch.py`
-  (working copies; tracked equivalents live under `docs/evidence/.../`).
-- `dist/`, `build/` are gitignored PyInstaller output (freshly rebuilt from source).
+### Study Assistant tabs (§9) — VERIFIED
+- Tabs: Ask / Quiz / Flashcards / Notes. Selected Ollama model is used
+  (`ask_ai` builds the worker from `_ollama_settings()`); provider/model indicator
+  reflects real provider; notes autosave (`save_notes`); copy/export present.
+- Generation shows a **progress bar + ETA + Cancel** (replaces the old spinner —
+  `_genBar` in `app.js`). Key-terms panel removed per request.
 
-## Changed files
-- `app/desktop/assets.py` (new) — central `lpasset://` asset resolver + scheme.
-- `app/desktop/main.py` — register scheme, install handler on profile.
-- `app/desktop/bridge.py` — `log_asset_error`, `ollama_models` signal, `list_ollama_models` slot.
-- `app/desktop/engine_adapter.py` — slides `img`; `on_setting_changed` bridge;
-  `_settings_payload`; engine applied to job; `actual_backend`; `list_ollama_models`.
-- `app/ui/index.html` — slide-frame img target; editable endpoint; model picker; hover portal markup.
-- `app/ui/app.js` — `slideImg`, real slide images, compute/endpoint/model wiring, collision-aware hover.
-- `app/ui/bridge.js` — register `ollama_models` signal.
-- `tests/test_webview_assets.py`, `tests/test_webview_settings_bridge.py`, `tests/test_content_hygiene.py` (new).
+### Groq online transcription (§6) — VERIFIED WIRED; live run = Outcome C
+- Settings "Transcription" card: Private Local / Online Fast / Online Accurate
+  selector persists to `transcription_backend`; Set / Test / Remove key via the OS
+  Credential Manager (`WindowsCredentialStore`). `test_groq_key` performs a **real**
+  `GroqHttpClient().test_key()`; with no key it honestly reports "No API key stored".
+- Backend reused from the contract-tested Groq service. **No live transcription is
+  claimed** — needs a real `gsk_…` key (see blockers).
+- Code: `engine_adapter` `set_groq_key`/`remove_groq_key`/`test_groq_key`/
+  `_emit_groq_status`; tests `tests/test_webview_groq.py` (6, network/OS mocked).
 
-## Test commands / results (current HEAD 6d847d0)
-- `.venv/Scripts/python.exe -m pytest -q` → **245 passed** (~205s) at `6d847d0`.
-- Live acceptance: `python docs/evidence/.../live_slide_acceptance/harness.py <out.json>` → **16/16 ALL_OK**.
-- Packaged smoke: `python docs/evidence/.../packaged/smoke_packaged_launch.py` → **PACKAGED_SMOKE_OK**.
-- Headless WebEngine smokes: asset scheme `ASSET_OK`, timeline hover `HOVER_OK`.
+### Vulkan validate (§3) — VERIFIED HONEST; live speed = Outcome C
+- `validate_vulkan` reports **available / selected / loaded / unavailable+reason**
+  via the real `EngineRegistry.detect_engines()` + `resolve()`; never silently CPU.
+- Vulkan is genuinely present on this machine (registry resolves Vulkan). A
+  **CPU-vs-Vulkan wall-time comparison is NOT claimed** — needs a same-video run.
+- Code: `engine_adapter.validate_vulkan`; tests `tests/test_webview_vulkan.py` (3).
 
-## Remaining (live-validation only — implementation complete)
-All feature phases are implemented, tested, and committed. What's left needs
-resources this environment lacks; each has complete code + tests + documented steps:
-1. **§3 Vulkan live benchmark** — `validate_vulkan` reports honest status and
-   Vulkan is confirmed working here; a fresh CPU-vs-Vulkan wall-time run writes a
-   job (user-initiated). `docs/evidence/.../vulkan/`.
-2. **§4 cold `baseline.json`** — instrumentation writes `<job>/performance.json`
-   on every completed run; process a real unprocessed 60–75 min lecture to capture
-   cold timings. `docs/evidence/.../performance/`.
-3. **§6 live Groq** — WebView key mgmt + mode selector wired to the (contract-
-   tested) backend; needs a real `gsk_…` key to run Online Fast/Accurate.
-   `docs/evidence/.../groq/`.
-4. **Interactive native/packaged click-through** — headless/offscreen-validated;
-   a human pass on the real window / packaged exe is the final acceptance.
+### Earlier items (unchanged, still verified)
+- Slide thumbnails + large preview via `lpasset://` resolver, fill-canvas fit +
+  zoom/pan (`app/desktop/assets.py`); live 16/16 on 3 real jobs.
+- Settings↔engine bridge; Ollama model discovery; timeline hover; open-job from
+  Home; content hygiene; **packaged exe boots** (entry wrapper + `_MEIPASS`).
+- Home job **delete** (Recycle Bin via send2trash) + course **grouping**.
+- §5 lazy WebP thumbnail cache; §4 per-stage timing → `<job>/performance.json`;
+  §10 deep-blue/cyan dark-theme secondary palette.
 
-## §7 Quiz plan — READY TO EXECUTE (contract already learned this session)
-Existing infra to reuse (do NOT reinvent):
-- `lecturepack/services/study_assistant_service.py`: `StudyAssistantWorker(task, transcript_text, ollama, history=, question=, count=)`
-  with `task="quiz"` → `finished_ok(task, result)` / `failed(kind,msg,details)`;
-  `_quiz_prompt(text, count)` defines the question schema. QThread — wire exactly
-  like `LecturePackAdapter.ask_ai` (engine_adapter.py ~890).
-- `lecturepack/services/study_service.py`: `save_quiz(job, questions)` /
-  `load_quiz(job)` persist under `study.json` `"quiz"` key (separate from the raw
-  transcript — satisfies the "persist separately" requirement). Also
-  `load_study_data`/`save_study_data` for session state (add a `"quiz_session"` key).
-Steps:
-1. engine_adapter: `generate_quiz(opts)` — build transcript_text (respect scope
-   later; start with entire lecture), run `StudyAssistantWorker("quiz", …, count)`;
-   on ok → `save_quiz` + emit `quiz_changed` {questions, provider, model}; on
-   fail/AI-off → deterministic fallback quiz from `study_service.build_overview`
-   key_terms/sections (no LLM) so it always works. Add `cancel` (worker.stop).
-2. bridge.py: `@Slot(str) generate_quiz(json)`, `@Slot() cancel_quiz`,
-   `@Slot(str) save_quiz_session(json)`; signals `quiz_changed`, `quiz_status`.
-   Add both to bridge.js SIGNALS.
-3. app.js: replace the static demo quiz (renderQuiz, `#quiz-options`,
-   `quizPicked/quizAnswered`, `btn-retry-quiz`) with a session state machine over
-   `LP.data.quiz.questions`: index/total, Previous/Next, Submit, score, correct
-   answer ENABLES Next (fixes "correct answer doesn't advance"), explanation,
-   finish, retry-incorrect, restart; persist via `save_quiz_session`.
-   Setup controls (count now; difficulty/scope/type/source next) + Generate/
-   Regenerate/Cancel + provider/model indicator.
-4. Tests (tests/test_study_workflow.py style): deterministic fallback generation
-   (no Ollama), save/load round-trip, session scoring/navigation logic. AI path via
-   the existing worker tests / mock.
-Then §8 flashcards mirror this (StudyAssistantWorker "flashcards", save_flashcards).
+## Acceptance performed this pass
+1. **Git truth check** — branch/HEAD/status/log/tags recorded above.
+2. **Full suite at HEAD `76d69e8`** — `291 passed in 200.36s`, exit 0.
+3. **Named-scenario headless acceptance** — 3-q + 20-q quiz, 5 + 20-card flashcards,
+   session save/restore, all against a temp dir with AI off →
+   `docs/evidence/.../named_scenario_acceptance/` (`NAMED_SCENARIOS_OK`).
+4. **Code inspection** of every claimed control (bridge slots/signals, adapter
+   methods, `app.js` render functions, `index.html` markup).
 
-Design note (deterministic fallback): a *good* no-AI quiz is hard (no semantics
-from key terms alone). Recommended: when AI is unavailable, generate honest
-"recall" questions from `build_overview` key_terms/sections and LABEL the quiz
-"Built-in (no AI)" in the provider indicator, rather than pretending it's
-LLM-quality. Persist quiz + live session under `study.json` via
-`load_study_data`/`save_study_data` (it preserves unknown keys, so a
-`quiz`={questions,meta,session} shape works without changing the service).
-Quiz item schema (from QUIZ_SCHEMA): `{question, options[], correct_index, explanation}`.
+## Remaining work (honest — nothing is a code gap)
+### Live-validation blocked (Outcome C) — need resources this env lacks
+1. **§3 CPU-vs-Vulkan benchmark** — run the same short video once with
+   `engine=cpu` and once with `engine=vulkan`; record backend/exe/model/wall-time/
+   word-count/first+final timestamps/exit code/fallback reason/footer-manifest
+   backend. Evidence dir: `docs/evidence/.../vulkan/`.
+2. **§4 cold `baseline.json`** — process a genuinely unprocessed 60–75 min A/V
+   lecture (must contain an audio track — the synthetic clip has none). The §4
+   instrumentation auto-writes `<job>/performance.json`; copy it to
+   `docs/evidence/.../performance/baseline.json`. My earlier run hit the content
+   cache (`cached=true`), so it is **not** a cold baseline.
+3. **§6 live Groq** — store a real `gsk_…` key (Set key), then run Online Fast and
+   Online Accurate on the same short video; verify local fallback, privacy consent,
+   no secret leakage, and a timing/quality comparison. No key available here.
 
-## Exact next steps
-- Next graph query: `quiz generate -> Study bridge -> enrichment service -> UI state` (contract above).
-- Next files: `app/desktop/engine_adapter.py` (`ask_ai`, `_push_study_data`,
-  study.json around lines 760–830) and `app/ui/app.js` quiz render (`#quiz-question`,
-  `#quiz-*`, study tabs ~line 260+) + `app/ui/index.html` quiz markup (~line 288).
-- Next command: `.venv/Scripts/python.exe -m pytest tests/test_study_workflow.py tests/test_study_workspace_v12.py -q`
-  to learn the existing study/enrichment contract before extending quizzes.
-- For Vulkan (Phase 3): trace `engine` in `job_controller.py:463`
-  (`self.engine_registry.resolve`) and `whisper_vulkan_exe` in ConfigManager.
+### Human manual acceptance
+4. **Windowed + packaged click-through** — everything above is headless/offscreen
+   or unit-tested. A human should open the source app AND the packaged exe and
+   click through Home → grouping → delete-to-Recycle-Bin (disposable data only) →
+   Review thumbnails/preview/zoom/pan → timeline hover → Transcript → Study
+   (Quiz/Flashcards/Ask/Notes) → Settings (Ollama picker, Vulkan validate, theme)
+   → Exports, on the m2 / Egypt / Mesopotamia jobs. Save shots under
+   `docs/evidence/.../final_interactive_source/` and `.../final_interactive_packaged/`.
+   *(Not performed here: this environment cannot drive the native Qt window, and
+   fabricating screenshots is not acceptable.)*
 
-## Process state
-No long-running LecturePack/FFmpeg/Whisper/asset-server/pytest processes left
-running. All background builds/suites (ids bx20g3eah, bi0vhfeeb, b7m5yjkfz, …)
-completed (exit 0). Headless smokes and packaged smoke launches terminated and
-cleaned up their temp copies.
-
-## Risks
-- `lpasset` scheme relies on `LocalScheme` flag — verified on Qt 6.11 headless AND
-  in the frozen build (packaged smoke). Re-check after any Qt upgrade.
-- Live acceptance is headless/offscreen; a real windowed pass on the user's GPU is
-  still worthwhile. Large-PNG thumbnail decode latency is a real perf item (P2).
-- Timeline hover unchecked at 125/150% DPI (math is resolution-independent).
-- Packaging: entry is now `app/lecturepack_desktop.py`; keep the spec in sync.
+## Never touch
+`C:\Users\marsh\LecturePackData` — read-only for inspection; destructive tests use
+temp copies. No real job was deleted or modified in any verification here.
 
 ## Rollback
-- Revert a single commit: `git revert <sha>` (e.g. `git revert 6d847d0`).
-- Return to this session's start: `git reset --hard safety/start-post-e504551-continuation`
-  (= e504551; keeps session-1 work).
-- Return to session-1 start: `git reset --hard safety/start-webview-functionality-recovery`
-  (= d7f4b80). Neither touches `~/LecturePackData`.
+- Undo the docs commit only: `git reset --hard 08f649f` (code unchanged either way).
+- Revert one commit: `git revert <sha>`.
+- Back to this pass's baseline: `git reset --hard safety/start-08f649f-live-acceptance`.
+- Back to session-1 start: `git reset --hard safety/start-webview-functionality-recovery`
+  (=`d7f4b80`). None of these touch `~/LecturePackData`.
+
+## Process state
+No long-running LecturePack/FFmpeg/Whisper/pytest processes left running; the
+verification suite (`b451xikb2`) exited 0 and the acceptance harness exited 0.
