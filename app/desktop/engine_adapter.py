@@ -127,6 +127,15 @@ class EngineAdapter(QObject):
     def save_quiz_session(self, session_json: str) -> None:
         """Persist quiz session state (answers/score/index) in study data."""
 
+    def generate_flashcards(self, opts) -> None:
+        """Generate flashcards (AI or fallback); emit flashcards_changed/status."""
+
+    def cancel_flashcards(self) -> None:
+        """Cancel an in-flight flashcard generation."""
+
+    def save_flashcard_session(self, session_json: str) -> None:
+        """Persist flashcard session state (known/unsure/index) in study data."""
+
     def browse_model(self, parent) -> None:
         """Pick a whisper model file; emit settings_changed({model_path})."""
 
@@ -434,6 +443,36 @@ def _normalize_quiz(questions, count: int) -> list[dict]:
             "explanation": str(q.get("explanation") or "").strip(),
         })
         if len(out) >= max(1, int(count or 5)):
+            break
+    return out
+
+
+def _fallback_flashcards(terms, count: int) -> list[dict]:
+    """Deterministic no-AI flashcards from key terms (term → prompt to review)."""
+    clean, seen = [], set()
+    for t in (terms or []):
+        s = str(t).strip()
+        if s and s.lower() not in seen:
+            seen.add(s.lower())
+            clean.append(s)
+    n = max(1, int(count or 10))
+    return [{
+        "term": clean[i % len(clean)],
+        "definition": f"A key term this lecture emphasizes. Review the transcript "
+                      f"around “{clean[i % len(clean)]}” for the full explanation.",
+    } for i in range(min(n, len(clean)))] if clean else []
+
+
+def _normalize_flashcards(cards, count: int) -> list[dict]:
+    out = []
+    for c in (cards or []):
+        if not isinstance(c, dict):
+            continue
+        term = str(c.get("term") or c.get("front") or c.get("q") or "").strip()
+        definition = str(c.get("definition") or c.get("back") or c.get("a") or "").strip()
+        if term and definition:
+            out.append({"term": term, "definition": definition})
+        if len(out) >= max(1, int(count or 10)):
             break
     return out
 
@@ -1092,8 +1131,9 @@ class LecturePackAdapter(EngineAdapter):
             "stats": stats,
             "cards": cards})
 
-        # Restore a previously generated quiz (questions + session) for this job.
+        # Restore a previously generated quiz / flashcards (+ session) for this job.
         self._emit_stored_quiz(job)
+        self._emit_stored_flashcards(job)
 
     def ask_ai(self, prompt: str):
         job = self.current_job
@@ -1244,6 +1284,109 @@ class LecturePackAdapter(EngineAdapter):
         q = data.get("quiz") if isinstance(data.get("quiz"), dict) else {}
         q["session"] = session
         data["quiz"] = q
+        study_service.save_study_data(job, data)
+
+    # ------------------------------------------------------------------ flashcards
+    def _save_flashcards(self, job, cards, meta, provider, model):
+        data = study_service.load_study_data(job)
+        data["flashcards"] = {
+            "cards": cards,
+            "meta": {**meta, "provider": provider, "model": model},
+            "session": {},
+            "updated_at": _now_iso(),
+        }
+        study_service.save_study_data(job, data)
+
+    def _emit_stored_flashcards(self, job):
+        f = study_service.load_study_data(job).get("flashcards") or {}
+        cards = f.get("cards") or []
+        if cards and all(isinstance(c, dict) and (c.get("term") or c.get("front")) for c in cards):
+            m = f.get("meta", {}) or {}
+            self._emit("flashcards_changed", {
+                "cards": _normalize_flashcards(cards, len(cards)),
+                "provider": m.get("provider", ""), "model": m.get("model", ""),
+                "meta": m, "session": f.get("session") or None})
+
+    def generate_flashcards(self, opts):
+        job = self.current_job
+        if job is None:
+            self._emit("flashcards_status", {"state": "error",
+                       "message": "Open or process a lecture first."})
+            return
+        if isinstance(opts, str):
+            try:
+                opts = json.loads(opts or "{}")
+            except ValueError:
+                opts = {}
+        count = max(1, min(int(opts.get("count") or 10), 60))
+        meta = {"count": count, "difficulty": opts.get("difficulty", "Basic"),
+                "style": opts.get("style", "term → definition"),
+                "scope": opts.get("scope", "entire lecture")}
+        o = self._ollama_settings()
+        self._emit("flashcards_status", {"state": "generating", "message": "Generating flashcards…"})
+
+        def deliver(cards, provider, model=""):
+            cards = _normalize_flashcards(cards, count)
+            if not cards:
+                self._emit("flashcards_status", {"state": "error",
+                           "message": "Couldn't build flashcards for this lecture."})
+                return
+            self._save_flashcards(job, cards, meta, provider, model)
+            self._emit("flashcards_changed", {"cards": cards, "provider": provider,
+                       "model": model, "meta": {**meta, "provider": provider, "model": model},
+                       "session": None})
+            self._emit("flashcards_status", {"state": "ready",
+                       "message": f"{len(cards)} cards · {provider}"})
+
+        def do_fallback():
+            try:
+                terms = study_service.build_overview(job).get("key_terms", []) or []
+            except Exception:
+                terms = []
+            deliver(_fallback_flashcards(terms, count), "Built-in (no AI)")
+
+        if not (o.get("enabled") and o.get("model")):
+            do_fallback()
+            return
+
+        segments = transcript_store.load_working(job.paths)
+        transcript_text = sas.transcript_context(segments or [])
+        worker = sas.StudyAssistantWorker("flashcards", transcript_text, o, count=count)
+        self._flash_worker = worker
+
+        def ok(task, result):
+            cards = (result or {}).get("cards") if isinstance(result, dict) else None
+            deliver(cards, "Local", o.get("model", "")) if cards else do_fallback()
+
+        def fail(kind, message, details):
+            self._log("[ai]", f"flashcard gen failed ({kind}) — using built-in fallback", "ai")
+            do_fallback()
+
+        worker.finished_ok.connect(ok)
+        worker.failed.connect(fail)
+        worker.start()
+
+    def cancel_flashcards(self):
+        w = getattr(self, "_flash_worker", None)
+        if w is not None:
+            try:
+                w.detach_and_stop()
+            except Exception:
+                pass
+        self._emit("flashcards_status", {"state": "cancelled", "message": "Generation cancelled."})
+
+    def save_flashcard_session(self, session_json):
+        job = self.current_job
+        if job is None:
+            return
+        try:
+            session = json.loads(session_json)
+        except ValueError:
+            return
+        data = study_service.load_study_data(job)
+        f = data.get("flashcards") if isinstance(data.get("flashcards"), dict) else {}
+        f["session"] = session
+        data["flashcards"] = f
         study_service.save_study_data(job, data)
 
     # ------------------------------------------------------------------ exports

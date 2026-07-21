@@ -47,6 +47,8 @@ class Backend(QObject):
     job_deleted = Signal(str)
     quiz_changed = Signal(str)
     quiz_status = Signal(str)
+    flashcards_changed = Signal(str)
+    flashcards_status = Signal(str)
 
     def __init__(self, window):
         super().__init__()
@@ -167,6 +169,18 @@ class Backend(QObject):
     @Slot(str)
     def save_quiz_session(self, session_json: str):
         self._adapter.save_quiz_session(session_json)
+
+    @Slot(str)
+    def generate_flashcards(self, opts_json: str):
+        self._adapter.generate_flashcards(opts_json)
+
+    @Slot()
+    def cancel_flashcards(self):
+        self._adapter.cancel_flashcards()
+
+    @Slot(str)
+    def save_flashcard_session(self, session_json: str):
+        self._adapter.save_flashcard_session(session_json)
 
     # ------------------------------------------------------------- exports
 

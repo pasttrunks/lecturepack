@@ -8,6 +8,25 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## §8 — Configurable flashcard system (DONE)
+
+Mirrors §7. Backend: `generate_flashcards` → `StudyAssistantWorker("flashcards",
+count)` or deterministic `_fallback_flashcards` (key terms, "Built-in (no AI)");
+`_normalize_flashcards` (term/definition + front/back/q/a aliases); persist
+cards+session in `study.json` `flashcards` key; `_emit_stored_flashcards`,
+`cancel_flashcards`, `save_flashcard_session`; signals
+`flashcards_changed`/`flashcards_status`. Frontend: setup (count 5/10/20/30/custom
++ depth/style + Generate/Cancel + provider); session (flip via tap/Space, Prev/Next
+via ←→, Known/Unsure, Bookmark, Shuffle, progress, Restart, Summary); summary
+(known/unsure/total tiles, Review unsure/Restart/New). Delegated handler over
+`#flash-root`.
+
+**Tests:** `tests/test_webview_flashcards.py` (6). E2E
+`docs/evidence/.../flashcards/flash_smoke.py` → FLASH_OK (real WebEngine, TEMP data
+dir): generate→card→flip→known→summary. No real job touched.
+
+---
+
 ## §7 — Configurable quiz system (DONE)
 
 Replaced the static 3-question demo with a configurable, navigable quiz.

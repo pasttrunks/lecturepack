@@ -289,17 +289,9 @@
               </div>
 
               <div id="pane-flash" hidden style="flex:1;display:flex;flex-direction:column;min-height:0">
-              <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:22px;background:var(--sunk)">
-                <div id="flashcard" class="lp-hit" style="width:100%;max-width:420px;min-height:160px;background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:26px;cursor:pointer">
-                  <span id="card-tag" style="font:500 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--blue-ink);margin-bottom:12px">Question</span>
-                  <span id="card-face" style="font-weight:700;font-size:18px;line-height:1.4"></span>
-                  <span style="font:500 11px 'JetBrains Mono';color:var(--muted);margin-top:16px">tap to flip</span>
+                <div style="flex:1;overflow-y:auto;padding:22px;background:var(--sunk)">
+                  <div id="flash-root"></div>
                 </div>
-                <div style="display:flex;align-items:center;gap:14px">
-                  <span style="font:500 12px 'JetBrains Mono';color:var(--muted)">Card <span id="card-num">1</span> / <span id="card-total">3</span></span>
-                  <button id="btn-next-card" class="lp-hit" style="display:flex;align-items:center;gap:7px;font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;box-shadow:var(--shadow-soft)">Next<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 18 6-6-6-6"/></svg></button>
-                </div>
-              </div>
               </div>
             </div>
           </div>

@@ -43,7 +43,11 @@
         autoAdvance: false, generating: false, status: '',
         settings: { count: 5, difficulty: 'Mixed', type: 'Multiple choice', scope: 'Entire lecture', source: 'Transcript' }
       },
-      flipped: false, cardIdx: 0,
+      flash: {
+        phase: 'setup', index: 0, flipped: false, known: {}, unsure: {}, bookmarks: {},
+        order: [], generating: false, status: '',
+        settings: { count: 10, difficulty: 'Basic', style: 'Term → definition', scope: 'Entire lecture' }
+      },
       viewingSlide: 2,
       updateInfo: null
     },
@@ -108,6 +112,7 @@
         ]
       },
       quiz: { questions: [], provider: '', model: '', meta: {} },
+      flashcards: { cards: [], provider: '', model: '', meta: {} },
       study: {
         topics: [
           { t: '00:01', title: 'Welcome & overview', active: true },
@@ -691,15 +696,134 @@
     } else if (act === 'newquiz') { q.phase = 'setup'; renderQuiz(); }
   }
 
+  /* ======================= flashcards (configurable session) ======================= */
+  var F = function () { return LP.state.flash; };
+  function fCards() { return LP.data.flashcards.cards || []; }
+  function fOrder() {
+    var f = F(), n = fCards().length;
+    if (!f.order || f.order.length !== n) { f.order = []; for (var i = 0; i < n; i++) f.order.push(i); }
+    return f.order;
+  }
+  function fCur() { return fCards()[fOrder()[F().index]]; }
+  function fSaveSession() {
+    var f = F();
+    if (lpBridge.connected()) lpBridge.call('save_flashcard_session', JSON.stringify({
+      phase: f.phase, index: f.index, known: f.known, unsure: f.unsure,
+      bookmarks: f.bookmarks, order: f.order
+    }));
+  }
+  function fCardId() { return fOrder()[F().index]; }
+
   function renderCard() {
-    var cards = LP.data.study.cards;
-    var c = cards[LP.state.cardIdx % cards.length];
-    var f = LP.state.flipped;
-    $('card-tag').textContent = f ? 'Answer' : 'Question';
-    $('card-tag').style.color = f ? 'var(--orange-ink)' : 'var(--blue-ink)';
-    $('card-face').textContent = f ? c.a : c.q;
-    $('card-num').textContent = (LP.state.cardIdx % cards.length) + 1;
-    $('card-total').textContent = cards.length;
+    var root = $('flash-root'); if (!root) return;
+    var f = F(), s = f.settings, cards = fCards();
+    if (f.generating) {
+      root.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 0">' +
+        '<div style="width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--orange);border-radius:50%;animation:lpspin .8s linear infinite"></div>' +
+        '<div style="font:600 13px \'Space Grotesk\'">' + esc(f.status || 'Generating flashcards…') + '</div>' +
+        '<button data-fact="cancel" style="font:600 12px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 16px;cursor:pointer;color:var(--ink)">Cancel</button></div>';
+      return;
+    }
+    if (f.phase === 'setup' || !cards.length) {
+      root.innerHTML =
+        '<div style="font:700 17px \'Space Grotesk\';margin-bottom:4px">New flashcards</div>' +
+        '<div style="font-size:13px;color:var(--muted);margin-bottom:18px">Generated from this lecture' + (LP.data.flashcards.provider ? ' · last: ' + esc(LP.data.flashcards.provider) : '') + '.</div>' +
+        _qField('Cards', _fSeg('count', [5, 10, 20, 30], s.count) +
+          '<input id="flash-count-custom" type="number" min="1" max="60" placeholder="custom" style="margin-top:7px;width:110px;font:600 12px \'JetBrains Mono\';background:var(--sunk);border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--ink)">') +
+        _qField('Depth', _fSeg('difficulty', ['Basic', 'Detailed', 'Exam-focused'], s.difficulty)) +
+        _qField('Style', _fSeg('style', ['Term → definition', 'Question → answer', 'Concept → explanation', 'Mixed'], s.style)) +
+        '<div style="display:flex;gap:10px;margin-top:8px">' +
+        '<button data-fact="generate" style="font:700 14px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:10px;padding:11px 22px;cursor:pointer">Generate flashcards</button>' +
+        (cards.length ? '<button data-fact="resume" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:10px;padding:11px 18px;cursor:pointer;color:var(--ink)">Resume last</button>' : '') +
+        '</div>';
+      return;
+    }
+    if (f.phase === 'summary') { renderCardSummary(root); return; }
+    renderCardSession(root);
+  }
+
+  function _fSeg(name, opts, cur) {
+    return '<div style="display:flex;flex-wrap:wrap;gap:6px">' + opts.map(function (o) {
+      var on = String(o) === String(cur);
+      return '<button data-fset="' + name + '" data-fval="' + esc(o) + '" style="font:600 12px \'JetBrains Mono\';padding:6px 11px;border-radius:8px;cursor:pointer;border:1.5px solid ' +
+        (on ? 'var(--orange)' : 'var(--border)') + ';background:' + (on ? 'var(--orange)' : 'var(--panel)') + ';color:' + (on ? '#fff' : 'var(--ink)') + '">' + esc(o) + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function renderCardSession(root) {
+    var f = F(), cards = fCards(), c = fCur(), id = fCardId();
+    if (!c) { f.phase = 'setup'; renderCard(); return; }
+    var known = Object.keys(f.known).length, unsure = Object.keys(f.unsure).length;
+    var marked = f.known[id] ? 'known' : f.unsure[id] ? 'unsure' : '';
+    var bm = !!f.bookmarks[id];
+    root.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+      '<span style="font:500 10px \'JetBrains Mono\';letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">Card ' + (f.index + 1) + ' of ' + cards.length + '</span>' +
+      '<span style="font:500 11px \'JetBrains Mono\';color:var(--muted)">✓ ' + known + ' · ? ' + unsure + '</span></div>' +
+      '<div data-fact="flip" style="width:100%;min-height:170px;background:var(--panel);border:2px solid ' + (marked === 'known' ? 'var(--green)' : marked === 'unsure' ? 'var(--yellow)' : 'var(--border)') + ';border-radius:14px;box-shadow:var(--shadow-hi);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:26px;cursor:pointer">' +
+      '<span style="font:500 10px \'JetBrains Mono\';letter-spacing:.12em;text-transform:uppercase;color:' + (f.flipped ? 'var(--orange-ink)' : 'var(--blue-ink)') + ';margin-bottom:12px">' + (f.flipped ? 'Definition' : 'Term') + '</span>' +
+      '<span style="font-weight:700;font-size:18px;line-height:1.4">' + esc(f.flipped ? c.definition : c.term) + '</span>' +
+      '<span style="font:500 11px \'JetBrains Mono\';color:var(--muted);margin-top:16px">tap or Space to flip</span></div>' +
+      '<div style="display:flex;gap:8px;margin-top:14px;justify-content:center">' +
+      '<button data-fact="known" style="font:700 12px \'Space Grotesk\';background:' + (marked === 'known' ? 'var(--green)' : 'var(--green-soft)') + ';color:' + (marked === 'known' ? '#fff' : 'var(--green)') + ';border:2px solid var(--green);border-radius:9px;padding:9px 15px;cursor:pointer">Known</button>' +
+      '<button data-fact="unsure" style="font:700 12px \'Space Grotesk\';background:' + (marked === 'unsure' ? 'var(--yellow)' : 'var(--yellow-soft)') + ';color:var(--ink);border:2px solid var(--yellow);border-radius:9px;padding:9px 15px;cursor:pointer">Unsure</button>' +
+      '<button data-fact="bookmark" title="Bookmark" style="font:700 12px \'Space Grotesk\';background:' + (bm ? 'var(--orange-soft)' : 'var(--panel)') + ';color:var(--ink);border:2px solid ' + (bm ? 'var(--orange)' : 'var(--border)') + ';border-radius:9px;padding:9px 13px;cursor:pointer">☆</button>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-top:14px">' +
+      '<button data-fact="prev"' + (f.index === 0 ? ' disabled' : '') + ' style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:9px 15px;cursor:pointer;color:var(--ink);opacity:' + (f.index === 0 ? '.5' : '1') + '">Prev</button>' +
+      '<button data-fact="shuffle" style="font:600 12px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:9px 13px;cursor:pointer;color:var(--ink)">Shuffle</button>' +
+      '<button data-fact="restart" style="font:600 12px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:9px 13px;cursor:pointer;color:var(--ink)">Restart</button>' +
+      '<div style="flex:1"></div>' +
+      (f.index === cards.length - 1
+        ? '<button data-fact="finish" style="font:700 13px \'Space Grotesk\';background:var(--blue);color:#fff;border:2px solid var(--blue-ink);border-radius:9px;padding:9px 17px;cursor:pointer">Summary</button>'
+        : '<button data-fact="next" style="font:700 13px \'Space Grotesk\';background:var(--blue);color:#fff;border:2px solid var(--blue-ink);border-radius:9px;padding:9px 17px;cursor:pointer">Next</button>') +
+      '</div>';
+  }
+
+  function renderCardSummary(root) {
+    var f = F(), cards = fCards(), known = Object.keys(f.known).length, unsure = Object.keys(f.unsure).length;
+    root.innerHTML =
+      '<div style="font:700 20px \'Space Grotesk\';margin-bottom:12px">Deck complete</div>' +
+      '<div style="display:flex;gap:14px;margin-bottom:18px">' +
+      '<div style="flex:1;background:var(--green-soft);border:2px solid var(--green);border-radius:12px;padding:16px;text-align:center"><div style="font-size:26px;font-weight:800;color:var(--green)">' + known + '</div><div style="font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--green)">Known</div></div>' +
+      '<div style="flex:1;background:var(--yellow-soft);border:2px solid var(--yellow);border-radius:12px;padding:16px;text-align:center"><div style="font-size:26px;font-weight:800;color:var(--ink)">' + unsure + '</div><div style="font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--ink)">Unsure</div></div>' +
+      '<div style="flex:1;background:var(--panel);border:2px solid var(--border);border-radius:12px;padding:16px;text-align:center"><div style="font-size:26px;font-weight:800">' + cards.length + '</div><div style="font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted)">Total</div></div>' +
+      '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:10px">' +
+      (unsure ? '<button data-fact="retry-unsure" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Review unsure (' + unsure + ')</button>' : '') +
+      '<button data-fact="restart" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Restart</button>' +
+      '<button data-fact="newdeck" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">New settings</button>' +
+      '</div>';
+  }
+
+  function flashAction(act) {
+    var f = F(), cards = fCards();
+    if (act === 'generate') {
+      var ci = $('flash-count-custom'), cv = ci && ci.value ? Math.max(1, Math.min(60, +ci.value)) : f.settings.count;
+      f.settings.count = cv; f.generating = true; f.status = 'Generating flashcards…';
+      if (lpBridge.connected()) lpBridge.call('generate_flashcards', JSON.stringify({
+        count: cv, difficulty: f.settings.difficulty, style: f.settings.style, scope: f.settings.scope
+      }));
+      else { f.generating = false; toast('Preview mode — connect the app to generate'); }
+      renderCard();
+    } else if (act === 'cancel') { f.generating = false; if (lpBridge.connected()) lpBridge.call('cancel_flashcards'); renderCard();
+    } else if (act === 'resume') { f.phase = 'session'; renderCard();
+    } else if (act === 'flip') { f.flipped = !f.flipped; renderCard();
+    } else if (act === 'next') { if (f.index < cards.length - 1) { f.index++; f.flipped = false; fSaveSession(); renderCard(); }
+    } else if (act === 'prev') { if (f.index > 0) { f.index--; f.flipped = false; fSaveSession(); renderCard(); }
+    } else if (act === 'known') { var id = fCardId(); delete f.unsure[id]; if (f.known[id]) delete f.known[id]; else f.known[id] = 1; fSaveSession(); renderCard();
+    } else if (act === 'unsure') { var iu = fCardId(); delete f.known[iu]; if (f.unsure[iu]) delete f.unsure[iu]; else f.unsure[iu] = 1; fSaveSession(); renderCard();
+    } else if (act === 'bookmark') { var ib = fCardId(); if (f.bookmarks[ib]) delete f.bookmarks[ib]; else f.bookmarks[ib] = 1; fSaveSession(); renderCard();
+    } else if (act === 'shuffle') {
+      var ord = fOrder().slice();
+      for (var k = ord.length - 1; k > 0; k--) { var j = Math.floor(Math.random() * (k + 1)); var t = ord[k]; ord[k] = ord[j]; ord[j] = t; }
+      f.order = ord; f.index = 0; f.flipped = false; fSaveSession(); renderCard();
+    } else if (act === 'finish') { f.phase = 'summary'; fSaveSession(); renderCard();
+    } else if (act === 'restart') { f.phase = 'session'; f.index = 0; f.flipped = false; f.known = {}; f.unsure = {}; fSaveSession(); renderCard();
+    } else if (act === 'retry-unsure') {
+      var keep = Object.keys(f.unsure).map(Number);
+      if (keep.length) { f.order = keep; f.index = 0; f.flipped = false; f.known = {}; f.unsure = {}; f.phase = 'session'; fSaveSession(); renderCard(); }
+    } else if (act === 'newdeck') { f.phase = 'setup'; renderCard(); }
   }
 
   function renderExportFormats() {
@@ -785,6 +909,7 @@
     $('pane-quiz').hidden = tab !== 'quiz';
     $('pane-flash').hidden = tab !== 'flash';
     if (tab === 'quiz') renderQuiz();
+    if (tab === 'flash') renderCard();
   }
 
   function setJobsEmpty(empty) {
@@ -1143,11 +1268,22 @@
       var act = e.target.closest('[data-qact="auto"]');
       if (act) quizAction('auto', act);
     });
-    $('flashcard').addEventListener('click', function () { LP.state.flipped = !LP.state.flipped; renderCard(); });
-    $('btn-next-card').addEventListener('click', function () {
-      LP.state.cardIdx = (LP.state.cardIdx + 1) % LP.data.study.cards.length;
-      LP.state.flipped = false;
-      renderCard();
+    // Flashcards: one delegated handler over the JS-rendered #flash-root.
+    $('flash-root').addEventListener('click', function (e) {
+      var seg = e.target.closest('[data-fset]');
+      if (seg) { LP.state.flash.settings[seg.dataset.fset] = (seg.dataset.fset === 'count') ? +seg.dataset.fval : seg.dataset.fval; renderCard(); return; }
+      var act = e.target.closest('[data-fact]');
+      if (act) flashAction(act.dataset.fact);
+    });
+    // Space/arrow keys drive the flashcard when the deck is on screen.
+    window.addEventListener('keydown', function (e) {
+      if (LP.state.screen !== 'study' || LP.state.studyTab !== 'flash') return;
+      if (LP.state.flash.phase !== 'session') return;
+      var tag = (e.target && e.target.tagName) || '';
+      if (/INPUT|TEXTAREA/.test(tag)) return;
+      if (e.key === ' ') { e.preventDefault(); flashAction('flip'); }
+      else if (e.key === 'ArrowRight') flashAction('next');
+      else if (e.key === 'ArrowLeft') flashAction('prev');
     });
 
     // exports
@@ -1251,6 +1387,24 @@
       q.status = d.message || '';
       if (d.state === 'ready' || d.state === 'error' || d.state === 'cancelled') q.generating = false;
       if (d.state === 'error') { toast(d.message || 'Quiz failed'); renderQuiz(); }
+    });
+    lpBridge.on('flashcards_changed', function (json) {
+      var d = JSON.parse(json), f = LP.state.flash;
+      LP.data.flashcards = { cards: d.cards || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
+      if (d.session && typeof d.session === 'object' && Object.keys(d.session).length) {
+        f.index = d.session.index || 0; f.known = d.session.known || {}; f.unsure = d.session.unsure || {};
+        f.bookmarks = d.session.bookmarks || {}; f.order = d.session.order || []; f.phase = 'session';
+      } else {
+        f.index = 0; f.flipped = false; f.known = {}; f.unsure = {}; f.bookmarks = {}; f.order = []; f.phase = 'session';
+      }
+      f.generating = false;
+      renderCard();
+    });
+    lpBridge.on('flashcards_status', function (json) {
+      var d = JSON.parse(json), f = LP.state.flash;
+      f.status = d.message || '';
+      if (d.state === 'ready' || d.state === 'error' || d.state === 'cancelled') f.generating = false;
+      if (d.state === 'error') { toast(d.message || 'Flashcards failed'); renderCard(); }
     });
     lpBridge.on('export_progress', function (json) {
       var p = JSON.parse(json);
