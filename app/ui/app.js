@@ -189,6 +189,20 @@
     if (_toastT) clearTimeout(_toastT);
     _toastT = setTimeout(function () { t.style.opacity = '0'; }, 2600);
   }
+  function copyText(text, okMsg) {
+    text = text || '';
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); toast(okMsg || 'Copied'); }
+      catch (e) { toast('Copy failed'); }
+      ta.remove();
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast(okMsg || 'Copied'); }, fallback);
+    } else { fallback(); }
+  }
 
   var TRASH_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>';
   var TAG_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="0.5" fill="currentColor"/></svg>';
@@ -682,6 +696,7 @@
       '<div style="display:flex;flex-wrap:wrap;gap:10px">' +
       (wrong.length ? '<button data-qact="retry-wrong" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Retry incorrect (' + wrong.length + ')</button>' : '') +
       '<button data-qact="restart" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Restart</button>' +
+      '<button data-qact="copy" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Copy</button>' +
       '<button data-qact="newquiz" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">New quiz settings</button>' +
       '</div>';
   }
@@ -719,6 +734,15 @@
       // jump to first unanswered
       for (var k = 0; k < qs.length; k++) { if (!q.answers.hasOwnProperty(k)) { q.index = k; break; } }
       qSaveSession(); renderQuiz();
+    } else if (act === 'copy') {
+      var L = 'ABCDEFGH';
+      var txt = qs.map(function (it, i) {
+        return (i + 1) + '. ' + it.question + '\n' +
+          it.options.map(function (o, oi) { return '   ' + L[oi] + ') ' + o; }).join('\n') +
+          '\n   Answer: ' + L[it.correct_index] + ') ' + it.options[it.correct_index] +
+          (it.explanation ? '\n   ' + it.explanation : '');
+      }).join('\n\n');
+      copyText(txt, 'Quiz copied');
     } else if (act === 'newquiz') { q.phase = 'setup'; renderQuiz(); }
   }
 
@@ -812,6 +836,7 @@
       '<div style="display:flex;flex-wrap:wrap;gap:10px">' +
       (unsure ? '<button data-fact="retry-unsure" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Review unsure (' + unsure + ')</button>' : '') +
       '<button data-fact="restart" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Restart</button>' +
+      '<button data-fact="copy" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Copy</button>' +
       '<button data-fact="newdeck" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">New settings</button>' +
       '</div>';
   }
@@ -845,6 +870,9 @@
     } else if (act === 'retry-unsure') {
       var keep = Object.keys(f.unsure).map(Number);
       if (keep.length) { f.order = keep; f.index = 0; f.flipped = false; f.known = {}; f.unsure = {}; f.phase = 'session'; fSaveSession(); renderCard(); }
+    } else if (act === 'copy') {
+      var txt = cards.map(function (c, i) { return (i + 1) + '. ' + c.term + '\n   ' + c.definition; }).join('\n\n');
+      copyText(txt, 'Flashcards copied');
     } else if (act === 'newdeck') { f.phase = 'setup'; renderCard(); }
   }
 
@@ -930,6 +958,7 @@
     $('pane-chat').hidden = tab !== 'chat';
     $('pane-quiz').hidden = tab !== 'quiz';
     $('pane-flash').hidden = tab !== 'flash';
+    $('pane-notes').hidden = tab !== 'notes';
     if (tab === 'quiz') renderQuiz();
     if (tab === 'flash') renderCard();
   }
@@ -1257,6 +1286,19 @@
     Array.prototype.forEach.call(document.querySelectorAll('.lp-tab'), function (b) {
       b.addEventListener('click', function () { setStudyTab(b.dataset.tab); });
     });
+    // Notes: debounced auto-save + copy.
+    var _notesT = null;
+    $('notes-area').addEventListener('input', function () {
+      $('notes-status').textContent = 'Notes for this lecture · saving…';
+      if (_notesT) clearTimeout(_notesT);
+      _notesT = setTimeout(function () {
+        if (lpBridge.connected()) lpBridge.call('save_notes', $('notes-area').value);
+        $('notes-status').textContent = 'Notes for this lecture · saved';
+      }, 600);
+    });
+    $('btn-copy-notes').addEventListener('click', function () {
+      copyText($('notes-area').value, 'Notes copied');
+    });
     $('topics-list').addEventListener('click', function (e) {
       var t = e.target.closest('[data-topic]');
       if (!t) return;
@@ -1391,7 +1433,11 @@
       if (d.reviewSegments) { LP.data.reviewSegments = d.reviewSegments; renderReviewTranscript(); }
       if (d.transcript) { LP.data.transcript = d.transcript; renderTranscript(); }
     });
-    lpBridge.on('study_changed', function (json) { LP.data.study = JSON.parse(json); renderStudy(); });
+    lpBridge.on('study_changed', function (json) {
+      LP.data.study = JSON.parse(json); renderStudy();
+      var na = $('notes-area');
+      if (na && document.activeElement !== na) na.value = LP.data.study.notes || '';
+    });
     lpBridge.on('quiz_changed', function (json) {
       var d = JSON.parse(json), q = LP.state.quiz;
       LP.data.quiz = { questions: d.questions || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
@@ -1446,7 +1492,12 @@
     });
     lpBridge.on('ai_status', function (json) {
       var s = JSON.parse(json);
-      $('ai-status').innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>' + esc(s.label || 'Local');
+      var lbl = s.label || 'Local';
+      var txt = lbl + (s.model && s.model !== '—' && lbl !== 'AI off' ? ' · ' + s.model : '');
+      var off = lbl === 'AI off' || lbl === 'Unavailable' || lbl === 'AI error';
+      var col = off ? 'var(--muted)' : 'var(--green)';
+      $('ai-status').style.color = col; $('ai-status').style.borderColor = col;
+      $('ai-status').innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:' + col + '"></span>' + esc(txt);
       if (s.model) $('ai-model-name').textContent = s.model;
     });
     lpBridge.on('onboarding', function (json) {

@@ -8,6 +8,25 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## §9 — Study assistant tabs polish (DONE)
+
+Tabs: Chat→**Ask**; added **Notes** tab (per-job notepad, 600ms-debounced
+auto-save to `study.json` `notes` key via `save_notes`, restored via
+`study_changed`, Copy button). Header badge now shows the **actual provider ·
+model** from `ai_status` (dims for AI off/unavailable) — confirms the
+Settings-selected Ollama model is used, no hardcoded qwen3. Quiz + flashcard
+summaries gained **Copy** (plain-text export) via a `file://`-safe `copyText`
+helper. Cancel/regenerate/scope/difficulty already existed; quiz explanations show
+transcript grounding.
+
+**Files:** `app/desktop/engine_adapter.py` (`save_notes` + notes in study payload),
+`app/desktop/bridge.py` (`save_notes` slot), `app/ui/index.html` (Ask/Notes tab +
+notes pane), `app/ui/app.js` (notes wiring, copyText, copy buttons, model badge).
+Tests: `test_webview_quiz.py::test_save_notes_persists`; E2E notes_smoke NOTES_OK.
+Evidence: `docs/evidence/.../study_tabs/`.
+
+---
+
 ## Study polish — progress bar/ETA, better quizzes, key-terms removed (user-requested)
 
 **1. Progress bar + ETA** replaces the spinner for quiz/flashcard generation

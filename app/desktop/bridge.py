@@ -182,6 +182,10 @@ class Backend(QObject):
     def save_flashcard_session(self, session_json: str):
         self._adapter.save_flashcard_session(session_json)
 
+    @Slot(str)
+    def save_notes(self, text: str):
+        self._adapter.save_notes(text)
+
     # ------------------------------------------------------------- exports
 
     @Slot(str)

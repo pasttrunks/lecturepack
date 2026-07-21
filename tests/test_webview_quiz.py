@@ -132,6 +132,17 @@ def test_generate_quiz_no_job(tmp_path):
     assert _last(a.backend.quiz_status)["state"] == "error"
 
 
+def test_save_notes_persists(tmp_path):
+    a = ea.LecturePackAdapter.__new__(ea.LecturePackAdapter)
+    a.config = ConfigManager(str(tmp_path))
+    a.backend = _FakeBackend()
+    a.current_job = Job(str(tmp_path), video_path="lecture.mp4")
+    a.save_notes("Remember the ziggurat detail.")
+    assert study_service.load_study_data(a.current_job).get("notes") == "Remember the ziggurat detail."
+    a.save_notes("")  # clearing works
+    assert study_service.load_study_data(a.current_job).get("notes") == ""
+
+
 def test_save_and_restore_quiz_session(adapter):
     adapter.config.set("ollama", {})
     adapter.generate_quiz(json.dumps({"count": 3}))

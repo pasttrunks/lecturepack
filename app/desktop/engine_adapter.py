@@ -136,6 +136,9 @@ class EngineAdapter(QObject):
     def save_flashcard_session(self, session_json: str) -> None:
         """Persist flashcard session state (known/unsure/index) in study data."""
 
+    def save_notes(self, text: str) -> None:
+        """Persist the user's free-text notes for the current job."""
+
     def browse_model(self, parent) -> None:
         """Pick a whisper model file; emit settings_changed({model_path})."""
 
@@ -1177,11 +1180,20 @@ class LecturePackAdapter(EngineAdapter):
             "keyTerms": overview.get("key_terms", []) or [],
             "bookmarks": bookmarks,
             "stats": stats,
-            "cards": cards})
+            "cards": cards,
+            "notes": study_service.load_study_data(job).get("notes", "") or ""})
 
         # Restore a previously generated quiz / flashcards (+ session) for this job.
         self._emit_stored_quiz(job)
         self._emit_stored_flashcards(job)
+
+    def save_notes(self, text: str):
+        job = self.current_job
+        if job is None:
+            return
+        data = study_service.load_study_data(job)
+        data["notes"] = str(text or "")[:20000]
+        study_service.save_study_data(job, data)
 
     def ask_ai(self, prompt: str):
         job = self.current_job
