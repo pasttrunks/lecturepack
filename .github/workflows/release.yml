@@ -71,7 +71,7 @@ jobs:
           name: LecturePack ${{ github.ref_name }}
           body_path: ${{ steps.notes.outputs.path }}
           files: |
-            app/dist/installer/LecturePack-Setup-*.exe
+            app/dist/installer/LecturePack-*-Setup.exe
             app/dist/installer/LecturePack-*-Portable.zip
             app/dist/installer/LecturePack-*-SHA256SUMS.txt
           draft: false

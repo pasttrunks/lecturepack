@@ -56,6 +56,38 @@ def run(cmd: list[str]) -> None:
     subprocess.run(cmd, cwd=APP_DIR, check=True)
 
 
+def make_portable_zip(version: str) -> Path:
+    """Zip the PyInstaller onedir output into a portable archive."""
+    import zipfile
+
+    src = APP_DIR / "dist" / "LecturePack"
+    out_dir = APP_DIR / "dist" / "installer"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = out_dir / f"LecturePack-{version}-Portable.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(src.rglob("*")):
+            if path.is_file():
+                zf.write(path, Path("LecturePack") / path.relative_to(src))
+    print(f"Portable: dist/installer/{zip_path.name}")
+    return zip_path
+
+
+def write_sha256sums(version: str) -> Path:
+    """Write SHA256SUMS.txt over every artifact in dist/installer."""
+    import hashlib
+
+    out_dir = APP_DIR / "dist" / "installer"
+    sums_path = out_dir / f"LecturePack-{version}-SHA256SUMS.txt"
+    lines = []
+    for path in sorted(out_dir.iterdir()):
+        if path.is_file() and path.name != sums_path.name and path.suffix in (".exe", ".zip"):
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            lines.append(f"{digest}  {path.name}")
+    sums_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Checksums: dist/installer/{sums_path.name}")
+    return sums_path
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-installer", action="store_true", help="build the exe but skip Inno Setup")
@@ -77,17 +109,25 @@ def main() -> None:
         sys.exit(f"expected {exe} — PyInstaller build failed")
     print(f"Built {exe}")
 
+    # Portable ZIP is independent of Inno Setup — always produced.
+    make_portable_zip(version)
+
     if args.no_installer:
+        write_sha256sums(version)
         return
 
     iscc = shutil.which("ISCC") or shutil.which("iscc")
     if not iscc:
         print("WARNING: ISCC (Inno Setup) not found on PATH — skipping installer.")
         print("Install Inno Setup 6 and re-run, or use --no-installer.")
+        write_sha256sums(version)
         return
 
     run([iscc, f"/DAppVersion={version}", str(PKG_DIR / "lecturepack.iss")])
-    print(f"Installer: dist/installer/LecturePack-Setup-{version}.exe")
+    print(f"Installer: dist/installer/LecturePack-{version}-Setup.exe")
+
+    # Checksums last so they cover the installer + portable ZIP.
+    write_sha256sums(version)
 
 
 if __name__ == "__main__":

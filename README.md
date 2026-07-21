@@ -1,5 +1,7 @@
 # LecturePack
 
+> **Public Beta — 0.9.0-beta.1.** The core lecture workflow (transcription, slides, transcript, exports, built-in quizzes/flashcards) works immediately after installation with no account, API key, or Ollama. Optional **Smart Study** adds private local AI. This is a public beta — keep copies of important source videos and exports, and please report issues. See [release notes](docs/RELEASE_NOTES_0.9.0-beta.1.md).
+
 Turn a lecture recording into a synchronized, editable study workspace — completely locally on your Windows machine. No cloud. No account. No upload.
 
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white)

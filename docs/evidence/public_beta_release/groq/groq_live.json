@@ -1,0 +1,37 @@
+{
+  "performed": "2026-07-21",
+  "note": "Live Groq validation using the key already stored in Windows Credential Manager. The key value was never printed, logged, or written to any file/evidence; only booleans and transcription metrics were captured. The 20s audio clip used for the transcription test was extracted read-only from an existing lecture's already-extracted audio and deleted afterward.",
+  "step1_credential_test": {
+    "has_key": true,
+    "key_format_gsk_prefix": true,
+    "test_key": true,
+    "result": "TEST_KEY_PASSED",
+    "endpoint": "https://api.groq.com/openai/v1/models"
+  },
+  "step2_transcription": {
+    "clip_seconds": 20,
+    "clip_bytes": 193081,
+    "source": "existing lecture audio (read-only), mid-lecture 20s window",
+    "online_fast": {
+      "model": "whisper-large-v3-turbo",
+      "ok": true,
+      "wall_seconds": 0.61,
+      "language": "English",
+      "segments": 2,
+      "word_count": 34,
+      "first_ts": 0.0,
+      "final_ts": 20.0
+    },
+    "online_accurate": {
+      "model": "whisper-large-v3",
+      "ok": true,
+      "wall_seconds": 1.77,
+      "language": "English",
+      "segments": 2,
+      "word_count": 34,
+      "first_ts": 0.0,
+      "final_ts": 20.0
+    },
+    "comparison": "Both online modes returned coherent, identical English text for the clip; Online Fast (turbo) was ~2.9x faster wall-time than Online Accurate on this 20s sample. No secret appeared in any output; GroqError messages are provider-scrubbed of the key by design."
+  }
+}
