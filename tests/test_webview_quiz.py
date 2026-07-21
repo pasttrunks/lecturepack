@@ -37,35 +37,45 @@ class _FakeBackend:
 
 
 # ------------------------------------------------------- pure fallback logic
-def test_fallback_quiz_count_and_shape():
-    terms = ["Ziggurat", "Cuneiform", "Hammurabi", "Euphrates", "Babylon"]
-    qs = ea._fallback_quiz_questions(terms, 5)
+_SENTS = [
+    "The Ziggurat was a massive terraced temple at the center of the city.",
+    "Scribes recorded laws and trade in Cuneiform on clay tablets.",
+    "Hammurabi issued one of the earliest written legal codes.",
+    "The Euphrates river fed the irrigation canals of the plain.",
+    "Babylon grew into the dominant power of the region.",
+]
+_TERMS = ["Ziggurat", "Cuneiform", "Hammurabi", "Euphrates", "Babylon"]
+
+
+def test_fallback_quiz_is_grounded_cloze():
+    qs = ea._fallback_quiz_questions(_TERMS, 5, _SENTS)
     assert len(qs) == 5
     for q in qs:
-        assert q["question"] and q["explanation"]
+        assert q["question"].startswith("Fill in the blank:")
+        assert "_____" in q["question"]
         assert 2 <= len(q["options"]) <= 4
-        assert 0 <= q["correct_index"] < len(q["options"])
-        # the correct option is one of the lecture's own terms
-        assert q["options"][q["correct_index"]] in terms
-
-
-def test_fallback_distractors_are_not_lecture_terms():
-    terms = ["Ziggurat", "Cuneiform", "Hammurabi"]
-    qs = ea._fallback_quiz_questions(terms, 3)
-    lowered = {t.lower() for t in terms}
-    for q in qs:
+        correct = q["options"][q["correct_index"]]
+        assert correct in _TERMS
+        # the blanked sentence must NOT contain any distractor (answer unambiguous)
         wrong = [o for i, o in enumerate(q["options"]) if i != q["correct_index"]]
-        assert all(w.lower() not in lowered for w in wrong)
+        low = q["question"].lower()
+        assert all(w.lower() not in low for w in wrong)
 
 
 def test_fallback_correct_index_varies():
-    terms = ["A term", "B term", "C term", "D term", "E term"]
-    qs = ea._fallback_quiz_questions(terms, 5)
-    assert len({q["correct_index"] for q in qs}) > 1  # not always the same slot
+    qs = ea._fallback_quiz_questions(_TERMS, 5, _SENTS)
+    assert len({q["correct_index"] for q in qs}) > 1
 
 
-def test_fallback_empty_terms():
-    assert ea._fallback_quiz_questions([], 5) == []
+def test_fallback_drops_stopword_terms():
+    qs = ea._fallback_quiz_questions(["one", "see", "it's", "Ziggurat"], 5, _SENTS)
+    for q in qs:
+        assert q["options"][q["correct_index"]] == "Ziggurat"
+
+
+def test_fallback_empty_without_terms_or_sentences():
+    assert ea._fallback_quiz_questions([], 5, _SENTS) == []
+    assert ea._fallback_quiz_questions(_TERMS, 5, []) == []
 
 
 def test_normalize_quiz_repairs_and_caps():
@@ -90,7 +100,10 @@ def adapter(tmp_path, monkeypatch):
     a.backend = _FakeBackend()
     a.current_job = Job(str(tmp_path), video_path="lecture.mp4")  # creates a job dir
     monkeypatch.setattr(study_service, "build_overview",
-                        lambda job: {"key_terms": ["Ziggurat", "Cuneiform", "Hammurabi", "Euphrates"]})
+                        lambda job: {"key_terms": _TERMS})
+    # grounded fallback needs a transcript to build cloze questions from
+    monkeypatch.setattr(ea.transcript_store, "load_working",
+                        lambda paths: [{"text": s} for s in _SENTS])
     return a
 
 

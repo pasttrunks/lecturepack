@@ -363,62 +363,106 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# Generic, cross-domain terms used as wrong answers in the no-AI fallback quiz.
-# Any that collide with the lecture's own key terms are filtered out at build
-# time so the correct answer stays unambiguous.
-_QUIZ_DISTRACTORS = [
-    "Photosynthesis", "Supply and demand", "Cellular respiration", "The water cycle",
-    "Plate tectonics", "Binary search", "Gross domestic product", "Osmosis",
-    "The French Revolution", "Machine learning", "Thermodynamics", "Natural selection",
-    "Electromagnetic induction", "Compound interest", "Newton's laws", "DNA replication",
-]
+# Common words filtered out of key-term-derived questions so the no-AI fallback
+# doesn't build questions around filler like "one", "see", "know".
+_STOPWORDS = frozenset("""
+the a an and or but of to in on at for with from by as is are was were be been being
+it its this that these those one two three we you they i he she him her his their our
+your my me us so if then than which who what when where why how can could would should
+will just also very more most some any all not no yes do does did done have has had
+about into over under out up down off again more back only own same too can't don't
+know way thing things lot kind sort stuff okay yeah really actually basically gonna
+maybe guys right well like mean got get going want need world people time part
+point today said say says lecture
+""".split())
 
 
-def _fallback_quiz_questions(terms, count: int) -> list[dict]:
-    """Deterministic, no-AI quiz from a lecture's key terms.
+def _sentences(segments) -> list[str]:
+    """Flatten transcript segments into clean sentence strings for grounding."""
+    text = " ".join(str(s.get("text") or "").strip() for s in (segments or [])).strip()
+    parts = re.split(r"(?<=[.!?])\s+", text)
+    out = []
+    for p in parts:
+        p = p.strip()
+        if 25 <= len(p) <= 240:
+            out.append(p)
+    return out
 
-    Honest recall questions ("which is a key term from this lecture?") pairing one
-    of the lecture's own terms against unrelated generic distractors — always
-    answerable and correct, clearly a built-in fallback. Deterministic (no RNG):
-    the correct option rotates position by index.
-    """
-    clean, seen = [], set()
+
+def _clean_terms(terms) -> list[str]:
+    """Drop stopwords/filler and dedupe key terms, preferring proper nouns and
+    multi-word phrases (better quiz/flashcard material than bare stopwords)."""
+    out, seen = [], set()
     for t in (terms or []):
-        s = str(t).strip()
-        k = s.lower()
-        if s and k not in seen:
-            seen.add(k)
-            clean.append(s)
-    if not clean:
+        s = str(t).strip().strip("’'\"“”.,:;")
+        low = s.lower()
+        if not s or low in seen or low in _STOPWORDS:
+            continue
+        if "'" in s and len(s) < 6:            # "it's", "don't"
+            continue
+        if len(low) < 4 and not s[0].isupper():  # short & not a proper noun
+            continue
+        seen.add(low)
+        out.append(s)
+    return out
+
+
+def _place_correct(correct, distractors, pos):
+    """Interleave one correct answer among distractors at index ``pos``."""
+    total = len(distractors) + 1
+    pos = pos % total
+    options, di = [], 0
+    for p in range(total):
+        if p == pos:
+            options.append(correct)
+        else:
+            options.append(distractors[di])
+            di += 1
+    return options, pos
+
+
+def _fallback_quiz_questions(terms, count: int, sentences=None) -> list[dict]:
+    """Deterministic, no-AI quiz GROUNDED in the transcript.
+
+    Builds cloze (fill-in-the-blank) questions from real lecture sentences: a
+    sentence mentioning a key term has that term blanked out, and the options are
+    the correct term plus other key terms that do NOT appear in that sentence (so
+    the answer stays unambiguous). Far better than a generic "which is a key term"
+    quiz. Deterministic — the correct option rotates position by index.
+    """
+    good = _clean_terms(terms)
+    if not good:
         return []
-    pool = [d for d in _QUIZ_DISTRACTORS if d.lower() not in seen]
+    sentences = sentences or []
     n = max(1, int(count or 5))
-    questions = []
-    for i in range(n):
-        correct = clean[i % len(clean)]
-        distractors = []
-        j = i
-        while len(distractors) < 3 and pool:
-            cand = pool[j % len(pool)]
-            if cand not in distractors:
-                distractors.append(cand)
-            j += 1
-            if j - i > len(pool):
+    questions, used = [], set()
+    pats = {t: re.compile(r"\b" + re.escape(t) + r"\b", re.IGNORECASE) for t in good}
+    for term in good:
+        if len(questions) >= n:
+            break
+        chosen = None
+        for si, sent in enumerate(sentences):
+            if si in used:
+                continue
+            if pats[term].search(sent):
+                chosen = (si, sent)
                 break
-        total = len(distractors) + 1
-        pos = i % total
-        options, di = [], 0
-        for p in range(total):
-            if p == pos:
-                options.append(correct)
-            else:
-                options.append(distractors[di])
-                di += 1
+        if chosen is None:
+            continue
+        si, sent = chosen
+        used.add(si)
+        blanked = pats[term].sub("_____", sent, count=1)
+        # distractors: other good terms NOT present in this sentence
+        distractors = [t for t in good
+                       if t.lower() != term.lower() and not pats[t].search(sent)][:3]
+        if not distractors:
+            continue
+        options, pos = _place_correct(term, distractors, len(questions))
         questions.append({
-            "question": "Which of the following is a key term from this lecture?",
+            "question": "Fill in the blank: " + blanked,
             "options": options,
             "correct_index": pos,
-            "explanation": f"“{correct}” is a key term this lecture emphasizes.",
+            "explanation": f"From the lecture: “{sent}”",
         })
     return questions
 
@@ -447,20 +491,24 @@ def _normalize_quiz(questions, count: int) -> list[dict]:
     return out
 
 
-def _fallback_flashcards(terms, count: int) -> list[dict]:
-    """Deterministic no-AI flashcards from key terms (term → prompt to review)."""
-    clean, seen = [], set()
-    for t in (terms or []):
-        s = str(t).strip()
-        if s and s.lower() not in seen:
-            seen.add(s.lower())
-            clean.append(s)
+def _fallback_flashcards(terms, count: int, sentences=None) -> list[dict]:
+    """Deterministic no-AI flashcards GROUNDED in the transcript: each term's
+    back is the actual lecture sentence that introduces it, not a generic prompt.
+    Terms with no supporting sentence are skipped."""
+    good = _clean_terms(terms)
+    if not good:
+        return []
+    sentences = sentences or []
     n = max(1, int(count or 10))
-    return [{
-        "term": clean[i % len(clean)],
-        "definition": f"A key term this lecture emphasizes. Review the transcript "
-                      f"around “{clean[i % len(clean)]}” for the full explanation.",
-    } for i in range(min(n, len(clean)))] if clean else []
+    cards = []
+    for term in good:
+        if len(cards) >= n:
+            break
+        pat = re.compile(r"\b" + re.escape(term) + r"\b", re.IGNORECASE)
+        sent = next((s for s in sentences if pat.search(s)), "")
+        if sent:
+            cards.append({"term": term, "definition": f"“{sent}”"})
+    return cards
 
 
 def _normalize_flashcards(cards, count: int) -> list[dict]:
@@ -1232,20 +1280,23 @@ class LecturePackAdapter(EngineAdapter):
             self._emit("quiz_status", {"state": "ready",
                        "message": f"{len(questions)} questions · {provider}"})
 
+        segments = transcript_store.load_working(job.paths) or []
+
         def do_fallback():
             try:
                 terms = study_service.build_overview(job).get("key_terms", []) or []
             except Exception:
                 terms = []
-            deliver(_fallback_quiz_questions(terms, count), "Built-in (no AI)")
+            deliver(_fallback_quiz_questions(terms, count, _sentences(segments)),
+                    "Built-in (no AI)")
 
         if not (o.get("enabled") and o.get("model")):
             do_fallback()
             return
 
-        segments = transcript_store.load_working(job.paths)
-        transcript_text = sas.transcript_context(segments or [])
-        worker = sas.StudyAssistantWorker("quiz", transcript_text, o, count=count)
+        transcript_text = sas.transcript_context(segments)
+        worker = sas.StudyAssistantWorker("quiz", transcript_text, o, count=count,
+                                          difficulty=meta["difficulty"], qtype=meta["type"])
         self._quiz_worker = worker
 
         def ok(task, result):
@@ -1338,20 +1389,23 @@ class LecturePackAdapter(EngineAdapter):
             self._emit("flashcards_status", {"state": "ready",
                        "message": f"{len(cards)} cards · {provider}"})
 
+        segments = transcript_store.load_working(job.paths) or []
+
         def do_fallback():
             try:
                 terms = study_service.build_overview(job).get("key_terms", []) or []
             except Exception:
                 terms = []
-            deliver(_fallback_flashcards(terms, count), "Built-in (no AI)")
+            deliver(_fallback_flashcards(terms, count, _sentences(segments)),
+                    "Built-in (no AI)")
 
         if not (o.get("enabled") and o.get("model")):
             do_fallback()
             return
 
-        segments = transcript_store.load_working(job.paths)
-        transcript_text = sas.transcript_context(segments or [])
-        worker = sas.StudyAssistantWorker("flashcards", transcript_text, o, count=count)
+        transcript_text = sas.transcript_context(segments)
+        worker = sas.StudyAssistantWorker("flashcards", transcript_text, o, count=count,
+                                          difficulty=meta["difficulty"])
         self._flash_worker = worker
 
         def ok(task, result):

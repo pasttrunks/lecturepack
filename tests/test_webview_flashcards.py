@@ -40,16 +40,29 @@ def _last(sig):
 
 
 # --------------------------------------------------------- pure logic
-def test_fallback_flashcards_shape_and_count():
-    cards = ea._fallback_flashcards(["Ziggurat", "Cuneiform", "Hammurabi"], 3)
-    assert len(cards) == 3
+_SENTS = [
+    "The Ziggurat was a massive terraced temple at the center of the city.",
+    "Scribes recorded laws and trade in Cuneiform on clay tablets.",
+    "Hammurabi issued one of the earliest written legal codes.",
+    "The Euphrates river fed the irrigation canals of the plain.",
+]
+_TERMS = ["Ziggurat", "Cuneiform", "Hammurabi", "Euphrates"]
+
+
+def test_fallback_flashcards_grounded_in_transcript():
+    cards = ea._fallback_flashcards(_TERMS, 4, _SENTS)
+    assert len(cards) == 4
+    assert {c["term"] for c in cards} == set(_TERMS)
     for c in cards:
-        assert c["term"] and c["definition"]
-    assert {c["term"] for c in cards} == {"Ziggurat", "Cuneiform", "Hammurabi"}
+        # the definition is the actual lecture sentence mentioning the term
+        assert c["term"].lower() in c["definition"].lower()
 
 
 def test_fallback_flashcards_empty():
-    assert ea._fallback_flashcards([], 5) == []
+    assert ea._fallback_flashcards([], 5, _SENTS) == []
+    assert ea._fallback_flashcards(_TERMS, 5, []) == []  # nothing to ground on
+    # junk stopword terms are dropped
+    assert ea._fallback_flashcards(["one", "see"], 5, _SENTS) == []
 
 
 def test_normalize_flashcards_aliases_and_cap():
@@ -74,7 +87,9 @@ def adapter(tmp_path, monkeypatch):
     a.backend = _FakeBackend()
     a.current_job = Job(str(tmp_path), video_path="lecture.mp4")
     monkeypatch.setattr(study_service, "build_overview",
-                        lambda job: {"key_terms": ["Ziggurat", "Cuneiform", "Hammurabi", "Euphrates"]})
+                        lambda job: {"key_terms": _TERMS})
+    monkeypatch.setattr(ea.transcript_store, "load_working",
+                        lambda paths: [{"text": s} for s in _SENTS])
     return a
 
 

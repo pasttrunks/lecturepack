@@ -523,9 +523,6 @@
     $('study-topic-labels').innerHTML = st.topicLabels.map(function (l) { return '<span>' + esc(l) + '</span>'; }).join('');
     $('study-timeline-meta').textContent = st.topics.length + ' topics · ' + LP.data.slides.length + ' slides';
     $('study-bookmarks-count').textContent = st.bookmarks.length + ' bookmarks';
-    $('key-terms').innerHTML = st.keyTerms.map(function (k) {
-      return '<span class="lp-hit" style="font-size:12px;font-weight:600;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:20px;padding:4px 12px;cursor:pointer">' + esc(k) + '</span>';
-    }).join('');
     $('bookmarks-list').innerHTML = st.bookmarks.map(function (b) {
       return '<div style="border-left:3px solid ' + b.color + ';padding-left:10px"><div style="font:500 10px \'JetBrains Mono\';color:var(--muted)">' + esc(b.t) + '</div><div style="font-size:13px;line-height:1.4">' + esc(b.text) + '</div></div>';
     }).join('');
@@ -572,16 +569,44 @@
     return '<div style="margin-bottom:15px"><div style="font:600 10px \'JetBrains Mono\';letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:7px">' + label + '</div>' + html + '</div>';
   }
 
+  /* ---- generation progress bar + ETA (shared by quiz + flashcards) ---- */
+  var _genTimers = { quiz: null, flash: null };
+  function _genBar(kind) {
+    var st = kind === 'quiz' ? LP.state.quiz : LP.state.flash;
+    var el = Date.now() - (st.genStart || Date.now()), est = st.genEst || 12000;
+    var pct = Math.max(4, Math.min(93, el / est * 100)), etaMs = est - el;
+    var eta = etaMs > 1000 ? '~' + Math.ceil(etaMs / 1000) + 's remaining'
+      : (etaMs > -8000 ? 'almost done…' : 'still working…');
+    var noun = kind === 'quiz' ? 'quiz' : 'flashcards';
+    var actAttr = kind === 'quiz' ? 'qact' : 'fact';
+    return '<div style="padding:24px 4px">' +
+      '<div style="font:700 15px \'Space Grotesk\';margin-bottom:4px">Generating ' + noun + '…</div>' +
+      '<div style="font:500 12px \'JetBrains Mono\';color:var(--muted);margin-bottom:14px;min-height:16px">' + esc(st.status || '') + '</div>' +
+      '<div style="height:10px;border-radius:6px;background:var(--sunk);overflow:hidden;border:1.5px solid var(--border)"><div style="width:' + pct.toFixed(1) + '%;height:100%;background:var(--orange);background-image:repeating-linear-gradient(90deg,transparent,transparent 8px,rgba(255,255,255,.28) 8px,rgba(255,255,255,.28) 16px);transition:width .25s linear"></div></div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px">' +
+      '<span style="font:600 12px \'JetBrains Mono\';color:var(--muted)">' + Math.round(pct) + '% · ' + eta + '</span>' +
+      '<button data-' + actAttr + '="cancel" style="font:600 12px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer;color:var(--ink)">Cancel</button></div></div>';
+  }
+  function startGen(kind, count) {
+    var st = kind === 'quiz' ? LP.state.quiz : LP.state.flash;
+    st.generating = true; st.genStart = Date.now();
+    st.genEst = (3.5 + 1.6 * (count || 5)) * 1000;  // rough ETA; capped until result lands
+    if (_genTimers[kind]) clearInterval(_genTimers[kind]);
+    _genTimers[kind] = setInterval(function () {
+      if (!st.generating) { clearInterval(_genTimers[kind]); _genTimers[kind] = null; return; }
+      (kind === 'quiz' ? renderQuiz : renderCard)();
+    }, 250);
+  }
+  function stopGen(kind) {
+    var st = kind === 'quiz' ? LP.state.quiz : LP.state.flash;
+    st.generating = false;
+    if (_genTimers[kind]) { clearInterval(_genTimers[kind]); _genTimers[kind] = null; }
+  }
+
   function renderQuiz() {
     var root = $('quiz-root'); if (!root) return;
     var q = Q(), s = q.settings, qs = qQuestions();
-    if (q.generating) {
-      root.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 0">' +
-        '<div style="width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--orange);border-radius:50%;animation:lpspin .8s linear infinite"></div>' +
-        '<div style="font:600 13px \'Space Grotesk\'">' + esc(q.status || 'Generating quiz…') + '</div>' +
-        '<button data-qact="cancel" style="font:600 12px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 16px;cursor:pointer;color:var(--ink)">Cancel</button></div>';
-      return;
-    }
+    if (q.generating) { root.innerHTML = _genBar('quiz'); return; }
     if (q.phase === 'setup' || !qs.length) {
       root.innerHTML =
         '<div style="font:700 17px \'Space Grotesk\';margin-bottom:4px">New quiz</div>' +
@@ -665,16 +690,17 @@
     var q = Q(), qs = qQuestions();
     if (act === 'generate') {
       var ci = $('quiz-count-custom'), cv = ci && ci.value ? Math.max(1, Math.min(50, +ci.value)) : q.settings.count;
-      q.settings.count = cv;
-      q.generating = true; q.status = 'Generating quiz…';
-      if (lpBridge.connected()) lpBridge.call('generate_quiz', JSON.stringify({
-        count: cv, difficulty: q.settings.difficulty, type: q.settings.type,
-        scope: q.settings.scope, source: q.settings.source
-      }));
-      else { q.generating = false; toast('Preview mode — connect the app to generate'); }
+      q.settings.count = cv; q.status = 'Contacting the study model…';
+      if (lpBridge.connected()) {
+        startGen('quiz', cv);
+        lpBridge.call('generate_quiz', JSON.stringify({
+          count: cv, difficulty: q.settings.difficulty, type: q.settings.type,
+          scope: q.settings.scope, source: q.settings.source
+        }));
+      } else { toast('Preview mode — connect the app to generate'); }
       renderQuiz();
     } else if (act === 'cancel') {
-      q.generating = false; if (lpBridge.connected()) lpBridge.call('cancel_quiz'); renderQuiz();
+      stopGen('quiz'); if (lpBridge.connected()) lpBridge.call('cancel_quiz'); renderQuiz();
     } else if (act === 'resume') { q.phase = 'session'; renderQuiz();
     } else if (act === 'submit') {
       if (q.pick != null) { q.answers[q.index] = q.pick; q.pick = null; qSaveSession(); renderQuiz();
@@ -717,13 +743,7 @@
   function renderCard() {
     var root = $('flash-root'); if (!root) return;
     var f = F(), s = f.settings, cards = fCards();
-    if (f.generating) {
-      root.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 0">' +
-        '<div style="width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--orange);border-radius:50%;animation:lpspin .8s linear infinite"></div>' +
-        '<div style="font:600 13px \'Space Grotesk\'">' + esc(f.status || 'Generating flashcards…') + '</div>' +
-        '<button data-fact="cancel" style="font:600 12px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 16px;cursor:pointer;color:var(--ink)">Cancel</button></div>';
-      return;
-    }
+    if (f.generating) { root.innerHTML = _genBar('flash'); return; }
     if (f.phase === 'setup' || !cards.length) {
       root.innerHTML =
         '<div style="font:700 17px \'Space Grotesk\';margin-bottom:4px">New flashcards</div>' +
@@ -800,13 +820,15 @@
     var f = F(), cards = fCards();
     if (act === 'generate') {
       var ci = $('flash-count-custom'), cv = ci && ci.value ? Math.max(1, Math.min(60, +ci.value)) : f.settings.count;
-      f.settings.count = cv; f.generating = true; f.status = 'Generating flashcards…';
-      if (lpBridge.connected()) lpBridge.call('generate_flashcards', JSON.stringify({
-        count: cv, difficulty: f.settings.difficulty, style: f.settings.style, scope: f.settings.scope
-      }));
-      else { f.generating = false; toast('Preview mode — connect the app to generate'); }
+      f.settings.count = cv; f.status = 'Contacting the study model…';
+      if (lpBridge.connected()) {
+        startGen('flash', cv);
+        lpBridge.call('generate_flashcards', JSON.stringify({
+          count: cv, difficulty: f.settings.difficulty, style: f.settings.style, scope: f.settings.scope
+        }));
+      } else { toast('Preview mode — connect the app to generate'); }
       renderCard();
-    } else if (act === 'cancel') { f.generating = false; if (lpBridge.connected()) lpBridge.call('cancel_flashcards'); renderCard();
+    } else if (act === 'cancel') { stopGen('flash'); if (lpBridge.connected()) lpBridge.call('cancel_flashcards'); renderCard();
     } else if (act === 'resume') { f.phase = 'session'; renderCard();
     } else if (act === 'flip') { f.flipped = !f.flipped; renderCard();
     } else if (act === 'next') { if (f.index < cards.length - 1) { f.index++; f.flipped = false; fSaveSession(); renderCard(); }
@@ -1379,13 +1401,13 @@
       } else {
         q.index = 0; q.pick = null; q.answers = {}; q.flags = {}; q.phase = 'session';
       }
-      q.generating = false;
+      stopGen('quiz');
       renderQuiz();
     });
     lpBridge.on('quiz_status', function (json) {
       var d = JSON.parse(json), q = LP.state.quiz;
       q.status = d.message || '';
-      if (d.state === 'ready' || d.state === 'error' || d.state === 'cancelled') q.generating = false;
+      if (d.state === 'ready' || d.state === 'error' || d.state === 'cancelled') stopGen('quiz');
       if (d.state === 'error') { toast(d.message || 'Quiz failed'); renderQuiz(); }
     });
     lpBridge.on('flashcards_changed', function (json) {
@@ -1397,13 +1419,13 @@
       } else {
         f.index = 0; f.flipped = false; f.known = {}; f.unsure = {}; f.bookmarks = {}; f.order = []; f.phase = 'session';
       }
-      f.generating = false;
+      stopGen('flash');
       renderCard();
     });
     lpBridge.on('flashcards_status', function (json) {
       var d = JSON.parse(json), f = LP.state.flash;
       f.status = d.message || '';
-      if (d.state === 'ready' || d.state === 'error' || d.state === 'cancelled') f.generating = false;
+      if (d.state === 'ready' || d.state === 'error' || d.state === 'cancelled') stopGen('flash');
       if (d.state === 'error') { toast(d.message || 'Flashcards failed'); renderCard(); }
     });
     lpBridge.on('export_progress', function (json) {

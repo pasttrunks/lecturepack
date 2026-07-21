@@ -8,6 +8,34 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## Study polish — progress bar/ETA, better quizzes, key-terms removed (user-requested)
+
+**1. Progress bar + ETA** replaces the spinner for quiz/flashcard generation
+(shared `_genBar`/`startGen`/`stopGen` in app.js; % + "~Ns remaining", capped ~93%
+until result lands; Cancel intact).
+
+**2. Better quizzes.** AI: `_quiz_prompt` rewritten to force transcript-grounded,
+specific, unambiguous questions with on-topic distractors, no meta/"all of the
+above"; difficulty + type now threaded through the worker (were ignored).
+Deterministic fallback replaced with **grounded cloze** (fill-in-the-blank from
+real transcript sentences; distractors = other key terms absent from that
+sentence). `_clean_terms` drops stopword/filler key terms ("one","it's","see",
+"know","world"). Flashcard fallback now backs each term with its real transcript
+sentence. Verified read-only on the Mesopotamia job (grounded Qs, evidence dir).
+
+**3. Key-terms panel removed** from Study overview (low value; freed space). Terms
+still computed internally to seed fallbacks.
+
+**Files:** `lecturepack/services/study_assistant_service.py` (prompts + worker
+difficulty/qtype), `app/desktop/engine_adapter.py` (`_clean_terms`, `_sentences`,
+grounded `_fallback_quiz_questions`/`_fallback_flashcards`, pass difficulty/qtype),
+`app/ui/app.js` (progress bar, remove key-terms render), `app/ui/index.html`
+(remove key-terms markup). Tests: `test_webview_quiz.py`(8)/`test_webview_flashcards.py`(6)
+updated for grounded design; study/worker tests still green. Evidence:
+`docs/evidence/.../quiz_quality/`.
+
+---
+
 ## §8 — Configurable flashcard system (DONE)
 
 Mirrors §7. Backend: `generate_flashcards` → `StudyAssistantWorker("flashcards",
