@@ -1,0 +1,37 @@
+{
+  "phase": "public_beta_release_prep",
+  "release_version": "0.9.0-beta.1",
+  "branch": "feat/desktop-webengine",
+  "starting_head": "94df546",
+  "ending_head": "PENDING_FINALIZE",
+  "safety_tag": "safety/start-public-beta-release-94df546",
+  "working_tree_clean_except_session_config": true,
+  "tests": {
+    "focused_smart_study": "17 passed (tests/test_smart_study.py)",
+    "full_suite": "308 passed in 161.03s, exit 0 (final HEAD)",
+    "prior_baseline": "291 passed at 76d69e8; +17 new = 308"
+  },
+  "completed": [
+    "version 0.9.0-beta.1 across version.py/iss/win_version_info; build stamping robust to prerelease suffix; release.py accepts prerelease; workflow marks prerelease + publishes installer+portable+sha256",
+    "Smart Study: onboarding card + settings card; detect Ollama; Lightweight/Balanced presets; RAM recommendation; pull_model with progress+cancel; structured test; persistence; Advanced-only raw IDs; launch official Ollama page (no binary download)",
+    "Built-in Study never a dead control: provider labels Built-in Study/Local AI/Online Enhanced; Ask extractive transcript fallback with timestamps",
+    "Live Groq validation with real key (both modes) — no secret leaked",
+    "Release docs: CHANGELOG, release notes, README banner, handoff"
+  ],
+  "groq_status": "LIVE-VALIDATED (test_key passed; Online Fast 0.61s + Online Accurate 1.77s on a real 20s clip; key never exposed). Evidence: docs/evidence/public_beta_release/groq/groq_live.json",
+  "artifacts": {
+    "pyinstaller_exe_and_portable_and_sha256": "BUILT + headless offscreen boot smoke passed. LecturePack.exe 15.2MB, onedir ~813MB, Portable.zip 326.5MB, SHA256SUMS written. See docs/evidence/public_beta_release/build/build_smoke.json",
+    "portable_sha256": "9d1b504eea3c063efbb28be12dc92f6b6e19230841897a8c900931f10a2f9439",
+    "installer_exe": "NOT built here (Inno Setup ISCC not installed); built by one-command build where ISCC present, and by the release workflow (choco innosetup)",
+    "dir": "app/dist/installer/"
+  },
+  "not_done_human_or_vm": [
+    "clean-machine install test",
+    "upgrade test (earlier beta -> this beta)",
+    "Smart Study live download matrix (§18)",
+    "packaged windowed click-through (m2/Egypt/Mesopotamia)"
+  ],
+  "exit_outcome": "B — beta ready; optional Smart Study wired + unit-tested but live download matrix + clean-machine/packaged click-through remain human/VM acceptance. Core works without Ollama; Groq live-validated; suite green.",
+  "rollback": "git reset --hard safety/start-public-beta-release-94df546",
+  "never_touched": "C:\\Users\\marsh\\LecturePackData"
+}
