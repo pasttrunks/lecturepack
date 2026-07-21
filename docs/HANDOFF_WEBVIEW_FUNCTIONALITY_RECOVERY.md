@@ -4,8 +4,8 @@
 - Path: `C:\Users\marsh\Documents\LecturePack`
 - Branch: `feat/desktop-webengine`
 - Original starting commit: `d7f4b80` (session 1) → this session started at `b35e743` (= e504551 + docs)
-- Ending commit: `70897f9` (+ docs)
-- Last fully green commit: `70897f9` (full suite 276 passed)
+- Ending commit: `7b6b0c0` (+ docs)
+- Last fully green commit: `7b6b0c0` (full suite 276, exit 0)
 - Safety tags: `safety/start-webview-functionality-recovery` (= d7f4b80),
   `safety/start-post-e504551-continuation` (= e504551),
   `safety/start-post-6d847d0-continuation` (= 6d847d0)

@@ -31,8 +31,8 @@
     "§6 Groq secure modes in WebView (needs live key)"
   ],
   "next_action": "§9 study assistant tabs: add provider/model/scope selectors + cancel/regenerate + source inspection + copy/export to the Study panel (Ask/Quiz/Flashcards/Notes). Then §10 theme. §3/§4/§6 need GPU/key/long profiling.",
-  "last_green_commit": "70897f9",
+  "last_green_commit": "7b6b0c0",
   "working_tree_clean": true,
-  "full_suite": "276 passed at 70897f9",
+  "full_suite": "276 passed (green, exit 0) at 7b6b0c0",
   "exit_outcome": "B (P0 usability + §5 perf + Home delete/grouping + §7 quizzes + §8 flashcards complete; §9/§10 + GPU/key items pending)"
 }
