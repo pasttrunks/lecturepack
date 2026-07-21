@@ -139,21 +139,107 @@
 
   /* ======================= renderers ======================= */
 
+  /* ---- lightweight modal + toast (no markup needed) ---- */
+  function lpModal(opts) {
+    var ov = document.createElement('div');
+    ov.className = 'lp-modal-ov';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);animation:lpin .15s ease';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);padding:22px 24px;max-width:430px;width:90%';
+    box.innerHTML = '<div style="font:700 17px \'Space Grotesk\';margin-bottom:10px">' + esc(opts.title) + '</div>' +
+      '<div style="font-size:14px;line-height:1.55;margin-bottom:18px">' + (opts.bodyHtml || '') + '</div>';
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:flex-end;gap:10px';
+    function close() { ov.remove(); document.removeEventListener('keydown', onKey); }
+    (opts.actions || []).forEach(function (a) {
+      var b = document.createElement('button');
+      b.textContent = a.label;
+      var base = 'font:600 13px \'Space Grotesk\';border-radius:9px;padding:9px 16px;cursor:pointer;border:2px solid var(--border)';
+      b.style.cssText = a.danger ? base + ';background:var(--red);color:#fff;border-color:var(--red)'
+        : a.primary ? base + ';background:var(--orange);color:#fff;border-color:var(--orange-ink)'
+          : base + ';background:var(--panel);color:var(--ink)';
+      b.addEventListener('click', function () { if (!(a.onClick && a.onClick())) close(); });
+      row.appendChild(b);
+    });
+    box.appendChild(row); ov.appendChild(box); document.body.appendChild(ov);
+    ov.addEventListener('mousedown', function (e) { if (e.target === ov) close(); });
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    document.addEventListener('keydown', onKey);
+    return { close: close };
+  }
+  var _toastT = null;
+  function toast(msg) {
+    var t = $('lp-toast');
+    if (!t) {
+      t = document.createElement('div'); t.id = 'lp-toast';
+      t.style.cssText = 'position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:130;background:var(--ink);color:var(--bg);font:600 13px \'Space Grotesk\';padding:10px 18px;border-radius:10px;box-shadow:var(--shadow-hi);opacity:0;transition:opacity .2s';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg; t.style.opacity = '1';
+    if (_toastT) clearTimeout(_toastT);
+    _toastT = setTimeout(function () { t.style.opacity = '0'; }, 2600);
+  }
+
+  var TRASH_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>';
+  var TAG_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="0.5" fill="currentColor"/></svg>';
+
+  function _jobBtn(action, id, svg, title) {
+    return '<button class="lp-jobbtn" data-action="' + action + '" data-jobid="' + esc(id) + '" title="' + title + '" style="width:27px;height:27px;border-radius:7px;border:1.5px solid var(--border);background:var(--panel);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow-soft)">' + svg + '</button>';
+  }
+
+  function _jobCardHtml(j) {
+    var badge = j.status === 'running'
+      ? '<span style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:var(--orange-soft);color:var(--orange-ink);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>Running</span>'
+      : '<span style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:var(--green-soft);color:var(--green);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>Done</span>';
+    var menu = j.id ? '<div style="position:absolute;top:9px;left:9px;display:flex;gap:6px">' +
+      _jobBtn('group', j.id, TAG_SVG, 'Set group') + _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
+    var body = j.status === 'running'
+      ? '<div style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(j.name) + '</div>' +
+        '<div style="height:8px;border-radius:5px;background:var(--sunk);overflow:hidden;margin-bottom:7px"><div style="width:' + (j.pct || 0) + '%;height:100%;background:var(--orange);background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.3) 6px,rgba(255,255,255,.3) 13px);animation:lpbar 1s linear infinite"></div></div>' +
+        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(j.stage) + ' · ' + (j.pct || 0) + '% · ' + esc(j.eta || '') + '</div>'
+      : '<div style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(j.name) + '</div>' +
+        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted);line-height:1.7">' + esc(j.file || '') + '<br>' + esc(j.meta || '') + '</div>';
+    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'style="background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
+      '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + thumb(30, 'var(--muted)') + menu + badge + '</div>' +
+      '<div style="padding:14px 16px">' + body + '</div></div>';
+  }
+
+  function confirmDeleteJob(job) {
+    lpModal({
+      title: 'Delete this lecture?',
+      bodyHtml: '<strong>' + esc(job.name) + '</strong> will be moved to the Recycle Bin and removed from LecturePack, freeing disk space. Its export files are removed too.',
+      actions: [{ label: 'Cancel' }, { label: 'Delete', danger: true, onClick: function () { if (lpBridge.connected()) lpBridge.call('delete_job', job.id); else toast('Preview mode — not deleted'); } }]
+    });
+  }
+  function setJobGroup(job) {
+    lpModal({
+      title: 'Group lecture',
+      bodyHtml: '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px">Course / subject</label>' +
+        '<input id="lp-group-input" type="text" spellcheck="false" value="' + esc(job.group || '') + '" placeholder="e.g. CL100" style="width:100%;box-sizing:border-box;font:600 14px \'JetBrains Mono\';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--ink)">' +
+        '<div style="font-size:12px;color:var(--muted);margin-top:8px">Leave blank to auto-group by the lecture title.</div>',
+      actions: [{ label: 'Cancel' }, { label: 'Save', primary: true, onClick: function () { var i = $('lp-group-input'); if (lpBridge.connected()) lpBridge.call('set_job_group', job.id, (i && i.value || '').trim()); } }]
+    });
+    setTimeout(function () { var i = $('lp-group-input'); if (i) { i.focus(); i.select(); } }, 30);
+  }
+
   function renderJobs() {
     var g = $('jobs-grid');
-    g.innerHTML = LP.data.jobs.map(function (j) {
-      var badge = j.status === 'running'
-        ? '<span style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:var(--orange-soft);color:var(--orange-ink);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>Running</span>'
-        : '<span style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:var(--green-soft);color:var(--green);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>Done</span>';
-      var body = j.status === 'running'
-        ? '<div style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(j.name) + '</div>' +
-          '<div style="height:8px;border-radius:5px;background:var(--sunk);overflow:hidden;margin-bottom:7px"><div style="width:' + (j.pct || 0) + '%;height:100%;background:var(--orange);background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.3) 6px,rgba(255,255,255,.3) 13px);animation:lpbar 1s linear infinite"></div></div>' +
-          '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(j.stage) + ' · ' + (j.pct || 0) + '% · ' + esc(j.eta || '') + '</div>'
-        : '<div style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(j.name) + '</div>' +
-          '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted);line-height:1.7">' + esc(j.file || '') + '<br>' + esc(j.meta || '') + '</div>';
-      return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'style="background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
-        '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + thumb(30, 'var(--muted)') + badge + '</div>' +
-        '<div style="padding:14px 16px">' + body + '</div></div>';
+    g.style.display = 'flex'; g.style.flexDirection = 'column'; g.style.gap = '26px';
+    g.style.gridTemplateColumns = 'none';
+    var groups = {}, order = [];
+    LP.data.jobs.forEach(function (j) {
+      var k = j.group || 'Ungrouped';
+      if (!groups[k]) { groups[k] = []; order.push(k); }
+      groups[k].push(j);
+    });
+    order.sort(function (a, b) { return String(a).localeCompare(String(b)); });
+    var single = order.length <= 1;
+    g.innerHTML = order.map(function (k) {
+      var cards = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px">' +
+        groups[k].map(_jobCardHtml).join('') + '</div>';
+      var header = single ? '' :
+        '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px"><span style="font:700 14px \'Space Grotesk\'">' + esc(k) + '</span><span style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + groups[k].length + '</span></div>';
+      return '<div>' + header + cards + '</div>';
     }).join('');
     $('jobs-count').textContent = LP.data.jobs.length;
   }
@@ -778,8 +864,19 @@
     $('btn-show-empty').addEventListener('click', function () { setJobsEmpty(true); });
     $('btn-load-jobs').addEventListener('click', function () { setJobsEmpty(false); });
 
-    // Open a job from the Home grid -> load its data and jump to Review.
+    // Home grid: per-card menu buttons (delete / set group) take priority,
+    // otherwise clicking a card opens the job.
     $('jobs-grid').addEventListener('click', function (e) {
+      var btn = e.target.closest('.lp-jobbtn');
+      if (btn) {
+        e.stopPropagation();
+        var id = btn.dataset.jobid;
+        var job = LP.data.jobs.filter(function (x) { return x.id === id; })[0];
+        if (!job) return;
+        if (btn.dataset.action === 'delete') confirmDeleteJob(job);
+        else if (btn.dataset.action === 'group') setJobGroup(job);
+        return;
+      }
       var card = e.target.closest('[data-job]');
       if (!card) return;
       var running = card.querySelector('span[style*="animation:lpblink"]');
@@ -945,6 +1042,10 @@
 
   function wireBridge() {
     lpBridge.on('jobs_changed', function (json) { LP.data.jobs = JSON.parse(json); renderJobs(); });
+    lpBridge.on('job_deleted', function (json) {
+      var d = JSON.parse(json);
+      toast(d.ok ? ('Lecture deleted · ' + (d.freed || '') + ' freed') : 'Delete failed');
+    });
     lpBridge.on('pipeline_changed', function (json) {
       var p = JSON.parse(json);
       if (p.log) LP.data.pipeline.log = p.log;

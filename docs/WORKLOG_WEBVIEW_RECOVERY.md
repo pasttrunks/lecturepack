@@ -8,6 +8,30 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## Home job management — delete + grouping (user-requested, DONE)
+
+**Delete (user-confirmed, recoverable):** Home card trash button → confirmation
+modal → `delete_job(job_id)`. Backend prefers `send2trash` (Recycle Bin —
+recoverable + frees space), hard `shutil.rmtree` fallback. Guarded by safe job-id
+regex + must resolve directly under `jobs/` (traversal/absolute rejected). Never
+automatic — only from explicit UI confirm. Reports freed size via `job_deleted`.
+
+**Grouping:** tag button → input modal → `set_job_group(job_id, group)` persisted
+in the manifest; blank reverts to title-derived default (`_derive_group`:
+"CL100 - Day 3 -…"→CL100). `_list_jobs` emits `group`; Home renders a section per
+group (header + count).
+
+**Files:** `engine_adapter.py` (delete_job/set_job_group/_derive_group/guards +
+group in _list_jobs), `bridge.py` (slots + job_deleted signal), `bridge.js`
+(signal), `app.js` (grouped renderJobs, lpModal/toast helpers, per-card
+delete/group buttons), `requirements.txt` (Send2Trash).
+
+**Safety:** no real job deleted/modified in dev or tests — `tests/test_webview_jobs.py`
+(12) use a TEMP data dir with send2trash monkeypatched; UI smoke only opens modals
+and clicks Cancel. Evidence: `docs/evidence/.../home_jobs/`.
+
+---
+
 ## §5 — Lazy thumbnail cache (DONE)
 
 **Issue:** list/grid decoded full-res ~2.5 MB PNGs into 60×38 boxes (167×2.5 MB ≈

@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QFileDialog
@@ -58,6 +60,12 @@ class EngineAdapter(QObject):
 
     def open_job(self, job_id: str) -> None:
         """Open an existing job from the Home grid; push its review/study data."""
+
+    def delete_job(self, job_id: str) -> None:
+        """Delete a job (user-confirmed in the UI); refresh the jobs list."""
+
+    def set_job_group(self, job_id: str, group: str) -> None:
+        """Set a job's course/subject group; refresh the jobs list."""
 
     def notify_drag_over(self):
         """Optional: UI feedback while a file is dragged over the window."""
@@ -310,6 +318,28 @@ def _esc(text: str) -> str:
             .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 
+_SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+
+
+def _derive_group(title: str) -> str:
+    """Best-effort course/subject label from a job title.
+
+    Titles are commonly "CL100 - Day 3 - Mesopotamia" → "CL100"; otherwise the
+    leading token (e.g. "PHYS101 lecture 2" → "PHYS101"). Falls back to
+    "Ungrouped". Used only as the default when no explicit group is set.
+    """
+    t = (title or "").strip()
+    if not t:
+        return "Ungrouped"
+    for sep in (" - ", " – ", ": ", " — "):
+        if sep in t:
+            head = t.split(sep, 1)[0].strip()
+            if head:
+                return head
+    first = t.split()[0] if t.split() else ""
+    return first or "Ungrouped"
+
+
 class LecturePackAdapter(EngineAdapter):
     """Drives the real LecturePack engine behind the web UI."""
 
@@ -383,9 +413,10 @@ class LecturePackAdapter(EngineAdapter):
             running_stage = next(
                 (name for name, sd in stages.items()
                  if sd.get("status") == "running"), None)
+            group = man.get("group") or _derive_group(title)
             if running_stage:
                 rows.append({
-                    "id": job_id,
+                    "id": job_id, "group": group,
                     "name": title, "status": "running",
                     "stage": running_stage, "pct": 0, "eta": "",
                 })
@@ -404,7 +435,7 @@ class LecturePackAdapter(EngineAdapter):
                     bits.append(date)
                 done = stages.get(constants.STAGE_REVIEW_READY, {}).get("status") == "completed"
                 rows.append({
-                    "id": job_id,
+                    "id": job_id, "group": group,
                     "name": title, "file": filename,
                     "meta": "  ·  ".join(bits),
                     "status": "done" if (done or overall == "completed") else "pending",
@@ -509,6 +540,82 @@ class LecturePackAdapter(EngineAdapter):
         self._push_review_data()
         self._push_study_data()
         self._log("[review]", f"opened job {self.current_job.manifest.get('title', job_id)}", "detect")
+
+    def _job_dir_guarded(self, job_id: str) -> str | None:
+        """Return the absolute path of a real job dir directly under jobs/, or
+        None. Rejects unsafe ids and anything resolving outside jobs/."""
+        if not _SAFE_JOB_ID.match(job_id or ""):
+            return None
+        jobs_dir = os.path.join(self.config.data_dir, "jobs")
+        job_dir = os.path.join(jobs_dir, job_id)
+        if not os.path.isdir(job_dir):
+            return None
+        real = os.path.realpath(job_dir)
+        if os.path.dirname(real) != os.path.realpath(jobs_dir):
+            return None
+        return real
+
+    def _dir_size(self, path: str) -> int:
+        total = 0
+        for root, _dirs, files in os.walk(path):
+            for f in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+        return total
+
+    def delete_job(self, job_id: str) -> None:
+        """Delete a job the user chose to remove (confirmed in the UI). Prefers
+        the OS recycle bin (recoverable) and only hard-deletes as a fallback.
+        Never called automatically — only from an explicit UI confirmation."""
+        real = self._job_dir_guarded(job_id)
+        if real is None:
+            self._log("[error]", f"cannot delete: unknown job {job_id}", "error")
+            self._emit("job_deleted", {"ok": False, "id": job_id})
+            return
+        freed = self._dir_size(real)
+        was_current = (self.current_job is not None
+                       and self.current_job.job_id == job_id)
+        try:
+            from send2trash import send2trash
+            send2trash(real)
+            method = "recycle bin"
+        except Exception:
+            shutil.rmtree(real, ignore_errors=False)
+            method = "permanently"
+        if was_current:
+            self.current_job = None
+        self._log("[home]", f"deleted job {job_id} → {method} "
+                  f"({_human_size(freed)} freed)", "engine")
+        self._emit("job_deleted", {"ok": True, "id": job_id,
+                                   "freed": _human_size(freed), "method": method})
+        self._push_jobs()
+        if was_current:
+            self._load_latest_completed_job()
+
+    def set_job_group(self, job_id: str, group: str) -> None:
+        """Set/clear a job's course/subject group (persisted in its manifest)."""
+        real = self._job_dir_guarded(job_id)
+        if real is None:
+            self._log("[error]", f"cannot group: unknown job {job_id}", "error")
+            return
+        manifest_path = os.path.join(real, "manifest.json")
+        man = FileManager.read_json_safe(manifest_path, None)
+        if not isinstance(man, dict):
+            self._log("[error]", f"cannot group: bad manifest {job_id}", "error")
+            return
+        group = (group or "").strip()
+        if group:
+            man["group"] = group
+        else:
+            man.pop("group", None)  # revert to derived default
+        FileManager.write_json_atomic(manifest_path, man)
+        if self.current_job is not None and self.current_job.job_id == job_id:
+            self.current_job.manifest["group"] = group
+        self._log("[home]", f"job {job_id} grouped as "
+                  f"'{group or _derive_group(man.get('title', ''))}'", "engine")
+        self._push_jobs()
 
     # ------------------------------------------------------------------ import
     def browse_video(self, parent):

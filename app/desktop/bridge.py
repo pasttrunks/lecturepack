@@ -44,6 +44,7 @@ class Backend(QObject):
     whatsnew = Signal(str)
     settings_changed = Signal(str)
     ollama_models = Signal(str)
+    job_deleted = Signal(str)
 
     def __init__(self, window):
         super().__init__()
@@ -120,6 +121,14 @@ class Backend(QObject):
     @Slot(str)
     def open_job(self, job_id: str):
         self._adapter.open_job(job_id)
+
+    @Slot(str)
+    def delete_job(self, job_id: str):
+        self._adapter.delete_job(job_id)
+
+    @Slot(str, str)
+    def set_job_group(self, job_id: str, group: str):
+        self._adapter.set_job_group(job_id, group)
 
     @Slot()
     def cancel_job(self):
