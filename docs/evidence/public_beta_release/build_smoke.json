@@ -1,0 +1,24 @@
+{
+  "performed": "2026-07-21",
+  "version": "0.9.0-beta.1",
+  "command": ".venv\\Scripts\\python.exe app/packaging/build.py --no-installer",
+  "toolchain": {
+    "pyinstaller": "6.21.0 (present)",
+    "inno_setup_iscc": "NOT installed on this machine — installer .exe not built here"
+  },
+  "artifacts": {
+    "onedir_exe": "app/dist/LecturePack/LecturePack.exe (15,255,578 bytes)",
+    "onedir_total": "~813 MB",
+    "portable_zip": "app/dist/installer/LecturePack-0.9.0-beta.1-Portable.zip (326,516,942 bytes)",
+    "sha256sums": "app/dist/installer/LecturePack-0.9.0-beta.1-SHA256SUMS.txt",
+    "portable_sha256": "9d1b504eea3c063efbb28be12dc92f6b6e19230841897a8c900931f10a2f9439",
+    "installer_exe": "NOT built (no ISCC); one-command build produces it where ISCC is present, and the release workflow installs ISCC via choco"
+  },
+  "version_stamp_check": "build.py stamped the Windows version resource from 0.9.0-beta.1 without error (numeric 4-tuple derived from leading digits).",
+  "packaged_smoke": {
+    "method": "launched packaged exe with QT_QPA_PLATFORM=offscreen",
+    "result": "PROCESS_BOOTED_AND_SURVIVED_10s",
+    "detail": "QtWebEngine initialized and loaded the UI; only benign headless GPU 'context lost' warnings on stderr (no real GPU under offscreen). No crash on missing bundled resources / _MEIPASS. Process(es) terminated cleanly afterward; none left running.",
+    "not_covered": "Full interactive click-through requires a human driving the native window (not performed; screenshots not fabricated)."
+  }
+}

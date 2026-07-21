@@ -50,7 +50,7 @@ _Prepared 2026-07-21 during the public-beta release-prep pass._
   the `-beta.1` suffix cleanly. Headless offscreen boot smoke passed: the packaged
   exe launched, QtWebEngine initialized and loaded the UI, and it survived 10s with
   only benign headless GPU warnings — no crash on bundled resources / `_MEIPASS`.
-  Evidence: `docs/evidence/public_beta_release/build/build_smoke.json`.
+  Evidence: `docs/evidence/public_beta_release/build_smoke.json`.
 - **Installer (`LecturePack-0.9.0-beta.1-Setup.exe`):** NOT built here — Inno
   Setup (ISCC) is not installed on this machine. The one-command build produces
   it wherever ISCC is present; the release workflow installs ISCC via Chocolatey.

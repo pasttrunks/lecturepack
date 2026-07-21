@@ -3,7 +3,14 @@
   "release_version": "0.9.0-beta.1",
   "branch": "feat/desktop-webengine",
   "starting_head": "94df546",
-  "ending_head": "PENDING_FINALIZE",
+  "ending_head": "tip of feat/desktop-webengine after this pass",
+  "pass_commits": [
+    "bd391b5 chore(release): version 0.9.0-beta.1",
+    "ac50258 feat(study): Smart Study setup + presets + built-in labels",
+    "5d68b39 docs(release): notes/changelog/README + build artifacts",
+    "8ff3f36 docs(release): handoff + status + build/smoke evidence",
+    "+ trailing evidence-path fix commit"
+  ],
   "safety_tag": "safety/start-public-beta-release-94df546",
   "working_tree_clean_except_session_config": true,
   "tests": {
@@ -20,7 +27,7 @@
   ],
   "groq_status": "LIVE-VALIDATED (test_key passed; Online Fast 0.61s + Online Accurate 1.77s on a real 20s clip; key never exposed). Evidence: docs/evidence/public_beta_release/groq/groq_live.json",
   "artifacts": {
-    "pyinstaller_exe_and_portable_and_sha256": "BUILT + headless offscreen boot smoke passed. LecturePack.exe 15.2MB, onedir ~813MB, Portable.zip 326.5MB, SHA256SUMS written. See docs/evidence/public_beta_release/build/build_smoke.json",
+    "pyinstaller_exe_and_portable_and_sha256": "BUILT + headless offscreen boot smoke passed. LecturePack.exe 15.2MB, onedir ~813MB, Portable.zip 326.5MB, SHA256SUMS written. See docs/evidence/public_beta_release/build_smoke.json",
     "portable_sha256": "9d1b504eea3c063efbb28be12dc92f6b6e19230841897a8c900931f10a2f9439",
     "installer_exe": "NOT built here (Inno Setup ISCC not installed); built by one-command build where ISCC present, and by the release workflow (choco innosetup)",
     "dir": "app/dist/installer/"
