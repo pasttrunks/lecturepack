@@ -14,7 +14,8 @@
     "§5 lazy background thumbnail cache (WebP, 192x smaller; list/grid vs full-res preview)",
     "Home job DELETE (user-confirmed → Recycle Bin via send2trash; guarded; reports freed size)",
     "Home job GROUPING by course/subject (manifest group + title-derived default; grouped sections)",
-    "§7 configurable QUIZ system (AI + deterministic fallback; setup + session nav + scoring + persistence)"
+    "§7 configurable QUIZ system (AI + deterministic fallback; setup + session nav + scoring + persistence)",
+    "§8 configurable FLASHCARD system (AI + fallback; flip/known/unsure/shuffle/bookmark session + persistence)"
   ],
   "in_progress": null,
   "blocked": [
@@ -23,16 +24,15 @@
     "Interactive native-window + packaged screenshots & 125/150% DPI (needs a human)"
   ],
   "not_started": [
-    "§8 configurable flashcards (mirror §7: StudyAssistantWorker 'flashcards' + save_flashcards + flip/known/unsure session)",
-    "§9 study assistant tabs (use Settings-selected Ollama model)",
+    "§9 study assistant tabs polish (provider/model/scope selectors, cancel/regenerate, source inspection, copy/export; use Settings-selected Ollama model — Ask uses ollama model already)",
+    "§10 dark-theme secondary palette (deep-blue surfaces + cyan text tokens; icons currentColor; remove inert accent swatches)",
     "§3 Vulkan Benchmark/Validate action + fallback-reason UI (needs GPU)",
     "§4 performance baseline.json profiling (long run)",
-    "§6 Groq secure modes in WebView (needs live key)",
-    "§10 dark-theme secondary palette"
+    "§6 Groq secure modes in WebView (needs live key)"
   ],
-  "next_action": "§8 flashcards mirroring §7 quiz: adapter.generate_flashcards via StudyAssistantWorker('flashcards',count) + study_service.save_flashcards + fallback from key_terms; bridge flashcards_changed/status; app.js flip/known/unsure/shuffle session (reuse quiz session patterns in app.js). Then §9 study tabs, §10 theme.",
-  "last_green_commit": "b760fef",
+  "next_action": "§9 study assistant tabs: add provider/model/scope selectors + cancel/regenerate + source inspection + copy/export to the Study panel (Ask/Quiz/Flashcards/Notes). Then §10 theme. §3/§4/§6 need GPU/key/long profiling.",
+  "last_green_commit": "70897f9",
   "working_tree_clean": true,
-  "full_suite": "green (exit 0) at b760fef; +8 quiz tests (270 total)",
-  "exit_outcome": "B (P0 usability + §5 perf + Home delete/grouping + §7 quizzes complete; §8-10 pending)"
+  "full_suite": "276 passed at 70897f9",
+  "exit_outcome": "B (P0 usability + §5 perf + Home delete/grouping + §7 quizzes + §8 flashcards complete; §9/§10 + GPU/key items pending)"
 }
