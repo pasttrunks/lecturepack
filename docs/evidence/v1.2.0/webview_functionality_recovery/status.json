@@ -11,7 +11,9 @@
     "P1.7 timeline hover popup body-portal + collision-aware placement",
     "open-job from Home grid",
     "Phase 2 packaging: frozen exe now BOOTS (entry wrapper + _MEIPASS ui path)",
-    "§5 lazy background thumbnail cache (WebP, 192x smaller; list/grid vs full-res preview)"
+    "§5 lazy background thumbnail cache (WebP, 192x smaller; list/grid vs full-res preview)",
+    "Home job DELETE (user-confirmed → Recycle Bin via send2trash; guarded; reports freed size)",
+    "Home job GROUPING by course/subject (manifest group + title-derived default; grouped sections)"
   ],
   "in_progress": null,
   "blocked": [
@@ -28,9 +30,9 @@
     "§6 Groq secure modes in WebView (needs live key)",
     "§10 dark-theme secondary palette"
   ],
-  "next_action": "§7 quizzes: adapter.generate_quiz via StudyAssistantWorker('quiz',count) + save_quiz + deterministic fallback; bridge quiz slots/signal; app.js session state machine (prev/next/submit/score); see handoff Quiz plan",
-  "last_green_commit": "655aed6",
+  "next_action": "§7 quizzes: adapter.generate_quiz via StudyAssistantWorker('quiz',count) + persistence (study.json quiz+session) + deterministic fallback; bridge quiz_changed/quiz_status + generate_quiz/cancel_quiz; app.js session state machine (prev/next/submit/score/finish/retry/restart). Quiz schema: {question,options[],correct_index,explanation}. See handoff §7 Quiz plan",
+  "last_green_commit": "a1ff43d",
   "working_tree_clean": true,
-  "full_suite": "250 passed at 655aed6",
-  "exit_outcome": "B (P0 usability + §5 perf complete; Study tools pending, fully scoped)"
+  "full_suite": "262 passed at a1ff43d",
+  "exit_outcome": "B (P0 usability + §5 perf + Home delete/grouping complete; Study tools pending, fully scoped)"
 }

@@ -4,8 +4,8 @@
 - Path: `C:\Users\marsh\Documents\LecturePack`
 - Branch: `feat/desktop-webengine`
 - Original starting commit: `d7f4b80` (session 1) → this session started at `b35e743` (= e504551 + docs)
-- Ending commit: `655aed6` (+ docs commit)
-- Last fully green commit: `655aed6` (full suite 250 passed)
+- Ending commit: `a1ff43d` (+ docs commit)
+- Last fully green commit: `a1ff43d` (full suite 262 passed)
 - Safety tags: `safety/start-webview-functionality-recovery` (= d7f4b80),
   `safety/start-post-e504551-continuation` (= e504551),
   `safety/start-post-6d847d0-continuation` (= 6d847d0)
@@ -29,6 +29,9 @@ boots (`PACKAGED_SMOKE_OK`).
 | P0.5 | Inappropriate bundled demo content | **VERIFIED CLEAN + guarded** | `tests/test_content_hygiene.py` (2) |
 | P1.7 | Timeline hover popup clipped | **FIXED** | `docs/evidence/.../timeline_hover_result.txt` (HOVER_OK) |
 | Ph2 | Packaged exe was dead on arrival | **FIXED (boots)** | `docs/evidence/.../packaged/` PACKAGED_SMOKE_OK; `tests/test_webview_packaging.py` (4) |
+| §5 | Full-res PNGs decoded for tiny thumbs | **FIXED** | `thumbnail_cache/` WebP 192× smaller; non-blocking bg gen; `test_webview_assets.py` |
+| user | Delete jobs (free space) | **DONE** | Recycle Bin (send2trash) + confirm modal; `test_webview_jobs.py` (delete tests) |
+| user | Group lectures by course/subject | **DONE** | manifest `group` + derived default; grouped Home; `test_webview_jobs.py` |
 
 Details for each in `docs/WORKLOG_WEBVIEW_RECOVERY.md`.
 
@@ -37,6 +40,7 @@ Details for each in `docs/WORKLOG_WEBVIEW_RECOVERY.md`.
 - `6d847d0` fix(packaging): frozen WebEngine app boots (entry wrapper + _MEIPASS ui path)
 - `2bba754` fix(review): fit full-resolution slides to preview canvas (+ zoom/pan)
 - `655aed6` perf(review): lazy background thumbnail cache (WebP, 192× smaller)
+- `a1ff43d` feat(home): delete jobs to Recycle Bin + group lectures by course (user-requested)
 
 ## Untracked / dirty
 - `tests/scratch/live_slide_acceptance.py`, `tests/scratch/smoke_packaged_launch.py`
@@ -113,6 +117,15 @@ Steps:
    (no Ollama), save/load round-trip, session scoring/navigation logic. AI path via
    the existing worker tests / mock.
 Then §8 flashcards mirror this (StudyAssistantWorker "flashcards", save_flashcards).
+
+Design note (deterministic fallback): a *good* no-AI quiz is hard (no semantics
+from key terms alone). Recommended: when AI is unavailable, generate honest
+"recall" questions from `build_overview` key_terms/sections and LABEL the quiz
+"Built-in (no AI)" in the provider indicator, rather than pretending it's
+LLM-quality. Persist quiz + live session under `study.json` via
+`load_study_data`/`save_study_data` (it preserves unknown keys, so a
+`quiz`={questions,meta,session} shape works without changing the service).
+Quiz item schema (from QUIZ_SCHEMA): `{question, options[], correct_index, explanation}`.
 
 ## Exact next steps
 - Next graph query: `quiz generate -> Study bridge -> enrichment service -> UI state` (contract above).
