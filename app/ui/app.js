@@ -1141,6 +1141,30 @@
       if (lpBridge.connected()) lpBridge.call('validate_vulkan');
     });
 
+    // Transcription backend selector (Private Local / Online Fast|Accurate).
+    function reflectBackend(bk) {
+      Array.prototype.forEach.call(document.querySelectorAll('#tbk-seg [data-tbk]'), function (b) {
+        var on = b.dataset.tbk === bk;
+        b.style.background = on ? 'var(--secondary-surface)' : 'var(--panel)';
+        b.style.color = on ? 'var(--secondary-text)' : 'var(--ink)';
+        b.style.borderColor = on ? 'var(--secondary-border)' : 'var(--line)';
+      });
+    }
+    $('tbk-seg').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-tbk]'); if (!b) return;
+      reflectBackend(b.dataset.tbk);
+      lpBridge.call('set_setting', 'transcription_backend', b.dataset.tbk);
+    });
+    // Groq key management (user types their own key; stored in Credential Manager).
+    $('btn-groq-set').addEventListener('click', function () {
+      var v = ($('groq-key-input').value || '').trim();
+      if (!v) { toast('Enter an API key first'); return; }
+      if (lpBridge.connected()) lpBridge.call('set_groq_key', v);
+      $('groq-key-input').value = '';
+    });
+    $('btn-groq-test').addEventListener('click', function () { if (lpBridge.connected()) lpBridge.call('test_groq_key'); });
+    $('btn-groq-remove').addEventListener('click', function () { if (lpBridge.connected()) lpBridge.call('remove_groq_key'); });
+
     // Local AI endpoint — editable, committed on blur / Enter.
     var epEl = $('ai-endpoint-url');
     epEl.addEventListener('blur', function () {
@@ -1495,6 +1519,11 @@
     lpBridge.on('ai_done', function () {
       LP.state.streaming = false; renderChat();
     });
+    lpBridge.on('groq_status', function (json) {
+      var d = JSON.parse(json), el = $('groq-status');
+      if (el) { el.textContent = d.message || ''; el.style.color = d.has_key ? 'var(--secondary-text)' : 'var(--muted)'; }
+      if (d.backend && typeof reflectBackend === 'function') reflectBackend(d.backend);
+    });
     lpBridge.on('vulkan_status', function (json) {
       var d = JSON.parse(json), el = $('vulkan-status');
       if (!el) return;
@@ -1544,6 +1573,7 @@
         if (ep && document.activeElement !== ep) ep.value = s.endpoint;
       }
       if (s.engine) reflectEngine(s.engine);
+      if (s.transcription_backend && typeof reflectBackend === 'function') reflectBackend(s.transcription_backend);
       if (s.ollama_model) {
         $('ai-model-name').textContent = s.ollama_model;
         var msel = $('ai-model-select');

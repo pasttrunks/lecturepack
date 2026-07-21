@@ -8,6 +8,27 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## §6 — Groq online transcription in the WebView (integrated; live = Outcome C)
+
+The Groq backend already existed + passes contract tests (test_groq_transcription
+12): WindowsCredentialStore, _GroqWorker (audio-only chunked upload, privacy
+consent, retries/Retry-After, 429/quota, cancel, local fallback), Online
+Fast/Accurate backends. Exposed it in the WebView.
+
+Added Settings "Transcription" card: mode selector (Private Local / Online Fast /
+Online Accurate → persists `transcription_backend`, applied at start_processing)
++ Set/Test/Remove Groq key + status. Adapter: set/remove/test_groq_key (reusing
+WindowsCredentialStore + GroqHttpClient), `_emit_groq_status`,
+on_setting_changed('transcription_backend'), on_ui_ready status. Bridge:
+`groq_status` signal + 3 slots. Key stored only in OS Credential Manager.
+
+**Files:** `engine_adapter.py`, `bridge.py`, `bridge.js`, `index.html`, `app.js`.
+Tests: `tests/test_webview_groq.py` (6, store+client monkeypatched — no CM writes,
+no network). **Live validation blocked (no key) → Outcome C**; exact steps in
+`docs/evidence/.../groq/`.
+
+---
+
 ## §4 — Performance profiling (instrumentation DONE; cold baseline pending real run)
 
 Added per-stage timing instrumentation to the adapter: `_on_stage_started/finished/

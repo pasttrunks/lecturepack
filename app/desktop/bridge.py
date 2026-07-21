@@ -50,6 +50,7 @@ class Backend(QObject):
     flashcards_changed = Signal(str)
     flashcards_status = Signal(str)
     vulkan_status = Signal(str)
+    groq_status = Signal(str)
 
     def __init__(self, window):
         super().__init__()
@@ -101,6 +102,18 @@ class Backend(QObject):
     @Slot()
     def validate_vulkan(self):
         self._adapter.validate_vulkan()
+
+    @Slot(str)
+    def set_groq_key(self, key: str):
+        self._adapter.set_groq_key(key)
+
+    @Slot()
+    def remove_groq_key(self):
+        self._adapter.remove_groq_key()
+
+    @Slot()
+    def test_groq_key(self):
+        self._adapter.test_groq_key()
 
     @Slot()
     def list_ollama_models(self):

@@ -121,6 +121,15 @@ class EngineAdapter(QObject):
     def validate_vulkan(self) -> None:
         """Report compute-backend availability/selection; emit vulkan_status."""
 
+    def set_groq_key(self, key: str) -> None:
+        """Store the Groq API key in the OS credential manager; emit groq_status."""
+
+    def remove_groq_key(self) -> None:
+        """Remove the stored Groq API key; emit groq_status."""
+
+    def test_groq_key(self) -> None:
+        """Verify the stored Groq key against the provider; emit groq_status."""
+
     def generate_quiz(self, opts) -> None:
         """Generate a quiz (AI or deterministic fallback); emit quiz_changed/quiz_status."""
 
@@ -644,6 +653,7 @@ class LecturePackAdapter(EngineAdapter):
         self._push_jobs()
         self._probe_ollama_async()
         self.validate_vulkan()
+        self._emit_groq_status()
         # Show the most recent completed job's data so Review/Transcript/Study
         # aren't empty on launch.
         self._load_latest_completed_job()
@@ -657,6 +667,7 @@ class LecturePackAdapter(EngineAdapter):
             "endpoint": o.get("base_url") or "http://localhost:11434",
             "engine": self.config.get("engine", "auto"),
             "ollama_model": o.get("model", ""),
+            "transcription_backend": self.config.get("transcription_backend", "local-whispercpp"),
             "export_dir": self.config.data_dir,
         }
 
@@ -686,6 +697,11 @@ class LecturePackAdapter(EngineAdapter):
             o["model"] = value
             self.config.set("ollama", o)
             self._log("[ai]", f"study/repair model set to {value}", "ai")
+        elif key == "transcription_backend":
+            val = value if value in ("local-whispercpp", "groq-fast", "groq-accurate") \
+                else "local-whispercpp"
+            self.config.set("transcription_backend", val)
+            self._log("[engine]", f"transcription backend set to {val}", "engine")
         # Re-emit so the UI reflects the persisted value.
         self._emit("settings_changed", self._settings_payload())
 
@@ -858,6 +874,9 @@ class LecturePackAdapter(EngineAdapter):
         # selection in Settings actually reaches the transcription backend.
         job.settings.setdefault("whisper", {})["engine"] = \
             self.config.get("engine", "auto")
+        # Apply the transcription backend (Private Local / Online Fast|Accurate).
+        job.settings.setdefault("whisper", {})["transcription_backend"] = \
+            self.config.get("transcription_backend", "local-whispercpp")
         job.save()
         self.current_job = job
 
@@ -1589,6 +1608,55 @@ class LecturePackAdapter(EngineAdapter):
         except Exception as exc:  # pragma: no cover - defensive
             self._emit("vulkan_status", {"state": "error",
                        "message": f"Vulkan check failed: {exc}"})
+
+    # -- Groq online transcription (reuses the existing backend + secret store) --
+    def _groq_store(self):
+        from lecturepack.infrastructure.secret_store import WindowsCredentialStore
+        return WindowsCredentialStore()
+
+    def _emit_groq_status(self, message="", testing=False):
+        has = False
+        try:
+            has = self._groq_store().has_secret()
+        except Exception:
+            has = False
+        self._emit("groq_status", {
+            "has_key": bool(has), "testing": bool(testing),
+            "backend": self.config.get("transcription_backend", "local-whispercpp"),
+            "message": message or ("API key stored." if has else "No API key stored.")})
+
+    def set_groq_key(self, key):
+        try:
+            self._groq_store().set(key)
+            self._emit_groq_status("API key saved to Windows Credential Manager.")
+        except Exception as exc:
+            self._emit_groq_status(f"Could not save key: {exc}")
+
+    def remove_groq_key(self):
+        try:
+            self._groq_store().remove()
+            self._emit_groq_status("API key removed.")
+        except Exception as exc:
+            self._emit_groq_status(f"Could not remove key: {exc}")
+
+    def test_groq_key(self):
+        self._emit_groq_status("Testing Groq credentials…", testing=True)
+
+        def work():
+            try:
+                from lecturepack.services.groq_transcription import GroqHttpClient
+                key = self._groq_store().get()
+                if not key:
+                    self._emit_groq_status("No API key stored — set one first.")
+                    return
+                ok = GroqHttpClient().test_key(key)
+                self._emit_groq_status(
+                    "Groq credential test passed — account limits and billing still apply."
+                    if ok else "Groq credential test failed — check the key.")
+            except Exception as exc:
+                self._emit_groq_status(f"Groq test failed: {exc}")
+
+        threading.Thread(target=work, daemon=True).start()
 
     def list_ollama_models(self):
         """Fetch installed Ollama models (/api/tags) and emit them for the
