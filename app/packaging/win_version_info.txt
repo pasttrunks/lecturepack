@@ -5,8 +5,8 @@
 # calling PyInstaller, so the four-part tuples below are placeholders.
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 0, 0),
-    prodvers=(1, 0, 0, 0),
+    filevers=(0, 9, 0, 0),
+    prodvers=(0, 9, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -22,12 +22,12 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'LecturePack'),
             StringStruct('FileDescription', 'LecturePack — lecture transcription & study'),
-            StringStruct('FileVersion', '1.0.0'),
+            StringStruct('FileVersion', '0.9.0-beta.1'),
             StringStruct('InternalName', 'LecturePack'),
             StringStruct('LegalCopyright', 'LecturePack'),
             StringStruct('OriginalFilename', 'LecturePack.exe'),
             StringStruct('ProductName', 'LecturePack'),
-            StringStruct('ProductVersion', '1.0.0')
+            StringStruct('ProductVersion', '0.9.0-beta.1')
           ]
         )
       ]

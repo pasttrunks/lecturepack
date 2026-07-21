@@ -37,7 +37,10 @@ def read_version() -> str:
 
 
 def stamp_version_info(version: str) -> None:
-    parts = (version.split(".") + ["0", "0", "0"])[:3]
+    # The Windows version resource needs a numeric 4-tuple, so extract only the
+    # leading numeric components (e.g. "0.9.0-beta.1" -> 0, 9, 0).
+    nums = re.findall(r"\d+", version)
+    parts = (nums + ["0", "0", "0"])[:3]
     tup = f"({parts[0]}, {parts[1]}, {parts[2]}, 0)"
     path = PKG_DIR / "win_version_info.txt"
     text = path.read_text(encoding="utf-8")

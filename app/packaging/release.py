@@ -36,7 +36,7 @@ APP_DIR = REPO / "app"
 VERSION_PY = APP_DIR / "desktop" / "version.py"
 CHANGELOG = REPO / "CHANGELOG.md"
 
-SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
+SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 
 
 def set_version(version: str) -> None:
@@ -75,7 +75,7 @@ def main() -> None:
     args = ap.parse_args()
 
     if not SEMVER.match(args.version):
-        sys.exit("version must be MAJOR.MINOR.PATCH, e.g. 1.1.0")
+        sys.exit("version must be MAJOR.MINOR.PATCH[-prerelease], e.g. 1.1.0 or 0.9.0-beta.1")
 
     notes = list(args.note)
     if args.notes_file:
