@@ -3,19 +3,24 @@
 ## Repository / branch
 - Path: `C:\Users\marsh\Documents\LecturePack`
 - Branch: `feat/desktop-webengine`
-- Original starting commit: `d7f4b80` (session 1) → this session started at `b35e743` (= e504551 + docs)
-- Ending commit: `7b6b0c0` (+ docs)
-- Last fully green commit: `7b6b0c0` (full suite 276, exit 0)
+- Original starting commit: `d7f4b80` (session 1)
+- Ending commit: `08f649f` (+ docs)
+- Last fully green commit: `08f649f` (full suite **291 passed**, exit 0)
 - Safety tags: `safety/start-webview-functionality-recovery` (= d7f4b80),
   `safety/start-post-e504551-continuation` (= e504551),
   `safety/start-post-6d847d0-continuation` (= 6d847d0)
 - Working tree: clean.
 
 ## Exit outcome
-**Outcome B — P0 usability complete (incl. preview readability), validated live
-(source) and packaged app boots; Study tools + speed still pending.** All
-committed work is green: full suite **245 passed at `2bba754`**; packaged exe
-boots (`PACKAGED_SMOKE_OK`).
+**All V3 phases (P0/P1 + §3–§10) IMPLEMENTED + tested; full suite 291 passed;
+packaged exe boots.** Three items remain **live-validation-blocked (Outcome C)**,
+with architecture + tests complete and exact steps documented:
+- §3 live CPU-vs-Vulkan wall-time benchmark (user-runnable; Vulkan confirmed working)
+- §4 cold `baseline.json` (needs a real unprocessed 60–75 min lecture run; the
+  instrumentation writes it automatically)
+- §6 live Groq Online Fast/Accurate (needs a real Groq API key)
+Interactive native-window/packaged click-through still benefits from a human pass
+(everything so far is headless/offscreen-validated).
 
 ## Completed (with evidence)
 | # | Item | Status | Evidence |
@@ -40,7 +45,15 @@ Details for each in `docs/WORKLOG_WEBVIEW_RECOVERY.md`.
 - `6d847d0` fix(packaging): frozen WebEngine app boots (entry wrapper + _MEIPASS ui path)
 - `2bba754` fix(review): fit full-resolution slides to preview canvas (+ zoom/pan)
 - `655aed6` perf(review): lazy background thumbnail cache (WebP, 192× smaller)
-- `a1ff43d` feat(home): delete jobs to Recycle Bin + group lectures by course (user-requested)
+- `a1ff43d` feat(home): delete jobs to Recycle Bin + group lectures by course
+- `b760fef` feat(study): configurable quiz sessions (§7)
+- `70897f9` feat(study): configurable flashcard sessions (§8)
+- `1b2ece7` feat(study): Ask/Notes tabs, model indicator, copy/export (§9)
+- `7b6b0c0` feat(study): progress bar + ETA, grounded quizzes, remove key-terms
+- `e1894b9` fix(theme): deep-blue secondary surfaces + cyan text (§10)
+- `40d759c`+`b5832ba` fix(backends): Vulkan validate action + honest status (§3)
+- `daf7281` feat(perf): per-stage timing instrumentation → performance.json (§4)
+- `08f649f` feat(transcription): expose secure Groq online modes in WebView (§6)
 
 ## Untracked / dirty
 - `tests/scratch/live_slide_acceptance.py`, `tests/scratch/smoke_packaged_launch.py`
@@ -64,28 +77,20 @@ Details for each in `docs/WORKLOG_WEBVIEW_RECOVERY.md`.
 - Packaged smoke: `python docs/evidence/.../packaged/smoke_packaged_launch.py` → **PACKAGED_SMOKE_OK**.
 - Headless WebEngine smokes: asset scheme `ASSET_OK`, timeline hover `HOVER_OK`.
 
-## Not done / incomplete (next work, in priority order)
-1. **P0.3 Vulkan LIVE** (Phase 3) — needs GPU + `whisper_vulkan_exe` set. Run a
-   short video with `engine=vulkan`; capture command/output; add a visible
-   Benchmark/Validate action + fallback reason. → Outcome C until hardware-validated.
-2. **P0.2 / online transcription + speed** (Phase 4) — NOT started. Profile a
-   60–75 min lecture first → `docs/evidence/.../performance/baseline.json`. Prior
-   Groq work exists (`docs/HANDOFF_PHASE_V1_2_GROQ*.md`,
-   `tests/test_groq_transcription.py`, `lecturepack` groq backend + `WindowsCredentialStore`)
-   — reuse it; expose Private Local / Online Fast / Online Accurate; needs a live key → C.
-   NOTE surfaced by Phase 1: the m2 job stores 1920×1080 ~2.5 MB PNGs; generating
-   small thumbnails off the critical path is a concrete P2 win (167×2.5 MB decoded
-   for 60×38 thumbnails is heavy).
-3. **P1.1–1.3 Quizzes** (Phase 5) — still fixed 3 Qs, no count/difficulty/scope,
-   no next/prev, correct answer doesn't advance. Needs setup controls + session
-   state persisted separately from the raw transcript + navigation + fallback + tests.
-4. **P1 Flashcards** (Phase 6) — configurable count/scope/style + flip/known/unsure + persistence.
-5. **P1 Study assistant tabs** (Phase 7) — Ask/Quiz/Flashcards/Notes; use the
-   Settings-selected Ollama model.
-6. **P3 dark-mode secondary palette** (Phase 8) — deep-blue surfaces + cyan text
-   tokens; icons to `currentColor`; remove inert accent swatches.
-7. **Interactive packaged acceptance** — open the (now-booting) exe and click
-   through thumbnails/Settings/Ollama/hover. Needs a human.
+## Remaining (live-validation only — implementation complete)
+All feature phases are implemented, tested, and committed. What's left needs
+resources this environment lacks; each has complete code + tests + documented steps:
+1. **§3 Vulkan live benchmark** — `validate_vulkan` reports honest status and
+   Vulkan is confirmed working here; a fresh CPU-vs-Vulkan wall-time run writes a
+   job (user-initiated). `docs/evidence/.../vulkan/`.
+2. **§4 cold `baseline.json`** — instrumentation writes `<job>/performance.json`
+   on every completed run; process a real unprocessed 60–75 min lecture to capture
+   cold timings. `docs/evidence/.../performance/`.
+3. **§6 live Groq** — WebView key mgmt + mode selector wired to the (contract-
+   tested) backend; needs a real `gsk_…` key to run Online Fast/Accurate.
+   `docs/evidence/.../groq/`.
+4. **Interactive native/packaged click-through** — headless/offscreen-validated;
+   a human pass on the real window / packaged exe is the final acceptance.
 
 ## §7 Quiz plan — READY TO EXECUTE (contract already learned this session)
 Existing infra to reuse (do NOT reinvent):

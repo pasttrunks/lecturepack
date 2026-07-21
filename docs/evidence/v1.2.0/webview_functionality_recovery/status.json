@@ -1,38 +1,35 @@
 {
   "phase": "webview_functionality_recovery",
   "completed": [
-    "P0.1 slide thumbnails + full preview (central lpasset asset resolver)",
-    "P0.1 LIVE acceptance: 16/16 on 3 real jobs via real-backend headless harness",
-    "P0 slide preview READABILITY: fill-canvas fit + zoom/pan controls (55%->92% width)",
-    "P0.4 Settings controls wired to engine config (on_setting_changed bridge)",
-    "P0.3 Vulkan selection wiring + actual-backend reporting (live GPU run unverified)",
-    "P1.4 Ollama model discovery and selection",
-    "P0.5 content hygiene verified clean + guard test",
-    "P1.7 timeline hover popup body-portal + collision-aware placement",
-    "open-job from Home grid",
-    "Phase 2 packaging: frozen exe now BOOTS (entry wrapper + _MEIPASS ui path)",
-    "§5 lazy background thumbnail cache (WebP, 192x smaller; list/grid vs full-res preview)",
-    "Home job DELETE (user-confirmed → Recycle Bin via send2trash; guarded; reports freed size)",
-    "Home job GROUPING by course/subject (manifest group + title-derived default; grouped sections)",
-    "§7 configurable QUIZ system (AI + deterministic fallback; setup + session nav + scoring + persistence)",
-    "§8 configurable FLASHCARD system (AI + fallback; flip/known/unsure/shuffle/bookmark session + persistence)"
+    "P0.1 slide thumbnails + full preview (lpasset resolver) + LIVE acceptance 16/16",
+    "P0 slide preview readability (fill-canvas fit + zoom/pan)",
+    "P0.3/P1.4 Settings wired to engine config; Ollama model discovery",
+    "P0.5 content hygiene guard",
+    "P1.7 timeline hover collision-aware placement",
+    "open-job from Home; Phase 2 packaging (frozen exe boots)",
+    "user: Home job DELETE (Recycle Bin) + course/subject GROUPING",
+    "§3 Vulkan validate action + honest backend status (Vulkan confirmed working here)",
+    "§4 per-stage timing instrumentation -> performance.json",
+    "§5 lazy background thumbnail cache (WebP, 192x smaller)",
+    "§6 Groq online modes in WebView (key mgmt + mode selector; backend reused)",
+    "§7 configurable quiz system (grounded cloze fallback + AI + session)",
+    "§8 configurable flashcard system",
+    "§9 study tabs (Ask/Quiz/Flashcards/Notes, model indicator, copy/export)",
+    "§10 dark-theme secondary palette + accent-swatch removal",
+    "study polish: generation progress bar + ETA; better quiz prompts; key-terms panel removed"
   ],
   "in_progress": null,
-  "blocked": [
-    "P0.3 Vulkan LIVE activation (needs GPU + whisper_vulkan_exe)",
-    "Groq online transcription live validation (needs live Groq key)",
-    "Interactive native-window + packaged screenshots & 125/150% DPI (needs a human)"
+  "blocked_live_validation_outcome_C": [
+    "§3 live CPU-vs-Vulkan wall-time benchmark — user-runnable (writes a job); Vulkan works, not fabricated",
+    "§4 cold baseline.json — needs processing a real unprocessed 60-75min A/V lecture (instrumentation writes it automatically)",
+    "§6 live Groq Online Fast/Accurate — needs a real Groq API key; backend + contract tests pass, UI wired"
   ],
-  "not_started": [
-    "§9 study assistant tabs polish (provider/model/scope selectors, cancel/regenerate, source inspection, copy/export; use Settings-selected Ollama model — Ask uses ollama model already)",
-    "§10 dark-theme secondary palette (deep-blue surfaces + cyan text tokens; icons currentColor; remove inert accent swatches)",
-    "§3 Vulkan Benchmark/Validate action + fallback-reason UI (needs GPU)",
-    "§4 performance baseline.json profiling (long run)",
-    "§6 Groq secure modes in WebView (needs live key)"
+  "needs_human": [
+    "Interactive native-window + packaged click-through of thumbnails/settings/quiz/flashcards/theme (headless/offscreen-validated so far)"
   ],
-  "next_action": "§9 study assistant tabs: add provider/model/scope selectors + cancel/regenerate + source inspection + copy/export to the Study panel (Ask/Quiz/Flashcards/Notes). Then §10 theme. §3/§4/§6 need GPU/key/long profiling.",
-  "last_green_commit": "7b6b0c0",
+  "next_action": "All V3 phases implemented + tested. Remaining items are live validations blocked by GPU-benchmark time / no Groq key / a real long lecture — all documented with exact steps in their evidence READMEs.",
+  "last_green_commit": "08f649f",
   "working_tree_clean": true,
-  "full_suite": "276 passed (green, exit 0) at 7b6b0c0",
-  "exit_outcome": "B (P0 usability + §5 perf + Home delete/grouping + §7 quizzes + §8 flashcards complete; §9/§10 + GPU/key items pending)"
+  "full_suite": "291 passed at 08f649f",
+  "exit_outcome": "A for implementation of all P0/P1 + §3-§10; C for the three live validations that need GPU-benchmark/Groq-key/long-lecture (architecture + tests complete, honestly documented)"
 }
