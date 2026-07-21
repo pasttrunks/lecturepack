@@ -13,7 +13,8 @@
     "Phase 2 packaging: frozen exe now BOOTS (entry wrapper + _MEIPASS ui path)",
     "§5 lazy background thumbnail cache (WebP, 192x smaller; list/grid vs full-res preview)",
     "Home job DELETE (user-confirmed → Recycle Bin via send2trash; guarded; reports freed size)",
-    "Home job GROUPING by course/subject (manifest group + title-derived default; grouped sections)"
+    "Home job GROUPING by course/subject (manifest group + title-derived default; grouped sections)",
+    "§7 configurable QUIZ system (AI + deterministic fallback; setup + session nav + scoring + persistence)"
   ],
   "in_progress": null,
   "blocked": [
@@ -22,17 +23,16 @@
     "Interactive native-window + packaged screenshots & 125/150% DPI (needs a human)"
   ],
   "not_started": [
-    "§7 configurable quizzes (contract learned; ready to execute — see handoff)",
-    "§8 configurable flashcards",
+    "§8 configurable flashcards (mirror §7: StudyAssistantWorker 'flashcards' + save_flashcards + flip/known/unsure session)",
     "§9 study assistant tabs (use Settings-selected Ollama model)",
     "§3 Vulkan Benchmark/Validate action + fallback-reason UI (needs GPU)",
     "§4 performance baseline.json profiling (long run)",
     "§6 Groq secure modes in WebView (needs live key)",
     "§10 dark-theme secondary palette"
   ],
-  "next_action": "§7 quizzes: adapter.generate_quiz via StudyAssistantWorker('quiz',count) + persistence (study.json quiz+session) + deterministic fallback; bridge quiz_changed/quiz_status + generate_quiz/cancel_quiz; app.js session state machine (prev/next/submit/score/finish/retry/restart). Quiz schema: {question,options[],correct_index,explanation}. See handoff §7 Quiz plan",
-  "last_green_commit": "a1ff43d",
+  "next_action": "§8 flashcards mirroring §7 quiz: adapter.generate_flashcards via StudyAssistantWorker('flashcards',count) + study_service.save_flashcards + fallback from key_terms; bridge flashcards_changed/status; app.js flip/known/unsure/shuffle session (reuse quiz session patterns in app.js). Then §9 study tabs, §10 theme.",
+  "last_green_commit": "b760fef",
   "working_tree_clean": true,
-  "full_suite": "262 passed at a1ff43d",
-  "exit_outcome": "B (P0 usability + §5 perf + Home delete/grouping complete; Study tools pending, fully scoped)"
+  "full_suite": "green (exit 0) at b760fef; +8 quiz tests (270 total)",
+  "exit_outcome": "B (P0 usability + §5 perf + Home delete/grouping + §7 quizzes complete; §8-10 pending)"
 }
