@@ -132,7 +132,7 @@
             <div style="font:500 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:11px">Slide sensitivity</div>
             <div id="proc-sensitivity" style="display:flex;gap:6px">
               <span data-sens="low" style="flex:1;text-align:center;font:500 11px 'JetBrains Mono';padding:7px 0;border:1.5px solid var(--line);border-radius:7px;color:var(--muted);cursor:pointer">Low</span>
-              <span data-sens="balanced" style="flex:1;text-align:center;font:700 11px 'JetBrains Mono';padding:7px 0;border:1.5px solid var(--blue);border-radius:7px;background:var(--blue);color:#fff;cursor:pointer">Balanced</span>
+              <span data-sens="balanced" style="flex:1;text-align:center;font:700 11px 'JetBrains Mono';padding:7px 0;border:1.5px solid var(--secondary-border);border-radius:7px;background:var(--secondary-surface);color:var(--secondary-text);cursor:pointer">Balanced</span>
               <span data-sens="high" style="flex:1;text-align:center;font:500 11px 'JetBrains Mono';padding:7px 0;border:1.5px solid var(--line);border-radius:7px;color:var(--muted);cursor:pointer">High</span>
             </div>
           </div>
@@ -183,7 +183,7 @@
         <div style="flex:1;display:flex;gap:14px;min-height:0">
           <!-- slide list -->
           <div style="width:250px;flex:none;display:flex;flex-direction:column;min-height:0">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span style="font-weight:700;font-size:14px">Slides <span id="slides-sel" style="color:var(--blue-ink);font:500 12px 'JetBrains Mono'">· 2 sel</span></span><div style="display:flex;border:2px solid var(--border);border-radius:8px;overflow:hidden"><span style="font:500 11px 'JetBrains Mono';padding:5px 9px;background:var(--blue);color:#fff">Grid</span><span style="font:500 11px 'JetBrains Mono';padding:5px 9px;color:var(--muted)">List</span></div></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span style="font-weight:700;font-size:14px">Slides <span id="slides-sel" style="color:var(--blue-ink);font:500 12px 'JetBrains Mono'">· 2 sel</span></span><div style="display:flex;border:2px solid var(--border);border-radius:8px;overflow:hidden"><span style="font:500 11px 'JetBrains Mono';padding:5px 9px;background:var(--secondary-surface);color:var(--secondary-text)">Grid</span><span style="font:500 11px 'JetBrains Mono';padding:5px 9px;color:var(--muted)">List</span></div></div>
             <div id="slide-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:9px;padding-right:4px"></div>
             <div style="display:flex;gap:7px;margin-top:11px">
               <button id="btn-keep" class="lp-hit" style="flex:1;font:700 13px 'Space Grotesk';background:var(--green);color:#fff;border:1.5px solid var(--green);border-radius:9px;padding:9px 0;cursor:pointer;box-shadow:var(--shadow-soft)">Keep</button>
@@ -222,7 +222,7 @@
           <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px">
             <div><div style="font:500 11px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--blue);margin-bottom:5px">Transcript · normalized</div><h1 id="transcript-title" style="font-size:27px;font-weight:700;letter-spacing:-.02em;margin:0">The Great Pyramid of Giza</h1></div>
             <div style="display:flex;gap:6px">
-              <span style="font:600 11px 'JetBrains Mono';padding:7px 11px;border:1.5px solid var(--blue);border-radius:8px;background:var(--blue);color:#fff">TXT</span>
+              <span style="font:600 11px 'JetBrains Mono';padding:7px 11px;border:1.5px solid var(--secondary-border);border-radius:8px;background:var(--secondary-surface);color:var(--secondary-text)">TXT</span>
               <span style="font:500 11px 'JetBrains Mono';padding:7px 11px;border:1.5px solid var(--line);border-radius:8px;color:var(--muted)">SRT</span>
               <span style="font:500 11px 'JetBrains Mono';padding:7px 11px;border:1.5px solid var(--line);border-radius:8px;color:var(--muted)">MD</span>
               <button id="btn-copy-transcript" class="lp-hit" style="display:flex;align-items:center;gap:6px;font:600 11px 'JetBrains Mono';padding:7px 12px;border:2px solid var(--border);border-radius:8px;background:var(--panel);cursor:pointer;color:var(--ink)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>Copy</button>
@@ -327,7 +327,7 @@
           </div>
           <div class="lp-card" style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px;display:flex;gap:15px;align-items:flex-start">
             <div style="width:46px;height:46px;flex:none;background:var(--blue-soft);border-radius:11px;display:flex;align-items:center;justify-content:center"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="var(--blue-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M4 9h16M8 5v14"/></svg></div>
-            <div style="flex:1"><div style="font-weight:700;font-size:16px;margin-bottom:3px">HTML study pack</div><div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px">Interactive slides + synced transcript in one file.</div><button id="btn-export-html" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--blue);color:#fff;border:1.5px solid var(--blue-strong);border-radius:8px;padding:8px 16px;cursor:pointer;box-shadow:var(--shadow-soft)">Export HTML</button></div>
+            <div style="flex:1"><div style="font-weight:700;font-size:16px;margin-bottom:3px">HTML study pack</div><div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px">Interactive slides + synced transcript in one file.</div><button id="btn-export-html" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--secondary-surface);color:var(--secondary-text);border:1.5px solid var(--secondary-border);border-radius:8px;padding:8px 16px;cursor:pointer;box-shadow:var(--shadow-soft)">Export HTML</button></div>
           </div>
         </div>
         <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px;margin-bottom:26px">
@@ -371,7 +371,7 @@
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
             <div style="font-weight:700;font-size:16px;margin-bottom:13px">Compute engine</div>
-            <div style="display:flex;gap:10px"><span id="compute-cpu" style="flex:1;text-align:center;font:700 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid var(--blue);border-radius:9px;background:var(--blue);color:#fff">CPU · AVX2</span><span id="compute-gpu" class="lp-hit" style="flex:1;text-align:center;font:500 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid var(--line);border-radius:9px;color:var(--muted);cursor:pointer">Vulkan GPU</span></div>
+            <div style="display:flex;gap:10px"><span id="compute-cpu" style="flex:1;text-align:center;font:700 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid var(--secondary-border);border-radius:9px;background:var(--secondary-surface);color:var(--secondary-text)">CPU · AVX2</span><span id="compute-gpu" class="lp-hit" style="flex:1;text-align:center;font:500 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid var(--line);border-radius:9px;color:var(--muted);cursor:pointer">Vulkan GPU</span></div>
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:13px"><div style="font-weight:700;font-size:16px">Local AI endpoint</div><span id="ai-endpoint-status" style="display:flex;align-items:center;gap:5px;font:600 10px 'JetBrains Mono';text-transform:uppercase;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>Connected</span></div>
@@ -381,12 +381,10 @@
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
             <div style="font-weight:700;font-size:16px;margin-bottom:13px">Appearance</div>
-            <div style="display:flex;gap:10px;margin-bottom:16px">
+            <div style="display:flex;gap:10px">
               <button id="btn-set-light" class="lp-hit lp-theme-btn">Light</button>
               <button id="btn-set-dark" class="lp-hit lp-theme-btn active">Dark</button>
             </div>
-            <div style="font-size:13px;color:var(--muted);margin-bottom:9px">Accent</div>
-            <div style="display:flex;gap:10px"><span style="width:32px;height:32px;background:var(--orange);border:2px solid var(--border);border-radius:8px"></span><span style="width:32px;height:32px;background:var(--blue);border:2px solid var(--ink);border-radius:8px"></span><span style="width:32px;height:32px;background:var(--green);border:2px solid var(--border);border-radius:8px"></span><span style="width:32px;height:32px;background:var(--yellow);border:2px solid var(--border);border-radius:8px"></span></div>
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:13px"><div style="font-weight:700;font-size:16px">Updates</div><span id="update-badge" hidden style="display:flex;align-items:center;gap:5px;font:600 10px 'JetBrains Mono';text-transform:uppercase;background:var(--orange-soft);color:var(--orange-ink);border:1.5px solid var(--orange);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>Update available</span></div>

@@ -8,6 +8,24 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## §10 — Dark-theme secondary palette (DONE)
+
+Replaced jarring bright-cyan filled controls (white text on `var(--blue)`) with
+deep-blue/navy surfaces + cyan text. Added `--secondary-*` tokens to both themes
+(dark = spec exact: surface #12303F, text #9DE8EE, border #2D7186; light = derived
+light-cyan). Retargeted: appearance toggle (`.lp-theme-btn.active`), compute-engine
+CPU/Vulkan (HTML + `reflectEngine`), Grid/List, "Balanced" sensitivity, "TXT"
+format chip, quiz/flashcard Next/Finish/Summary (×4), Export HTML. Orange stays
+primary; green/red/yellow semantic; small markers stay bright `--blue`. Removed the
+inert Accent swatch row from Settings.
+
+**Files:** `app/ui/app.css` (tokens + `.lp-theme-btn.active`), `app/ui/index.html`
+(toggles/chips/Export HTML/accent removal), `app/ui/app.js` (`reflectEngine` +
+quiz/flash nav buttons). Tests: `tests/test_webview_theme.py` (5) guard tokens +
+no bright-cyan-fill regression + accent removal.
+
+---
+
 ## §9 — Study assistant tabs polish (DONE)
 
 Tabs: Chat→**Ask**; added **Notes** tab (per-job notepad, 600ms-debounced

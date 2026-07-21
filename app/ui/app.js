@@ -675,8 +675,8 @@
       '<button data-qact="prev"' + (i === 0 ? ' disabled' : '') + ' style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:9px 15px;cursor:pointer;color:var(--ink);opacity:' + (i === 0 ? '.5' : '1') + '">Prev</button>' +
       (answered ? '' : '<button data-qact="submit"' + (q.pick == null ? ' disabled' : '') + ' style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:9px 17px;cursor:pointer;opacity:' + (q.pick == null ? '.5' : '1') + '">Submit</button>') +
       '<label style="display:flex;align-items:center;gap:6px;font:500 11px \'JetBrains Mono\';color:var(--muted);cursor:pointer;margin-left:auto"><input type="checkbox" data-qact="auto"' + (q.autoAdvance ? ' checked' : '') + '>auto-advance</label>' +
-      (last ? '<button data-qact="finish" style="font:700 13px \'Space Grotesk\';background:var(--blue);color:#fff;border:2px solid var(--blue-ink);border-radius:9px;padding:9px 17px;cursor:pointer">Finish</button>'
-        : '<button data-qact="next"' + (answered ? '' : ' disabled') + ' style="font:700 13px \'Space Grotesk\';background:var(--blue);color:#fff;border:2px solid var(--blue-ink);border-radius:9px;padding:9px 17px;cursor:pointer;opacity:' + (answered ? '1' : '.5') + '">Next</button>') +
+      (last ? '<button data-qact="finish" style="font:700 13px \'Space Grotesk\';background:var(--secondary-surface);color:var(--secondary-text);border:2px solid var(--secondary-border);border-radius:9px;padding:9px 17px;cursor:pointer">Finish</button>'
+        : '<button data-qact="next"' + (answered ? '' : ' disabled') + ' style="font:700 13px \'Space Grotesk\';background:var(--secondary-surface);color:var(--secondary-text);border:2px solid var(--secondary-border);border-radius:9px;padding:9px 17px;cursor:pointer;opacity:' + (answered ? '1' : '.5') + '">Next</button>') +
       '</div>';
   }
 
@@ -819,8 +819,8 @@
       '<button data-fact="restart" style="font:600 12px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:9px 13px;cursor:pointer;color:var(--ink)">Restart</button>' +
       '<div style="flex:1"></div>' +
       (f.index === cards.length - 1
-        ? '<button data-fact="finish" style="font:700 13px \'Space Grotesk\';background:var(--blue);color:#fff;border:2px solid var(--blue-ink);border-radius:9px;padding:9px 17px;cursor:pointer">Summary</button>'
-        : '<button data-fact="next" style="font:700 13px \'Space Grotesk\';background:var(--blue);color:#fff;border:2px solid var(--blue-ink);border-radius:9px;padding:9px 17px;cursor:pointer">Next</button>') +
+        ? '<button data-fact="finish" style="font:700 13px \'Space Grotesk\';background:var(--secondary-surface);color:var(--secondary-text);border:2px solid var(--secondary-border);border-radius:9px;padding:9px 17px;cursor:pointer">Summary</button>'
+        : '<button data-fact="next" style="font:700 13px \'Space Grotesk\';background:var(--secondary-surface);color:var(--secondary-text);border:2px solid var(--secondary-border);border-radius:9px;padding:9px 17px;cursor:pointer">Next</button>') +
       '</div>';
   }
 
@@ -1118,14 +1118,14 @@
       var isGpu = engine === 'vulkan';
       var cpu = $('compute-cpu'), gpu = $('compute-gpu');
       if (!cpu || !gpu) return;
-      cpu.style.background = isGpu ? 'transparent' : 'var(--blue)';
-      cpu.style.color = isGpu ? 'var(--muted)' : '#fff';
-      cpu.style.border = '1.5px solid ' + (isGpu ? 'var(--line)' : 'var(--blue)');
+      cpu.style.background = isGpu ? 'transparent' : 'var(--secondary-surface)';
+      cpu.style.color = isGpu ? 'var(--muted)' : 'var(--secondary-text)';
+      cpu.style.border = '1.5px solid ' + (isGpu ? 'var(--line)' : 'var(--secondary-border)');
       cpu.style.fontWeight = isGpu ? '500' : '700';
       cpu.style.cursor = 'pointer';
-      gpu.style.background = isGpu ? 'var(--blue)' : 'transparent';
-      gpu.style.color = isGpu ? '#fff' : 'var(--muted)';
-      gpu.style.border = '1.5px solid ' + (isGpu ? 'var(--blue)' : 'var(--line)');
+      gpu.style.background = isGpu ? 'var(--secondary-surface)' : 'transparent';
+      gpu.style.color = isGpu ? 'var(--secondary-text)' : 'var(--muted)';
+      gpu.style.border = '1.5px solid ' + (isGpu ? 'var(--secondary-border)' : 'var(--line)');
       gpu.style.fontWeight = isGpu ? '700' : '500';
     }
     $('compute-cpu').classList.add('lp-hit');
