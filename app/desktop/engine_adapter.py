@@ -542,6 +542,7 @@ class LecturePackAdapter(EngineAdapter):
         self._pending_job: Job | None = None
         self._stages: list[dict] = []
         self._pipeline_start = 0.0
+        self._stage_timings: dict = {}   # stage name -> {start, duration, cached}
         self._slide_frames: list[int] = []      # emit-order -> candidate frame_number
         self._review_ids: list[int] = []        # emit-order -> working segment id
         self._chat_history: list[dict] = []
@@ -917,6 +918,7 @@ class LecturePackAdapter(EngineAdapter):
         self._emit("pipeline_changed", {"title": title, "meta": meta, "stages": stages})
 
     def _on_stage_started(self, name: str):
+        self._stage_timings[name] = {"start": time.time(), "cached": False}
         s = self._stage_by_name(name)
         if s:
             s["state"] = "active"
@@ -943,6 +945,9 @@ class LecturePackAdapter(EngineAdapter):
         self._log(f"[{key}]", text, key)
 
     def _on_stage_finished(self, name: str, success: bool, error: str):
+        t = self._stage_timings.get(name)
+        if t and "start" in t:
+            t["duration"] = round(time.time() - t["start"], 2)
         s = self._stage_by_name(name)
         if s:
             s["state"] = "done" if success else "pending"
@@ -952,6 +957,7 @@ class LecturePackAdapter(EngineAdapter):
             self._log("[error]", f"{name}: {error}", "error")
 
     def _on_stage_cached(self, name: str):
+        self._stage_timings[name] = {"duration": 0.0, "cached": True}
         s = self._stage_by_name(name)
         if s:
             s["state"] = "done"
@@ -977,9 +983,46 @@ class LecturePackAdapter(EngineAdapter):
         self._emit("status_changed", {
             "label": "Done", "pct": 100, "detail": "processing complete", "side": "Done"})
         self._log("[engine]", "Pipeline complete.", "engine")
+        self._write_performance_report()
         self._push_jobs()
         self._push_review_data()
         self._push_study_data()
+
+    def _write_performance_report(self):
+        """Persist a per-stage timing profile for the just-finished run so the
+        pipeline is measurable (§4). Written to <job>/performance.json."""
+        job = self.current_job
+        if job is None:
+            return
+        total = round(time.time() - self._pipeline_start, 2) if self._pipeline_start else 0.0
+        stages = []
+        for st in self._stages:
+            t = self._stage_timings.get(st["name"], {})
+            stages.append({"stage": st["name"],
+                           "duration_seconds": t.get("duration", 0.0),
+                           "cached": bool(t.get("cached", False))})
+        src = job.source or {}
+        duration = float(src.get("duration", 0.0) or 0.0)
+        report = {
+            "job_id": job.job_id,
+            "title": job.manifest.get("title", ""),
+            "source_duration_seconds": duration,
+            "source_resolution": (f"{src.get('width')}x{src.get('height')}"
+                                  if src.get("width") else ""),
+            "engine_requested": self.config.get("engine", "auto"),
+            "parallel_pipeline": bool(self.config.get("parallel_pipeline", True)),
+            "total_wall_seconds": total,
+            "realtime_factor": (round(duration / total, 2) if total else None),
+            "stages": stages,
+            "generated_at": _now_iso(),
+        }
+        try:
+            FileManager.write_json_atomic(
+                os.path.join(job.paths["root"], "performance.json"), report)
+            self._log("[engine]", f"profile: {total:.1f}s wall "
+                      f"({report['realtime_factor']}x realtime) → performance.json", "engine")
+        except OSError as exc:
+            self._log("[engine]", f"could not write performance.json: {exc}", "error")
 
     def _on_pipeline_failed(self, msg: str):
         self._emit("status_changed", {

@@ -8,6 +8,24 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## §4 — Performance profiling (instrumentation DONE; cold baseline pending real run)
+
+Added per-stage timing instrumentation to the adapter: `_on_stage_started/finished/
+cached` record wall times and `_on_pipeline_completed` writes `<job>/performance.json`
+(per-stage durations, cached flags, total wall, realtime factor). Every completed
+run is now measurable. Verified end-to-end: a real slides-only run of the synthetic
+fixture completed and wrote performance.json (evidence dir) — but its stages are
+`cached=true` (source previously processed), so those numbers are cache-hit
+overhead, not a cold baseline. Study-mode on that fixture fails at Extract Audio
+(the synthetic slide video has no audio track — a fixture limit, not a bug).
+
+**Honest status:** measurement capability delivered; a cold `baseline.json` needs
+processing a real, unprocessed A/V lecture (procedure documented in the evidence
+README). Not fabricated. **Files:** `app/desktop/engine_adapter.py`. Evidence:
+`docs/evidence/.../performance/`.
+
+---
+
 ## §3 — Vulkan validation + backend truthfulness (DONE; Vulkan confirmed working)
 
 Vulkan is genuinely available on this machine: both whisper-cli binaries present,
