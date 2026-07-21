@@ -118,6 +118,15 @@ class EngineAdapter(QObject):
     def list_ollama_models(self) -> None:
         """List installed Ollama models; emit ollama_models({models, selected})."""
 
+    def generate_quiz(self, opts) -> None:
+        """Generate a quiz (AI or deterministic fallback); emit quiz_changed/quiz_status."""
+
+    def cancel_quiz(self) -> None:
+        """Cancel an in-flight quiz generation."""
+
+    def save_quiz_session(self, session_json: str) -> None:
+        """Persist quiz session state (answers/score/index) in study data."""
+
     def browse_model(self, parent) -> None:
         """Pick a whisper model file; emit settings_changed({model_path})."""
 
@@ -338,6 +347,95 @@ def _derive_group(title: str) -> str:
                 return head
     first = t.split()[0] if t.split() else ""
     return first or "Ungrouped"
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+# Generic, cross-domain terms used as wrong answers in the no-AI fallback quiz.
+# Any that collide with the lecture's own key terms are filtered out at build
+# time so the correct answer stays unambiguous.
+_QUIZ_DISTRACTORS = [
+    "Photosynthesis", "Supply and demand", "Cellular respiration", "The water cycle",
+    "Plate tectonics", "Binary search", "Gross domestic product", "Osmosis",
+    "The French Revolution", "Machine learning", "Thermodynamics", "Natural selection",
+    "Electromagnetic induction", "Compound interest", "Newton's laws", "DNA replication",
+]
+
+
+def _fallback_quiz_questions(terms, count: int) -> list[dict]:
+    """Deterministic, no-AI quiz from a lecture's key terms.
+
+    Honest recall questions ("which is a key term from this lecture?") pairing one
+    of the lecture's own terms against unrelated generic distractors — always
+    answerable and correct, clearly a built-in fallback. Deterministic (no RNG):
+    the correct option rotates position by index.
+    """
+    clean, seen = [], set()
+    for t in (terms or []):
+        s = str(t).strip()
+        k = s.lower()
+        if s and k not in seen:
+            seen.add(k)
+            clean.append(s)
+    if not clean:
+        return []
+    pool = [d for d in _QUIZ_DISTRACTORS if d.lower() not in seen]
+    n = max(1, int(count or 5))
+    questions = []
+    for i in range(n):
+        correct = clean[i % len(clean)]
+        distractors = []
+        j = i
+        while len(distractors) < 3 and pool:
+            cand = pool[j % len(pool)]
+            if cand not in distractors:
+                distractors.append(cand)
+            j += 1
+            if j - i > len(pool):
+                break
+        total = len(distractors) + 1
+        pos = i % total
+        options, di = [], 0
+        for p in range(total):
+            if p == pos:
+                options.append(correct)
+            else:
+                options.append(distractors[di])
+                di += 1
+        questions.append({
+            "question": "Which of the following is a key term from this lecture?",
+            "options": options,
+            "correct_index": pos,
+            "explanation": f"“{correct}” is a key term this lecture emphasizes.",
+        })
+    return questions
+
+
+def _normalize_quiz(questions, count: int) -> list[dict]:
+    """Validate/repair LLM or fallback questions into a safe UI shape."""
+    out = []
+    for q in (questions or []):
+        if not isinstance(q, dict):
+            continue
+        text = str(q.get("question") or "").strip()
+        opts = [str(o) for o in (q.get("options") or []) if str(o).strip()]
+        if not text or len(opts) < 2:
+            continue
+        try:
+            ci = int(q.get("correct_index", 0))
+        except (TypeError, ValueError):
+            ci = 0
+        ci = max(0, min(ci, len(opts) - 1))
+        out.append({
+            "question": text, "options": opts, "correct_index": ci,
+            "explanation": str(q.get("explanation") or "").strip(),
+        })
+        if len(out) >= max(1, int(count or 5)):
+            break
+    return out
 
 
 class LecturePackAdapter(EngineAdapter):
@@ -994,6 +1092,9 @@ class LecturePackAdapter(EngineAdapter):
             "stats": stats,
             "cards": cards})
 
+        # Restore a previously generated quiz (questions + session) for this job.
+        self._emit_stored_quiz(job)
+
     def ask_ai(self, prompt: str):
         job = self.current_job
         o = self._ollama_settings()
@@ -1037,6 +1138,113 @@ class LecturePackAdapter(EngineAdapter):
         worker.finished_ok.connect(ok)
         worker.failed.connect(fail)
         worker.start()
+
+    # ------------------------------------------------------------------ quiz
+    def _save_quiz(self, job, questions, meta, provider, model, reset_session=True):
+        data = study_service.load_study_data(job)
+        prev = data.get("quiz") if isinstance(data.get("quiz"), dict) else {}
+        data["quiz"] = {
+            "questions": questions,
+            "meta": {**meta, "provider": provider, "model": model},
+            "session": {} if reset_session else (prev.get("session") or {}),
+            "updated_at": _now_iso(),
+        }
+        study_service.save_study_data(job, data)
+
+    def _emit_stored_quiz(self, job):
+        q = study_service.load_study_data(job).get("quiz") or {}
+        if q.get("questions"):
+            m = q.get("meta", {}) or {}
+            self._emit("quiz_changed", {
+                "questions": q["questions"], "provider": m.get("provider", ""),
+                "model": m.get("model", ""), "meta": m,
+                "session": q.get("session") or None})
+
+    def generate_quiz(self, opts):
+        job = self.current_job
+        if job is None:
+            self._emit("quiz_status", {"state": "error",
+                       "message": "Open or process a lecture first."})
+            return
+        if isinstance(opts, str):
+            try:
+                opts = json.loads(opts or "{}")
+            except ValueError:
+                opts = {}
+        count = max(1, min(int(opts.get("count") or 5), 50))
+        meta = {"count": count, "difficulty": opts.get("difficulty", "Mixed"),
+                "type": opts.get("type", "multiple choice"),
+                "scope": opts.get("scope", "entire lecture"),
+                "source": opts.get("source", "transcript")}
+        o = self._ollama_settings()
+        self._emit("quiz_status", {"state": "generating", "message": "Generating quiz…"})
+
+        def deliver(questions, provider, model=""):
+            questions = _normalize_quiz(questions, count)
+            if not questions:
+                self._emit("quiz_status", {"state": "error",
+                           "message": "Couldn't build a quiz for this lecture."})
+                return
+            self._save_quiz(job, questions, meta, provider, model)
+            self._emit("quiz_changed", {"questions": questions, "provider": provider,
+                       "model": model, "meta": {**meta, "provider": provider, "model": model},
+                       "session": None})
+            self._emit("quiz_status", {"state": "ready",
+                       "message": f"{len(questions)} questions · {provider}"})
+
+        def do_fallback():
+            try:
+                terms = study_service.build_overview(job).get("key_terms", []) or []
+            except Exception:
+                terms = []
+            deliver(_fallback_quiz_questions(terms, count), "Built-in (no AI)")
+
+        if not (o.get("enabled") and o.get("model")):
+            do_fallback()
+            return
+
+        segments = transcript_store.load_working(job.paths)
+        transcript_text = sas.transcript_context(segments or [])
+        worker = sas.StudyAssistantWorker("quiz", transcript_text, o, count=count)
+        self._quiz_worker = worker
+
+        def ok(task, result):
+            qs = (result or {}).get("questions") if isinstance(result, dict) else None
+            if qs:
+                deliver(qs, "Local", o.get("model", ""))
+            else:
+                do_fallback()
+
+        def fail(kind, message, details):
+            self._log("[ai]", f"quiz gen failed ({kind}) — using built-in fallback", "ai")
+            do_fallback()
+
+        worker.finished_ok.connect(ok)
+        worker.failed.connect(fail)
+        worker.start()
+
+    def cancel_quiz(self):
+        w = getattr(self, "_quiz_worker", None)
+        if w is not None:
+            try:
+                w.detach_and_stop()
+            except Exception:
+                pass
+        self._emit("quiz_status", {"state": "cancelled", "message": "Generation cancelled."})
+
+    def save_quiz_session(self, session_json):
+        job = self.current_job
+        if job is None:
+            return
+        try:
+            session = json.loads(session_json)
+        except ValueError:
+            return
+        data = study_service.load_study_data(job)
+        q = data.get("quiz") if isinstance(data.get("quiz"), dict) else {}
+        q["session"] = session
+        data["quiz"] = q
+        study_service.save_study_data(job, data)
 
     # ------------------------------------------------------------------ exports
     def export_all(self, formats: list[str]):

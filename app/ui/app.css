@@ -56,6 +56,7 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
 @keyframes lpblink{0%,100%{opacity:1}50%{opacity:.3}}
 @keyframes lpbar{0%{background-position:0 0}100%{background-position:26px 0}}
 @keyframes lpin{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
+@keyframes lpspin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
 @keyframes lpiris{0%{transform:scale(.965);opacity:.4}55%{transform:scale(1.028)}100%{transform:scale(1.02);opacity:1}}
 
 /* ===== focus mode (camera iris) ===== */

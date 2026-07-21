@@ -45,6 +45,8 @@ class Backend(QObject):
     settings_changed = Signal(str)
     ollama_models = Signal(str)
     job_deleted = Signal(str)
+    quiz_changed = Signal(str)
+    quiz_status = Signal(str)
 
     def __init__(self, window):
         super().__init__()
@@ -153,6 +155,18 @@ class Backend(QObject):
     @Slot(str)
     def ask_ai(self, prompt: str):
         self._adapter.ask_ai(prompt)
+
+    @Slot(str)
+    def generate_quiz(self, opts_json: str):
+        self._adapter.generate_quiz(opts_json)
+
+    @Slot()
+    def cancel_quiz(self):
+        self._adapter.cancel_quiz()
+
+    @Slot(str)
+    def save_quiz_session(self, session_json: str):
+        self._adapter.save_quiz_session(session_json)
 
     # ------------------------------------------------------------- exports
 

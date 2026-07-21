@@ -8,6 +8,32 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## §7 — Configurable quiz system (DONE)
+
+Replaced the static 3-question demo with a configurable, navigable quiz.
+
+**Backend (engine_adapter + bridge):** `generate_quiz(opts)` → `StudyAssistantWorker
+("quiz", count)` when Ollama on, else deterministic `_fallback_quiz_questions`
+(honest recall Qs from key terms + generic distractors, labeled "Built-in (no
+AI)"). `_normalize_quiz` repairs LLM output. Questions + session persist in
+`study.json` `quiz` key (separate from transcript); `_emit_stored_quiz` restores
+on reopen; `cancel_quiz`; `save_quiz_session`. Signals `quiz_changed`/`quiz_status`.
+
+**Frontend (app.js):** setup (count 3/5/10/20/custom + difficulty/type/source +
+Generate/Cancel + provider), session (Q x/N, A–D options, Submit reveals
+correct/incorrect + explanation and **enables Next** — fixes the P1 complaint,
+Prev/Next, flag, score, auto-advance, Finish), summary (score, per-question,
+Retry incorrect/Restart/New). Single delegated handler over `#quiz-root`.
+
+**Tests:** `tests/test_webview_quiz.py` (8, deterministic — no Ollama). E2E
+`docs/evidence/.../quiz/quiz_smoke.py` → QUIZ_OK (real WebEngine, TEMP data dir,
+no real job touched): generate→session→submit-reveals→finish→summary 2/5.
+
+**Remaining:** difficulty/type/source recorded but AI prompt varies by count only;
+short-answer type + slide-sourced Qs future. §8 flashcards next (same pattern).
+
+---
+
 ## Home job management — delete + grouping (user-requested, DONE)
 
 **Delete (user-confirmed, recoverable):** Home card trash button → confirmation

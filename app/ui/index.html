@@ -283,21 +283,9 @@
               </div>
 
               <div id="pane-quiz" hidden style="flex:1;display:flex;flex-direction:column;min-height:0">
-              <div style="flex:1;overflow-y:auto;padding:20px;background:var(--sunk)">
-                <div id="quiz-meta" style="font:500 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Question 1 of 3 · from 00:55</div>
-                <div id="quiz-question" style="font-weight:700;font-size:17px;margin-bottom:16px;line-height:1.35">How precisely is the Great Pyramid aligned to true north?</div>
-                <div id="quiz-options" style="display:flex;flex-direction:column;gap:9px">
-                  <button class="lp-hit lp-opt" data-opt="0"><span style="width:22px;height:22px;flex:none;border:2px solid currentColor;border-radius:6px;display:flex;align-items:center;justify-content:center;font:700 12px 'JetBrains Mono'">A</span>Within a full degree</button>
-                  <button class="lp-hit lp-opt" data-opt="1"><span style="width:22px;height:22px;flex:none;border:2px solid currentColor;border-radius:6px;display:flex;align-items:center;justify-content:center;font:700 12px 'JetBrains Mono'">B</span>Within 3/60 of a degree</button>
-                  <button class="lp-hit lp-opt" data-opt="2"><span style="width:22px;height:22px;flex:none;border:2px solid currentColor;border-radius:6px;display:flex;align-items:center;justify-content:center;font:700 12px 'JetBrains Mono'">C</span>It was never measured</button>
+                <div style="flex:1;overflow-y:auto;padding:20px;background:var(--sunk)">
+                  <div id="quiz-root"></div>
                 </div>
-                <div id="quiz-answer" hidden>
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding:12px 14px;border:2px solid var(--border);border-radius:11px;background:var(--panel)">
-                  <span id="quiz-answer-text" style="font-weight:600;font-size:13px">Answer: within 3/60 of a degree — set by star-sighting.</span>
-                  <button id="btn-retry-quiz" class="lp-hit" style="font:700 12px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:8px;padding:7px 13px;cursor:pointer">Retry</button>
-                </div>
-                </div>
-              </div>
               </div>
 
               <div id="pane-flash" hidden style="flex:1;display:flex;flex-direction:column;min-height:0">

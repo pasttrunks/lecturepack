@@ -38,7 +38,11 @@
         { role: 'ai', text: 'They watched a star rise and set, then bisected the angle between the two points — that line runs true north. The transcript covers this at 01:12. Want a quick quiz on it?' }
       ],
       streaming: false,
-      quizPicked: null, quizAnswered: false,
+      quiz: {
+        phase: 'setup', index: 0, pick: null, answers: {}, flags: {},
+        autoAdvance: false, generating: false, status: '',
+        settings: { count: 5, difficulty: 'Mixed', type: 'Multiple choice', scope: 'Entire lecture', source: 'Transcript' }
+      },
       flipped: false, cardIdx: 0,
       viewingSlide: 2,
       updateInfo: null
@@ -103,6 +107,7 @@
           { t: '01:25', html: '<strong style="box-shadow:inset 0 -.5em 0 var(--yellow-soft)">Pythagoras</strong> and his equation came way later, but ancient cultures like the Egyptians knew a 3-4-5 triangle made a 90 degree angle.' }
         ]
       },
+      quiz: { questions: [], provider: '', model: '', meta: {} },
       study: {
         topics: [
           { t: '00:01', title: 'Welcome & overview', active: true },
@@ -537,18 +542,153 @@
     feed.scrollTop = feed.scrollHeight;
   }
 
+  /* ======================= quiz (configurable + session) ======================= */
+  var Q = function () { return LP.state.quiz; };
+  function qQuestions() { return LP.data.quiz.questions || []; }
+  function qScore() {
+    var q = Q(), qs = qQuestions(), n = 0;
+    Object.keys(q.answers).forEach(function (k) { if (qs[k] && q.answers[k] === qs[k].correct_index) n++; });
+    return n;
+  }
+  function qSaveSession() {
+    var q = Q();
+    if (lpBridge.connected()) lpBridge.call('save_quiz_session', JSON.stringify({
+      phase: q.phase, index: q.index, answers: q.answers, flags: q.flags, autoAdvance: q.autoAdvance
+    }));
+  }
+  function _seg(name, opts, cur) {
+    return '<div style="display:flex;flex-wrap:wrap;gap:6px">' + opts.map(function (o) {
+      var on = String(o) === String(cur);
+      return '<button data-qset="' + name + '" data-qval="' + esc(o) + '" style="font:600 12px \'JetBrains Mono\';padding:6px 11px;border-radius:8px;cursor:pointer;border:1.5px solid ' +
+        (on ? 'var(--orange)' : 'var(--border)') + ';background:' + (on ? 'var(--orange)' : 'var(--panel)') + ';color:' + (on ? '#fff' : 'var(--ink)') + '">' + esc(o) + '</button>';
+    }).join('') + '</div>';
+  }
+  function _qField(label, html) {
+    return '<div style="margin-bottom:15px"><div style="font:600 10px \'JetBrains Mono\';letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:7px">' + label + '</div>' + html + '</div>';
+  }
+
   function renderQuiz() {
-    var answered = LP.state.quizAnswered, picked = LP.state.quizPicked;
-    Array.prototype.forEach.call(document.querySelectorAll('#quiz-options .lp-opt'), function (btn) {
-      var i = +btn.dataset.opt;
-      btn.classList.remove('correct', 'wrong', 'dim');
+    var root = $('quiz-root'); if (!root) return;
+    var q = Q(), s = q.settings, qs = qQuestions();
+    if (q.generating) {
+      root.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 0">' +
+        '<div style="width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--orange);border-radius:50%;animation:lpspin .8s linear infinite"></div>' +
+        '<div style="font:600 13px \'Space Grotesk\'">' + esc(q.status || 'Generating quiz…') + '</div>' +
+        '<button data-qact="cancel" style="font:600 12px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 16px;cursor:pointer;color:var(--ink)">Cancel</button></div>';
+      return;
+    }
+    if (q.phase === 'setup' || !qs.length) {
+      root.innerHTML =
+        '<div style="font:700 17px \'Space Grotesk\';margin-bottom:4px">New quiz</div>' +
+        '<div style="font-size:13px;color:var(--muted);margin-bottom:18px">Generated from this lecture' + (LP.data.quiz.provider ? ' · last: ' + esc(LP.data.quiz.provider) : '') + '.</div>' +
+        _qField('Questions', _seg('count', [3, 5, 10, 20], s.count) +
+          '<input id="quiz-count-custom" type="number" min="1" max="50" placeholder="custom" value="" style="margin-top:7px;width:110px;font:600 12px \'JetBrains Mono\';background:var(--sunk);border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--ink)">') +
+        _qField('Difficulty', _seg('difficulty', ['Easy', 'Medium', 'Hard', 'Mixed'], s.difficulty)) +
+        _qField('Type', _seg('type', ['Multiple choice', 'True / false', 'Mixed'], s.type)) +
+        _qField('Source', _seg('source', ['Transcript', 'Slides', 'Both'], s.source)) +
+        '<div style="display:flex;gap:10px;margin-top:8px">' +
+        '<button data-qact="generate" style="font:700 14px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:10px;padding:11px 22px;cursor:pointer">Generate quiz</button>' +
+        (qs.length ? '<button data-qact="resume" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:10px;padding:11px 18px;cursor:pointer;color:var(--ink)">Resume last</button>' : '') +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--muted);margin-top:14px">Difficulty/type/source are recorded with the quiz; question count is applied now. Falls back to a built-in quiz if local AI is off.</div>';
+      return;
+    }
+    if (q.phase === 'summary') { renderQuizSummary(root); return; }
+    renderQuizQuestion(root);
+  }
+
+  function renderQuizQuestion(root) {
+    var q = Q(), qs = qQuestions(), i = q.index, item = qs[i];
+    if (!item) { q.phase = 'setup'; renderQuiz(); return; }
+    var answered = q.answers.hasOwnProperty(i);
+    var chosen = answered ? q.answers[i] : q.pick;
+    var flagged = !!q.flags[i];
+    var letters = 'ABCDEFGH';
+    var opts = item.options.map(function (opt, oi) {
+      var border = 'var(--border)', bg = 'var(--panel)', col = 'var(--ink)';
       if (answered) {
-        if (i === 1) btn.classList.add('correct');
-        else if (i === picked) btn.classList.add('wrong');
-        else btn.classList.add('dim');
-      }
-    });
-    $('quiz-answer').hidden = !answered;
+        if (oi === item.correct_index) { border = 'var(--green)'; bg = 'var(--green-soft)'; col = 'var(--green)'; }
+        else if (oi === chosen) { border = 'var(--red)'; bg = 'var(--red-soft)'; col = 'var(--red)'; }
+        else { col = 'var(--muted)'; }
+      } else if (oi === chosen) { border = 'var(--orange)'; bg = 'var(--orange-soft)'; }
+      return '<button class="lp-opt" data-opt="' + oi + '"' + (answered ? ' disabled' : '') +
+        ' style="display:flex;align-items:center;gap:11px;text-align:left;font:500 14px \'Space Grotesk\';padding:11px 13px;border-radius:10px;cursor:' + (answered ? 'default' : 'pointer') + ';border:2px solid ' + border + ';background:' + bg + ';color:' + col + '">' +
+        '<span style="width:22px;height:22px;flex:none;border:2px solid currentColor;border-radius:6px;display:flex;align-items:center;justify-content:center;font:700 12px \'JetBrains Mono\'">' + letters[oi] + '</span>' + esc(opt) + '</button>';
+    }).join('');
+    var reveal = answered ? (
+      '<div style="margin-top:15px;padding:12px 14px;border:2px solid var(--border);border-radius:11px;background:var(--panel)">' +
+      '<div style="font:700 12px \'JetBrains Mono\';text-transform:uppercase;color:' + (chosen === item.correct_index ? 'var(--green)' : 'var(--red)') + ';margin-bottom:5px">' +
+      (chosen === item.correct_index ? '✓ Correct' : '✗ Incorrect') + '</div>' +
+      '<div style="font-size:13px;line-height:1.5">' + esc(item.explanation || item.options[item.correct_index]) + '</div></div>') : '';
+    var last = i === qs.length - 1;
+    root.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
+      '<span style="font:500 10px \'JetBrains Mono\';letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">Question ' + (i + 1) + ' of ' + qs.length + ' · score ' + qScore() + '/' + Object.keys(q.answers).length + '</span>' +
+      '<button data-qact="flag" title="Flag for review" style="font:600 11px \'JetBrains Mono\';border-radius:7px;padding:4px 9px;cursor:pointer;border:1.5px solid ' + (flagged ? 'var(--yellow)' : 'var(--border)') + ';background:' + (flagged ? 'var(--yellow-soft)' : 'var(--panel)') + ';color:var(--ink)">⚑ ' + (flagged ? 'Flagged' : 'Flag') + '</button></div>' +
+      '<div style="font-weight:700;font-size:17px;margin-bottom:16px;line-height:1.35">' + esc(item.question) + '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:9px">' + opts + '</div>' + reveal +
+      '<div style="display:flex;align-items:center;gap:10px;margin-top:18px">' +
+      '<button data-qact="prev"' + (i === 0 ? ' disabled' : '') + ' style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:9px 15px;cursor:pointer;color:var(--ink);opacity:' + (i === 0 ? '.5' : '1') + '">Prev</button>' +
+      (answered ? '' : '<button data-qact="submit"' + (q.pick == null ? ' disabled' : '') + ' style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:9px 17px;cursor:pointer;opacity:' + (q.pick == null ? '.5' : '1') + '">Submit</button>') +
+      '<label style="display:flex;align-items:center;gap:6px;font:500 11px \'JetBrains Mono\';color:var(--muted);cursor:pointer;margin-left:auto"><input type="checkbox" data-qact="auto"' + (q.autoAdvance ? ' checked' : '') + '>auto-advance</label>' +
+      (last ? '<button data-qact="finish" style="font:700 13px \'Space Grotesk\';background:var(--blue);color:#fff;border:2px solid var(--blue-ink);border-radius:9px;padding:9px 17px;cursor:pointer">Finish</button>'
+        : '<button data-qact="next"' + (answered ? '' : ' disabled') + ' style="font:700 13px \'Space Grotesk\';background:var(--blue);color:#fff;border:2px solid var(--blue-ink);border-radius:9px;padding:9px 17px;cursor:pointer;opacity:' + (answered ? '1' : '.5') + '">Next</button>') +
+      '</div>';
+  }
+
+  function renderQuizSummary(root) {
+    var q = Q(), qs = qQuestions(), score = qScore(), wrong = [];
+    qs.forEach(function (it, i) { if (q.answers[i] !== it.correct_index) wrong.push(i); });
+    var pct = qs.length ? Math.round(score / qs.length * 100) : 0;
+    root.innerHTML =
+      '<div style="font:700 20px \'Space Grotesk\';margin-bottom:4px">Quiz complete</div>' +
+      '<div style="font-size:32px;font-weight:800;margin:10px 0;color:' + (pct >= 70 ? 'var(--green)' : pct >= 40 ? 'var(--orange)' : 'var(--red)') + '">' + score + ' / ' + qs.length + '<span style="font-size:16px;color:var(--muted);font-weight:600"> · ' + pct + '%</span></div>' +
+      '<div style="display:flex;flex-direction:column;gap:7px;margin:16px 0">' + qs.map(function (it, i) {
+        var ok = q.answers[i] === it.correct_index;
+        return '<div style="display:flex;gap:9px;align-items:flex-start;font-size:13px;padding:9px 11px;border:1.5px solid var(--border);border-radius:9px;background:var(--panel)">' +
+          '<span style="color:' + (ok ? 'var(--green)' : 'var(--red)') + ';font-weight:700">' + (ok ? '✓' : '✗') + '</span>' +
+          '<span>' + esc(it.question) + (q.flags[i] ? ' <span style="color:var(--yellow)">⚑</span>' : '') + '</span></div>';
+      }).join('') + '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:10px">' +
+      (wrong.length ? '<button data-qact="retry-wrong" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Retry incorrect (' + wrong.length + ')</button>' : '') +
+      '<button data-qact="restart" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Restart</button>' +
+      '<button data-qact="newquiz" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">New quiz settings</button>' +
+      '</div>';
+  }
+
+  function quizAction(act, el) {
+    var q = Q(), qs = qQuestions();
+    if (act === 'generate') {
+      var ci = $('quiz-count-custom'), cv = ci && ci.value ? Math.max(1, Math.min(50, +ci.value)) : q.settings.count;
+      q.settings.count = cv;
+      q.generating = true; q.status = 'Generating quiz…';
+      if (lpBridge.connected()) lpBridge.call('generate_quiz', JSON.stringify({
+        count: cv, difficulty: q.settings.difficulty, type: q.settings.type,
+        scope: q.settings.scope, source: q.settings.source
+      }));
+      else { q.generating = false; toast('Preview mode — connect the app to generate'); }
+      renderQuiz();
+    } else if (act === 'cancel') {
+      q.generating = false; if (lpBridge.connected()) lpBridge.call('cancel_quiz'); renderQuiz();
+    } else if (act === 'resume') { q.phase = 'session'; renderQuiz();
+    } else if (act === 'submit') {
+      if (q.pick != null) { q.answers[q.index] = q.pick; q.pick = null; qSaveSession(); renderQuiz();
+        if (q.autoAdvance && q.index < qs.length - 1) setTimeout(function () { quizAction('next'); }, 850); }
+    } else if (act === 'next') {
+      if (q.index < qs.length - 1) { q.index++; q.pick = null; qSaveSession(); renderQuiz(); }
+    } else if (act === 'prev') {
+      if (q.index > 0) { q.index--; q.pick = null; qSaveSession(); renderQuiz(); }
+    } else if (act === 'flag') { q.flags[q.index] = !q.flags[q.index]; qSaveSession(); renderQuiz();
+    } else if (act === 'auto') { q.autoAdvance = !!(el && el.checked); qSaveSession();
+    } else if (act === 'finish') { q.phase = 'summary'; qSaveSession(); renderQuiz();
+    } else if (act === 'restart') { q.phase = 'session'; q.index = 0; q.pick = null; q.answers = {}; q.flags = {}; qSaveSession(); renderQuiz();
+    } else if (act === 'retry-wrong') {
+      var keep = {}; qQuestions().forEach(function (it, i) { if (q.answers[i] === it.correct_index) keep[i] = q.answers[i]; });
+      q.answers = keep; q.phase = 'session'; q.index = 0; q.pick = null;
+      // jump to first unanswered
+      for (var k = 0; k < qs.length; k++) { if (!q.answers.hasOwnProperty(k)) { q.index = k; break; } }
+      qSaveSession(); renderQuiz();
+    } else if (act === 'newquiz') { q.phase = 'setup'; renderQuiz(); }
   }
 
   function renderCard() {
@@ -644,6 +784,7 @@
     $('pane-chat').hidden = tab !== 'chat';
     $('pane-quiz').hidden = tab !== 'quiz';
     $('pane-flash').hidden = tab !== 'flash';
+    if (tab === 'quiz') renderQuiz();
   }
 
   function setJobsEmpty(empty) {
@@ -980,17 +1121,27 @@
     $('chat-input').addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); sendChat(); }
     });
-    Array.prototype.forEach.call(document.querySelectorAll('#quiz-options .lp-opt'), function (btn) {
-      btn.addEventListener('click', function () {
-        if (LP.state.quizAnswered) return;
-        LP.state.quizPicked = +btn.dataset.opt;
-        LP.state.quizAnswered = true;
-        renderQuiz();
-      });
+    // Quiz: one delegated handler over the JS-rendered #quiz-root.
+    $('quiz-root').addEventListener('click', function (e) {
+      var opt = e.target.closest('[data-opt]');
+      if (opt && !opt.disabled) {
+        if (!LP.state.quiz.answers.hasOwnProperty(LP.state.quiz.index)) {
+          LP.state.quiz.pick = +opt.dataset.opt; renderQuiz();
+        }
+        return;
+      }
+      var seg = e.target.closest('[data-qset]');
+      if (seg) {
+        var v = seg.dataset.qval;
+        LP.state.quiz.settings[seg.dataset.qset] = (seg.dataset.qset === 'count') ? +v : v;
+        renderQuiz(); return;
+      }
+      var act = e.target.closest('[data-qact]');
+      if (act) quizAction(act.dataset.qact, act);
     });
-    $('btn-retry-quiz').addEventListener('click', function () {
-      LP.state.quizPicked = null; LP.state.quizAnswered = false;
-      renderQuiz();
+    $('quiz-root').addEventListener('change', function (e) {
+      var act = e.target.closest('[data-qact="auto"]');
+      if (act) quizAction('auto', act);
     });
     $('flashcard').addEventListener('click', function () { LP.state.flipped = !LP.state.flipped; renderCard(); });
     $('btn-next-card').addEventListener('click', function () {
@@ -1083,6 +1234,24 @@
       if (d.transcript) { LP.data.transcript = d.transcript; renderTranscript(); }
     });
     lpBridge.on('study_changed', function (json) { LP.data.study = JSON.parse(json); renderStudy(); });
+    lpBridge.on('quiz_changed', function (json) {
+      var d = JSON.parse(json), q = LP.state.quiz;
+      LP.data.quiz = { questions: d.questions || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
+      if (d.session && typeof d.session === 'object' && Object.keys(d.session).length) {
+        q.index = d.session.index || 0; q.answers = d.session.answers || {}; q.flags = d.session.flags || {};
+        q.autoAdvance = !!d.session.autoAdvance; q.phase = d.session.phase === 'summary' ? 'summary' : 'session';
+      } else {
+        q.index = 0; q.pick = null; q.answers = {}; q.flags = {}; q.phase = 'session';
+      }
+      q.generating = false;
+      renderQuiz();
+    });
+    lpBridge.on('quiz_status', function (json) {
+      var d = JSON.parse(json), q = LP.state.quiz;
+      q.status = d.message || '';
+      if (d.state === 'ready' || d.state === 'error' || d.state === 'cancelled') q.generating = false;
+      if (d.state === 'error') { toast(d.message || 'Quiz failed'); renderQuiz(); }
+    });
     lpBridge.on('export_progress', function (json) {
       var p = JSON.parse(json);
       LP.state.exportPhase = 'running'; renderExportPhase();
