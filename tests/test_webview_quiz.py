@@ -115,7 +115,7 @@ def test_generate_quiz_fallback_when_ai_off(adapter):
     adapter.config.set("ollama", {})  # AI off
     adapter.generate_quiz(json.dumps({"count": 4}))
     changed = _last(adapter.backend.quiz_changed)
-    assert changed["provider"] == "Built-in (no AI)"
+    assert changed["provider"] == "Built-in Study"
     assert len(changed["questions"]) == 4
     assert _last(adapter.backend.quiz_status)["state"] == "ready"
     # persisted in study.json

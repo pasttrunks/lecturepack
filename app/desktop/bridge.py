@@ -51,6 +51,7 @@ class Backend(QObject):
     flashcards_status = Signal(str)
     vulkan_status = Signal(str)
     groq_status = Signal(str)
+    smart_study = Signal(str)
 
     def __init__(self, window):
         super().__init__()
@@ -118,6 +119,28 @@ class Backend(QObject):
     @Slot()
     def list_ollama_models(self):
         self._adapter.list_ollama_models()
+
+    # ------------------------------------------------------------- Smart Study
+
+    @Slot()
+    def smart_study_status(self):
+        self._adapter.smart_study_status()
+
+    @Slot(str)
+    def set_study_preset(self, preset: str):
+        self._adapter.set_study_preset(preset)
+
+    @Slot(str)
+    def install_smart_study(self, preset: str):
+        self._adapter.install_smart_study(preset)
+
+    @Slot()
+    def cancel_smart_study(self):
+        self._adapter.cancel_smart_study()
+
+    @Slot()
+    def launch_ollama_installer(self):
+        self._adapter.launch_ollama_installer()
 
     @Slot()
     def save_project(self):

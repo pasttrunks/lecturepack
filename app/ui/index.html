@@ -256,6 +256,38 @@
           </div>
 
           <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px;overflow-y:auto">
+            <!-- Smart Study onboarding (shown when no compatible local model) -->
+            <div id="smart-study-banner" hidden style="background:var(--panel);border:2px solid var(--orange);border-radius:13px;box-shadow:var(--shadow-soft);padding:18px 20px">
+              <div style="display:flex;align-items:flex-start;gap:12px">
+                <div style="width:34px;height:34px;flex:none;background:var(--orange-soft);border-radius:10px;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--orange-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/></svg></div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:700;font-size:16px;margin-bottom:3px">Improve quizzes, flashcards, and lecture chat</div>
+                  <div style="font-size:13px;color:var(--muted);line-height:1.5">Smart Study runs privately on your computer. No account or subscription required.</div>
+                </div>
+                <button id="btn-ss-continue" class="lp-hit" title="Continue with Built-in Study" style="width:28px;height:28px;flex:none;border:2px solid var(--border);border-radius:8px;background:var(--panel);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+              </div>
+              <div id="ss-intro" style="margin-top:14px">
+                <div id="ss-rec-text" style="font:600 12px 'JetBrains Mono';color:var(--secondary-text);margin-bottom:10px">Recommended for this computer: Balanced Study · approximately 2.5 GB</div>
+                <div id="ss-preset-seg" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px"></div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap">
+                  <button id="btn-ss-install" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer;box-shadow:var(--shadow-soft)">Install Smart Study</button>
+                  <button id="btn-ss-continue2" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;color:var(--ink)">Continue with Built-in Study</button>
+                </div>
+              </div>
+              <div id="ss-need-engine" hidden style="margin-top:14px">
+                <div id="ss-need-msg" style="font-size:13px;color:var(--ink);line-height:1.5;margin-bottom:11px">Smart Study needs the free Local AI Engine (Ollama). Install it, then return here.</div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap">
+                  <button id="btn-ss-install-engine" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer;box-shadow:var(--shadow-soft)">Install Local AI Engine</button>
+                  <button id="btn-ss-recheck" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;color:var(--ink)">I've installed it — re-check</button>
+                </div>
+              </div>
+              <div id="ss-progress" hidden style="margin-top:14px">
+                <div style="display:flex;justify-content:space-between;font:500 12px 'JetBrains Mono';color:var(--muted);margin-bottom:6px"><span id="ss-status">Preparing…</span><span id="ss-pct"></span></div>
+                <div style="height:8px;border-radius:5px;overflow:hidden;background:var(--sunk);margin-bottom:11px"><div id="ss-bar" style="width:0%;height:100%;background:var(--orange);transition:width .25s"></div></div>
+                <button id="btn-ss-cancel" class="lp-hit" style="font:600 12px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 14px;cursor:pointer;color:var(--ink)">Cancel</button>
+              </div>
+              <div id="ss-msg" hidden style="margin-top:11px;font:500 12px 'JetBrains Mono';line-height:1.5;color:var(--muted)"></div>
+            </div>
             <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:18px 20px">
               <div style="font:500 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Overview</div>
               <p id="study-overview" style="margin:0;font-size:15px;line-height:1.65">A tour of the Great Pyramid of Giza — how Khufu's builders laid a foundation level to two centimeters, aligned it to true north without a compass, and moved 2.3 million stone blocks around 2560&nbsp;BC.</p>
@@ -264,7 +296,7 @@
             <div style="flex:1;min-height:300px;background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);display:flex;flex-direction:column;overflow:hidden">
               <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:2px solid var(--line)">
                 <div style="display:flex;align-items:center;gap:9px"><div style="width:26px;height:26px;background:var(--orange);border-radius:8px;display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/></svg></div><span style="font-weight:700;font-size:15px">Study assistant</span></div>
-                <span id="ai-status" style="display:flex;align-items:center;gap:6px;font:600 10px 'JetBrains Mono';text-transform:uppercase;background:var(--green-soft);color:var(--green);border:2px solid var(--green);border-radius:7px;padding:4px 9px"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>Local · qwen3:1.7b</span>
+                <span id="ai-status" style="display:flex;align-items:center;gap:6px;font:600 10px 'JetBrains Mono';text-transform:uppercase;background:var(--green-soft);color:var(--green);border:2px solid var(--green);border-radius:7px;padding:4px 9px"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>Built-in Study</span>
               </div>
               <div style="display:flex;gap:4px;padding:9px 12px;border-bottom:2px solid var(--line);background:var(--sunk)">
                 <button class="lp-hit lp-tab active" data-tab="chat">Ask</button>
@@ -378,10 +410,20 @@
             </div>
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:13px"><div style="font-weight:700;font-size:16px">Local AI endpoint</div><span id="ai-endpoint-status" style="display:flex;align-items:center;gap:5px;font:600 10px 'JetBrains Mono';text-transform:uppercase;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>Connected</span></div>
-            <div style="display:flex;gap:10px;margin-bottom:12px"><input id="ai-endpoint-url" type="text" spellcheck="false" value="http://localhost:11434" style="flex:1;font:500 13px 'JetBrains Mono';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--ink)"><button id="btn-test-endpoint" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:10px 16px;cursor:pointer;color:var(--ink)">Test</button></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:9px"><span style="color:var(--muted);white-space:nowrap">Model for corrections &amp; study</span><span id="ai-model-name" style="font:700 12px 'JetBrains Mono'">qwen3:1.7b</span></div>
-            <div style="display:flex;gap:8px;align-items:center"><select id="ai-model-select" style="flex:1;font:600 12px 'JetBrains Mono';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:9px 10px;color:var(--ink);cursor:pointer"><option value="">— refresh to list installed models —</option></select><button id="btn-refresh-models" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:9px 14px;cursor:pointer;color:var(--ink)">Refresh</button></div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="font-weight:700;font-size:16px">Smart Study</div><span id="ai-endpoint-status" style="display:flex;align-items:center;gap:5px;font:600 10px 'JetBrains Mono';text-transform:uppercase;background:var(--secondary-surface);color:var(--secondary-text);border:1.5px solid var(--secondary-border);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--secondary-text)"></span>Built-in Study</span></div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">Optional private local AI for better quizzes, flashcards, and lecture chat. Built-in Study always works without it.</div>
+            <div id="ss-settings-rec" style="font:600 12px 'JetBrains Mono';color:var(--secondary-text);margin-bottom:9px"></div>
+            <div id="ss-settings-seg" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:11px"></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+              <button id="btn-ss-setup" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;box-shadow:var(--shadow-soft)">Set up Smart Study</button>
+              <span id="ss-settings-msg" style="align-self:center;font:500 12px 'JetBrains Mono';color:var(--muted)"></span>
+            </div>
+            <details style="margin-top:8px">
+              <summary style="cursor:pointer;font:600 12px 'JetBrains Mono';color:var(--muted);padding:4px 0">Advanced AI details</summary>
+              <div style="display:flex;gap:10px;margin:12px 0"><input id="ai-endpoint-url" type="text" spellcheck="false" value="http://localhost:11434" style="flex:1;font:500 13px 'JetBrains Mono';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--ink)"><button id="btn-test-endpoint" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:10px 16px;cursor:pointer;color:var(--ink)">Test</button></div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:9px"><span style="color:var(--muted);white-space:nowrap">Installed model</span><span id="ai-model-name" style="font:700 12px 'JetBrains Mono'">—</span></div>
+              <div style="display:flex;gap:8px;align-items:center"><select id="ai-model-select" style="flex:1;font:600 12px 'JetBrains Mono';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:9px 10px;color:var(--ink);cursor:pointer"><option value="">— refresh to list installed models —</option></select><button id="btn-refresh-models" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:9px 14px;cursor:pointer;color:var(--ink)">Refresh</button></div>
+            </details>
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
             <div style="font-weight:700;font-size:16px;margin-bottom:4px">Transcription</div>

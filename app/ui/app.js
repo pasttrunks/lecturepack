@@ -49,7 +49,10 @@
         settings: { count: 10, difficulty: 'Basic', style: 'Term → definition', scope: 'Entire lecture' }
       },
       viewingSlide: 2,
-      updateInfo: null
+      updateInfo: null,
+      smartStudy: null,   // last smart_study payload
+      ssPreset: null,     // user-chosen preset (defaults to recommendation)
+      ssDismissed: false  // user chose "Continue with Built-in Study"
     },
     data: {
       version: '0.0.0',
@@ -926,6 +929,9 @@
     if (name === 'review') {
       requestAnimationFrame(function () { previewCtl.refit(); });
     }
+    if ((name === 'study' || name === 'settings') && lpBridge.connected()) {
+      lpBridge.call('smart_study_status');
+    }
   }
 
   function setTheme(theme) {
@@ -970,6 +976,102 @@
     LP.state.jobsEmpty = empty;
     $('home-jobs').hidden = empty;
     $('home-empty').hidden = !empty;
+  }
+
+  /* ======================= Smart Study ======================= */
+
+  function presetByKey(d, key) {
+    var list = (d && d.presets) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].key === key) return list[i];
+    return null;
+  }
+
+  function ssChosenPreset(d) {
+    var rec = (d && d.recommendation && d.recommendation.recommended) || 'balanced';
+    var key = LP.state.ssPreset || (d && d.preset) || rec;
+    if (!presetByKey(d, key)) key = rec;
+    return key;
+  }
+
+  function renderSmartStudy(d) {
+    if (!d) return;
+    LP.state.smartStudy = d;
+    var banner = $('smart-study-banner');
+    var seg = $('ss-preset-seg');
+    var setSeg = $('ss-settings-seg');
+    if (!banner) return;
+
+    // Build the preset chooser (both the banner and the settings card share logic).
+    var chosen = ssChosenPreset(d);
+    function segButtons(container, small) {
+      if (!container) return;
+      var list = (d.presets) || [];
+      container.innerHTML = list.map(function (p) {
+        var on = p.key === chosen;
+        var pad = small ? '7px 11px' : '9px 13px';
+        var css = 'flex:1;min-width:120px;text-align:left;font:600 12px \'Space Grotesk\';padding:' + pad + ';border-radius:9px;cursor:pointer;border:2px solid '
+          + (on ? 'var(--orange)' : 'var(--line)') + ';background:' + (on ? 'var(--orange-soft)' : 'var(--panel)') + ';color:' + (on ? 'var(--orange-ink)' : 'var(--ink)');
+        var rec = p.recommended ? ' <span style="font:600 9px \'JetBrains Mono\';color:var(--orange-ink)">· RECOMMENDED</span>' : '';
+        return '<button class="lp-hit" data-ss-preset="' + p.key + '" style="' + css + '">'
+          + esc(p.label) + rec
+          + '<div style="font:500 10px \'JetBrains Mono\';color:var(--muted);margin-top:3px">~' + p.approx_gb + ' GB · ' + esc(p.blurb) + '</div></button>';
+      }).join('');
+      Array.prototype.forEach.call(container.querySelectorAll('[data-ss-preset]'), function (b) {
+        b.addEventListener('click', function () {
+          LP.state.ssPreset = b.dataset.ssPreset;
+          if (lpBridge.connected()) lpBridge.call('set_study_preset', b.dataset.ssPreset);
+          renderSmartStudy(LP.state.smartStudy);
+        });
+      });
+    }
+    segButtons(seg, false);
+    segButtons(setSeg, true);
+
+    // Recommendation copy.
+    var cp = presetByKey(d, chosen) || {};
+    var recNote = (d.recommendation && d.recommendation.note) || '';
+    if ($('ss-rec-text')) $('ss-rec-text').textContent =
+      'Recommended for this computer: ' + (cp.label || 'Balanced Study') + ' · approximately ' + (cp.approx_gb || 2.5) + ' GB';
+    if ($('ss-settings-rec')) $('ss-settings-rec').textContent = recNote;
+
+    // Settings-card status line + badge.
+    var epStatus = $('ai-endpoint-status');
+    if (epStatus) {
+      var prov = d.provider || 'Built-in Study';
+      var good = prov !== 'Built-in Study';
+      var c = good ? 'var(--green)' : 'var(--secondary-text)';
+      epStatus.style.color = c; epStatus.style.borderColor = good ? 'var(--green)' : 'var(--secondary-border)';
+      epStatus.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:' + c + '"></span>' + esc(prov + (d.ready && d.model ? ' · ' + d.model : ''));
+    }
+    if ($('ss-settings-msg')) $('ss-settings-msg').textContent =
+      d.state === 'downloading' ? (d.message || 'Downloading…') :
+      d.ready ? 'Ready.' : (d.message || '');
+
+    // State machine drives which sub-panel of the banner shows.
+    var st = d.state || 'idle';
+    var showBanner = !d.ready && !LP.state.ssDismissed;
+    banner.hidden = !showBanner;
+    var intro = $('ss-intro'), need = $('ss-need-engine'), prog = $('ss-progress'), msg = $('ss-msg');
+    intro.hidden = !(st === 'idle' || st === 'error' || st === 'cancelled');
+    need.hidden = st !== 'need_engine';
+    prog.hidden = !(st === 'downloading' || st === 'testing');
+    if (st === 'downloading' || st === 'testing') {
+      var pct = (typeof d.percent === 'number') ? d.percent : null;
+      $('ss-bar').style.width = (pct != null ? pct : (st === 'testing' ? 100 : 3)) + '%';
+      $('ss-status').textContent = d.message || (st === 'testing' ? 'Testing…' : 'Downloading…');
+      $('ss-pct').textContent = pct != null ? Math.round(pct) + '%' : '';
+    }
+    if (msg) {
+      var showMsg = (st === 'error' || st === 'cancelled') && d.message;
+      msg.hidden = !showMsg;
+      if (showMsg) { msg.textContent = d.message; msg.style.color = st === 'error' ? 'var(--red)' : 'var(--muted)'; }
+    }
+    if (st === 'ready') toast('Smart Study ready · ' + (d.model || ''));
+  }
+
+  function ssInstall() {
+    if (!lpBridge.connected()) { toast('Preview mode — Smart Study needs the app'); return; }
+    lpBridge.call('install_smart_study', ssChosenPreset(LP.state.smartStudy) || 'balanced');
   }
 
   /* ======================= chat ======================= */
@@ -1193,6 +1295,23 @@
       if (lpBridge.connected()) { lpBridge.call('check_updates'); }
       else { setTimeout(function () { $('update-status').textContent = 'Up to date (browser preview)'; }, 600); }
     });
+
+    // Smart Study setup (§5): install flow + built-in continue + engine install.
+    function ssBind(id, fn) { var el = $(id); if (el) el.addEventListener('click', fn); }
+    ssBind('btn-ss-install', ssInstall);
+    ssBind('btn-ss-recheck', ssInstall);
+    ssBind('btn-ss-setup', function () { setScreen('study'); setStudyTab('quiz'); ssInstall(); });
+    ssBind('btn-ss-install-engine', function () {
+      if (lpBridge.connected()) lpBridge.call('launch_ollama_installer');
+      else toast('Preview mode — get Ollama from ollama.com/download');
+    });
+    ssBind('btn-ss-cancel', function () { if (lpBridge.connected()) lpBridge.call('cancel_smart_study'); });
+    function ssContinue() {
+      LP.state.ssDismissed = true;
+      var b = $('smart-study-banner'); if (b) b.hidden = true;
+    }
+    ssBind('btn-ss-continue', ssContinue);
+    ssBind('btn-ss-continue2', ssContinue);
 
     // home / import
     var dz = $('dropzone');
@@ -1536,13 +1655,17 @@
     });
     lpBridge.on('ai_status', function (json) {
       var s = JSON.parse(json);
-      var lbl = s.label || 'Local';
-      var txt = lbl + (s.model && s.model !== '—' && lbl !== 'AI off' ? ' · ' + s.model : '');
-      var off = lbl === 'AI off' || lbl === 'Unavailable' || lbl === 'AI error';
-      var col = off ? 'var(--muted)' : 'var(--green)';
+      var lbl = s.label || 'Built-in Study';
+      var builtin = lbl === 'Built-in Study';
+      var err = lbl === 'AI error';
+      var txt = lbl + (s.model && s.model !== '—' && !builtin ? ' · ' + s.model : '');
+      var col = builtin ? 'var(--secondary-text)' : (err ? 'var(--muted)' : 'var(--green)');
       $('ai-status').style.color = col; $('ai-status').style.borderColor = col;
       $('ai-status').innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:' + col + '"></span>' + esc(txt);
       if (s.model) $('ai-model-name').textContent = s.model;
+    });
+    lpBridge.on('smart_study', function (json) {
+      try { renderSmartStudy(JSON.parse(json)); } catch (e) { console.error('smart_study', e); }
     });
     lpBridge.on('onboarding', function (json) {
       var d = JSON.parse(json);

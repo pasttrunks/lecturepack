@@ -121,6 +121,21 @@ class EngineAdapter(QObject):
     def validate_vulkan(self) -> None:
         """Report compute-backend availability/selection; emit vulkan_status."""
 
+    def smart_study_status(self) -> None:
+        """Emit a Smart Study snapshot (presets, RAM recommendation, provider)."""
+
+    def set_study_preset(self, preset: str) -> None:
+        """Persist the chosen study model preset (Lightweight/Balanced/custom)."""
+
+    def install_smart_study(self, preset: str) -> None:
+        """Optional Smart Study setup: ensure/download + test a local model."""
+
+    def cancel_smart_study(self) -> None:
+        """Cancel an in-flight Smart Study setup."""
+
+    def launch_ollama_installer(self) -> None:
+        """Open the official Ollama installer/download page in the browser."""
+
     def set_groq_key(self, key: str) -> None:
         """Store the Groq API key in the OS credential manager; emit groq_status."""
 
@@ -283,6 +298,8 @@ from lecturepack.models.job import Job
 from lecturepack.services import study_service, transcript_store
 from lecturepack.services import study_assistant_service as sas
 from lecturepack.services.export_service import ExportWorker
+
+from . import smart_study
 
 
 _MODE_MAP = {
@@ -654,6 +671,7 @@ class LecturePackAdapter(EngineAdapter):
         self._probe_ollama_async()
         self.validate_vulkan()
         self._emit_groq_status()
+        self.smart_study_status()
         # Show the most recent completed job's data so Review/Transcript/Study
         # aren't empty on launch.
         self._load_latest_completed_job()
@@ -710,7 +728,7 @@ class LecturePackAdapter(EngineAdapter):
             from . import version
             return version.__version__
         except Exception:
-            return "1.2.0"
+            return "0.9.0-beta.1"
 
     def _load_latest_completed_job(self):
         jobs_dir = os.path.join(self.config.data_dir, "jobs")
@@ -1265,17 +1283,29 @@ class LecturePackAdapter(EngineAdapter):
     def ask_ai(self, prompt: str):
         job = self.current_job
         o = self._ollama_settings()
-        if not (o.get("enabled") and o.get("model")):
-            self._emit("ai_token", "Local AI is off. Enable Ollama in Settings "
-                       "(Local AI endpoint) to use the study assistant.")
-            self.backend.ai_done.emit()
-            return
+        local_ready = bool(o.get("enabled") and o.get("model"))
         if job is None:
             self._emit("ai_token", "Open or process a lecture first, then ask away.")
             self.backend.ai_done.emit()
             return
-        segments = transcript_store.load_working(job.paths)
-        transcript_text = sas.transcript_context(segments or [])
+        segments = transcript_store.load_working(job.paths) or []
+        if not local_ready:
+            # Built-in Study: with no local model, answer extractively from the
+            # lecture transcript (source-linked recall) so Ask is never a dead
+            # control (§8/§12 — lecture-only, cites timestamps).
+            answer = self._builtin_answer(prompt, segments)
+            self._chat_history.append({"role": "user", "text": prompt})
+            self._chat_history.append({"role": "assistant", "text": answer})
+            self._emit("ai_token", answer)
+            self.backend.ai_done.emit()
+            self._emit("ai_status", {"label": smart_study.PROVIDER_BUILTIN, "model": ""})
+            try:
+                study_service.append_chat_message(job, "user", prompt)
+                study_service.append_chat_message(job, "assistant", answer)
+            except Exception:
+                pass
+            return
+        transcript_text = sas.transcript_context(segments)
         self._emit("ai_status", {"label": "Thinking…", "model": o.get("model")})
         worker = sas.StudyAssistantWorker(
             "chat", transcript_text, o,
@@ -1289,7 +1319,7 @@ class LecturePackAdapter(EngineAdapter):
             self._chat_history.append({"role": "assistant", "text": answer})
             self._emit("ai_token", answer)
             self.backend.ai_done.emit()
-            self._emit("ai_status", {"label": "Local", "model": o.get("model")})
+            self._emit("ai_status", {"label": smart_study.PROVIDER_LOCAL, "model": o.get("model")})
             if job is not None:
                 try:
                     study_service.append_chat_message(job, "user", prompt)
@@ -1305,6 +1335,42 @@ class LecturePackAdapter(EngineAdapter):
         worker.finished_ok.connect(ok)
         worker.failed.connect(fail)
         worker.start()
+
+    _BUILTIN_STOPWORDS = frozenset(
+        "the a an and or of to in on for with is are was were be been being this that "
+        "these those it its as at by from what which who whom how why when where does do "
+        "did can could should would will about into over under than then them they you "
+        "your our his her their my me we he she i".split())
+
+    def _builtin_answer(self, prompt: str, segments: list) -> str:
+        """Extractive, lecture-only answer used when no local AI model is set.
+
+        Scores transcript segments by keyword overlap with the question and
+        returns the best-matching timestamped snippets (source-linked recall),
+        clearly labelled as Built-in Study rather than posing as generated text.
+        """
+        terms = [w for w in re.findall(r"[a-z0-9]{3,}", (prompt or "").lower())
+                 if w not in self._BUILTIN_STOPWORDS]
+        scored = []
+        for s in segments:
+            text = str(s.get("text") or "").strip()
+            if not text:
+                continue
+            low = text.lower()
+            score = sum(low.count(t) for t in terms) if terms else 0
+            if score > 0:
+                scored.append((score, float(s.get("start", 0.0) or 0.0), text))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        top = scored[:3]
+        if not top:
+            return ("Built-in Study couldn't find that in this lecture's transcript. "
+                    "Try different keywords, or set up Smart Study in Settings for "
+                    "conversational answers.")
+        lines = [f"• [{_fmt_mmss(start)}] {text}" for _score, start, text in top]
+        return ("Built-in Study — from the lecture transcript:\n\n"
+                + "\n\n".join(lines)
+                + "\n\nSet up Smart Study in Settings for conversational, "
+                  "AI-written answers.")
 
     # ------------------------------------------------------------------ quiz
     def _save_quiz(self, job, questions, meta, provider, model, reset_session=True):
@@ -1367,7 +1433,7 @@ class LecturePackAdapter(EngineAdapter):
             except Exception:
                 terms = []
             deliver(_fallback_quiz_questions(terms, count, _sentences(segments)),
-                    "Built-in (no AI)")
+                    smart_study.PROVIDER_BUILTIN)
 
         if not (o.get("enabled") and o.get("model")):
             do_fallback()
@@ -1381,7 +1447,7 @@ class LecturePackAdapter(EngineAdapter):
         def ok(task, result):
             qs = (result or {}).get("questions") if isinstance(result, dict) else None
             if qs:
-                deliver(qs, "Local", o.get("model", ""))
+                deliver(qs, smart_study.PROVIDER_LOCAL, o.get("model", ""))
             else:
                 do_fallback()
 
@@ -1476,7 +1542,7 @@ class LecturePackAdapter(EngineAdapter):
             except Exception:
                 terms = []
             deliver(_fallback_flashcards(terms, count, _sentences(segments)),
-                    "Built-in (no AI)")
+                    smart_study.PROVIDER_BUILTIN)
 
         if not (o.get("enabled") and o.get("model")):
             do_fallback()
@@ -1489,7 +1555,7 @@ class LecturePackAdapter(EngineAdapter):
 
         def ok(task, result):
             cards = (result or {}).get("cards") if isinstance(result, dict) else None
-            deliver(cards, "Local", o.get("model", "")) if cards else do_fallback()
+            deliver(cards, smart_study.PROVIDER_LOCAL, o.get("model", "")) if cards else do_fallback()
 
         def fail(kind, message, details):
             self._log("[ai]", f"flashcard gen failed ({kind}) — using built-in fallback", "ai")
@@ -1678,6 +1744,182 @@ class LecturePackAdapter(EngineAdapter):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    # ------------------------------------------------------------- Smart Study
+    def _study_preset(self) -> str:
+        stored = self.config.get("study_preset", "") or ""
+        if stored in (smart_study.PRESET_LIGHTWEIGHT, smart_study.PRESET_BALANCED,
+                      smart_study.PRESET_CUSTOM):
+            return stored
+        return smart_study.preset_for_model(self._ollama_settings().get("model", ""))
+
+    def _smart_study_payload(self, state="idle", message="", pct=None,
+                             ollama=None, installed=None, ram_gb=None):
+        o = self._ollama_settings()
+        model = o.get("model", "")
+        ram = smart_study.usable_ram_gb() if ram_gb is None else ram_gb
+        installed = installed or []
+        ready = bool(o.get("enabled") and model and model in installed
+                     and ollama and ollama.get("available"))
+        return {
+            "state": state,
+            "message": message,
+            "percent": pct,
+            "ram_gb": ram,
+            "recommendation": smart_study.recommend_preset(ram),
+            "presets": smart_study.preset_list(),
+            "preset": self._study_preset(),
+            "model": model,
+            "enabled": bool(o.get("enabled")),
+            "ready": ready,
+            "smart_study_ready": bool(self.config.get("smart_study_ready", False)),
+            "ollama": ollama or {"available": False},
+            "installed_models": installed,
+            "provider": smart_study.PROVIDER_LOCAL if ready else smart_study.PROVIDER_BUILTIN,
+        }
+
+    def smart_study_status(self):
+        """Probe Ollama + installed models and emit a full Smart Study snapshot."""
+        base = self._ollama_settings().get("base_url") or "http://localhost:11434"
+
+        def worker():
+            ollama = {"available": False}
+            installed = []
+            try:
+                from lecturepack.infrastructure.ollama_client import OllamaClient
+                c = OllamaClient(base)
+                ollama = c.is_available()
+                if ollama.get("available"):
+                    installed = [m["name"] for m in c.list_models()]
+            except Exception as exc:
+                ollama = {"available": False, "error": str(exc)}
+            self._emit("smart_study",
+                       self._smart_study_payload(ollama=ollama, installed=installed))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def set_study_preset(self, preset: str):
+        """Persist the chosen Smart Study preset + its model. No download here."""
+        o = dict(self.config.get("ollama", {}) or {})
+        if preset in (smart_study.PRESET_LIGHTWEIGHT, smart_study.PRESET_BALANCED):
+            o["model"] = smart_study.model_for_preset(preset)
+            o["enabled"] = True
+            self.config.set("study_preset", preset)
+        else:
+            self.config.set("study_preset", smart_study.PRESET_CUSTOM)
+        self.config.set("ollama", o)
+        self._emit("settings_changed", self._settings_payload())
+        self._probe_ollama_async()
+        self.smart_study_status()
+
+    def cancel_smart_study(self):
+        ev = getattr(self, "_smart_study_cancel", None)
+        if ev is not None:
+            ev.set()
+
+    def launch_ollama_installer(self):
+        """Open the official Ollama download page in the browser.
+
+        We deliberately do NOT download or execute the installer ourselves — the
+        user runs the official installer, keeping LecturePack out of the business
+        of fetching and running third-party binaries.
+        """
+        try:
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl(smart_study.OLLAMA_DOWNLOAD_URL))
+        except Exception:
+            try:
+                import webbrowser
+                webbrowser.open(smart_study.OLLAMA_DOWNLOAD_URL)
+            except Exception:
+                pass
+        self._emit("smart_study", self._smart_study_payload(
+            state="need_engine",
+            message=("Opened the official Ollama download page. Install Ollama, "
+                     "then press Install Smart Study again.")))
+
+    def install_smart_study(self, preset: str):
+        """One-action Smart Study setup: ensure the preset's model is present,
+        test it, and persist — all off the UI thread with progress + cancel."""
+        if preset not in (smart_study.PRESET_LIGHTWEIGHT, smart_study.PRESET_BALANCED):
+            preset = self._study_preset()
+        if preset not in (smart_study.PRESET_LIGHTWEIGHT, smart_study.PRESET_BALANCED):
+            preset = smart_study.recommend_preset(smart_study.usable_ram_gb())["recommended"]
+        label = smart_study.STUDY_PRESETS[preset]["label"]
+        model = smart_study.model_for_preset(preset)
+        cancel = threading.Event()
+        self._smart_study_cancel = cancel
+        base = self._ollama_settings().get("base_url") or "http://localhost:11434"
+
+        def emit(state, message="", pct=None, **extra):
+            payload = self._smart_study_payload(state=state, message=message, pct=pct)
+            payload.update(extra)
+            payload["preset"] = preset
+            self._emit("smart_study", payload)
+
+        def worker():
+            from lecturepack.infrastructure.ollama_client import (
+                OllamaClient, OllamaError, OllamaCancelled)
+            c = OllamaClient(base)
+            if not c.is_available().get("available"):
+                emit("need_engine",
+                     "Local AI Engine (Ollama) isn't installed or running. "
+                     "Install it to enable Smart Study.")
+                return
+            try:
+                installed = [m["name"] for m in c.list_models()]
+            except Exception:
+                installed = []
+            if model not in installed:
+                emit("downloading", f"Downloading {label}…", 0.0)
+                last = {"pct": -5.0}
+
+                def on_prog(p):
+                    if cancel.is_set():
+                        return
+                    pct = p.get("percent")
+                    if pct is None or pct - last["pct"] >= 1.0 or pct >= 100:
+                        last["pct"] = pct if pct is not None else last["pct"]
+                        emit("downloading", f"Downloading {label}…",
+                             round(pct, 1) if pct is not None else None,
+                             status=p.get("status", ""))
+
+                try:
+                    c.pull_model(model, on_progress=on_prog, cancel_event=cancel)
+                except OllamaCancelled:
+                    emit("cancelled", "Smart Study setup cancelled.")
+                    return
+                except OllamaError as exc:
+                    emit("error", f"Download failed: {exc}")
+                    return
+            emit("testing", f"Testing {label}…")
+            try:
+                res = c.chat_structured(
+                    model, "Reply with compact JSON only.", 'Return {"ok": true}.',
+                    {"type": "object", "properties": {"ok": {"type": "boolean"}},
+                     "required": ["ok"]},
+                    num_predict=32, keep_alive="5m", cancel_event=cancel, timeout=90.0)
+                json.loads(res.get("content", "") or "{}")
+            except OllamaCancelled:
+                emit("cancelled", "Smart Study setup cancelled.")
+                return
+            except Exception as exc:
+                emit("error", f"The model downloaded but the test request failed: {exc}")
+                return
+            o = dict(self.config.get("ollama", {}) or {})
+            o["model"] = model
+            o["enabled"] = True
+            self.config.set("ollama", o)
+            self.config.set("study_preset", preset)
+            self.config.set("smart_study_ready", True)
+            self._emit("settings_changed", self._settings_payload())
+            self._probe_ollama_async()
+            emit("ready", f"Smart Study ready — {label}.")
+            # Refresh the full snapshot (installed list now includes the model).
+            self.smart_study_status()
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _probe_ollama_async(self, announce: bool = False):
         o = self._ollama_settings()
         base = o.get("base_url") or "http://localhost:11434"
@@ -1690,12 +1932,14 @@ class LecturePackAdapter(EngineAdapter):
             except Exception as exc:
                 probe = {"available": False, "error": str(exc)}
             if probe.get("available") and o.get("enabled") and model:
-                self._emit("ai_status", {"label": "Local", "model": model})
+                self._emit("ai_status", {"label": smart_study.PROVIDER_LOCAL, "model": model})
                 if announce:
                     self._emit("settings_changed", {"update_status": ""})
             else:
-                label = "AI off" if not o.get("enabled") else "Unavailable"
-                self._emit("ai_status", {"label": label, "model": model or "—"})
+                # Built-in Study is always usable — never present the study
+                # assistant as "off" or a dead control (§8).
+                self._emit("ai_status", {
+                    "label": smart_study.PROVIDER_BUILTIN, "model": model or ""})
 
         threading.Thread(target=worker, daemon=True).start()
 

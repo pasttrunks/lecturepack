@@ -96,7 +96,7 @@ def adapter(tmp_path, monkeypatch):
 def test_generate_flashcards_fallback_when_ai_off(adapter):
     adapter.generate_flashcards(json.dumps({"count": 4}))
     changed = _last(adapter.backend.flashcards_changed)
-    assert changed["provider"] == "Built-in (no AI)"
+    assert changed["provider"] == "Built-in Study"
     assert len(changed["cards"]) == 4
     assert _last(adapter.backend.flashcards_status)["state"] == "ready"
     stored = study_service.load_study_data(adapter.current_job)["flashcards"]
