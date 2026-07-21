@@ -8,6 +8,25 @@ Concise log of decisions + evidence. Newest first.
 
 ---
 
+## §3 — Vulkan validation + backend truthfulness (DONE; Vulkan confirmed working)
+
+Vulkan is genuinely available on this machine: both whisper-cli binaries present,
+registry resolves `auto`/`vulkan` → Vulkan ("benchmarked faster"), and the real
+Mesopotamia job transcribed with `backend_used: "Vulkan (Vulkan0)"`.
+
+Added `validate_vulkan()` (adapter) using `EngineRegistry.detect_engines()`/
+`resolve()` → emits `vulkan_status` with honest state (loaded / available /
+unavailable+reason / error) + resolved backend; emitted on UI ready and on engine
+change. Settings gains a **Validate** button + `#vulkan-status` line; footer shows
+actual loaded backend. Bridge `vulkan_status` signal + `validate_vulkan` slot.
+
+**Files:** `engine_adapter.py`, `bridge.py`, `bridge.js`, `index.html`, `app.js`.
+Tests: `tests/test_webview_vulkan.py` (3, registry monkeypatched). Evidence:
+`docs/evidence/.../vulkan/` (real detection JSON). Live CPU-vs-Vulkan wall-time
+benchmark is user-runnable (writes a job) — not fabricated.
+
+---
+
 ## §10 — Dark-theme secondary palette (DONE)
 
 Replaced jarring bright-cyan filled controls (white text on `var(--blue)`) with

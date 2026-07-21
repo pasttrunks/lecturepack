@@ -49,6 +49,7 @@ class Backend(QObject):
     quiz_status = Signal(str)
     flashcards_changed = Signal(str)
     flashcards_status = Signal(str)
+    vulkan_status = Signal(str)
 
     def __init__(self, window):
         super().__init__()
@@ -96,6 +97,10 @@ class Backend(QObject):
     @Slot()
     def test_endpoint(self):
         self._adapter.test_endpoint()
+
+    @Slot()
+    def validate_vulkan(self):
+        self._adapter.validate_vulkan()
 
     @Slot()
     def list_ollama_models(self):

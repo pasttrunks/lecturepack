@@ -118,6 +118,9 @@ class EngineAdapter(QObject):
     def list_ollama_models(self) -> None:
         """List installed Ollama models; emit ollama_models({models, selected})."""
 
+    def validate_vulkan(self) -> None:
+        """Report compute-backend availability/selection; emit vulkan_status."""
+
     def generate_quiz(self, opts) -> None:
         """Generate a quiz (AI or deterministic fallback); emit quiz_changed/quiz_status."""
 
@@ -639,6 +642,7 @@ class LecturePackAdapter(EngineAdapter):
         self._emit("settings_changed", self._settings_payload())
         self._push_jobs()
         self._probe_ollama_async()
+        self.validate_vulkan()
         # Show the most recent completed job's data so Review/Transcript/Study
         # aren't empty on launch.
         self._load_latest_completed_job()
@@ -669,6 +673,7 @@ class LecturePackAdapter(EngineAdapter):
             engine = value if value in ("auto", "cpu", "vulkan") else "auto"
             self.config.set("engine", engine)
             self._log("[engine]", f"compute engine set to {engine}", "engine")
+            self.validate_vulkan()
         elif key == "whisper_model":
             self.config.set("whisper_model", value)
         elif key == "ollama_base_url":
@@ -1505,6 +1510,42 @@ class LecturePackAdapter(EngineAdapter):
     # ------------------------------------------------------------------ settings / misc
     def test_endpoint(self):
         self._probe_ollama_async(announce=True)
+
+    def validate_vulkan(self):
+        """Report the honest Vulkan/compute-backend state (never silently CPU).
+
+        Uses the engine registry's real detection + selection so the UI can show
+        available / selected / loaded / unavailable-with-reason, and which backend
+        the current ``engine`` setting will actually resolve to.
+        """
+        try:
+            from lecturepack.infrastructure.transcription_engines import (
+                EngineRegistry, ENGINE_VULKAN)
+            reg = EngineRegistry(self.config)
+            vk = reg.detect_engines().get(ENGINE_VULKAN)
+            requested = self.config.get("engine", "auto")
+            resolved = reg.resolve(requested)
+            avail = bool(vk and vk.available)
+            selected = resolved.key == ENGINE_VULKAN
+            if not avail:
+                state = "unavailable"
+                msg = f"Vulkan unavailable — {(vk.reason if vk else 'not detected')}"
+            elif selected:
+                state = "loaded"
+                msg = f"Vulkan available and selected — will load {resolved.backend}"
+            else:
+                state = "available"
+                msg = f"Vulkan available but not selected — currently using {resolved.backend}"
+            self._emit("vulkan_status", {
+                "state": state, "message": msg, "available": avail,
+                "selected": selected, "reason": (vk.reason if vk else ""),
+                "requested": requested, "resolved_backend": resolved.backend,
+                "resolved_label": resolved.label,
+                "benchmark_ok": bool(self.config.get("vulkan_benchmark_ok", False)),
+                "exe": (vk.exe_path if vk else "")})
+        except Exception as exc:  # pragma: no cover - defensive
+            self._emit("vulkan_status", {"state": "error",
+                       "message": f"Vulkan check failed: {exc}"})
 
     def list_ollama_models(self):
         """Fetch installed Ollama models (/api/tags) and emit them for the

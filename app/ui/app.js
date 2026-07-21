@@ -1135,6 +1135,11 @@
     $('compute-gpu').addEventListener('click', function () {
       reflectEngine('vulkan'); lpBridge.call('set_setting', 'engine', 'vulkan');
     });
+    $('btn-validate-vulkan').addEventListener('click', function () {
+      $('vulkan-status').textContent = 'Checking compute backend…';
+      $('vulkan-status').style.color = 'var(--muted)';
+      if (lpBridge.connected()) lpBridge.call('validate_vulkan');
+    });
 
     // Local AI endpoint — editable, committed on blur / Enter.
     var epEl = $('ai-endpoint-url');
@@ -1489,6 +1494,13 @@
     lpBridge.on('ai_token', function (text) { appendAiText(text, false); });
     lpBridge.on('ai_done', function () {
       LP.state.streaming = false; renderChat();
+    });
+    lpBridge.on('vulkan_status', function (json) {
+      var d = JSON.parse(json), el = $('vulkan-status');
+      if (!el) return;
+      el.textContent = d.message || '';
+      el.style.color = (d.state === 'loaded' || d.state === 'available') ? 'var(--secondary-text)'
+        : (d.state === 'unavailable' || d.state === 'error') ? 'var(--muted)' : 'var(--muted)';
     });
     lpBridge.on('ai_status', function (json) {
       var s = JSON.parse(json);

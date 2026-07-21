@@ -22,7 +22,8 @@ window.lpBridge = (function () {
     'ai_token', 'ai_done', 'ai_status', 'onboarding',
     'update_available', 'update_progress', 'update_ready', 'update_error', 'whatsnew',
     'settings_changed', 'ollama_models', 'job_deleted',
-    'quiz_changed', 'quiz_status', 'flashcards_changed', 'flashcards_status'
+    'quiz_changed', 'quiz_status', 'flashcards_changed', 'flashcards_status',
+    'vulkan_status'
   ];
 
   function connectQt() {
