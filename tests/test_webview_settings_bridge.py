@@ -40,6 +40,7 @@ class _FakeBackend:
         self.ai_status = _Signal()
         self.ollama_models = _Signal()
         self.vulkan_status = _Signal()  # on_setting_changed('engine') triggers validate_vulkan
+        self.cuda_status = _Signal()     # ...and validate_cuda
 
 
 def _make_adapter(tmp_path):

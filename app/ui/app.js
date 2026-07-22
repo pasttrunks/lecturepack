@@ -937,6 +937,7 @@
         if (!json) return;
         try { renderUpdaterState(JSON.parse(json)); } catch (e) {}
       });
+      lpBridge.call('cuda_pack_status');
     }
   }
 
@@ -1304,31 +1305,39 @@
 
     // Compute engine (CPU / Vulkan) — reflects the persisted engine and writes
     // it back so a Vulkan selection actually reaches the transcription backend.
+    var COMPUTE_IDS = { cpu: 'compute-cpu', cuda: 'compute-cuda', vulkan: 'compute-gpu' };
     function reflectEngine(engine) {
-      var isGpu = engine === 'vulkan';
-      var cpu = $('compute-cpu'), gpu = $('compute-gpu');
-      if (!cpu || !gpu) return;
-      cpu.style.background = isGpu ? 'transparent' : 'var(--secondary-surface)';
-      cpu.style.color = isGpu ? 'var(--muted)' : 'var(--secondary-text)';
-      cpu.style.border = '1.5px solid ' + (isGpu ? 'var(--line)' : 'var(--secondary-border)');
-      cpu.style.fontWeight = isGpu ? '500' : '700';
-      cpu.style.cursor = 'pointer';
-      gpu.style.background = isGpu ? 'var(--secondary-surface)' : 'transparent';
-      gpu.style.color = isGpu ? 'var(--secondary-text)' : 'var(--muted)';
-      gpu.style.border = '1.5px solid ' + (isGpu ? 'var(--secondary-border)' : 'var(--line)');
-      gpu.style.fontWeight = isGpu ? '700' : '500';
+      Object.keys(COMPUTE_IDS).forEach(function (k) {
+        var el = $(COMPUTE_IDS[k]); if (!el) return;
+        var on = engine === k;
+        el.style.background = on ? 'var(--secondary-surface)' : 'transparent';
+        el.style.color = on ? 'var(--secondary-text)' : 'var(--muted)';
+        el.style.border = '1.5px solid ' + (on ? 'var(--secondary-border)' : 'var(--line)');
+        el.style.fontWeight = on ? '700' : '500';
+        el.style.cursor = 'pointer';
+      });
     }
-    $('compute-cpu').classList.add('lp-hit');
-    $('compute-cpu').addEventListener('click', function () {
-      reflectEngine('cpu'); lpBridge.call('set_setting', 'engine', 'cpu');
-    });
-    $('compute-gpu').addEventListener('click', function () {
-      reflectEngine('vulkan'); lpBridge.call('set_setting', 'engine', 'vulkan');
+    Object.keys(COMPUTE_IDS).forEach(function (k) {
+      var el = $(COMPUTE_IDS[k]); if (!el) return;
+      el.classList.add('lp-hit');
+      el.addEventListener('click', function () {
+        reflectEngine(k); lpBridge.call('set_setting', 'engine', k);
+      });
     });
     $('btn-validate-vulkan').addEventListener('click', function () {
-      $('vulkan-status').textContent = 'Checking compute backend…';
-      $('vulkan-status').style.color = 'var(--muted)';
-      if (lpBridge.connected()) lpBridge.call('validate_vulkan');
+      ['vulkan-status', 'cuda-status'].forEach(function (id) {
+        var el = $(id); if (el) { el.textContent = 'Checking compute backend…'; el.style.color = 'var(--muted)'; }
+      });
+      if (lpBridge.connected()) { lpBridge.call('validate_vulkan'); lpBridge.call('validate_cuda'); }
+    });
+    $('btn-cuda-pack-install').addEventListener('click', function () {
+      if (!lpBridge.connected()) { toast('Preview mode — needs the app'); return; }
+      $('cuda-pack-progress').hidden = false; this.disabled = true;
+      $('cuda-pack-label').textContent = 'Starting download…';
+      lpBridge.call('install_cuda_pack');
+    });
+    $('btn-cuda-pack-cancel').addEventListener('click', function () {
+      if (lpBridge.connected()) lpBridge.call('cancel_cuda_pack');
     });
 
     // Transcription backend selector (Private Local / Online Fast|Accurate).
@@ -1763,6 +1772,41 @@
       el.textContent = d.message || '';
       el.style.color = (d.state === 'loaded' || d.state === 'available') ? 'var(--secondary-text)'
         : (d.state === 'unavailable' || d.state === 'error') ? 'var(--muted)' : 'var(--muted)';
+    });
+    lpBridge.on('cuda_status', function (json) {
+      var d = JSON.parse(json), el = $('cuda-status');
+      if (!el) return;
+      el.textContent = d.message || '';
+      el.style.color = (d.state === 'loaded' || d.state === 'available') ? 'var(--secondary-text)' : 'var(--muted)';
+    });
+    lpBridge.on('cuda_pack', function (json) {
+      var d; try { d = JSON.parse(json); } catch (e) { return; }
+      var box = $('cuda-pack'); if (!box) return;
+      var st = d.state;
+      var busy = st === 'downloading' || st === 'verifying' || st === 'installing';
+      // Offer the pack only on an NVIDIA machine that hasn't installed it yet.
+      var show = d.gpu_present && (!d.installed || busy || st === 'error' || st === 'cancelled');
+      box.hidden = !show;
+      if (!show) return;
+      $('cuda-pack-progress').hidden = !busy;
+      $('btn-cuda-pack-install').disabled = busy;
+      var note = $('cuda-pack-note');
+      if (st === 'downloading') {
+        $('cuda-pack-bar').style.width = (d.percent || 0) + '%';
+        $('cuda-pack-label').textContent = 'Downloading… ' + (typeof d.percent === 'number' ? Math.round(d.percent) + '%' : '');
+        note.textContent = '';
+      } else if (busy) {
+        $('cuda-pack-label').textContent = d.message || 'Working…';
+      } else if (st === 'ready') {
+        box.hidden = true; toast('CUDA acceleration installed');
+      } else if (st === 'error') {
+        note.textContent = d.message || 'Failed'; note.style.color = 'var(--red)';
+      } else if (st === 'cancelled') {
+        note.textContent = d.message || 'Cancelled'; note.style.color = 'var(--muted)';
+      } else {
+        note.textContent = d.size_label ? ('Optional · ' + d.size_label + ' · NVIDIA only') : '';
+        note.style.color = 'var(--muted)';
+      }
     });
     lpBridge.on('ai_status', function (json) {
       var s = JSON.parse(json);
