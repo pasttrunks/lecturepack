@@ -9,6 +9,18 @@ Turn a lecture recording into a synchronized, editable study workspace — compl
 ![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
+<p align="center">
+  <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.1/LecturePack-0.9.0-beta.1-Setup.exe">
+    <img src="https://img.shields.io/badge/⬇%20Download%20for%20Windows-Setup.exe%20·%20Public%20Beta-2ea44f?style=for-the-badge&logo=windows&logoColor=white" alt="Download LecturePack for Windows" height="46">
+  </a>
+</p>
+<p align="center">
+  <sub>Windows 10/11 · per-user install, no admin required · also available as a
+  <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.1/LecturePack-0.9.0-beta.1-Portable.zip">Portable ZIP</a> ·
+  <a href="https://github.com/pasttrunks/lecturepack/releases">all releases</a> ·
+  verify with <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.1/LecturePack-0.9.0-beta.1-SHA256SUMS.txt">SHA256SUMS</a></sub>
+</p>
+
 ![LecturePack — Study workspace with the AI Study Assistant](assets/hero.png)
 
 ---
