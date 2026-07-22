@@ -1,44 +1,45 @@
 {
-  "phase": "public_beta_release_prep",
+  "phase": "final_beta_release",
   "release_version": "0.9.0-beta.1",
   "branch": "feat/desktop-webengine",
-  "starting_head": "94df546",
-  "ending_head": "tip of feat/desktop-webengine after this pass",
-  "pass_commits": [
-    "bd391b5 chore(release): version 0.9.0-beta.1",
-    "ac50258 feat(study): Smart Study setup + presets + built-in labels",
-    "5d68b39 docs(release): notes/changelog/README + build artifacts",
-    "8ff3f36 docs(release): handoff + status + build/smoke evidence",
-    "+ trailing evidence-path fix commit"
-  ],
-  "safety_tag": "safety/start-public-beta-release-94df546",
-  "working_tree_clean_except_session_config": true,
+  "final_code_commit": "82e05cd",
+  "tag": "v0.9.0-beta.1",
+  "safety_tag": "safety/public-beta-0.9.0-beta.1-e6f312e",
+  "working_tree_clean_at_tag": true,
   "tests": {
-    "focused_smart_study": "17 passed (tests/test_smart_study.py)",
-    "full_suite": "308 passed in 161.03s, exit 0 (final HEAD)",
-    "prior_baseline": "291 passed at 76d69e8; +17 new = 308"
+    "full_suite": "330 passed in 211.11s, exit 0 (at 82e05cd)",
+    "updater_unit": "16 passed (tests/test_update_service.py)",
+    "updater_integration": "6 passed (tests/test_update_integration.py)"
   },
-  "completed": [
-    "version 0.9.0-beta.1 across version.py/iss/win_version_info; build stamping robust to prerelease suffix; release.py accepts prerelease; workflow marks prerelease + publishes installer+portable+sha256",
-    "Smart Study: onboarding card + settings card; detect Ollama; Lightweight/Balanced presets; RAM recommendation; pull_model with progress+cancel; structured test; persistence; Advanced-only raw IDs; launch official Ollama page (no binary download)",
-    "Built-in Study never a dead control: provider labels Built-in Study/Local AI/Online Enhanced; Ask extractive transcript fallback with timestamps",
-    "Live Groq validation with real key (both modes) — no secret leaked",
-    "Release docs: CHANGELOG, release notes, README banner, handoff"
-  ],
-  "groq_status": "LIVE-VALIDATED (test_key passed; Online Fast 0.61s + Online Accurate 1.77s on a real 20s clip; key never exposed). Evidence: docs/evidence/public_beta_release/groq/groq_live.json",
   "artifacts": {
-    "pyinstaller_exe_and_portable_and_sha256": "BUILT + headless offscreen boot smoke passed. LecturePack.exe 15.2MB, onedir ~813MB, Portable.zip 326.5MB, SHA256SUMS written. See docs/evidence/public_beta_release/build_smoke.json",
-    "portable_sha256": "9d1b504eea3c063efbb28be12dc92f6b6e19230841897a8c900931f10a2f9439",
-    "installer_exe": "NOT built here (Inno Setup ISCC not installed); built by one-command build where ISCC present, and by the release workflow (choco innosetup)",
+    "setup_exe": {
+      "name": "LecturePack-0.9.0-beta.1-Setup.exe",
+      "bytes": 219768054,
+      "sha256": "38e2db6da2e8316708747c7e45bb6d95e56fc7ca08702d11fc8a802407971205"
+    },
+    "portable_zip": {
+      "name": "LecturePack-0.9.0-beta.1-Portable.zip",
+      "bytes": 326534657,
+      "sha256": "c6549c4961f38fb57810e76cbd21ddad4d56325a50bbeeadf468534692186850"
+    },
+    "sha256sums": "LecturePack-0.9.0-beta.1-SHA256SUMS.txt (lists both binaries)",
+    "full_release_gate": "PASS (require_installer=True)",
     "dir": "app/dist/installer/"
   },
-  "not_done_human_or_vm": [
-    "clean-machine install test",
-    "upgrade test (earlier beta -> this beta)",
-    "Smart Study live download matrix (§18)",
-    "packaged windowed click-through (m2/Egypt/Mesopotamia)"
+  "updater": {
+    "packaged_discovery_e2e": "DISCOVERY_OK (final build)",
+    "groq_live": "validated earlier (both modes; no secret)",
+    "toolchain": "Inno Setup 6 ISCC at %LOCALAPPDATA%\\Programs\\Inno Setup 6"
+  },
+  "publish": {
+    "target": "github.com/pasttrunks/lecturepack",
+    "kind": "pre-release",
+    "source_of_binaries": "locally built + gate-verified (workflow switched to manual dispatch to avoid non-reproducible overwrite)"
+  },
+  "human_pending_gates": [
+    "packaged GUI click-through (harness provided: final/updater_clickthrough_harness.py)",
+    "clean/new-user install of Setup.exe on a fresh Windows profile/VM"
   ],
-  "exit_outcome": "B — beta ready; optional Smart Study wired + unit-tested but live download matrix + clean-machine/packaged click-through remain human/VM acceptance. Core works without Ollama; Groq live-validated; suite green.",
-  "rollback": "git reset --hard safety/start-public-beta-release-94df546",
+  "exit_outcome": "B — pre-release published from verified artifacts; suite green; installer+portable+sums gate-verified; updater logic + packaged discovery validated. Packaged click-through + clean-machine install remain human/VM steps, disclosed in the release notes.",
   "never_touched": "C:\\Users\\marsh\\LecturePackData"
 }
