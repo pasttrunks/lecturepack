@@ -1,0 +1,31 @@
+{
+  "performed": "2026-07-21",
+  "version": "0.9.0-beta.1",
+  "tests": {
+    "unit": "tests/test_update_service.py — 16 passed (versions, channel filter, asset selection, sha256/digest reconcile, safe overview)",
+    "integration": "tests/test_update_integration.py — 6 passed against a local injected feed (discovery, verified download, checksum mismatch blocks + deletes, truncated download blocks, active-job install block, visible /CLOSEAPPLICATIONS flags, portable no-self-replace)",
+    "full_suite": "330 passed in 199.98s, exit 0 (final HEAD)"
+  },
+  "build_gate": {
+    "command": ".venv\\Scripts\\python.exe app/packaging/build.py --no-installer",
+    "result": "Release gate OK — validated LecturePack-0.9.0-beta.1-Portable.zip + SHA256SUMS.txt",
+    "portable_sha256": "aa317540debca866b973c7abf96f9b7a480d520aeef41374f2596900d9fa46f9",
+    "installer_gate_note": "Setup.exe gate runs on the full build (CI/ISCC); not built here (no Inno Setup)."
+  },
+  "packaged_discovery_e2e": {
+    "result": "DISCOVERY_OK",
+    "method": "Launched the freshly-built packaged exe with a test-only injected feed (LECTUREPACK_UPDATE_FEED/_HOSTS) + offscreen; confirmed the packaged process requested /releases off-thread on startup.",
+    "feed_requests": ["/releases"],
+    "proves": "Packaged binary reads the injected feed, performs the check off the GUI thread, resolves the %LOCALAPPDATA% update cache, has no source-tree dependency, and does not crash.",
+    "not_covered_here": "GUI click-through of download->install in the packaged window (human step). Download/verify/handoff/mismatch/portable LOGIC is the same frozen code covered by the integration test."
+  },
+  "security_privacy": {
+    "https_only_production": true,
+    "asset_host_locked_to_github": true,
+    "test_feed_override": "env-only (LECTUREPACK_UPDATE_FEED/_HOSTS), not reachable from the production UI; production host+https rules enforced when unset",
+    "release_notes": "rendered as escaped text only (no HTML/JS execution)",
+    "no_token_embedded_or_logged": true,
+    "no_lecture_data_sent": true,
+    "lecturepackdata_untouched": true
+  }
+}

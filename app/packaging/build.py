@@ -56,6 +56,28 @@ def run(cmd: list[str]) -> None:
     subprocess.run(cmd, cwd=APP_DIR, check=True)
 
 
+def validate_release_assets(version: str, require_installer: bool = True) -> None:
+    """Release gate: fail the build if the updater's required assets are absent.
+
+    The in-app updater downloads exactly these names and verifies them against
+    SHA256SUMS, so a release missing any of them (or a checksum file that does
+    not list both binaries) would be undiscoverable/uninstallable.
+    """
+    out = APP_DIR / "dist" / "installer"
+    portable = out / f"LecturePack-{version}-Portable.zip"
+    sums = out / f"LecturePack-{version}-SHA256SUMS.txt"
+    setup = out / f"LecturePack-{version}-Setup.exe"
+    required = [portable, sums] + ([setup] if require_installer else [])
+    missing = [p.name for p in required if not p.exists() or p.stat().st_size == 0]
+    if missing:
+        sys.exit(f"RELEASE GATE FAILED — missing/empty updater assets: {missing}")
+    text = sums.read_text(encoding="utf-8")
+    for asset in ([portable, setup] if require_installer else [portable]):
+        if asset.name not in text:
+            sys.exit(f"RELEASE GATE FAILED — {sums.name} does not list {asset.name}")
+    print(f"Release gate OK — validated: {[p.name for p in required]}")
+
+
 def make_portable_zip(version: str) -> Path:
     """Zip the PyInstaller onedir output into a portable archive."""
     import zipfile
@@ -114,6 +136,7 @@ def main() -> None:
 
     if args.no_installer:
         write_sha256sums(version)
+        validate_release_assets(version, require_installer=False)
         return
 
     iscc = shutil.which("ISCC") or shutil.which("iscc")
@@ -128,6 +151,7 @@ def main() -> None:
 
     # Checksums last so they cover the installer + portable ZIP.
     write_sha256sums(version)
+    validate_release_assets(version, require_installer=True)
 
 
 if __name__ == "__main__":
