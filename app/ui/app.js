@@ -932,6 +932,12 @@
     if ((name === 'study' || name === 'settings') && lpBridge.connected()) {
       lpBridge.call('smart_study_status');
     }
+    if (name === 'settings' && lpBridge.connected()) {
+      lpBridge.call('get_updater_state').then(function (json) {
+        if (!json) return;
+        try { renderUpdaterState(JSON.parse(json)); } catch (e) {}
+      });
+    }
   }
 
   function setTheme(theme) {
@@ -1173,27 +1179,106 @@
 
   /* ======================= updates / what's new ======================= */
 
+  var UPD_DL_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>';
+
+  function _wnBullet(n) {
+    return '<div style="display:flex;gap:9px;align-items:flex-start"><span style="width:6px;height:6px;flex:none;border-radius:2px;background:var(--orange);margin-top:7px"></span><span>' + esc(n) + '</span></div>';
+  }
+
   function showWhatsNew(info, mode) { // mode: 'available' | 'installed'
     LP.state.updateInfo = info;
+    LP.state.updateMode = mode;
     $('whatsnew-title').textContent = mode === 'installed' ? 'What’s new in this update' : 'Update available';
-    $('whatsnew-version').textContent = 'v' + info.version;
+    var cur = info.current || LP.data.version || '';
+    $('whatsnew-current').textContent = cur ? ('v' + cur) : '';
+    $('whatsnew-arrow').style.display = (mode === 'installed' || !cur) ? 'none' : '';
+    $('whatsnew-version').textContent = 'v' + (info.available || info.version || '');
+    $('whatsnew-channel').textContent = info.channel || 'Beta';
+    $('whatsnew-channel').style.display = info.channel ? '' : 'none';
+    $('whatsnew-size').textContent = info.size ? ('· ' + info.size) : '';
     $('whatsnew-date').textContent = info.date || '';
-    $('whatsnew-notes').innerHTML = (info.notes || []).map(function (n) {
-      return '<div style="display:flex;gap:10px;align-items:flex-start"><span style="width:7px;height:7px;flex:none;border-radius:2px;background:var(--orange);margin-top:7px"></span><span>' + esc(n) + '</span></div>';
-    }).join('') || '<div style="color:var(--muted)">No release notes.</div>';
+    $('whatsnew-skipnote').hidden = !info.is_skipped;
+    ['improvements', 'fixes', 'limitations'].forEach(function (sec) {
+      var items = info[sec] || [];
+      $('whatsnew-sec-' + sec).hidden = !items.length;
+      var list = document.querySelector('[data-sec="' + sec + '"]');
+      if (list) list.innerHTML = items.map(_wnBullet).join('');
+    });
+    var hasSecs = (info.improvements || []).length || (info.fixes || []).length || (info.limitations || []).length;
+    $('whatsnew-notes').innerHTML = (!hasSecs ? (info.notes || []) : []).map(_wnBullet).join('')
+      || (!hasSecs ? '<div style="color:var(--muted)">No release notes.</div>' : '');
     $('whatsnew-progress').hidden = true;
-    $('btn-update-install').hidden = mode === 'installed';
-    $('btn-update-later').textContent = mode === 'installed' ? 'Nice!' : 'Later';
+    $('whatsnew-progress-bar').style.width = '0%';
+    $('whatsnew-msg').hidden = true;
+    updSetPhase(mode === 'installed' ? 'installed' : (info.portable ? 'portable' : 'available'));
     $('whatsnew-overlay').hidden = false;
     if (mode === 'available') {
       $('update-badge').hidden = false;
-      $('update-status').textContent = 'v' + info.version + ' available';
+      $('update-status').textContent = 'v' + (info.available || info.version) + ' available';
     }
+  }
+
+  // Drive the overview's buttons/labels by phase.
+  function updSetPhase(phase) {
+    LP.state.updatePhase = phase;
+    var install = $('btn-update-install'), later = $('btn-update-later'),
+        skip = $('btn-update-skip'), gh = $('btn-update-github'),
+        prog = $('whatsnew-progress');
+    function label(txt, withIcon) { install.innerHTML = (withIcon ? UPD_DL_ICON : '') + esc(txt); }
+    // sensible defaults
+    install.hidden = false; install.disabled = false;
+    later.hidden = false; later.textContent = 'Remind me later';
+    skip.hidden = false; gh.hidden = false; prog.hidden = true;
+    if (phase === 'installed') {
+      install.hidden = true; skip.hidden = true; gh.hidden = true;
+      later.textContent = 'Nice!';
+    } else if (phase === 'portable') {
+      label('Open Download Page', false); install.dataset.action = 'openpage';
+      skip.hidden = false;
+    } else if (phase === 'downloading' || phase === 'verifying') {
+      install.hidden = true; skip.hidden = true; gh.hidden = true; later.hidden = true;
+      prog.hidden = false;
+    } else if (phase === 'ready') {
+      label('Install Now', true); install.dataset.action = 'install';
+      skip.hidden = true; prog.hidden = true;
+    } else if (phase === 'blocked') {
+      install.disabled = true; label('Install Now', true); install.dataset.action = 'install';
+      skip.hidden = true;
+    } else { // 'available' or 'error'/'cancelled' -> ready to (re)download
+      label('Download and Install', true); install.dataset.action = 'download';
+    }
+  }
+
+  function updMsg(text, kind) {
+    var el = $('whatsnew-msg');
+    el.hidden = !text;
+    if (text) { el.textContent = text; el.style.color = kind === 'error' ? 'var(--red)' : 'var(--muted)'; }
   }
 
   function hideWhatsNew() {
     $('whatsnew-overlay').hidden = true;
     lpBridge.call('whatsnew_seen');
+  }
+
+  function setUpdateChannel(ch) {
+    Array.prototype.forEach.call(document.querySelectorAll('#update-channel-seg [data-channel]'), function (b) {
+      var on = b.dataset.channel === ch;
+      b.style.border = '1.5px solid ' + (on ? 'var(--secondary-border)' : 'var(--line)');
+      b.style.background = on ? 'var(--secondary-surface)' : 'var(--panel)';
+      b.style.color = on ? 'var(--secondary-text)' : 'var(--ink)';
+    });
+  }
+
+  function renderUpdaterState(d) {
+    if (!d) return;
+    if (d.channel) setUpdateChannel(d.channel);
+    var ac = $('update-autocheck'); if (ac) ac.checked = d.auto_check !== false;
+    var row = $('update-skipped-row');
+    if (row) {
+      var has = !!d.skipped_version;
+      row.hidden = !has;
+      if (has) $('update-skipped-label').textContent = 'Skipped v' + d.skipped_version;
+    }
   }
 
   /* ======================= wiring ======================= */
@@ -1517,11 +1602,37 @@
 
     // what's new / updates
     $('btn-whatsnew-close').addEventListener('click', hideWhatsNew);
-    $('btn-update-later').addEventListener('click', hideWhatsNew);
+    $('btn-update-later').addEventListener('click', hideWhatsNew);   // Remind me later
     $('btn-update-install').addEventListener('click', function () {
-      $('whatsnew-progress').hidden = false;
-      $('btn-update-install').disabled = true;
-      lpBridge.call('install_update');
+      var action = this.dataset.action || 'download';
+      if (!lpBridge.connected()) { toast('Preview mode — updater needs the app'); return; }
+      if (action === 'openpage') { lpBridge.call('open_release_page'); }
+      else if (action === 'install') { lpBridge.call('install_downloaded_update'); }
+      else { updSetPhase('downloading'); $('whatsnew-progress-label').textContent = 'Starting download…'; lpBridge.call('start_update_download'); }
+    });
+    $('btn-update-cancel').addEventListener('click', function () {
+      if (lpBridge.connected()) lpBridge.call('cancel_update_download');
+    });
+    $('btn-update-github').addEventListener('click', function () {
+      if (lpBridge.connected()) lpBridge.call('open_release_page');
+    });
+    $('btn-update-skip').addEventListener('click', function () {
+      if (lpBridge.connected()) lpBridge.call('skip_update_version');
+      hideWhatsNew();
+    });
+    // Updates settings: channel + auto-check + clear-skipped.
+    Array.prototype.forEach.call(document.querySelectorAll('#update-channel-seg [data-channel]'), function (b) {
+      b.addEventListener('click', function () {
+        setUpdateChannel(b.dataset.channel);
+        if (lpBridge.connected()) lpBridge.call('set_update_channel', b.dataset.channel);
+      });
+    });
+    $('update-autocheck').addEventListener('change', function () {
+      if (lpBridge.connected()) lpBridge.call('set_auto_check', this.checked ? 'true' : 'false');
+    });
+    $('btn-clear-skipped').addEventListener('click', function () {
+      if (lpBridge.connected()) lpBridge.call('clear_skipped_version');
+      $('update-skipped-row').hidden = true;
     });
 
     // keyboard shortcuts (prototype behavior)
@@ -1676,17 +1787,40 @@
     });
     lpBridge.on('update_available', function (json) { showWhatsNew(JSON.parse(json), 'available'); });
     lpBridge.on('update_progress', function (pct) {
-      $('whatsnew-progress').hidden = false;
+      if ($('whatsnew-overlay').hidden) $('whatsnew-overlay').hidden = false;
+      if (LP.state.updatePhase !== 'downloading') updSetPhase('downloading');
       $('whatsnew-progress-bar').style.width = pct + '%';
-      $('whatsnew-progress-label').textContent = pct >= 100 ? 'Preparing installer…' : 'Downloading update… ' + Math.round(pct) + '%';
+      $('whatsnew-progress-label').textContent = pct >= 100 ? 'Verifying…' : 'Downloading update… ' + Math.round(pct) + '%';
     });
     lpBridge.on('update_ready', function () {
-      $('whatsnew-progress-label').textContent = 'Restarting to install…';
+      // update_state 'ready' already reconfigured the buttons; this is a backstop.
+      if (LP.state.updatePhase !== 'ready') updSetPhase('ready');
     });
     lpBridge.on('update_error', function (msg) {
-      $('whatsnew-progress').hidden = true;
-      $('btn-update-install').disabled = false;
+      updSetPhase(LP.state.updateMode === 'installed' ? 'installed' : 'available');
+      updMsg(String(msg), 'error');
       $('update-status').textContent = 'Update failed: ' + msg;
+    });
+    lpBridge.on('update_state', function (json) {
+      var d; try { d = JSON.parse(json); } catch (e) { return; }
+      var phase = d.phase;
+      if (phase === 'checking') { $('update-status').textContent = 'Checking…'; }
+      else if (phase === 'uptodate') { $('update-status').textContent = d.message || 'You’re up to date'; }
+      else if (phase === 'downloading') {
+        if ($('whatsnew-overlay').hidden) $('whatsnew-overlay').hidden = false;
+        updSetPhase('downloading'); updMsg('');
+        $('whatsnew-progress-label').textContent = 'Downloading ' + (d.filename || 'update') + '…';
+      }
+      else if (phase === 'verifying') { updSetPhase('verifying'); $('whatsnew-progress-label').textContent = 'Verifying…'; }
+      else if (phase === 'ready') { updSetPhase('ready'); updMsg(d.message || 'Verified and ready to install.'); }
+      else if (phase === 'blocked') { updSetPhase('blocked'); updMsg(d.message, 'error'); }
+      else if (phase === 'portable') { updSetPhase('portable'); updMsg('This is a portable build — open the download page to get the new version.'); }
+      else if (phase === 'cancelled') { updSetPhase('available'); updMsg(d.message || 'Download cancelled.'); }
+      else if (phase === 'error') {
+        updSetPhase(LP.state.updateMode === 'installed' ? 'installed' : 'available');
+        updMsg(d.message, 'error');
+        if (d.stage === 'check' || d.manual) $('update-status').textContent = d.message || 'Unable to check right now';
+      }
     });
     lpBridge.on('whatsnew', function (json) { showWhatsNew(JSON.parse(json), 'installed'); });
     lpBridge.on('settings_changed', function (json) {
