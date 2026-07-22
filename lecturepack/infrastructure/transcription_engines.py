@@ -202,10 +202,19 @@ class EngineRegistry:
         return {ENGINE_CPU: cpu, ENGINE_VULKAN: vk, ENGINE_CUDA: cuda}
 
     # ---- selection ----------------------------------------------------- #
+    # The WebEngine UI persists short engine aliases ("cpu"/"vulkan"/"cuda"),
+    # while the registry keys are the full "whispercpp-*" ids. Normalize so an
+    # explicit selection is honoured (not silently routed through auto).
+    _ENGINE_ALIASES = {
+        "cpu": ENGINE_CPU, "vulkan": ENGINE_VULKAN, "cuda": ENGINE_CUDA,
+        "auto": ENGINE_AUTO,
+    }
+
     def resolve(self, requested: str = ENGINE_AUTO) -> EngineInfo:
         """Return the engine to use for a run. Never returns an unavailable
         engine: unavailable requests degrade to the CPU engine with a reason.
         """
+        requested = self._ENGINE_ALIASES.get(requested, requested)
         engines = self.detect_engines()
         cpu = engines[ENGINE_CPU]
         vk = engines[ENGINE_VULKAN]

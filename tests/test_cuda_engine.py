@@ -67,6 +67,16 @@ def test_auto_prefers_cuda_only_after_benchmark(tmp_path, monkeypatch):
     assert reg.resolve(te.ENGINE_AUTO).key == te.ENGINE_CUDA
 
 
+def test_short_aliases_honour_explicit_selection(tmp_path, monkeypatch):
+    # WebEngine UI stores short names; explicit "cpu" must force CPU even when a
+    # benchmarked GPU is available (regression: it used to fall through to auto).
+    cfg, reg = _reg(tmp_path, cuda_exe="C:/x/cuda/whisper-cli.exe", nvidia=True, monkeypatch=monkeypatch)
+    cfg.set("cuda_benchmark_ok", True)
+    assert reg.resolve("cuda").key == te.ENGINE_CUDA
+    assert reg.resolve("cpu").key == te.ENGINE_CPU
+    assert reg.resolve("auto").key == te.ENGINE_CUDA
+
+
 def test_auto_prefers_cuda_over_vulkan(tmp_path, monkeypatch):
     cfg, reg = _reg(tmp_path, cuda_exe="C:/x/cuda/whisper-cli.exe", nvidia=True,
                     vulkan_exe="C:/x/vulkan/whisper-cli.exe", monkeypatch=monkeypatch)
