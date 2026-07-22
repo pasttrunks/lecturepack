@@ -41,6 +41,7 @@ class Backend(QObject):
     update_progress = Signal(float)
     update_ready = Signal()
     update_error = Signal(str)
+    update_state = Signal(str)
     whatsnew = Signal(str)
     settings_changed = Signal(str)
     ollama_models = Signal(str)
@@ -251,9 +252,47 @@ class Backend(QObject):
     def check_updates(self):
         self._updater.check(manual=True)
 
+    @Slot(result=str)
+    def get_updater_state(self) -> str:
+        return json.dumps(self._updater.updater_state_payload())
+
+    @Slot()
+    def start_update_download(self):
+        self._updater.start_download()
+
+    @Slot()
+    def cancel_update_download(self):
+        self._updater.cancel_download()
+
+    @Slot()
+    def install_downloaded_update(self):
+        self._updater.install_downloaded()
+
+    @Slot()
+    def open_release_page(self):
+        self._updater.open_release_page()
+
+    @Slot(str)
+    def set_update_channel(self, channel: str):
+        self._updater.set_channel(channel)
+
+    @Slot(str)
+    def set_auto_check(self, enabled: str):
+        self._updater.set_auto_check(str(enabled).lower() in ("1", "true", "yes", "on"))
+
+    @Slot()
+    def skip_update_version(self):
+        self._updater.skip_current()
+
+    @Slot()
+    def clear_skipped_version(self):
+        self._updater.clear_skipped()
+
     @Slot()
     def install_update(self):
-        self._updater.download_and_install()
+        # Back-compat single-tap: download+verify, then (on update_ready) the UI
+        # calls install_downloaded_update. Kept so older UI wiring still works.
+        self._updater.start_download()
 
     @Slot()
     def whatsnew_seen(self):

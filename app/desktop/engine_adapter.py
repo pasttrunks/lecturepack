@@ -136,6 +136,10 @@ class EngineAdapter(QObject):
     def launch_ollama_installer(self) -> None:
         """Open the official Ollama installer/download page in the browser."""
 
+    def is_processing(self) -> bool:
+        """True while a lecture pipeline is running (updater install guard)."""
+        return False
+
     def set_groq_key(self, key: str) -> None:
         """Store the Groq API key in the OS credential manager; emit groq_status."""
 
@@ -1955,6 +1959,12 @@ class LecturePackAdapter(EngineAdapter):
         if self.current_job is not None:
             self.current_job.save()
             self._log("[save]", "project saved", "extract")
+
+    def is_processing(self) -> bool:
+        try:
+            return bool(getattr(self.controller, "_active_stages", None))
+        except Exception:  # noqa: BLE001
+            return False
 
 
 def make_adapter(backend) -> EngineAdapter:
