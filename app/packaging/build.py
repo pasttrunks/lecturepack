@@ -51,6 +51,20 @@ def stamp_version_info(version: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _find_iscc():
+    """Locate ISCC.exe when it isn't on PATH (common Inno Setup 6 install dirs)."""
+    import os
+    candidates = [
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Inno Setup 6", "ISCC.exe"),
+        os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Inno Setup 6", "ISCC.exe"),
+        os.path.join(os.environ.get("ProgramFiles", ""), "Inno Setup 6", "ISCC.exe"),
+    ]
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+    return None
+
+
 def run(cmd: list[str]) -> None:
     print("+", " ".join(cmd))
     subprocess.run(cmd, cwd=APP_DIR, check=True)
@@ -139,7 +153,7 @@ def main() -> None:
         validate_release_assets(version, require_installer=False)
         return
 
-    iscc = shutil.which("ISCC") or shutil.which("iscc")
+    iscc = shutil.which("ISCC") or shutil.which("iscc") or _find_iscc()
     if not iscc:
         print("WARNING: ISCC (Inno Setup) not found on PATH — skipping installer.")
         print("Install Inno Setup 6 and re-run, or use --no-installer.")
