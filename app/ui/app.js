@@ -937,6 +937,7 @@
         if (!json) return;
         try { renderUpdaterState(JSON.parse(json)); } catch (e) {}
       });
+      lpBridge.call('cuda_pack_status');
     }
   }
 
@@ -1328,6 +1329,15 @@
         var el = $(id); if (el) { el.textContent = 'Checking compute backend…'; el.style.color = 'var(--muted)'; }
       });
       if (lpBridge.connected()) { lpBridge.call('validate_vulkan'); lpBridge.call('validate_cuda'); }
+    });
+    $('btn-cuda-pack-install').addEventListener('click', function () {
+      if (!lpBridge.connected()) { toast('Preview mode — needs the app'); return; }
+      $('cuda-pack-progress').hidden = false; this.disabled = true;
+      $('cuda-pack-label').textContent = 'Starting download…';
+      lpBridge.call('install_cuda_pack');
+    });
+    $('btn-cuda-pack-cancel').addEventListener('click', function () {
+      if (lpBridge.connected()) lpBridge.call('cancel_cuda_pack');
     });
 
     // Transcription backend selector (Private Local / Online Fast|Accurate).
@@ -1768,6 +1778,35 @@
       if (!el) return;
       el.textContent = d.message || '';
       el.style.color = (d.state === 'loaded' || d.state === 'available') ? 'var(--secondary-text)' : 'var(--muted)';
+    });
+    lpBridge.on('cuda_pack', function (json) {
+      var d; try { d = JSON.parse(json); } catch (e) { return; }
+      var box = $('cuda-pack'); if (!box) return;
+      var st = d.state;
+      var busy = st === 'downloading' || st === 'verifying' || st === 'installing';
+      // Offer the pack only on an NVIDIA machine that hasn't installed it yet.
+      var show = d.gpu_present && (!d.installed || busy || st === 'error' || st === 'cancelled');
+      box.hidden = !show;
+      if (!show) return;
+      $('cuda-pack-progress').hidden = !busy;
+      $('btn-cuda-pack-install').disabled = busy;
+      var note = $('cuda-pack-note');
+      if (st === 'downloading') {
+        $('cuda-pack-bar').style.width = (d.percent || 0) + '%';
+        $('cuda-pack-label').textContent = 'Downloading… ' + (typeof d.percent === 'number' ? Math.round(d.percent) + '%' : '');
+        note.textContent = '';
+      } else if (busy) {
+        $('cuda-pack-label').textContent = d.message || 'Working…';
+      } else if (st === 'ready') {
+        box.hidden = true; toast('CUDA acceleration installed');
+      } else if (st === 'error') {
+        note.textContent = d.message || 'Failed'; note.style.color = 'var(--red)';
+      } else if (st === 'cancelled') {
+        note.textContent = d.message || 'Cancelled'; note.style.color = 'var(--muted)';
+      } else {
+        note.textContent = d.size_label ? ('Optional · ' + d.size_label + ' · NVIDIA only') : '';
+        note.style.color = 'var(--muted)';
+      }
     });
     lpBridge.on('ai_status', function (json) {
       var s = JSON.parse(json);

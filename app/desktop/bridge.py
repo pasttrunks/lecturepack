@@ -52,6 +52,7 @@ class Backend(QObject):
     flashcards_status = Signal(str)
     vulkan_status = Signal(str)
     cuda_status = Signal(str)
+    cuda_pack = Signal(str)
     groq_status = Signal(str)
     smart_study = Signal(str)
 
@@ -109,6 +110,18 @@ class Backend(QObject):
     @Slot()
     def validate_cuda(self):
         self._adapter.validate_cuda()
+
+    @Slot()
+    def cuda_pack_status(self):
+        self._adapter.cuda_pack_status()
+
+    @Slot()
+    def install_cuda_pack(self):
+        self._adapter.install_cuda_pack()
+
+    @Slot()
+    def cancel_cuda_pack(self):
+        self._adapter.cancel_cuda_pack()
 
     @Slot(str)
     def set_groq_key(self, key: str):

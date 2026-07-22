@@ -409,6 +409,17 @@
               <button id="btn-validate-vulkan" class="lp-hit" style="flex:none;font:600 12px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:7px 13px;cursor:pointer;color:var(--ink)">Validate</button>
             </div>
             <div id="cuda-status" style="font:500 12px 'JetBrains Mono';color:var(--muted);line-height:1.4;margin-top:7px"></div>
+            <div id="cuda-pack" hidden style="margin-top:12px;border-top:2px solid var(--line);padding-top:12px">
+              <div id="cuda-pack-msg" style="font-size:13px;color:var(--ink);line-height:1.5;margin-bottom:10px">NVIDIA GPU detected. Install optional CUDA acceleration for faster transcription.</div>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <button id="btn-cuda-pack-install" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;box-shadow:var(--shadow-soft)">Install CUDA acceleration</button>
+                <span id="cuda-pack-note" style="font:500 11px 'JetBrains Mono';color:var(--muted)"></span>
+              </div>
+              <div id="cuda-pack-progress" hidden style="margin-top:11px">
+                <div style="display:flex;justify-content:space-between;font:500 12px 'JetBrains Mono';color:var(--muted);margin-bottom:6px"><span id="cuda-pack-label">Downloading…</span><button id="btn-cuda-pack-cancel" class="lp-hit" style="font:600 11px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:7px;padding:4px 10px;cursor:pointer;color:var(--ink)">Cancel</button></div>
+                <div style="height:8px;border-radius:5px;overflow:hidden;background:var(--sunk)"><div id="cuda-pack-bar" style="width:0%;height:100%;background:var(--orange);transition:width .25s"></div></div>
+              </div>
+            </div>
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="font-weight:700;font-size:16px">Smart Study</div><span id="ai-endpoint-status" style="display:flex;align-items:center;gap:5px;font:600 10px 'JetBrains Mono';text-transform:uppercase;background:var(--secondary-surface);color:var(--secondary-text);border:1.5px solid var(--secondary-border);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--secondary-text)"></span>Built-in Study</span></div>

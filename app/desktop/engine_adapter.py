@@ -124,6 +124,15 @@ class EngineAdapter(QObject):
     def validate_cuda(self) -> None:
         """Report CUDA (NVIDIA) backend availability/selection; emit cuda_status."""
 
+    def cuda_pack_status(self) -> None:
+        """Emit CUDA-pack install/availability state; emit cuda_pack."""
+
+    def install_cuda_pack(self) -> None:
+        """Download + install the optional CUDA acceleration pack into bin/cuda."""
+
+    def cancel_cuda_pack(self) -> None:
+        """Cancel an in-flight CUDA-pack download."""
+
     def smart_study_status(self) -> None:
         """Emit a Smart Study snapshot (presets, RAM recommendation, provider)."""
 
@@ -307,6 +316,7 @@ from lecturepack.services import study_assistant_service as sas
 from lecturepack.services.export_service import ExportWorker
 
 from . import smart_study
+from . import cuda_pack
 
 
 _MODE_MAP = {
@@ -678,6 +688,7 @@ class LecturePackAdapter(EngineAdapter):
         self._probe_ollama_async()
         self.validate_vulkan()
         self.validate_cuda()
+        self.cuda_pack_status()
         self._emit_groq_status()
         self.smart_study_status()
         # Show the most recent completed job's data so Review/Transcript/Study
@@ -1714,6 +1725,103 @@ class LecturePackAdapter(EngineAdapter):
         except Exception as exc:  # pragma: no cover - defensive
             self._emit("cuda_status", {"state": "error",
                        "message": f"CUDA check failed: {exc}"})
+
+    # -- Optional CUDA acceleration pack (verified download into bin/cuda) -----
+    def _nvidia_present(self) -> bool:
+        try:
+            from lecturepack.infrastructure.transcription_engines import nvidia_cuda_present
+            return bool(nvidia_cuda_present())
+        except Exception:
+            return False
+
+    def cuda_pack_status(self):
+        self._emit("cuda_pack", {
+            "state": "installed" if cuda_pack.is_installed() else "idle",
+            "gpu_present": self._nvidia_present(),
+            "installed": cuda_pack.is_installed(),
+            "size_label": cuda_pack.CUDA_PACK["size_label"]})
+
+    def cancel_cuda_pack(self):
+        ev = getattr(self, "_cuda_pack_cancel", None)
+        if ev is not None:
+            ev.set()
+
+    def install_cuda_pack(self):
+        """Download + verify + install the CUDA whisper.cpp binary into bin/cuda."""
+        cancel = threading.Event()
+        self._cuda_pack_cancel = cancel
+        pack = cuda_pack.CUDA_PACK
+
+        def emit(state, message="", pct=None, **extra):
+            payload = {"state": state, "message": message, "percent": pct,
+                       "gpu_present": self._nvidia_present(),
+                       "installed": cuda_pack.is_installed(),
+                       "size_label": pack["size_label"]}
+            payload.update(extra)
+            self._emit("cuda_pack", payload)
+
+        def _rm(p):
+            try:
+                if p and os.path.exists(p):
+                    os.remove(p)
+            except OSError:
+                pass
+
+        def worker():
+            if not self._nvidia_present():
+                emit("error", "No NVIDIA CUDA GPU/driver detected on this computer.")
+                return
+            import tempfile
+            base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+            cache = os.path.join(base, "LecturePack", "Updates")
+            os.makedirs(cache, exist_ok=True)
+            partial = os.path.join(cache, pack["name"] + ".partial")
+            final_zip = os.path.join(cache, pack["name"])
+            _rm(partial)
+            last = {"p": -5.0}
+
+            def prog(pct, read, total):
+                if cancel.is_set():
+                    return
+                if pct - last["p"] >= 1.0 or pct >= 100:
+                    last["p"] = pct
+                    emit("downloading", f"Downloading CUDA acceleration ({pack['size_label']})…",
+                         round(pct, 1))
+
+            emit("downloading", f"Downloading CUDA acceleration ({pack['size_label']})…", 0.0)
+            try:
+                cuda_pack.download(pack["url"], partial, on_progress=prog, cancel=cancel.is_set)
+            except RuntimeError as exc:
+                _rm(partial)
+                emit("cancelled", "Download cancelled.") if str(exc) == "__cancelled__" \
+                    else emit("error", f"Download failed: {exc}")
+                return
+            except Exception as exc:  # noqa: BLE001
+                _rm(partial)
+                emit("error", f"Download failed: {exc}")
+                return
+            emit("verifying", "Verifying download…")
+            if not cuda_pack.verify(partial):
+                _rm(partial)
+                emit("error", "Checksum mismatch — download rejected.")
+                return
+            os.replace(partial, final_zip)
+            emit("installing", "Installing CUDA files…")
+            try:
+                n = cuda_pack.extract_pack(final_zip, cuda_pack.bin_cuda_dir())
+            except Exception as exc:  # noqa: BLE001
+                _rm(final_zip)
+                emit("error", f"Install failed: {exc}")
+                return
+            _rm(final_zip)  # don't keep the ~650 MB archive
+            if not cuda_pack.is_installed():
+                emit("error", "Install completed but whisper-cli.exe is missing.")
+                return
+            self.validate_cuda()
+            emit("ready", f"CUDA acceleration installed ({n} files). "
+                          "Pick NVIDIA CUDA under Compute engine.")
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # -- Groq online transcription (reuses the existing backend + secret store) --
     def _groq_store(self):
