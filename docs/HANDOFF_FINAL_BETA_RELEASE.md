@@ -47,6 +47,22 @@ Unit (16) + integration (6) green; packaged discovery E2E on the final exe:
 are cut from locally-verified artifacts so published checksums always match the
 verified binaries (a tag push no longer triggers a non-reproducible rebuild).
 
+## Post-publish notes (2026-07-22)
+- **Published:** https://github.com/pasttrunks/lecturepack/releases/tag/v0.9.0-beta.1
+  — GitHub **pre-release**, all three assets uploaded (sizes match the local
+  gate-verified builds, so the published SHA256SUMS holds). Tag `v0.9.0-beta.1`
+  → commit `f3d713d`.
+- **Repo polish:** About description (+ beta), homepage → releases page, and 14
+  curated topics (education, transcription, whisper-cpp, flashcards, pyside6, …).
+- **⚠ BLOCKER for the in-app update feed:** the repo is **PRIVATE**. The updater
+  queries the GitHub releases API **without a token** (no embedded secret, by
+  design), so on a private repo the feed returns 403/404 and end users will NOT
+  receive in-app update notifications. Per the release spec this is the
+  documented "private repo" limitation. To enable the auto-updater for the
+  `0.9.0-beta.1 → 0.9.0-beta.2` live test, the repo (or at least its releases)
+  must be **public**, or a public update manifest/mirror must be configured.
+  Visibility was intentionally NOT changed here — that is the owner's decision.
+
 ## Rollback
 `git reset --hard a6e34d2` (this pass's start). Delete the GitHub release/tag via
 `gh release delete v0.9.0-beta.1 --cleanup-tag` if it must be pulled.

@@ -34,7 +34,12 @@
   "publish": {
     "target": "github.com/pasttrunks/lecturepack",
     "kind": "pre-release",
-    "source_of_binaries": "locally built + gate-verified (workflow switched to manual dispatch to avoid non-reproducible overwrite)"
+    "url": "https://github.com/pasttrunks/lecturepack/releases/tag/v0.9.0-beta.1",
+    "published": true,
+    "assets_uploaded": ["Setup.exe", "Portable.zip", "SHA256SUMS.txt"],
+    "source_of_binaries": "locally built + gate-verified (workflow switched to manual dispatch to avoid non-reproducible overwrite)",
+    "repo_visibility": "PRIVATE",
+    "updater_feed_blocker": "Repo is private; the tokenless in-app updater feed (GitHub releases API) returns 403/404 for end users. Auto-update won't function until the repo/releases are public or a public manifest is used. Visibility intentionally not changed."
   },
   "human_pending_gates": [
     "packaged GUI click-through (harness provided: final/updater_clickthrough_harness.py)",
