@@ -1,0 +1,9 @@
+copying bundle to: C:\Users\marsh\AppData\Local\Temp\LP Packaged Test dir\LecturePack
+copied in 3.3s
+index.html @ _internal/ui: True
+app.js @ _internal/ui: True
+launching: C:\Users\marsh\AppData\Local\Temp\LP Packaged Test dir\LecturePack\LecturePack.exe
+alive_after_12s: True exit_code: None
+----- startup output tail -----
+----- end -----
+PACKAGED_SMOKE_OK

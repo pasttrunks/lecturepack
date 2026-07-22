@@ -1,0 +1,12 @@
+Headless end-to-end validation of the lpasset:// custom URL scheme.
+
+Command:
+  QT_QPA_PLATFORM=offscreen .venv/Scripts/python.exe \
+    docs/evidence/v1.2.0/webview_functionality_recovery/smoke_asset_scheme.py
+
+Result: ASSET_OK w=1.0  (exit 0)
+
+Meaning: a file:// index page successfully loaded an <img src="lpasset://job/job1/slide_1.png">
+served by AssetSchemeHandler; naturalWidth > 0 confirms decode. Required scheme flags:
+SecureScheme | LocalScheme | LocalAccessAllowed | CorsEnabled (LocalScheme is the one that
+lets the file:// page reach the custom scheme at all).

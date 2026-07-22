@@ -27,8 +27,9 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QMainWindow
 
 from . import version
+from .assets import AssetResolver, install_asset_handler, register_asset_scheme
 from .bridge import Backend
-from .paths import ui_dir
+from .paths import data_dir, ui_dir
 
 
 class WebView(QWebEngineView):
@@ -88,6 +89,14 @@ class MainWindow(QMainWindow):
         self.channel.registerObject("backend", self.backend)
         self.view.page().setWebChannel(self.channel)
 
+        # Serve job slide images through the central, security-checked asset
+        # resolver (lpasset:// scheme) rather than raw file:// URLs.
+        self._asset_handler = install_asset_handler(
+            self.view.page().profile(),
+            AssetResolver(data_dir()),
+            logger=self.backend.log_asset_error,
+        )
+
         s = self.view.settings()
         s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         s.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, True)
@@ -98,6 +107,8 @@ class MainWindow(QMainWindow):
 
 
 def main() -> int:
+    # Custom URL schemes must be registered before the QApplication is created.
+    register_asset_scheme()
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )

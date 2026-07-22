@@ -1,11 +1,25 @@
 # LecturePack
 
+> **Public Beta — 0.9.0-beta.1.** The core lecture workflow (transcription, slides, transcript, exports, built-in quizzes/flashcards) works immediately after installation with no account, API key, or Ollama. Optional **Smart Study** adds private local AI. This is a public beta — keep copies of important source videos and exports, and please report issues. See [release notes](docs/RELEASE_NOTES_0.9.0-beta.1.md).
+
 Turn a lecture recording into a synchronized, editable study workspace — completely locally on your Windows machine. No cloud. No account. No upload.
 
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/PySide6-Qt6-41CD52?logo=qt&logoColor=white)
 ![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
+
+<p align="center">
+  <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.1/LecturePack-0.9.0-beta.1-Setup.exe">
+    <img src="https://img.shields.io/badge/⬇%20Download%20for%20Windows-Setup.exe%20·%20Public%20Beta-2ea44f?style=for-the-badge&logo=windows&logoColor=white" alt="Download LecturePack for Windows" height="46">
+  </a>
+</p>
+<p align="center">
+  <sub>Windows 10/11 · per-user install, no admin required · also available as a
+  <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.1/LecturePack-0.9.0-beta.1-Portable.zip">Portable ZIP</a> ·
+  <a href="https://github.com/pasttrunks/lecturepack/releases">all releases</a> ·
+  verify with <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.1/LecturePack-0.9.0-beta.1-SHA256SUMS.txt">SHA256SUMS</a></sub>
+</p>
 
 ![LecturePack — Study workspace with the AI Study Assistant](assets/hero.png)
 

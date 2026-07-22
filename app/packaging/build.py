@@ -37,7 +37,10 @@ def read_version() -> str:
 
 
 def stamp_version_info(version: str) -> None:
-    parts = (version.split(".") + ["0", "0", "0"])[:3]
+    # The Windows version resource needs a numeric 4-tuple, so extract only the
+    # leading numeric components (e.g. "0.9.0-beta.1" -> 0, 9, 0).
+    nums = re.findall(r"\d+", version)
+    parts = (nums + ["0", "0", "0"])[:3]
     tup = f"({parts[0]}, {parts[1]}, {parts[2]}, 0)"
     path = PKG_DIR / "win_version_info.txt"
     text = path.read_text(encoding="utf-8")
@@ -48,9 +51,77 @@ def stamp_version_info(version: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _find_iscc():
+    """Locate ISCC.exe when it isn't on PATH (common Inno Setup 6 install dirs)."""
+    import os
+    candidates = [
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Inno Setup 6", "ISCC.exe"),
+        os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Inno Setup 6", "ISCC.exe"),
+        os.path.join(os.environ.get("ProgramFiles", ""), "Inno Setup 6", "ISCC.exe"),
+    ]
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+    return None
+
+
 def run(cmd: list[str]) -> None:
     print("+", " ".join(cmd))
     subprocess.run(cmd, cwd=APP_DIR, check=True)
+
+
+def validate_release_assets(version: str, require_installer: bool = True) -> None:
+    """Release gate: fail the build if the updater's required assets are absent.
+
+    The in-app updater downloads exactly these names and verifies them against
+    SHA256SUMS, so a release missing any of them (or a checksum file that does
+    not list both binaries) would be undiscoverable/uninstallable.
+    """
+    out = APP_DIR / "dist" / "installer"
+    portable = out / f"LecturePack-{version}-Portable.zip"
+    sums = out / f"LecturePack-{version}-SHA256SUMS.txt"
+    setup = out / f"LecturePack-{version}-Setup.exe"
+    required = [portable, sums] + ([setup] if require_installer else [])
+    missing = [p.name for p in required if not p.exists() or p.stat().st_size == 0]
+    if missing:
+        sys.exit(f"RELEASE GATE FAILED — missing/empty updater assets: {missing}")
+    text = sums.read_text(encoding="utf-8")
+    for asset in ([portable, setup] if require_installer else [portable]):
+        if asset.name not in text:
+            sys.exit(f"RELEASE GATE FAILED — {sums.name} does not list {asset.name}")
+    print(f"Release gate OK — validated: {[p.name for p in required]}")
+
+
+def make_portable_zip(version: str) -> Path:
+    """Zip the PyInstaller onedir output into a portable archive."""
+    import zipfile
+
+    src = APP_DIR / "dist" / "LecturePack"
+    out_dir = APP_DIR / "dist" / "installer"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = out_dir / f"LecturePack-{version}-Portable.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(src.rglob("*")):
+            if path.is_file():
+                zf.write(path, Path("LecturePack") / path.relative_to(src))
+    print(f"Portable: dist/installer/{zip_path.name}")
+    return zip_path
+
+
+def write_sha256sums(version: str) -> Path:
+    """Write SHA256SUMS.txt over every artifact in dist/installer."""
+    import hashlib
+
+    out_dir = APP_DIR / "dist" / "installer"
+    sums_path = out_dir / f"LecturePack-{version}-SHA256SUMS.txt"
+    lines = []
+    for path in sorted(out_dir.iterdir()):
+        if path.is_file() and path.name != sums_path.name and path.suffix in (".exe", ".zip"):
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            lines.append(f"{digest}  {path.name}")
+    sums_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Checksums: dist/installer/{sums_path.name}")
+    return sums_path
 
 
 def main() -> None:
@@ -74,17 +145,27 @@ def main() -> None:
         sys.exit(f"expected {exe} — PyInstaller build failed")
     print(f"Built {exe}")
 
+    # Portable ZIP is independent of Inno Setup — always produced.
+    make_portable_zip(version)
+
     if args.no_installer:
+        write_sha256sums(version)
+        validate_release_assets(version, require_installer=False)
         return
 
-    iscc = shutil.which("ISCC") or shutil.which("iscc")
+    iscc = shutil.which("ISCC") or shutil.which("iscc") or _find_iscc()
     if not iscc:
         print("WARNING: ISCC (Inno Setup) not found on PATH — skipping installer.")
         print("Install Inno Setup 6 and re-run, or use --no-installer.")
+        write_sha256sums(version)
         return
 
     run([iscc, f"/DAppVersion={version}", str(PKG_DIR / "lecturepack.iss")])
-    print(f"Installer: dist/installer/LecturePack-Setup-{version}.exe")
+    print(f"Installer: dist/installer/LecturePack-{version}-Setup.exe")
+
+    # Checksums last so they cover the installer + portable ZIP.
+    write_sha256sums(version)
+    validate_release_assets(version, require_installer=True)
 
 
 if __name__ == "__main__":

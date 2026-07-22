@@ -2,6 +2,39 @@
 
 All notable changes to Lecture Pack are documented here.
 
+## [0.9.0-beta.1] — 2026-07-21
+
+First **public beta**. The core lecture workflow works immediately after
+installation — no account, no API key, no Ollama, no separate model download.
+
+### Core (works out of the box)
+- Local transcription, slide extraction + review with a readable full-size
+  preview, transcript viewer/editor, exports, notes, bookmarks, grouped
+  lectures, and safe delete-to-Recycle-Bin.
+- **Built-in Study** always works with no local AI: deterministic grounded
+  quizzes and flashcards, plus a transcript-grounded, source-linked "Ask"
+  that cites timestamps. Study controls are never dead when Ollama is absent.
+
+### Smart Study (optional, private, local)
+- One-action setup detects Ollama, offers two named presets —
+  **Lightweight Study** and **Balanced Study** (recommended) — with a simple
+  RAM-based recommendation, downloads the model with progress + cancel, runs a
+  structured test request, and persists the choice. Raw model IDs and the
+  endpoint live under **Advanced AI details**. If Ollama is missing, the app
+  opens the official Ollama download page (it never downloads or runs a binary
+  itself).
+- Clear provider labels everywhere: **Built-in Study / Local AI / Online
+  Enhanced**.
+
+### Online transcription (optional)
+- Groq **Online Fast** / **Online Accurate** modes with the key stored only in
+  Windows Credential Manager. Online modes stay disabled until a key is set.
+
+### Release
+- Versioned `0.9.0-beta.1`; pre-release tags publish as GitHub pre-releases
+  with installer + portable ZIP + SHA256SUMS. Installer preserves
+  `LecturePackData` across upgrades and never deletes user lectures.
+
 ## [1.1.0-ui-speed-ollama] — 2026-07-16
 
 Speed, a redesigned interface, a first-class transcript workspace, and safe

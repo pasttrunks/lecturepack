@@ -1,0 +1,50 @@
+{
+  "phase": "webview_functionality_recovery + post-08f649f verification/acceptance",
+  "branch": "feat/desktop-webengine",
+  "head": "76d69e8",
+  "code_equivalent_commit": "08f649f (76d69e8 is docs-only above it)",
+  "last_green_commit": "76d69e8",
+  "full_suite": "291 passed in 200.36s at 76d69e8 (exit 0)",
+  "working_tree_clean": true,
+  "safety_tag_this_pass": "safety/start-08f649f-live-acceptance = 08f649f",
+  "verification_pass_2026_07_21": {
+    "git_truth_check": "branch/HEAD/status/log/tags confirmed; stale scratch files do not exist; tree clean",
+    "contradictions_resolved": [
+      "removed stale HEAD 6d847d0 / 245 passed references",
+      "removed 'Quiz plan — READY TO EXECUTE' block (quizzes are shipped + working)",
+      "removed contradictory untracked-scratch-file notes (files absent)",
+      "recorded true HEAD 76d69e8 == code 08f649f, 291 passed"
+    ],
+    "named_scenario_acceptance": "3-q + 20-q quiz, 5 + 20-card flashcards, session save/restore -> NAMED_SCENARIOS_OK (temp data, AI off)",
+    "feature_inspection": "quiz/flashcards/study-tabs/groq/vulkan controls + model handling verified in code"
+  },
+  "completed": [
+    "P0.1 slide thumbnails + full preview (lpasset resolver) + LIVE 16/16",
+    "P0 slide preview readability (fill-canvas fit + zoom/pan)",
+    "P0.3/P1.4 Settings wired to engine config; Ollama model discovery",
+    "P0.5 content hygiene guard; P1.7 timeline hover; open-job from Home; packaging boots",
+    "user: Home job DELETE (Recycle Bin) + course/subject GROUPING",
+    "§3 Vulkan validate action + honest backend status",
+    "§4 per-stage timing instrumentation -> performance.json",
+    "§5 lazy background thumbnail cache (WebP)",
+    "§6 Groq online modes in WebView (key mgmt + mode selector; real test_key)",
+    "§7 configurable quiz system (grounded cloze fallback + AI + session)",
+    "§8 configurable flashcard system",
+    "§9 study tabs (Ask/Quiz/Flashcards/Notes, model indicator, copy/export)",
+    "§10 dark-theme secondary palette",
+    "study polish: generation progress bar + ETA + Cancel; grounded quizzes; key-terms removed"
+  ],
+  "documented_gaps_enhancement_not_defect": [
+    "quiz/flashcards: 'scope' is recorded in settings but has no UI selector",
+    "quiz/flashcards: no explicit clickable transcript/slide source citation on items"
+  ],
+  "blocked_live_validation_outcome_C": [
+    "§3 CPU-vs-Vulkan wall-time benchmark — needs a same-video run",
+    "§4 cold baseline.json — needs a real unprocessed 60-75min A/V lecture (audio track required)",
+    "§6 live Groq Online Fast/Accurate — needs a real gsk_ key"
+  ],
+  "needs_human": [
+    "Windowed + packaged interactive click-through (this env cannot drive the native Qt window; screenshots not fabricated)"
+  ],
+  "exit_outcome": "Implementation A for all P0/P1 + §3-§10; automated/headless acceptance complete + green; C for the 3 live validations + human windowed click-through (honestly documented, not fabricated)"
+}

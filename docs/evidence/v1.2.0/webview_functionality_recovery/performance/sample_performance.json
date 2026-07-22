@@ -1,0 +1,19 @@
+{
+  "note": "Captured from a real pipeline run of tests/fixtures/synthetic_lecture.mp4 (65s, 640x480) in slides-only mode, routed to a temp data dir with the real toolchain. Stages report cached=true because this source was processed before (content-addressed stage cache), so these are NOT cold-run timings — this file demonstrates the profiler OUTPUT SHAPE the instrumentation now writes to <job>/performance.json on every completed run.",
+  "job_id": "6009c83d-7e72-41b6-964a-914ca8c4e2f6",
+  "title": "synthetic_lecture",
+  "source_duration_seconds": 65.0,
+  "source_resolution": "640x480",
+  "engine_requested": "vulkan",
+  "parallel_pipeline": true,
+  "total_wall_seconds": 4.06,
+  "realtime_factor": 16.01,
+  "stages": [
+    {"stage": "Inspect", "duration_seconds": 0.0, "cached": true},
+    {"stage": "Extract Audio", "duration_seconds": 0.0, "cached": true},
+    {"stage": "Transcribe", "duration_seconds": 0.0, "cached": true},
+    {"stage": "Detect Slides", "duration_seconds": 0.0, "cached": true},
+    {"stage": "Align", "duration_seconds": 0.0, "cached": true},
+    {"stage": "Review Ready", "duration_seconds": 0.0, "cached": true}
+  ]
+}

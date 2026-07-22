@@ -44,3 +44,9 @@ app/dist/
 verify_shots/
 .DS_Store
 Thumbs.db
+# Added by code-review-graph
+.code-review-graph/
+
+# Local agent/MCP tooling (machine-specific; not part of the project)
+.claude/
+.mcp.json
