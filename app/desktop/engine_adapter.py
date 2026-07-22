@@ -121,6 +121,9 @@ class EngineAdapter(QObject):
     def validate_vulkan(self) -> None:
         """Report compute-backend availability/selection; emit vulkan_status."""
 
+    def validate_cuda(self) -> None:
+        """Report CUDA (NVIDIA) backend availability/selection; emit cuda_status."""
+
     def smart_study_status(self) -> None:
         """Emit a Smart Study snapshot (presets, RAM recommendation, provider)."""
 
@@ -674,6 +677,7 @@ class LecturePackAdapter(EngineAdapter):
         self._push_jobs()
         self._probe_ollama_async()
         self.validate_vulkan()
+        self.validate_cuda()
         self._emit_groq_status()
         self.smart_study_status()
         # Show the most recent completed job's data so Review/Transcript/Study
@@ -704,10 +708,11 @@ class LecturePackAdapter(EngineAdapter):
         if key == "theme":
             return
         if key == "engine":
-            engine = value if value in ("auto", "cpu", "vulkan") else "auto"
+            engine = value if value in ("auto", "cpu", "vulkan", "cuda") else "auto"
             self.config.set("engine", engine)
             self._log("[engine]", f"compute engine set to {engine}", "engine")
             self.validate_vulkan()
+            self.validate_cuda()
         elif key == "whisper_model":
             self.config.set("whisper_model", value)
         elif key == "ollama_base_url":
@@ -1678,6 +1683,37 @@ class LecturePackAdapter(EngineAdapter):
         except Exception as exc:  # pragma: no cover - defensive
             self._emit("vulkan_status", {"state": "error",
                        "message": f"Vulkan check failed: {exc}"})
+
+    def validate_cuda(self):
+        """Report the honest CUDA (NVIDIA GPU) backend state via the registry."""
+        try:
+            from lecturepack.infrastructure.transcription_engines import (
+                EngineRegistry, ENGINE_CUDA)
+            reg = EngineRegistry(self.config)
+            cuda = reg.detect_engines().get(ENGINE_CUDA)
+            requested = self.config.get("engine", "auto")
+            resolved = reg.resolve(requested)
+            avail = bool(cuda and cuda.available)
+            selected = resolved.key == ENGINE_CUDA
+            if not avail:
+                state = "unavailable"
+                msg = f"CUDA unavailable — {(cuda.reason if cuda else 'not detected')}"
+            elif selected:
+                state = "loaded"
+                msg = f"CUDA available and selected — will load {resolved.backend}"
+            else:
+                state = "available"
+                msg = f"CUDA available but not selected — currently using {resolved.backend}"
+            self._emit("cuda_status", {
+                "state": state, "message": msg, "available": avail,
+                "selected": selected, "reason": (cuda.reason if cuda else ""),
+                "requested": requested, "resolved_backend": resolved.backend,
+                "resolved_label": resolved.label,
+                "benchmark_ok": bool(self.config.get("cuda_benchmark_ok", False)),
+                "exe": (cuda.exe_path if cuda else "")})
+        except Exception as exc:  # pragma: no cover - defensive
+            self._emit("cuda_status", {"state": "error",
+                       "message": f"CUDA check failed: {exc}"})
 
     # -- Groq online transcription (reuses the existing backend + secret store) --
     def _groq_store(self):

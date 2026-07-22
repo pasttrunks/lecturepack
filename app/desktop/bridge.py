@@ -51,6 +51,7 @@ class Backend(QObject):
     flashcards_changed = Signal(str)
     flashcards_status = Signal(str)
     vulkan_status = Signal(str)
+    cuda_status = Signal(str)
     groq_status = Signal(str)
     smart_study = Signal(str)
 
@@ -104,6 +105,10 @@ class Backend(QObject):
     @Slot()
     def validate_vulkan(self):
         self._adapter.validate_vulkan()
+
+    @Slot()
+    def validate_cuda(self):
+        self._adapter.validate_cuda()
 
     @Slot(str)
     def set_groq_key(self, key: str):
