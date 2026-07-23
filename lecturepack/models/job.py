@@ -100,6 +100,16 @@ class Job:
             self.state["stages"] = {stage: {"status": "pending"} for stage in STAGES}
         if "overall_status" not in self.state:
             self.state["overall_status"] = "pending"
+
+        # Reset orphaned running jobs — no backend process survives an app restart.
+        # A job left in "running" state means the app was closed mid-job; treat
+        # it as interrupted so the user can retry rather than seeing a frozen hang.
+        if self.state.get("overall_status") == "running":
+            self.state["overall_status"] = "interrupted"
+            for stage_data in self.state.get("stages", {}).values():
+                if stage_data.get("status") == "running":
+                    stage_data["status"] = "interrupted"
+            self.save()
         if "schema_version" not in self.settings:
             self.settings["schema_version"] = 1
         if "whisper" not in self.settings:
