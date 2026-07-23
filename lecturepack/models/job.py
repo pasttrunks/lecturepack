@@ -7,14 +7,20 @@ from lecturepack.constants import (
     PRODUCT_MODE_STUDY_PACK, PRODUCT_MODES, PRESETS,
 )
 from lecturepack.infrastructure.file_manager import FileManager
+from lecturepack.models import job_lifecycle
 
 
 class Job:
     """Represents a single lecture processing job with persisted state."""
 
-    def __init__(self, data_dir, job_id=None, video_path=None):
+    def __init__(self, data_dir, job_id=None, video_path=None,
+                 current_session_id=None):
         self.data_dir = data_dir
         self.job_id = job_id or str(uuid.uuid4())
+        # Per-launch session id used to reconcile ownership of active jobs on
+        # load. None (standalone/tests) => any active job is treated as a dead
+        # session and reconciled to 'interrupted'.
+        self._current_session_id = current_session_id
 
         self.manifest = {}
         self.source = {}
@@ -84,6 +90,9 @@ class Job:
             "schema_version": 1,
             "job_id": self.job_id,
             "overall_status": "pending",
+            # Authoritative beta.3 orchestration state (see job_lifecycle).
+            "lifecycle": job_lifecycle.NEW,
+            "session": {},
             "last_updated": now,
             "stages": {stage: {"status": "pending"} for stage in STAGES},
         }
@@ -110,6 +119,26 @@ class Job:
                 if stage_data.get("status") == "running":
                     stage_data["status"] = "interrupted"
             self.save()
+
+        # beta.3 authoritative lifecycle: backfill for pre-beta.3 jobs, then
+        # reconcile active states against session ownership. An active job
+        # (running/pause_requested) survives load ONLY if the current session
+        # owns it and its process is alive; otherwise its session is dead and
+        # the job becomes 'interrupted' (artifacts preserved, resumable).
+        if "lifecycle" not in self.state:
+            self.state["lifecycle"] = job_lifecycle.backfill_from_overall_status(
+                self.state.get("overall_status", "pending"))
+        owner = job_lifecycle.SessionOwner.from_dict(self.state.get("session"))
+        reconciled = job_lifecycle.reconcile_on_load(
+            self.state["lifecycle"], owner, self._current_session_id or "")
+        if reconciled != self.state["lifecycle"]:
+            self.state["lifecycle"] = reconciled
+            self.state["session"] = {}
+            for stage_data in self.state.get("stages", {}).values():
+                if stage_data.get("status") == "running":
+                    stage_data["status"] = "interrupted"
+            self.save()
+        self.state.setdefault("session", {})
         if "schema_version" not in self.settings:
             self.settings["schema_version"] = 1
         if "whisper" not in self.settings:
@@ -157,6 +186,27 @@ class Job:
 
     def get_stage_status(self, stage):
         return self.state.get("stages", {}).get(stage, {}).get("status", "pending")
+
+    # --- beta.3 authoritative lifecycle -------------------------------- #
+    def get_lifecycle(self):
+        return self.state.get("lifecycle", job_lifecycle.NEW)
+
+    def set_lifecycle(self, new_state, owner=None):
+        """Transition the authoritative lifecycle, validating the edge. Stamps
+        session ownership when entering an active state and releases it when
+        leaving one. Raises job_lifecycle.IllegalTransition on a bad edge."""
+        current = self.get_lifecycle()
+        if new_state == current:
+            return
+        job_lifecycle.assert_transition(current, new_state)
+        self.state["lifecycle"] = new_state
+        if new_state in job_lifecycle.ACTIVE_STATES:
+            if owner is not None:
+                self.state["session"] = owner.to_dict()
+        else:
+            # queued/scheduled/paused/terminal hold no execution slot.
+            self.state["session"] = {}
+        self.save()
 
     def get_preset_settings(self):
         preset_name = self.settings.get("preset", "balanced")
