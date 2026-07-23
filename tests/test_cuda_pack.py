@@ -57,6 +57,26 @@ def test_verify_matches_and_rejects(tmp_path):
     assert cp.verify(str(f), "0" * 64) is False
 
 
+def test_bin_cuda_dir_is_per_user_writable_location(tmp_path, monkeypatch):
+    # The pack installs to a per-user dir (packaged install dir may be read-only)
+    # and the registry probes the SAME place — they must agree.
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert cp.bin_cuda_dir() == te.user_cuda_dir()
+    assert str(tmp_path) in cp.bin_cuda_dir()
+    assert cp.bin_cuda_dir().endswith(os.path.join("LecturePack", "bin", "cuda"))
+
+
+def test_registry_finds_pack_installed_binary_in_user_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    d = te.user_cuda_dir()
+    os.makedirs(d, exist_ok=True)
+    open(os.path.join(d, "whisper-cli.exe"), "wb").close()
+    monkeypatch.setattr(te, "nvidia_cuda_present", lambda: True)
+    reg = te.EngineRegistry(None)
+    c = reg.detect_engines()[te.ENGINE_CUDA]
+    assert c.available is True and te.user_cuda_dir() in c.exe_path
+
+
 def test_pinned_pack_metadata_is_sane():
     assert cp.CUDA_PACK["url"].startswith("https://github.com/ggml-org/whisper.cpp/")
     assert len(cp.CUDA_PACK["sha256"]) == 64

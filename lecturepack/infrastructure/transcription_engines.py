@@ -94,6 +94,19 @@ def vulkan_runtime_present() -> bool:
     return os.path.isfile(os.path.join(sysdir, "vulkan-1.dll"))
 
 
+def user_cuda_dir() -> str:
+    """Per-user, always-writable location for the on-demand CUDA pack.
+
+    The packaged app may be installed to a read-only directory, so the optional
+    CUDA acceleration pack is installed here (under %LOCALAPPDATA%) and the
+    registry probes it. Shared by the pack installer and the engine registry so
+    they never disagree.
+    """
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(
+        os.path.expanduser("~"), "AppData", "Local")
+    return os.path.join(base, "LecturePack", "bin", "cuda")
+
+
 def nvidia_cuda_present() -> bool:
     """True when an NVIDIA CUDA driver is installed.
 
@@ -154,7 +167,11 @@ class EngineRegistry:
             if p and os.path.isfile(p):
                 return p
         root = _app_root()
-        for cand in (os.path.join(root, "bin", "cuda", "whisper-cli.exe"),
+        # Probe the per-user pack location FIRST (always writable, so the
+        # on-demand CUDA pack installs there — the packaged app's install dir
+        # may be read-only), then the bundled/dev bin/cuda.
+        for cand in (os.path.join(user_cuda_dir(), "whisper-cli.exe"),
+                     os.path.join(root, "bin", "cuda", "whisper-cli.exe"),
                      os.path.join(root, "bin-cuda", "whisper-cli.exe")):
             if os.path.isfile(cand):
                 return cand

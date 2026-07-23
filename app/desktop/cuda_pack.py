@@ -14,7 +14,6 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
-import sys
 import urllib.request
 import zipfile
 from typing import Callable, Optional
@@ -34,17 +33,10 @@ CUDA_PACK = {
 
 
 def bin_cuda_dir() -> str:
-    """Match the engine registry's bin/cuda location.
-
-    Dev: <repo>/bin/cuda (repo root is two levels above app/desktop).
-    Frozen: <exe dir>/bin/cuda.
-    """
-    if getattr(sys, "frozen", False):
-        root = os.path.dirname(sys.executable)
-    else:
-        # app/desktop/cuda_pack.py -> app -> repo
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    return os.path.join(root, "bin", "cuda")
+    """Install target for the pack — the per-user, always-writable CUDA dir the
+    engine registry probes (works whether or not the install dir is writable)."""
+    from lecturepack.infrastructure.transcription_engines import user_cuda_dir
+    return user_cuda_dir()
 
 
 def is_installed() -> bool:
