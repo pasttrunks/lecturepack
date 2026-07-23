@@ -92,6 +92,43 @@ def validate_release_assets(version: str, require_installer: bool = True) -> Non
     print(f"Release gate OK — validated: {[p.name for p in required]}")
 
 
+def bundle_engine() -> None:
+    """Copy the CORE transcription engine into the PyInstaller output so the
+    installed app works out of the box: FFmpeg, whisper.cpp CPU (+ its DLLs),
+    and the base.en model. GPU packs (Vulkan/CUDA) stay optional/on-demand and
+    are deliberately excluded to keep the installer lean.
+    """
+    repo = APP_DIR.parent
+    dist_app = APP_DIR / "dist" / "LecturePack"
+    dst_bin = dist_app / "bin"
+    dst_models = dist_app / "models"
+    dst_bin.mkdir(parents=True, exist_ok=True)
+    dst_models.mkdir(parents=True, exist_ok=True)
+
+    def _copy(src: Path, dst: Path):
+        if not src.exists() or src.stat().st_size == 0:
+            sys.exit(f"engine bundle FAILED — missing or empty {src}")
+        shutil.copy2(src, dst)
+        if not dst.exists() or dst.stat().st_size == 0:
+            sys.exit(f"engine bundle FAILED — copy produced empty {dst}")
+
+    # FFmpeg / FFprobe
+    for name in ("ffmpeg.exe", "ffprobe.exe"):
+        _copy(repo / "bin" / name, dst_bin / name)
+
+    # whisper.cpp CPU: the CLI + only the DLLs it needs (skip the other tools:
+    # parakeet/wchess/server/stream/tests/SDL2).
+    rel = repo / "bin" / "Release"
+    wanted = ["whisper-cli.exe", "whisper.dll", "ggml.dll", "ggml-base.dll"]
+    wanted += sorted(p.name for p in rel.glob("ggml-cpu-*.dll"))
+    for name in wanted:
+        _copy(rel / name, dst_bin / name)
+
+    # Core model — base.en (the "works immediately" default).
+    _copy(repo / "models" / "ggml-base.en.bin", dst_models / "ggml-base.en.bin")
+    print(f"Bundled core engine: ffmpeg + {len(wanted)} whisper files + ggml-base.en.bin")
+
+
 def make_portable_zip(version: str) -> Path:
     """Zip the PyInstaller onedir output into a portable archive."""
     import zipfile
@@ -144,6 +181,9 @@ def main() -> None:
     if not exe.exists():
         sys.exit(f"expected {exe} — PyInstaller build failed")
     print(f"Built {exe}")
+
+    # Bundle the core engine so the installed app transcribes out of the box.
+    bundle_engine()
 
     # Portable ZIP is independent of Inno Setup — always produced.
     make_portable_zip(version)

@@ -116,6 +116,7 @@ class _Backend(QObject):
 
 
 def _make(qtbot, monkeypatch, installed=True, processing=False):
+    monkeypatch.setattr(up_mod.version, "__version__", "0.9.0-beta.1")
     backend = _Backend(processing=processing)
     up = up_mod.Updater(backend)
     up._settings.setValue("update_channel", "beta")

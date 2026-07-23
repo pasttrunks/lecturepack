@@ -22,12 +22,12 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'LecturePack'),
             StringStruct('FileDescription', 'LecturePack — lecture transcription & study'),
-            StringStruct('FileVersion', '0.9.0-beta.1'),
+            StringStruct('FileVersion', '0.9.0-beta.2'),
             StringStruct('InternalName', 'LecturePack'),
             StringStruct('LegalCopyright', 'LecturePack'),
             StringStruct('OriginalFilename', 'LecturePack.exe'),
             StringStruct('ProductName', 'LecturePack'),
-            StringStruct('ProductVersion', '0.9.0-beta.1')
+            StringStruct('ProductVersion', '0.9.0-beta.2')
           ]
         )
       ]

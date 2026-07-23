@@ -22,23 +22,27 @@ class FFmpegWrapper(QObject):
 
     def detect_binaries(self):
         """Attempts to locate ffmpeg and ffprobe executables."""
-        # 1. Check user-configured paths from config_manager
+        # 1. Check user-configured / autodetected paths from config_manager
         if self.config_manager:
-            ff = self.config_manager.get("ffmpeg_exe", "")
-            fp = self.config_manager.get("ffprobe_exe", "")
+            ff, fp = self.config_manager.autodetect_ffmpeg()
             if ff and os.path.isfile(ff) and fp and os.path.isfile(fp):
                 self.ffmpeg_path = ff
                 self.ffprobe_path = fp
                 return
 
-        # 2. Check project root bin/ (dev mode only)
-        project_bin = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "bin")
-        ff = os.path.join(project_bin, "ffmpeg.exe")
-        fp = os.path.join(project_bin, "ffprobe.exe")
-        if os.path.exists(ff) and os.path.exists(fp):
-            self.ffmpeg_path = ff
-            self.ffprobe_path = fp
-            return
+        # 2. Check application directory (handles PyInstaller frozen mode & dev mode)
+        if getattr(sys, "frozen", False):
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+        for bdir in (os.path.join(app_dir, "bin"), app_dir):
+            ff = os.path.join(bdir, "ffmpeg.exe")
+            fp = os.path.join(bdir, "ffprobe.exe")
+            if os.path.isfile(ff) and os.path.isfile(fp):
+                self.ffmpeg_path = ff
+                self.ffprobe_path = fp
+                return
 
         # 3. Check system PATH
         ff_sys = shutil.which("ffmpeg")

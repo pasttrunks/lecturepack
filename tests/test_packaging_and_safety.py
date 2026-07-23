@@ -147,3 +147,24 @@ def test_context_names_feed_whisper_prompt():
     prompt = build_whisper_prompt(course_title="Ancient Egypt",
                                   names=["Tutankhamun", "Abu Simbel"], glossary="pharaoh")
     assert "Tutankhamun" in prompt and "Abu Simbel" in prompt and "Ancient Egypt" in prompt
+
+
+def test_ffmpeg_wrapper_detects_bundled_binaries_in_frozen_mode(tmp_path, monkeypatch):
+    """FFmpegWrapper finds ffmpeg.exe and ffprobe.exe in <app_dir>/bin when frozen."""
+    import sys
+    from lecturepack.infrastructure.ffmpeg_wrapper import FFmpegWrapper
+
+    app_dir = tmp_path / "frozen_app"
+    bin_dir = app_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "ffmpeg.exe").write_text("x")
+    (bin_dir / "ffprobe.exe").write_text("x")
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(app_dir / "LecturePack.exe"))
+
+    wrapper = FFmpegWrapper()
+    assert wrapper.ffmpeg_path == str(bin_dir / "ffmpeg.exe")
+    assert wrapper.ffprobe_path == str(bin_dir / "ffprobe.exe")
+    assert wrapper.is_available() is True
+
