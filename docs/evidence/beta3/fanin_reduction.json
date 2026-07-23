@@ -1,0 +1,49 @@
+{
+  "milestone": "0.9.0-beta.3",
+  "generated_from": "Fan-out 1 audits A-E (job-lifecycle, windows-integration, ui-qol, packaging, test-gap)",
+  "architecture": "Packaged app = WebEngine: app/desktop/main.py -> app/ui/ (vanilla-JS window.LP IIFE + app.css) via bridge.py (QWebChannel). Engine = lecturepack/ (JobController, models/job.py) via engine_adapter.py::LecturePackAdapter. Old lecturepack/ui/ PySide pages NOT shipped. bridge.js SIGNALS array must stay synced with bridge.py signals.",
+  "shared_files_single_writer": {
+    "lecturepack/models/job.py": "job state (Phase 1 - DONE)",
+    "lecturepack/models/job_lifecycle.py": "NEW state machine (Phase 1 - DONE)",
+    "lecturepack/controllers/job_controller.py": "orchestration, cancel, pause/resume (Phase 3)",
+    "NEW lecturepack/services/job_queue.py": "persistent FIFO queue + schedule store (Phase 3)",
+    "app/desktop/engine_adapter.py": "engine<->UI seam; job emit points (contention across phases)",
+    "app/desktop/bridge.py": "bridge methods + signals (contention)",
+    "app/ui/{index.html,app.js,app.css,bridge.js}": "UI (Phase 5)",
+    "app/desktop/main.py": "tray + taskbar wiring (Phase 2)",
+    "NEW app/desktop/win_integration.py": "keep-awake + taskbar + notifications facade (Phase 2)",
+    "app/packaging/build.py": "clean-state gate (Phase 2 - DONE), release (Phase 6)"
+  },
+  "independent_modules": [
+    "app/desktop/win_integration.py (Phase 2 - injectable seams, fully fakeable, zero new deps)",
+    "app/packaging/build.py clean-state gate (Phase 2 - DONE)"
+  ],
+  "dependency_edges": [
+    "Phase1(state machine) -> Phase3, Phase4, Phase5",
+    "Phase2(windows facade + clean-state) independent of Phase1",
+    "Phase3(queue/sched/pause controller) -> Phase5(UI)",
+    "Phase4(retry/completion/diagnostics) -> Phase5(UI)",
+    "Phase5(UI) -> needs signals from 1/2/3/4",
+    "Phase6(version/release) last"
+  ],
+  "implementation_phases": {
+    "1_core_state_machine": "DONE (32eb2a5): job_lifecycle.py + Job integration + 56 tests",
+    "2_platform_modules": {
+      "clean_state_gate": "DONE (83d644a): build.py check_clean_state + 8 tests",
+      "win_integration": "TODO: app/desktop/win_integration.py facade (keep-awake ctypes SetThreadExecutionState; taskbar hand-rolled ctypes ITaskbarList3; notifications QSystemTrayIcon; focus via QApplication.applicationState). Injectable PowerRequester/TaskbarButton/Notifier seams -> unit tests with fakes."
+    },
+    "3_queue_scheduler_pause": "TODO: new lecturepack/services/job_queue.py (FIFO persist/reorder/RunNow/remove, one-active invariant); scheduler (tz-aware zoneinfo, missed policies run-next-open/skip/ask); cooperative STAGE-BOUNDARY pause in job_controller (no mid-stage resume exists; finish atomic op or clean-terminate + restart interrupted stage; replace QThread.terminate for align/export). Needs injected clock (add clock seam; no conftest.py exists).",
+    "4_retry_completion_diagnostics": "TODO: stage-specific retry (reset only failed stage, preserve completed - job_controller.run_pipeline currently bulk-resets ALL); completion metrics (duration/words/slides/study); redacted diagnostics (strip keys/creds/transcript).",
+    "5_ui_integration_animation": "TODO: app/ui — Settings>Notifications (6 toggles+test), completion panel + actions, retry UI, queue UI, schedule UI, pause/resume UI, Interrupted/Needs-Attention cards (Resume/Restart/View/Remove), NEW History screen, Processing empty state, notification click routing; animations (page transitions currently 300ms > 160-220 spec) + prefers-reduced-motion. Keep bridge.js SIGNALS synced.",
+    "6_version_release": "TODO: version.py -> 0.9.0-beta.3, win_version_info.txt, iss default AppVersion, About/What's New, CHANGELOG, release notes. Then build (Inno box), acceptance, upgrade test. STOP at user authorization."
+  },
+  "release_blockers_resolved_so_far": [
+    "startup stale-job reconciliation now session-aware + tested (was zero-coverage, unsafe once concurrent)",
+    "clean-state packaging gate now enforced + tested (was a §3 blocker, unimplemented)"
+  ],
+  "notes": {
+    "pause_reality": "NO stage supports cooperative mid-stage resume today; all restart-from-scratch. Pause must be stage-boundary. §16 explicitly permits: finish current atomic op / clean-terminate, discard invalid partials, preserve verified outputs, resume by restarting only the interrupted stage.",
+    "taskbar": "QtWinExtras removed in Qt6 -> hand-roll ctypes ITaskbarList3 (zero new deps; comtypes/pywin32 are PyInstaller hazards).",
+    "data_safety": "data dir ~/LecturePackData is OUTSIDE install {app}; AppId {{9F5D2E31-7C4A-4B8E-9E1D-LECTUREPACK01}} stable -> upgrade preserves data. No schema-migration ladder (schema_version pinned 1) - beta.3 relies on Job.load backfill for new fields (implemented for lifecycle/session)."
+  }
+}

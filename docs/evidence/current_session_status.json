@@ -1,40 +1,36 @@
 {
-  "head": "8fa428f",
+  "head": "83d644a",
   "branch": "feat/cuda-engine",
-  "starting_head": "de550c8",
-  "safety_tag": "safety/post-beta2-verify-de550c8",
-  "beta2_public_before_run": true,
-  "beta2_tag": "v0.9.0-beta.2 -> deca663 (immutable; NOT touched)",
+  "milestone": "0.9.0-beta.3 (QoL/reliability)",
+  "safety_tag": "safety/start-beta3-qol-7cdc889",
+  "beta2_tag": "deca663 (immutable; NOT touched)",
+  "beta3_exists": false,
   "completed_nodes": [
-    "node0_truth",
-    "A_runtime_audit",
-    "C_artifact_audit",
-    "D_real_transcription",
-    "E_updater_live",
-    "F_test_suite",
-    "secrets_scan",
-    "routeB_contained_fix"
+    "node0_truth", "arch_resolution",
+    "auditA_lifecycle", "auditB_windows", "auditC_ui", "auditD_packaging", "auditE_testgap",
+    "fanin_reduction",
+    "phase1_state_machine", "phase2_clean_state_gate"
   ],
-  "active_node": "final_deliverables",
-  "release_blockers": [],
-  "findings_fixed": [
-    "test-only: MockConfigManager missing autodetect_ffmpeg broke test_study_workflow::test_retranscribe_only_stages at deca663 (beta.2). Product code correct. Fixed in 8fa428f; full suite 348 passed."
+  "active_node": "checkpoint_after_phase2",
+  "commits_this_session": [
+    "f5be012 docs(readme): point download links at public beta.2",
+    "32eb2a5 feat(jobs): authoritative lifecycle state machine + session ownership (Phase 1)",
+    "83d644a feat(packaging): clean-state build gate (Phase 2 partial - §3)"
   ],
-  "gates": {
-    "full_suite_at_final_commit": "348 passed in 191.52s (8fa428f)",
-    "real_packaged_transcription": "PASS (runtime-level: bundled ffprobe/ffmpeg/whisper-cli + ggml-base.en.bin on m2-res_1080p.mp4, 11 segments, valid timestamps, CPU only, no dev tools)",
-    "clean_profile_install": "HUMAN/VM pending (out of agent reach)",
-    "setup_exe": "present (public + local)",
-    "portable_zip": "present (public + local)",
-    "sha256sums_lists_both": true,
-    "published_hashes_match": "PASS byte-for-byte (local == SHA256SUMS.txt == GitHub asset digests: Setup f2afc31c..., Portable 236d626b...)",
-    "updater_live_discovery": "PASS (public feed 200; beta.1 user selects beta.2; stable ignores prerelease; asset digest == verified artifact)",
-    "updater_gui_clickthrough": "HUMAN pending (logic covered by 22 tests)",
-    "upgrade_preserves_data": "structural PASS (stable AppId, LecturePackData outside {app}); live upgrade HUMAN pending",
-    "no_secrets": "PASS (dist + source scanned)",
-    "working_tree": "README.md modified (pre-existing at session start, unrelated to release)"
+  "phase_status": {
+    "1_core_state_machine": "DONE + tested (56 tests)",
+    "2_platform_modules": "clean-state gate DONE (8 tests); win_integration.py TODO",
+    "3_queue_scheduler_pause": "TODO",
+    "4_retry_completion_diagnostics": "TODO",
+    "5_ui_integration_animation": "TODO",
+    "6_version_release": "TODO (do NOT publish; stop at user authorization)"
   },
-  "outcome": "B — beta.2 verified release-ready and already public; one contained test-only defect fixed (8fa428f); two named human validations remain (clean-machine install, GUI updater/upgrade click-through)",
-  "next_command": "Decide beta.3: bundle post-beta.2 fixes (4abc961 job-reset, de550c8 window-icon/badge) + 8fa428f test fix; bump version.py to 0.9.0-beta.3; build on Inno-Setup box; publish (requires user go-ahead).",
-  "never_touched": "C:\\Users\\marsh\\LecturePackData"
+  "tests_added": "64 (49 lifecycle unit + 7 lifecycle integration + 8 packaging gate)",
+  "full_suite": "412 passed in 180.60s at 83d644a (prior 348 + 64 new), exit 0",
+  "release_blockers": [],
+  "next_command": "Phase 2b: implement app/desktop/win_integration.py (keep-awake/taskbar/notifications facade, injectable seams) + unit tests; then Phase 3 queue/scheduler/pause controller.",
+  "publish_policy": "Do NOT publish beta.3 automatically. Stop at READY FOR USER AUTHORIZATION.",
+  "never_touched": "C:\\Users\\marsh\\LecturePackData",
+  "handoff_doc": "docs/HANDOFF_BETA3_QOL.md",
+  "fanin_doc": "docs/evidence/beta3/fanin_reduction.json"
 }
