@@ -1,0 +1,40 @@
+{
+  "head": "8fa428f",
+  "branch": "feat/cuda-engine",
+  "starting_head": "de550c8",
+  "safety_tag": "safety/post-beta2-verify-de550c8",
+  "beta2_public_before_run": true,
+  "beta2_tag": "v0.9.0-beta.2 -> deca663 (immutable; NOT touched)",
+  "completed_nodes": [
+    "node0_truth",
+    "A_runtime_audit",
+    "C_artifact_audit",
+    "D_real_transcription",
+    "E_updater_live",
+    "F_test_suite",
+    "secrets_scan",
+    "routeB_contained_fix"
+  ],
+  "active_node": "final_deliverables",
+  "release_blockers": [],
+  "findings_fixed": [
+    "test-only: MockConfigManager missing autodetect_ffmpeg broke test_study_workflow::test_retranscribe_only_stages at deca663 (beta.2). Product code correct. Fixed in 8fa428f; full suite 348 passed."
+  ],
+  "gates": {
+    "full_suite_at_final_commit": "348 passed in 191.52s (8fa428f)",
+    "real_packaged_transcription": "PASS (runtime-level: bundled ffprobe/ffmpeg/whisper-cli + ggml-base.en.bin on m2-res_1080p.mp4, 11 segments, valid timestamps, CPU only, no dev tools)",
+    "clean_profile_install": "HUMAN/VM pending (out of agent reach)",
+    "setup_exe": "present (public + local)",
+    "portable_zip": "present (public + local)",
+    "sha256sums_lists_both": true,
+    "published_hashes_match": "PASS byte-for-byte (local == SHA256SUMS.txt == GitHub asset digests: Setup f2afc31c..., Portable 236d626b...)",
+    "updater_live_discovery": "PASS (public feed 200; beta.1 user selects beta.2; stable ignores prerelease; asset digest == verified artifact)",
+    "updater_gui_clickthrough": "HUMAN pending (logic covered by 22 tests)",
+    "upgrade_preserves_data": "structural PASS (stable AppId, LecturePackData outside {app}); live upgrade HUMAN pending",
+    "no_secrets": "PASS (dist + source scanned)",
+    "working_tree": "README.md modified (pre-existing at session start, unrelated to release)"
+  },
+  "outcome": "B — beta.2 verified release-ready and already public; one contained test-only defect fixed (8fa428f); two named human validations remain (clean-machine install, GUI updater/upgrade click-through)",
+  "next_command": "Decide beta.3: bundle post-beta.2 fixes (4abc961 job-reset, de550c8 window-icon/badge) + 8fa428f test fix; bump version.py to 0.9.0-beta.3; build on Inno-Setup box; publish (requires user go-ahead).",
+  "never_touched": "C:\\Users\\marsh\\LecturePackData"
+}
