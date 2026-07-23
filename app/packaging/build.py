@@ -126,6 +126,12 @@ def bundle_engine() -> None:
 
     # Core model — base.en (the "works immediately" default).
     _copy(repo / "models" / "ggml-base.en.bin", dst_models / "ggml-base.en.bin")
+
+    # App icon — copied next to the EXE so main.py can load it at runtime.
+    ico_src = APP_DIR / "packaging" / "lecturepack.ico"
+    if ico_src.exists():
+        shutil.copy2(ico_src, dist_app / "lecturepack.ico")
+
     print(f"Bundled core engine: ffmpeg + {len(wanted)} whisper files + ggml-base.en.bin")
 
 

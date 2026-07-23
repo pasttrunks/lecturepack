@@ -79,7 +79,11 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1080, 680)
         self.resize(1360, 860)
 
-        icon_path = os.path.join(os.path.dirname(__file__), "..", "packaging", "lecturepack.ico")
+        if getattr(sys, "frozen", False):
+            # Frozen EXE: icon is next to LecturePack.exe
+            icon_path = os.path.join(os.path.dirname(sys.executable), "lecturepack.ico")
+        else:
+            icon_path = os.path.join(os.path.dirname(__file__), "..", "packaging", "lecturepack.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
