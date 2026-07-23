@@ -92,6 +92,70 @@ def validate_release_assets(version: str, require_installer: bool = True) -> Non
     print(f"Release gate OK — validated: {[p.name for p in required]}")
 
 
+def check_clean_state(dist_app: Path) -> list:
+    """Return a list of packaging-cleanliness violations for a built onedir.
+
+    Beta.3 §3: a fresh install must start with ZERO jobs. Fail the build if the
+    output bundles any user/job/dev state, and confirm the core engine is
+    actually present (a silent bundle_engine regression otherwise only surfaces
+    at runtime on a user's machine). Pure/inspectable so it can be unit-tested
+    against a synthetic tree.
+    """
+    import fnmatch
+
+    violations = []
+    dist_app = Path(dist_app)
+
+    forbidden_name_globs = ["*config.json", "*.job.json", "*.db",
+                            "*.sqlite", "*.sqlite3"]
+    forbidden_dir_names = {"jobs", "exports", "thumbs", "LecturePackData",
+                           "study_packs"}
+
+    for path in dist_app.rglob("*"):
+        rel = path.relative_to(dist_app)
+        parts = set(rel.parts)
+        # Qt ships its own JSON assets under _internal — allowlist those only.
+        under_internal = "_internal" in parts
+        if path.is_dir():
+            if path.name in forbidden_dir_names:
+                violations.append(f"forbidden dir bundled: {rel}")
+            continue
+        name = path.name
+        for pat in forbidden_name_globs:
+            if fnmatch.fnmatch(name, pat):
+                violations.append(f"forbidden file bundled: {rel}")
+        # Any stray top-level/app JSON (not a Qt _internal asset) is suspect —
+        # this is how a job manifest/state.json would leak in.
+        if name.endswith(".json") and not under_internal:
+            violations.append(f"unexpected json bundled: {rel}")
+
+    # Required engine payload must be present AND non-empty.
+    required = [
+        "LecturePack.exe",
+        "bin/ffmpeg.exe", "bin/ffprobe.exe", "bin/whisper-cli.exe",
+        "bin/whisper.dll", "bin/ggml.dll", "bin/ggml-base.dll",
+        "models/ggml-base.en.bin",
+    ]
+    for r in required:
+        p = dist_app / r
+        if not p.is_file() or p.stat().st_size == 0:
+            violations.append(f"missing/empty required payload: {r}")
+    if not list((dist_app / "bin").glob("ggml-cpu-*.dll")):
+        violations.append("missing CPU backend DLLs: bin/ggml-cpu-*.dll")
+
+    return violations
+
+
+def validate_clean_state(dist_app: Path = None) -> None:
+    """Build gate wrapping check_clean_state — abort the build on any violation."""
+    if dist_app is None:
+        dist_app = APP_DIR / "dist" / "LecturePack"
+    violations = check_clean_state(dist_app)
+    if violations:
+        sys.exit("CLEAN-STATE GATE FAILED —\n  " + "\n  ".join(violations))
+    print("Clean-state gate OK — no job/dev data bundled; engine payload present.")
+
+
 def bundle_engine() -> None:
     """Copy the CORE transcription engine into the PyInstaller output so the
     installed app works out of the box: FFmpeg, whisper.cpp CPU (+ its DLLs),
@@ -190,6 +254,10 @@ def main() -> None:
 
     # Bundle the core engine so the installed app transcribes out of the box.
     bundle_engine()
+
+    # Clean-state gate: fresh install must ship zero jobs/dev data, and the
+    # engine payload must actually be present (beta.3 §3).
+    validate_clean_state()
 
     # Portable ZIP is independent of Inno Setup — always produced.
     make_portable_zip(version)
