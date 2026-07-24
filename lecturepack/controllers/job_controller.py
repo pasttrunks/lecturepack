@@ -62,6 +62,8 @@ class JobController(QObject):
 
     pipeline_completed = Signal()
     pipeline_failed = Signal(str)
+    # Cooperative pause: "pause_requested" -> "paused" -> "resumed".
+    pause_state_changed = Signal(str)
 
     def __init__(self, config_manager):
         super().__init__()
@@ -94,6 +96,9 @@ class JobController(QObject):
         # Latched by cancel(); prevents a late stage-finished event (e.g. a
         # process that ignored terminate()) from restarting the pipeline.
         self._user_cancelled = False
+        # Cooperative pause: set by request_pause(); drives _stage_done to stop
+        # at the next stage boundary instead of advancing the pipeline.
+        self._pause_requested = False
         # Workers replaced while still winding down are parked here so their
         # QThread objects are never garbage-collected while running.
         self._retired_workers = []
@@ -194,6 +199,92 @@ class JobController(QObject):
         self._group_error = None
         self.current_stage = None
         self._cancelling = False
+
+    # -- cooperative pause / resume (beta.3) ---------------------------- #
+    # Stages that can be cleanly cancelled and safely restarted from scratch.
+    # ALIGN/EXPORT use QThread and are short, so a pause lets them finish rather
+    # than risk an unsafe terminate() mid-write.
+    _PAUSE_RESTARTABLE = frozenset(
+        {STAGE_EXTRACT_AUDIO, STAGE_TRANSCRIBE, STAGE_DETECT_SLIDES})
+
+    def request_pause(self):
+        """Cooperatively pause the active job. Restartable stages are cleanly
+        stopped now (they restart on resume); align/export are allowed to finish.
+        Completed stages are always preserved. No OS process suspension, no
+        QThread.terminate. Returns True if a pause was initiated."""
+        active = set(self._active_stages)
+        if self.current_stage and self.current_stage not in active:
+            active.add(self.current_stage)
+        if not active or self._pause_requested or self._user_cancelled:
+            return False
+        self._pause_requested = True
+        self.pause_state_changed.emit("pause_requested")
+        for stage in active:
+            if stage in self._PAUSE_RESTARTABLE:
+                self.stage_log.emit(stage, "Pausing — finishing current step...\n")
+                if stage == STAGE_EXTRACT_AUDIO:
+                    self.ffmpeg_wrapper.cancel()
+                elif stage == STAGE_TRANSCRIBE:
+                    self.transcription_backend.cancel()
+                elif stage == STAGE_DETECT_SLIDES and self.slide_worker:
+                    self.slide_worker.cancel()
+        return True
+
+    def resume(self):
+        """Resume a paused job from its last valid checkpoint: restart only the
+        interrupted stage(s), preserving completed ones. Safe to call after a
+        restart (state is on disk)."""
+        if not self.job:
+            self.pipeline_failed.emit("No job loaded.")
+            return
+        self._pause_requested = False
+        self._user_cancelled = False
+        for stage in STAGES:
+            if self.job.get_stage_status(stage) in ("interrupted", "failed", "cancelled"):
+                self.job.set_stage_status(stage, "pending")
+        self.pause_state_changed.emit("resumed")
+        self.run_next_stage()
+
+    def _discard_partial(self, stage):
+        """Delete a stage's partial/invalid outputs so a resume re-runs it from
+        clean inputs. Only touches the given stage's own outputs (safe under the
+        parallel transcribe+detect group)."""
+        try:
+            if stage == STAGE_TRANSCRIBE:
+                tdir = self.job.paths.get("transcript", "")
+                for name in ("raw.json", "raw.srt", "raw.txt"):
+                    p = os.path.join(tdir, name)
+                    if os.path.isfile(p):
+                        os.remove(p)
+            elif stage == STAGE_DETECT_SLIDES:
+                p = os.path.join(self.job.paths.get("root", ""), "candidates.json")
+                if os.path.isfile(p):
+                    os.remove(p)
+            elif stage == STAGE_EXTRACT_AUDIO:
+                adir = self.job.paths.get("audio", "")
+                if os.path.isdir(adir):
+                    for fn in os.listdir(adir):
+                        if fn.lower().endswith((".wav", ".part", ".tmp")):
+                            os.remove(os.path.join(adir, fn))
+        except OSError:
+            pass  # best-effort; the stage re-run overwrites anyway
+
+    def retry_stage(self, stage):
+        """Retry a single failed/interrupted stage: reset it plus required
+        downstream stages while preserving completed upstream work (uses
+        job_ops.plan_stage_retry). Then continue the pipeline."""
+        if not self.job:
+            self.pipeline_failed.emit("No job loaded.")
+            return
+        from lecturepack.services.job_ops import plan_stage_retry
+        plan = plan_stage_retry(
+            STAGES, self.job.state.get("stages", {}), stage,
+            skipped=self._skipped_stages())
+        for s in plan["reset"]:
+            self.job.set_stage_status(s, "pending")
+        self._user_cancelled = False
+        self._pause_requested = False
+        self.run_next_stage()
 
     def run_pipeline(self):
         """Finds the first incomplete stage and runs it."""
@@ -388,6 +479,25 @@ class JobController(QObject):
         self._active_stages.discard(stage)
         if stage == self.current_stage:
             self.current_stage = next(iter(self._active_stages), None)
+
+        if self._pause_requested:
+            # Cooperative pause: preserve a stage that finished cleanly; mark a
+            # cleanly-stopped stage 'interrupted' and drop its partial outputs so
+            # resume restarts exactly that stage. Never advance to the next stage.
+            if success:
+                self.job.set_stage_status(stage, "completed")
+                self._record_stage_fingerprint(stage)
+                self.stage_finished.emit(stage, True, "")
+            else:
+                self.job.set_stage_status(stage, "interrupted")
+                self._discard_partial(stage)
+            if self._active_stages:
+                return  # wait for the sibling branch to wind down too
+            self._pause_requested = False
+            self.current_stage = None
+            self._group_error = None
+            self.pause_state_changed.emit("paused")
+            return
 
         if success:
             self.job.set_stage_status(stage, "completed")
