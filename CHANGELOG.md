@@ -2,6 +2,51 @@
 
 All notable changes to Lecture Pack are documented here.
 
+## [0.9.0-beta.3] — unreleased
+
+Reliability, queueing, scheduling, notifications, and polish. Beta.3 retains the
+bundled zero-setup local engine from beta.2.
+
+### New
+- **Persistent processing queue** — one active job at a time; additional jobs
+  queue FIFO with reorder, Run Now, and remove. Survives restart.
+- **Local scheduling** — schedule a lecture for a local date/time with a
+  missed-schedule policy (run when the app next opens / skip / ask). No Windows
+  service and no cloud scheduling; a schedule due while the app is closed is
+  handled at the next launch.
+- **Safe checkpoint-based pause & resume** — cooperative pause finishes the
+  current step (or cleanly stops a restartable stage), preserves completed work,
+  and resumes from the last valid checkpoint; survives an app restart. No unsafe
+  process suspension.
+- **Windows notifications** for processing complete, processing failed, and
+  update available (focus-aware, de-duplicated, with click-through). Only while
+  the app is open or minimized — nothing is sent when it is fully closed.
+- **Windows taskbar progress**, and **keep-awake while processing** (display may
+  still sleep; manual sleep/shutdown is never blocked).
+- **Better completion panel** (real duration / word / segment / slide metrics)
+  with Open Transcript, Review Slides, Start Studying, and folder shortcuts.
+- **Stage-specific retry** that preserves completed upstream work.
+- **Redacted diagnostics** (never include keys, credentials, or transcript text).
+- Smoother animations that respect the OS **reduce-motion** setting.
+
+### Reliability
+- Fresh installs start with no stale jobs (packaging clean-state gate).
+- Old-session `running` jobs are reconciled to **Interrupted** at startup and
+  leave the active Home/Processing views, with Resume / Restart / View / Remove.
+- Per-launch session ownership so reconciliation never clobbers a live job.
+- Orphaned-running-job reset; frozen-EXE icon fix; Study Packs badge fix (from
+  the post-beta.2 fixes).
+
+## [0.9.0-beta.2] — 2026-07-23
+
+Packaged-engine hotfix for beta.1's clean-machine failure.
+
+### Fixed
+- Bundled the complete CPU whisper runtime in the installer (ffmpeg, ffprobe,
+  whisper-cli, whisper/ggml DLLs, and the `ggml-base.en.bin` model) and fixed
+  frozen-mode binary path detection, so transcription works out of the box with
+  no Python, GPU, or external tools.
+
 ## [0.9.0-beta.1] — 2026-07-21
 
 First **public beta**. The core lecture workflow works immediately after
