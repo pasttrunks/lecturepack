@@ -276,6 +276,32 @@
     setTimeout(function () { var i = $('lp-group-input'); if (i) { i.focus(); i.select(); } }, 30);
   }
 
+  function _jobName(id) {
+    var j = (LP.data.jobs || []).filter(function (x) { return x.id === id; })[0];
+    return j ? j.name : id;
+  }
+  function renderQueue() {
+    var wrap = $('home-queue'), list = $('queue-list');
+    if (!wrap || !list) return;
+    var q = (LP.data.queue && LP.data.queue.queue) || [];
+    if (!q.length) { wrap.hidden = true; list.innerHTML = ''; return; }
+    wrap.hidden = false;
+    var cnt = $('queue-count'); if (cnt) cnt.textContent = q.length + (q.length === 1 ? ' job' : ' jobs');
+    list.innerHTML = q.map(function (row, i) {
+      var qbtn = function (act, label, disabled) {
+        return '<button class="lp-hit" data-queueact="' + act + '" data-queueid="' + esc(row.id) + '"' +
+          (disabled ? ' disabled style="opacity:.4;' : ' style="') +
+          'font:600 11px \'Space Grotesk\';border-radius:7px;padding:6px 10px;cursor:pointer;background:var(--panel);border:1.5px solid var(--border);color:var(--ink)">' + label + '</button>';
+      };
+      return '<div style="display:flex;align-items:center;gap:12px;background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px">' +
+        '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted);min-width:20px">' + (i + 1) + '</span>' +
+        '<span style="flex:1;font-weight:600;font-size:13.5px">' + esc(_jobName(row.id)) + '</span>' +
+        '<div style="display:flex;gap:6px">' +
+          qbtn('runnow', 'Run Now') + qbtn('up', '↑', i === 0) +
+          qbtn('down', '↓', i === q.length - 1) + qbtn('remove', 'Remove') +
+        '</div></div>';
+    }).join('');
+  }
   function renderJobs() {
     var g = $('jobs-grid');
     g.style.display = 'flex'; g.style.flexDirection = 'column'; g.style.gap = '26px';
@@ -1487,6 +1513,20 @@
       setScreen(running ? 'process' : 'review');
     });
 
+    // Processing queue controls (Run Now / reorder / remove).
+    var queueList = $('queue-list');
+    if (queueList) queueList.addEventListener('click', function (e) {
+      var q = e.target.closest('[data-queueact]');
+      if (!q) return;
+      var qid = q.dataset.queueid, qa = q.dataset.queueact;
+      var rows = (LP.data.queue && LP.data.queue.queue) || [];
+      var idx = rows.map(function (r) { return r.id; }).indexOf(qid);
+      if (qa === 'runnow') lpBridge.call('run_now', qid);
+      else if (qa === 'remove') lpBridge.call('remove_from_queue', qid);
+      else if (qa === 'up' && idx > 0) lpBridge.call('reorder_queue', qid, idx - 1);
+      else if (qa === 'down' && idx >= 0) lpBridge.call('reorder_queue', qid, idx + 1);
+    });
+
     // onboarding overlay
     $('onb-overlay').addEventListener('click', function (e) { if (e.target === this) setOnb(null); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-onb-close]'), function (b) {
@@ -1743,6 +1783,10 @@
   /* ======================= backend hookup ======================= */
 
   function wireBridge() {
+    lpBridge.on('queue_changed', function (json) {
+      try { LP.data.queue = JSON.parse(json); } catch (e) { return; }
+      renderQueue();
+    });
     lpBridge.on('pause_state', function (json) {
       var st; try { st = JSON.parse(json).state; } catch (e) { return; }
       var pause = $('btn-pause-job'), resume = $('btn-resume-job'),

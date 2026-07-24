@@ -199,6 +199,33 @@ def test_list_jobs_lifecycle_status_mapping(tmp_path):
     assert rows["c"] == "done"
 
 
+# --- one-active-job: enqueue when busy ------------------------------------- #
+def test_start_processing_enqueues_when_busy(tmp_path):
+    from lecturepack.models.job import Job
+    a = _adapter(tmp_path)
+    # a running job holds the slot
+    rv = tmp_path / "r.mp4"; rv.write_bytes(b"x")
+    running = Job(str(tmp_path), video_path=str(rv))
+    a.current_job = running
+    a.controller._active_stages = {"Transcribe"}  # is_processing() -> True
+    # a second job is started
+    nv = tmp_path / "n.mp4"; nv.write_bytes(b"x")
+    newjob = Job(str(tmp_path), video_path=str(nv))
+    a._pending_job = newjob
+    a.start_processing("study")
+    # it was queued, not run
+    assert newjob.job_id in a.queue.queued()
+    assert newjob.get_lifecycle() == "queued"
+
+
+def test_is_processing_reflects_active_stages(tmp_path):
+    a = _adapter(tmp_path)
+    a.controller._active_stages = set()
+    assert a.is_processing() is False
+    a.controller._active_stages = {"Transcribe"}
+    assert a.is_processing() is True
+
+
 # --- pause-state relay ----------------------------------------------------- #
 def test_pause_state_relay(tmp_path):
     a = _adapter(tmp_path)

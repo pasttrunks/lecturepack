@@ -999,6 +999,26 @@ class LecturePackAdapter(EngineAdapter):
         if job is None:
             self._log("[error]", "No video selected.", "error")
             return
+        # One active job: if a pipeline is already running a DIFFERENT job, queue
+        # this one (FIFO) instead of starting a second. It runs when the active
+        # job finishes (see _promote_next).
+        if self.is_processing() and (self.current_job is None
+                                     or self.current_job.job_id != job.job_id):
+            from lecturepack.models import job_lifecycle as _lc
+            try:
+                if job.get_lifecycle() != _lc.QUEUED:
+                    job.set_lifecycle(_lc.QUEUED)
+            except _lc.IllegalTransition:
+                pass
+            job.settings["product_mode"] = _MODE_MAP.get(
+                mode, constants.PRODUCT_MODE_STUDY_PACK)
+            job.save()
+            self.queue.enqueue(job.job_id)
+            self._pending_job = None
+            self._push_queue()
+            self._push_jobs()
+            self._log("[engine]", "Another job is running — queued behind it.", "engine")
+            return
         product_mode = _MODE_MAP.get(mode, constants.PRODUCT_MODE_STUDY_PACK)
         job.settings["product_mode"] = product_mode
         w_model = self.config.get("whisper_model", "")
@@ -1399,11 +1419,24 @@ class LecturePackAdapter(EngineAdapter):
             "schedules": self.queue.schedules()})
 
     def _promote_next(self):
-        """Release the active slot when a job ends; keep the one-active invariant.
-        (Auto-launch of the next queued job is wired with the queue UI phase.)"""
+        """Release the active slot when a job ends and launch the next queued job
+        (FIFO), preserving the one-active-job invariant."""
         if self.current_job is not None:
             self.queue.finish_active(self.current_job.job_id)
+        nxt = self.queue.promote_next()
         self._push_queue()
+        if not nxt:
+            return
+        job = self._reload_job(nxt)
+        if job is None:
+            return
+        # Defer so the just-finished pipeline fully unwinds before the next one
+        # starts on the Qt event loop.
+        def _go():
+            self._pending_job = job
+            self.current_job = job
+            self.start_processing(self._mode_for_job(job))
+        QTimer.singleShot(0, _go)
 
     def _completion_payload(self, job) -> dict:
         from lecturepack.services.job_ops import completion_metrics
