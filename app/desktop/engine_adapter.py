@@ -713,41 +713,56 @@ class LecturePackAdapter(EngineAdapter):
                 os.path.join(jobs_dir, job_id, "source.json"), {}) or {}
             entries.append((man.get("created_at", ""), job_id, man, state, source))
         entries.sort(reverse=True)
+        from lecturepack.models import job_lifecycle as _lc
         for created_at, job_id, man, state, source in entries:
             title = man.get("title") or job_id[:8]
             filename = man.get("source", {}).get("filename", "")
             overall = state.get("overall_status", "pending")
             stages = state.get("stages", {})
+            lifecycle = state.get("lifecycle") or _lc.backfill_from_overall_status(overall)
             running_stage = next(
                 (name for name, sd in stages.items()
                  if sd.get("status") == "running"), None)
             group = man.get("group") or _derive_group(title)
-            if running_stage:
+            if lifecycle in (_lc.RUNNING, _lc.PAUSE_REQUESTED) and running_stage:
                 rows.append({
                     "id": job_id, "group": group,
                     "name": title, "status": "running",
                     "stage": running_stage, "pct": 0, "eta": "",
                 })
-            else:
-                dur = float(source.get("duration", 0.0) or 0.0)
-                candidates = FileManager.read_json_safe(
-                    os.path.join(jobs_dir, job_id, "candidates.json"), []) or []
-                n_slides = sum(1 for c in candidates if c.get("decision") == "accepted")
-                bits = []
-                if dur:
-                    bits.append(_fmt_mmss(dur))
-                if candidates:
-                    bits.append(f"{n_slides} slides")
-                date = (man.get("created_at", "") or "")[:10]
-                if date:
-                    bits.append(date)
-                done = stages.get(constants.STAGE_REVIEW_READY, {}).get("status") == "completed"
-                rows.append({
-                    "id": job_id, "group": group,
-                    "name": title, "file": filename,
-                    "meta": "  ·  ".join(bits),
-                    "status": "done" if (done or overall == "completed") else "pending",
-                })
+                continue
+            dur = float(source.get("duration", 0.0) or 0.0)
+            candidates = FileManager.read_json_safe(
+                os.path.join(jobs_dir, job_id, "candidates.json"), []) or []
+            n_slides = sum(1 for c in candidates if c.get("decision") == "accepted")
+            bits = []
+            if dur:
+                bits.append(_fmt_mmss(dur))
+            if candidates:
+                bits.append(f"{n_slides} slides")
+            date = (man.get("created_at", "") or "")[:10]
+            if date:
+                bits.append(date)
+            done = (lifecycle == _lc.COMPLETED
+                    or stages.get(constants.STAGE_REVIEW_READY, {}).get("status") == "completed"
+                    or overall == "completed")
+            # Authoritative lifecycle drives the badge; interrupted/failed jobs
+            # leave the active view and surface under Needs Attention.
+            status_map = {
+                _lc.INTERRUPTED: "interrupted",
+                _lc.FAILED: "failed",
+                _lc.PAUSED: "paused",
+                _lc.QUEUED: "queued",
+                _lc.SCHEDULED: "scheduled",
+                _lc.CANCELLED: "done",
+            }
+            status = status_map.get(lifecycle, "done" if done else "pending")
+            rows.append({
+                "id": job_id, "group": group,
+                "name": title, "file": filename,
+                "meta": "  ·  ".join(bits),
+                "status": status,
+            })
         return rows
 
     def _push_jobs(self):
@@ -757,6 +772,14 @@ class LecturePackAdapter(EngineAdapter):
     def on_ui_ready(self):
         # Settings fields.
         self._emit("settings_changed", self._settings_payload())
+        # Reconcile stale jobs from dead sessions BEFORE the first jobs push so
+        # orphaned 'running' jobs surface as Interrupted, not falsely active.
+        self._reconcile_jobs_on_startup()
+        # Bring any due/missed schedules into the queue per their missed policy.
+        try:
+            self.queue.reconcile_schedules_on_launch()
+        except Exception:
+            pass
         self._push_jobs()
         self._probe_ollama_async()
         self.validate_vulkan()
@@ -1407,6 +1430,20 @@ class LecturePackAdapter(EngineAdapter):
                        current_session_id=self._session_id)
         except Exception:
             return None
+
+    def _reconcile_jobs_on_startup(self):
+        """Sweep every persisted job through session-aware reconciliation so a
+        job left 'running'/'pause_requested' by a dead session becomes
+        'interrupted' (artifacts preserved) and stops showing as active. Loading
+        each Job with the current session id triggers reconcile_on_load, which
+        persists the corrected lifecycle. Never deletes or restarts anything."""
+        jobs_dir = os.path.join(self.config.data_dir, "jobs")
+        if not os.path.isdir(jobs_dir):
+            return
+        for job_id in os.listdir(jobs_dir):
+            if not os.path.isfile(os.path.join(jobs_dir, job_id, "state.json")):
+                continue
+            self._reload_job(job_id)  # side effect: reconcile + persist
 
     def _mode_for_job(self, job) -> str:
         pm = job.settings.get("product_mode", constants.PRODUCT_MODE_STUDY_PACK)

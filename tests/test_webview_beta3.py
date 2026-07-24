@@ -146,6 +146,59 @@ def test_run_diagnostics_redacts(tmp_path):
                                 "runtime_paths"}
 
 
+# --- startup reconciliation sweep + lifecycle-aware listing ---------------- #
+def _seed_job(data_dir, job_id, lifecycle=None, overall="pending", stages=None,
+              session=None, title="CL100 - Day 1"):
+    root = os.path.join(data_dir, "jobs", job_id)
+    os.makedirs(root, exist_ok=True)
+    with open(os.path.join(root, "manifest.json"), "w") as fh:
+        json.dump({"schema_version": 1, "job_id": job_id, "created_at": "2026-01-01T00:00:00",
+                   "title": title, "source": {"filename": "lec.mp4"}}, fh)
+    st = {"job_id": job_id, "overall_status": overall,
+          "stages": stages or {"Transcribe": {"status": "running"}}}
+    if lifecycle is not None:
+        st["lifecycle"] = lifecycle
+    if session is not None:
+        st["session"] = session
+    with open(os.path.join(root, "state.json"), "w") as fh:
+        json.dump(st, fh)
+    with open(os.path.join(root, "source.json"), "w") as fh:
+        json.dump({"duration": 60.0}, fh)
+
+
+def test_startup_sweep_reconciles_orphan_running_to_interrupted(tmp_path):
+    a = _adapter(tmp_path)
+    # a pre-beta.3 job left 'running' by a dead session (no lifecycle field)
+    _seed_job(str(tmp_path), "orphan", overall="running",
+              stages={"Transcribe": {"status": "running"}})
+    a._reconcile_jobs_on_startup()
+    # persisted state is now interrupted; the running stage was flipped too
+    st = json.load(open(os.path.join(str(tmp_path), "jobs", "orphan", "state.json")))
+    assert st["lifecycle"] == "interrupted"
+    assert st["stages"]["Transcribe"]["status"] == "interrupted"
+
+
+def test_list_jobs_surfaces_interrupted_not_running(tmp_path):
+    a = _adapter(tmp_path)
+    _seed_job(str(tmp_path), "orphan", overall="running",
+              stages={"Transcribe": {"status": "running"}})
+    a._reconcile_jobs_on_startup()
+    rows = a._list_jobs()
+    row = next(r for r in rows if r["id"] == "orphan")
+    assert row["status"] == "interrupted"  # NOT "running"
+
+
+def test_list_jobs_lifecycle_status_mapping(tmp_path):
+    a = _adapter(tmp_path)
+    _seed_job(str(tmp_path), "q", lifecycle="queued", stages={})
+    _seed_job(str(tmp_path), "p", lifecycle="paused", stages={})
+    _seed_job(str(tmp_path), "c", lifecycle="completed", stages={})
+    rows = {r["id"]: r["status"] for r in a._list_jobs()}
+    assert rows["q"] == "queued"
+    assert rows["p"] == "paused"
+    assert rows["c"] == "done"
+
+
 # --- pause-state relay ----------------------------------------------------- #
 def test_pause_state_relay(tmp_path):
     a = _adapter(tmp_path)

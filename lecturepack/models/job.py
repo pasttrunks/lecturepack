@@ -125,13 +125,15 @@ class Job:
         # (running/pause_requested) survives load ONLY if the current session
         # owns it and its process is alive; otherwise its session is dead and
         # the job becomes 'interrupted' (artifacts preserved, resumable).
-        if "lifecycle" not in self.state:
+        _lifecycle_backfilled = "lifecycle" not in self.state
+        if _lifecycle_backfilled:
             self.state["lifecycle"] = job_lifecycle.backfill_from_overall_status(
                 self.state.get("overall_status", "pending"))
         owner = job_lifecycle.SessionOwner.from_dict(self.state.get("session"))
         reconciled = job_lifecycle.reconcile_on_load(
             self.state["lifecycle"], owner, self._current_session_id or "")
-        if reconciled != self.state["lifecycle"]:
+        _lifecycle_changed = reconciled != self.state["lifecycle"]
+        if _lifecycle_backfilled or _lifecycle_changed:
             self.state["lifecycle"] = reconciled
             self.state["session"] = {}
             for stage_data in self.state.get("stages", {}).values():

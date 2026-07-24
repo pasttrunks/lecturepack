@@ -214,18 +214,45 @@
     return '<button class="lp-jobbtn" data-action="' + action + '" data-jobid="' + esc(id) + '" title="' + title + '" style="width:27px;height:27px;border-radius:7px;border:1.5px solid var(--border);background:var(--panel);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow-soft)">' + svg + '</button>';
   }
 
+  // status -> badge {label, bg, fg, dot, blink}
+  var JOB_BADGES = {
+    running: { label: 'Running', bg: 'var(--orange-soft)', fg: 'var(--orange-ink)', dot: 'var(--orange)', blink: true },
+    done: { label: 'Done', bg: 'var(--green-soft)', fg: 'var(--green)', dot: 'var(--green)' },
+    interrupted: { label: 'Interrupted', bg: 'var(--orange-soft)', fg: 'var(--orange-ink)', dot: 'var(--orange)' },
+    failed: { label: 'Failed', bg: 'var(--red-soft, rgba(220,60,60,.15))', fg: 'var(--red)', dot: 'var(--red)' },
+    paused: { label: 'Paused', bg: 'var(--blue-tint)', fg: 'var(--blue-ink)', dot: 'var(--blue-ink)' },
+    queued: { label: 'Queued', bg: 'var(--sunk)', fg: 'var(--muted)', dot: 'var(--muted)' },
+    scheduled: { label: 'Scheduled', bg: 'var(--sunk)', fg: 'var(--muted)', dot: 'var(--muted)' }
+  };
+  function _jobActBtn(act, id, label, primary) {
+    var s = primary
+      ? 'background:var(--secondary-surface);border:1.5px solid var(--secondary-border);color:var(--secondary-text)'
+      : 'background:var(--panel);border:1.5px solid var(--border);color:var(--ink)';
+    return '<button class="lp-hit" data-jobact="' + act + '" data-jobid="' + esc(id) + '" style="font:600 11px \'Space Grotesk\';border-radius:7px;padding:6px 11px;cursor:pointer;' + s + '">' + label + '</button>';
+  }
   function _jobCardHtml(j) {
-    var badge = j.status === 'running'
-      ? '<span style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:var(--orange-soft);color:var(--orange-ink);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>Running</span>'
-      : '<span style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:var(--green-soft);color:var(--green);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>Done</span>';
+    var b = JOB_BADGES[j.status] || JOB_BADGES.done;
+    var dot = '<span style="width:6px;height:6px;border-radius:50%;background:' + b.dot + (b.blink ? ';animation:lpblink 1s infinite' : '') + '"></span>';
+    var badge = '<span style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:' + b.bg + ';color:' + b.fg + ';border-radius:6px;padding:3px 8px">' + dot + b.label + '</span>';
     var menu = j.id ? '<div style="position:absolute;top:9px;left:9px;display:flex;gap:6px">' +
       _jobBtn('group', j.id, TAG_SVG, 'Set group') + _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
-    var body = j.status === 'running'
-      ? '<div style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(j.name) + '</div>' +
+    var body;
+    if (j.status === 'running') {
+      body = '<div style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(j.name) + '</div>' +
         '<div style="height:8px;border-radius:5px;background:var(--sunk);overflow:hidden;margin-bottom:7px"><div style="width:' + (j.pct || 0) + '%;height:100%;background:var(--orange);background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.3) 6px,rgba(255,255,255,.3) 13px);animation:lpbar 1s linear infinite"></div></div>' +
-        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(j.stage) + ' · ' + (j.pct || 0) + '% · ' + esc(j.eta || '') + '</div>'
-      : '<div style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(j.name) + '</div>' +
+        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(j.stage) + ' · ' + (j.pct || 0) + '% · ' + esc(j.eta || '') + '</div>';
+    } else {
+      body = '<div style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(j.name) + '</div>' +
         '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted);line-height:1.7">' + esc(j.file || '') + '<br>' + esc(j.meta || '') + '</div>';
+    }
+    // Needs-Attention actions for interrupted/failed jobs.
+    if (j.id && (j.status === 'interrupted' || j.status === 'failed')) {
+      body += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:11px">' +
+        _jobActBtn('resume', j.id, 'Resume', true) +
+        _jobActBtn('restart', j.id, 'Restart') +
+        _jobActBtn('view', j.id, 'View Details') +
+        _jobActBtn('remove', j.id, 'Remove') + '</div>';
+    }
     return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'style="background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
       '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + thumb(30, 'var(--muted)') + menu + badge + '</div>' +
       '<div style="padding:14px 16px">' + body + '</div></div>';
@@ -1438,6 +1465,19 @@
         if (!job) return;
         if (btn.dataset.action === 'delete') confirmDeleteJob(job);
         else if (btn.dataset.action === 'group') setJobGroup(job);
+        return;
+      }
+      var act = e.target.closest('[data-jobact]');
+      if (act) {
+        e.stopPropagation();
+        var aid = act.dataset.jobid, a = act.dataset.jobact;
+        if (a === 'resume') { lpBridge.call('resume_job', aid); setScreen('process'); }
+        else if (a === 'restart') { lpBridge.call('restart_job', aid); setScreen('process'); }
+        else if (a === 'view') { lpBridge.call('open_job', aid); setScreen('process'); }
+        else if (a === 'remove') {
+          var jb = LP.data.jobs.filter(function (x) { return x.id === aid; })[0];
+          if (jb) confirmDeleteJob(jb);
+        }
         return;
       }
       var card = e.target.closest('[data-job]');
