@@ -125,6 +125,21 @@ def test_schedule_and_unschedule(tmp_path):
     assert "j1" not in a.backend.last("queue_changed")["schedules"]
 
 
+def test_scheduling_a_queued_job_removes_it_from_queue(tmp_path):
+    from lecturepack.models.job import Job
+    a = _adapter(tmp_path)
+    v = tmp_path / "j.mp4"; v.write_bytes(b"x")
+    job = Job(str(tmp_path), video_path=str(v))
+    a.enqueue_job(job.job_id)
+    assert job.job_id in a.queue.queued()
+    a.schedule_job(job.job_id, "2026-08-01T09:00:00", "local", "run_when_opened")
+    # left the FIFO queue, now scheduled
+    assert job.job_id not in a.queue.queued()
+    assert job.job_id in a.queue.schedules()
+    reloaded = Job(str(tmp_path), job_id=job.job_id)
+    assert reloaded.get_lifecycle() == "scheduled"
+
+
 # --- diagnostics (redaction) ---------------------------------------------- #
 def test_run_diagnostics_redacts(tmp_path):
     a = _adapter(tmp_path)

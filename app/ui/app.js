@@ -258,6 +258,33 @@
       '<div style="padding:14px 16px">' + body + '</div></div>';
   }
 
+  function scheduleJobDialog(id) {
+    var inp = 'width:100%;font:500 13px \'JetBrains Mono\';padding:9px 11px;border:2px solid var(--border);border-radius:8px;background:var(--sunk);color:var(--ink)';
+    var body =
+      '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:6px">When (your local time)</label>' +
+      '<input id="sched-when" type="datetime-local" style="' + inp + ';margin-bottom:15px">' +
+      '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:6px">If the app was closed at that time</label>' +
+      '<select id="sched-policy" style="' + inp + '">' +
+        '<option value="run_when_opened">Run when the app next opens</option>' +
+        '<option value="skip_if_missed">Skip it</option>' +
+        '<option value="ask">Ask me</option>' +
+      '</select>';
+    lpModal({
+      title: 'Schedule this lecture',
+      bodyHtml: body,
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Schedule', primary: true, onClick: function () {
+          var when = (document.getElementById('sched-when') || {}).value;
+          if (!when) { toast('Pick a date and time'); return true; }
+          var pol = (document.getElementById('sched-policy') || {}).value || 'run_when_opened';
+          if (lpBridge.connected()) lpBridge.call('schedule_job', id, when, 'local', pol);
+          else toast('Preview mode — not scheduled');
+        } }
+      ]
+    });
+  }
+
   function confirmDeleteJob(job) {
     lpModal({
       title: 'Delete this lecture?',
@@ -298,8 +325,27 @@
         '<span style="flex:1;font-weight:600;font-size:13.5px">' + esc(_jobName(row.id)) + '</span>' +
         '<div style="display:flex;gap:6px">' +
           qbtn('runnow', 'Run Now') + qbtn('up', '↑', i === 0) +
-          qbtn('down', '↓', i === q.length - 1) + qbtn('remove', 'Remove') +
+          qbtn('down', '↓', i === q.length - 1) +
+          qbtn('schedule', 'Schedule') + qbtn('remove', 'Remove') +
         '</div></div>';
+    }).join('');
+  }
+  function renderScheduled() {
+    var wrap = $('home-scheduled'), list = $('scheduled-list');
+    if (!wrap || !list) return;
+    var sch = (LP.data.queue && LP.data.queue.schedules) || {};
+    var ids = Object.keys(sch);
+    if (!ids.length) { wrap.hidden = true; list.innerHTML = ''; return; }
+    wrap.hidden = false;
+    list.innerHTML = ids.map(function (id) {
+      var e = sch[id];
+      var when = String(e.when || '').replace('T', ' ');
+      var pol = { run_when_opened: 'run when opened', skip_if_missed: 'skip if missed', ask: 'ask if missed' }[e.missed_policy] || '';
+      return '<div style="display:flex;align-items:center;gap:12px;background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px">' +
+        '<span style="flex:1;font-weight:600;font-size:13.5px">' + esc(_jobName(id)) + '</span>' +
+        '<span style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(when) + ' · ' + esc(pol) + '</span>' +
+        '<button class="lp-hit" data-queueact="unschedule" data-queueid="' + esc(id) + '" style="font:600 11px \'Space Grotesk\';border-radius:7px;padding:6px 10px;cursor:pointer;background:var(--panel);border:1.5px solid var(--border);color:var(--ink)">Unschedule</button>' +
+        '</div>';
     }).join('');
   }
   function renderJobs() {
@@ -1525,6 +1571,14 @@
       else if (qa === 'remove') lpBridge.call('remove_from_queue', qid);
       else if (qa === 'up' && idx > 0) lpBridge.call('reorder_queue', qid, idx - 1);
       else if (qa === 'down' && idx >= 0) lpBridge.call('reorder_queue', qid, idx + 1);
+      else if (qa === 'schedule') scheduleJobDialog(qid);
+    });
+
+    // Scheduled list controls (Unschedule).
+    var schedList = $('scheduled-list');
+    if (schedList) schedList.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-queueact="unschedule"]');
+      if (b) lpBridge.call('unschedule_job', b.dataset.queueid);
     });
 
     // onboarding overlay
@@ -1786,6 +1840,7 @@
     lpBridge.on('queue_changed', function (json) {
       try { LP.data.queue = JSON.parse(json); } catch (e) { return; }
       renderQueue();
+      renderScheduled();
     });
     lpBridge.on('pause_state', function (json) {
       var st; try { st = JSON.parse(json).state; } catch (e) { return; }

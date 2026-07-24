@@ -1398,8 +1398,22 @@ class LecturePackAdapter(EngineAdapter):
         self._push_queue()
 
     def schedule_job(self, job_id: str, when: str, tz: str, missed_policy: str):
-        self.queue.schedule(job_id, when, tz or "local", missed_policy or "run_when_opened")
+        # A scheduled job waits for its time, so it leaves the FIFO run queue.
+        self.queue.schedule(job_id, when, tz or "local",
+                            missed_policy or "run_when_opened")
+        if job_id in self.queue.queued():
+            self.queue.store["queue"].remove(job_id)
+            self.queue.save()
+        job = self._reload_job(job_id)
+        if job is not None:
+            from lecturepack.models import job_lifecycle as _lc
+            try:
+                if job.get_lifecycle() in (_lc.NEW, _lc.QUEUED):
+                    job.set_lifecycle(_lc.SCHEDULED)
+            except _lc.IllegalTransition:
+                pass
         self._push_queue()
+        self._push_jobs()
 
     def unschedule_job(self, job_id: str):
         self.queue.unschedule(job_id)
