@@ -7,3 +7,4 @@ img2pdf>=0.5.0
 ReportLab>=4.0.0
 Jinja2>=3.1.0
 Send2Trash>=1.8.0
+tzdata>=2024.1  # IANA time-zone data for zoneinfo (Windows has none) — tz-aware scheduling
