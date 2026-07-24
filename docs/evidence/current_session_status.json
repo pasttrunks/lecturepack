@@ -1,9 +1,15 @@
 {
-  "head": "e549297",
+  "head": "1f80044",
   "branch": "feat/cuda-engine",
   "milestone": "0.9.0-beta.3 (QoL/reliability)",
   "safety_tag": "safety/resume-beta3-phases2b6-4e443d6",
-  "adapter_wiring": "DONE (e549297) — win_integration + JobQueue + job_ops wired into engine_adapter/bridge/main.py/bridge.js; 7 adapter tests; full suite 467 passed",
+  "adapter_wiring": "DONE (e549297) — win_integration + JobQueue + job_ops wired into engine_adapter/bridge/main.py/bridge.js; 7 adapter tests + 2 startup smoke; reduced-motion CSS (dc5963c). Full suite 467 passed at e549297.",
+  "session3_commits": [
+    "e549297 adapter/bridge/main seam wiring",
+    "3a37465 checkpoint",
+    "dc5963c prefers-reduced-motion CSS",
+    "1f80044 adapter startup smoke test"
+  ],
   "beta2_tag": "deca663 (immutable; NOT touched)",
   "beta3_exists": false,
   "completed_nodes": [
@@ -27,7 +33,7 @@
     "2b_win_integration": "MODULE DONE (15 tests); adapter/main wiring PENDING",
     "3_queue_schedule_pause": "SERVICE DONE (18 tests); controller pause/resume/retry WIRED+tested (3 integration tests); adapter/queue promotion wiring PENDING",
     "4_retry_completion_diagnostics": "LOGIC DONE (12 tests); controller retry WIRED; adapter/bridge exposure PENDING",
-    "5_ui_integration_animation": "adapter/bridge seam DONE (e549297); app/ui HTML/JS/CSS front-end TODO",
+    "5_ui_integration_animation": "seam DONE (e549297) + reduced-motion CSS DONE (dc5963c); app/ui visible widgets TODO (notif settings screen, queue/schedule/pause controls, Interrupted cards, History screen, completion panel, empty states) — best built with the app running (Windows MCP)",
     "6_version_release": "TODO"
   },
   "full_suite": "467 passed in 218.24s at e549297 (460 + 7 adapter beta.3), exit 0",
