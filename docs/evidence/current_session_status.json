@@ -1,8 +1,9 @@
 {
-  "head": "a1e0966",
+  "head": "e549297",
   "branch": "feat/cuda-engine",
   "milestone": "0.9.0-beta.3 (QoL/reliability)",
   "safety_tag": "safety/resume-beta3-phases2b6-4e443d6",
+  "adapter_wiring": "DONE (e549297) — win_integration + JobQueue + job_ops wired into engine_adapter/bridge/main.py/bridge.js; 7 adapter tests; full suite 467 passed",
   "beta2_tag": "deca663 (immutable; NOT touched)",
   "beta3_exists": false,
   "completed_nodes": [
@@ -11,7 +12,7 @@
     "phase3_queue_schedule_pause_service", "phase4_retry_completion_diagnostics_logic",
     "controller_pause_resume_retry_wiring"
   ],
-  "active_node": "checkpoint_after_controller_wiring",
+  "active_node": "checkpoint_after_adapter_wiring",
   "commits_beta3": [
     "32eb2a5 Phase 1 lifecycle state machine",
     "83d644a Phase 2a clean-state gate",
@@ -26,10 +27,10 @@
     "2b_win_integration": "MODULE DONE (15 tests); adapter/main wiring PENDING",
     "3_queue_schedule_pause": "SERVICE DONE (18 tests); controller pause/resume/retry WIRED+tested (3 integration tests); adapter/queue promotion wiring PENDING",
     "4_retry_completion_diagnostics": "LOGIC DONE (12 tests); controller retry WIRED; adapter/bridge exposure PENDING",
-    "5_ui_integration_animation": "TODO (app/ui + bridge.py/bridge.js)",
+    "5_ui_integration_animation": "adapter/bridge seam DONE (e549297); app/ui HTML/JS/CSS front-end TODO",
     "6_version_release": "TODO"
   },
-  "full_suite": "460 passed in 300.48s at a1e0966 (457 + 3 pause/resume/retry), exit 0",
+  "full_suite": "467 passed in 218.24s at e549297 (460 + 7 adapter beta.3), exit 0",
   "release_blockers": [],
   "remaining_work": [
     "ADAPTER/BRIDGE (single writer on engine_adapter.py + bridge.py + bridge.js): expose pause_job/resume_job/retry_stage; queue ops (enqueue/reorder/run_now/remove) + one-active promotion via JobQueue; schedule ops; notification prefs get/set + test; run_diagnostics/open_job_folder; completion metrics via job_ops; wire win_integration keep-awake/taskbar/notify at lifecycle points; sync bridge.js SIGNALS with new bridge.py signals",
@@ -37,7 +38,7 @@
     "PHASE 5 UI (app/ui): Notifications settings (6 toggles+Test), queue UI, schedule UI, pause/resume controls, Interrupted/Needs-Attention cards (Resume/Restart/View/Remove) + History screen, completion panel + actions, empty states, animations + prefers-reduced-motion",
     "PHASE 6: version.py->0.9.0-beta.3 + win_version_info + iss AppVersion + What's New/CHANGELOG/notes; build (Inno); packaged acceptance (20 scenarios, Windows MCP available); beta.2->beta.3 upgrade acceptance"
   ],
-  "next_command": "Adapter/bridge single-writer wiring: expose the 3 services to app/ui via engine_adapter.py + bridge.py (+ bridge.js SIGNALS), then Phase 5 UI.",
+  "next_command": "Phase 5 front-end (app/ui/index.html+app.js+app.css): Notifications settings, queue/schedule/pause controls, Interrupted cards + History screen, completion panel + actions, empty states, reduced-motion. Verify by launching the app (Windows MCP available). Then Phase 6 release.",
   "publish_policy": "Do NOT publish beta.3 automatically. Stop at READY FOR USER AUTHORIZATION.",
   "never_touched": "C:\\Users\\marsh\\LecturePackData",
   "windows_mcp": "available for packaged/GUI acceptance in Phase 6"
