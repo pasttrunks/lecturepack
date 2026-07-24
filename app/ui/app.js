@@ -1467,11 +1467,32 @@
     $('btn-start-processing').addEventListener('click', function () {
       setOnb(null);
       setScreen('process');
+      // Reset any stale completion/pause UI from a prior run.
+      var panel = $('proc-completion'); if (panel) panel.hidden = true;
+      var pause = $('btn-pause-job'), resume = $('btn-resume-job'), dot = $('proc-status-dot');
+      if (pause) { pause.hidden = false; pause.disabled = false; pause.textContent = 'Pause'; }
+      if (resume) resume.hidden = true;
+      if (dot) dot.style.animation = 'lpblink 1s infinite';
       lpBridge.call('start_processing', LP.state.onbMode || 'study');
     });
 
     // process
     $('btn-cancel-job').addEventListener('click', function () { lpBridge.call('cancel_job'); });
+    (function () {
+      var p = $('btn-pause-job'), r = $('btn-resume-job');
+      if (p) p.addEventListener('click', function () { lpBridge.call('pause_job'); });
+      if (r) r.addEventListener('click', function () { lpBridge.call('resume_job', ''); });
+      var acts = {
+        'cm-open-transcript': function () { setScreen('transcript'); },
+        'cm-review-slides': function () { setScreen('review'); },
+        'cm-start-studying': function () { setScreen('study'); },
+        'cm-open-folder': function () { if (LP.state.completedJob) lpBridge.call('open_job_folder', LP.state.completedJob); },
+        'cm-open-exports': function () { lpBridge.call('open_export_folder'); }
+      };
+      Object.keys(acts).forEach(function (id) {
+        var b = $(id); if (b) b.addEventListener('click', acts[id]);
+      });
+    })();
 
     // review
     var strip = $('timeline-strip');
@@ -1682,6 +1703,37 @@
   /* ======================= backend hookup ======================= */
 
   function wireBridge() {
+    lpBridge.on('pause_state', function (json) {
+      var st; try { st = JSON.parse(json).state; } catch (e) { return; }
+      var pause = $('btn-pause-job'), resume = $('btn-resume-job'),
+          title = $('proc-status-title'), dot = $('proc-status-dot');
+      if (st === 'pause_requested') {
+        if (title) title.textContent = 'Finishing current step…';
+        if (pause) { pause.disabled = true; pause.textContent = 'Pausing…'; }
+      } else if (st === 'paused') {
+        if (title) title.textContent = 'Paused';
+        if (dot) dot.style.animation = 'none';
+        if (pause) { pause.hidden = true; pause.disabled = false; pause.textContent = 'Pause'; }
+        if (resume) resume.hidden = false;
+      } else if (st === 'resumed') {
+        if (dot) dot.style.animation = 'lpblink 1s infinite';
+        if (pause) pause.hidden = false;
+        if (resume) resume.hidden = true;
+      }
+    });
+    lpBridge.on('job_completed', function (json) {
+      var m; try { m = JSON.parse(json); } catch (e) { return; }
+      LP.state.completedJob = m.job_id || '';
+      var set = function (id, v) { var el = $(id); if (el) el.textContent = v; };
+      set('cm-time', m.wall_time || '—');
+      set('cm-words', (m.transcript_words != null ? m.transcript_words : '—'));
+      set('cm-segments', (m.segment_count != null ? m.segment_count : '—'));
+      set('cm-slides', (m.slides_detected != null ? m.slides_detected : '—'));
+      var panel = $('proc-completion'); if (panel) panel.hidden = false;
+      var pause = $('btn-pause-job'), resume = $('btn-resume-job');
+      if (pause) pause.hidden = true;
+      if (resume) resume.hidden = true;
+    });
     lpBridge.on('notification_prefs', function (json) {
       var prefs; try { prefs = JSON.parse(json); } catch (e) { return; }
       Array.prototype.forEach.call(document.querySelectorAll('[data-notif]'), function (cb) {
