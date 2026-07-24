@@ -938,6 +938,7 @@
         try { renderUpdaterState(JSON.parse(json)); } catch (e) {}
       });
       lpBridge.call('cuda_pack_status');
+      lpBridge.call('get_notification_prefs');
     }
   }
 
@@ -1644,6 +1645,24 @@
       $('update-skipped-row').hidden = true;
     });
 
+    // Notifications settings: persist every toggle change as one prefs object.
+    function collectNotifPrefs() {
+      var prefs = {};
+      Array.prototype.forEach.call(document.querySelectorAll('[data-notif]'), function (cb) {
+        prefs[cb.dataset.notif] = cb.checked;
+      });
+      return prefs;
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-notif]'), function (cb) {
+      cb.addEventListener('change', function () {
+        if (lpBridge.connected()) lpBridge.call('set_notification_prefs', JSON.stringify(collectNotifPrefs()));
+      });
+    });
+    var testBtn = $('btn-test-notification');
+    if (testBtn) testBtn.addEventListener('click', function () {
+      if (lpBridge.connected()) lpBridge.call('test_notification');
+    });
+
     // keyboard shortcuts (prototype behavior)
     window.addEventListener('keydown', function (e) {
       var tag = (e.target && e.target.tagName) || '';
@@ -1663,6 +1682,12 @@
   /* ======================= backend hookup ======================= */
 
   function wireBridge() {
+    lpBridge.on('notification_prefs', function (json) {
+      var prefs; try { prefs = JSON.parse(json); } catch (e) { return; }
+      Array.prototype.forEach.call(document.querySelectorAll('[data-notif]'), function (cb) {
+        if (cb.dataset.notif in prefs) cb.checked = !!prefs[cb.dataset.notif];
+      });
+    });
     lpBridge.on('jobs_changed', function (json) { LP.data.jobs = JSON.parse(json); renderJobs(); });
     lpBridge.on('job_deleted', function (json) {
       var d = JSON.parse(json);
