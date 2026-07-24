@@ -104,3 +104,19 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
 /* theme picker buttons (Settings › Appearance) */
 .lp-theme-btn{flex:1;text-align:center;font:700 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid var(--line);border-radius:9px;background:var(--panel);color:var(--muted);cursor:pointer}
 .lp-theme-btn.active{border-color:var(--secondary-border);background:var(--secondary-surface);color:var(--secondary-text)}
+
+/* beta.3: honor the OS "reduce motion" setting. Keep opacity/color feedback but
+   drop transforms, looping animations, and long page transitions so nothing
+   moves for users who asked for stillness. Input is never delayed. */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;
+    scroll-behavior:auto !important;
+  }
+  .lp-caret{animation:none !important;opacity:1 !important}
+  .lp-stagger>*{animation:none !important}
+  [data-focus="true"] .lp-main{animation:none !important;transform:none !important}
+  .lp-chrome,.lp-main{transition:none !important}
+}
