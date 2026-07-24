@@ -6,11 +6,33 @@ Evidence: `docs/evidence/beta3/fanin_reduction.json` (full audit + phase plan),
 `docs/evidence/current_session_status.json` (live checkpoint).
 
 ## Status
-Graph workflow executed: Node 0 truth → 5 bounded audits (A lifecycle, B windows,
-C ui/qol, D packaging, E test-gap) → deterministic fan-in → phased implementation.
-**Phase 1 complete; Phase 2 partially complete.** Full suite green at `83d644a`:
-**412 passed** (was 348; +64). This is a multi-session effort — remaining phases
-below. **Do NOT publish beta.3; stop at `READY FOR USER AUTHORIZATION`.**
+Graph workflow executed: Node 0 truth → 5 bounded audits → deterministic fan-in
+→ phased implementation. **Backend/logic phases 1, 2a, 2b, 3, 4 complete and
+tested; controller/adapter wiring + Phase 5 UI + Phase 6 release remain.** This
+is a multi-session effort. **Do NOT publish beta.3; stop at `READY FOR USER
+AUTHORIZATION`.**
+
+### Session 2 (Phases 2b–4 logic) — commits `0434b0e`, `8f80f95`, `70cc7ff`
+- **2b `app/desktop/win_integration.py`** — WindowsIntegration facade over
+  injectable PowerRequester (keep-awake), TaskbarButton (ITaskbarList3, no
+  QtWinExtras/comtypes), Notifier (QSystemTrayIcon); focus-gating, pref-gating,
+  dedup (injected clock), click routing, test-notification; no-ops off Windows.
+  15 tests. *Adapter/main wiring pending.*
+- **3 `lecturepack/services/job_queue.py`** — one-active invariant, FIFO queue
+  (reorder/Run-Now/remove/position), atomic persist + restart recovery; tz-aware
+  scheduling (zoneinfo + injected clock; added `tzdata` dep + bundled it) with
+  missed policies (run_when_opened/skip_if_missed/ask); `plan_resume` checkpoint
+  math. 18 tests. *Controller cooperative-pause + adapter wiring pending.*
+- **4 `lecturepack/services/job_ops.py`** — `plan_stage_retry` (preserve
+  completed upstream, rerun failed+downstream), completion metrics, and
+  **redacted** diagnostics (strips keys/bearer/labeled secrets, anonymizes
+  paths; never includes transcript/content). 12 tests. *Controller/bridge
+  exposure pending.*
+
+Remaining integration + UI + release are tracked in
+`docs/evidence/current_session_status.json` (`remaining_integration`).
+
+## Delivered session 1 (green commits)
 
 ## Delivered this session (green commits)
 - `f5be012` docs(readme): download links → public beta.2.

@@ -1,36 +1,44 @@
 {
-  "head": "83d644a",
+  "head": "70cc7ff",
   "branch": "feat/cuda-engine",
   "milestone": "0.9.0-beta.3 (QoL/reliability)",
-  "safety_tag": "safety/start-beta3-qol-7cdc889",
+  "safety_tag": "safety/resume-beta3-phases2b6-4e443d6",
   "beta2_tag": "deca663 (immutable; NOT touched)",
   "beta3_exists": false,
   "completed_nodes": [
-    "node0_truth", "arch_resolution",
-    "auditA_lifecycle", "auditB_windows", "auditC_ui", "auditD_packaging", "auditE_testgap",
-    "fanin_reduction",
-    "phase1_state_machine", "phase2_clean_state_gate"
+    "node0_truth", "arch_resolution", "audits(A-E)", "fanin",
+    "phase1_state_machine", "phase2a_clean_state_gate",
+    "phase2b_win_integration", "phase3_queue_schedule_pause_service",
+    "phase4_retry_completion_diagnostics_logic"
   ],
-  "active_node": "checkpoint_after_phase2",
+  "active_node": "checkpoint_after_phase4",
   "commits_this_session": [
-    "f5be012 docs(readme): point download links at public beta.2",
-    "32eb2a5 feat(jobs): authoritative lifecycle state machine + session ownership (Phase 1)",
-    "83d644a feat(packaging): clean-state build gate (Phase 2 partial - §3)"
+    "0434b0e feat(windows): notifications + taskbar + keep-awake facade",
+    "8f80f95 feat(queue): persistent queue + scheduling + pause/resume logic (+tzdata)",
+    "70cc7ff feat(processing): stage retry + completion metrics + redacted diagnostics"
   ],
   "phase_status": {
-    "1_core_state_machine": "DONE + tested (56 tests)",
-    "2_platform_modules": "clean-state gate DONE (8 tests); win_integration.py TODO",
-    "3_queue_scheduler_pause": "TODO",
-    "4_retry_completion_diagnostics": "TODO",
-    "5_ui_integration_animation": "TODO",
-    "6_version_release": "TODO (do NOT publish; stop at user authorization)"
+    "1_core_state_machine": "DONE (56 tests)",
+    "2a_clean_state_gate": "DONE (8 tests)",
+    "2b_win_integration": "MODULE DONE (15 tests); adapter/main wiring pending",
+    "3_queue_schedule_pause": "SERVICE DONE (18 tests); JobController cooperative-pause + adapter wiring pending",
+    "4_retry_completion_diagnostics": "LOGIC DONE (12 tests); JobController retry + adapter/bridge exposure pending",
+    "5_ui_integration_animation": "TODO (shipped app/ui + bridge.py/bridge.js)",
+    "6_version_release": "TODO (version bump, docs, build, packaged+upgrade acceptance)"
   },
-  "tests_added": "64 (49 lifecycle unit + 7 lifecycle integration + 8 packaging gate)",
-  "full_suite": "412 passed in 180.60s at 83d644a (prior 348 + 64 new), exit 0",
+  "tests_added_total_beta3": "64 (phase1/2a) + 45 (phase2b/3/4) = 109",
+  "full_suite": "457 passed in 251.85s at 70cc7ff (prior 412 + 45 new), exit 0",
   "release_blockers": [],
-  "next_command": "Phase 2b: implement app/desktop/win_integration.py (keep-awake/taskbar/notifications facade, injectable seams) + unit tests; then Phase 3 queue/scheduler/pause controller.",
+  "remaining_integration": [
+    "Wire win_integration into app/desktop/main.py (tray/taskbar/winId, aboutToQuit) + engine_adapter emit points (keep-awake/taskbar/notify)",
+    "Wire JobQueue into engine_adapter (one-active promotion, queue/schedule methods on bridge; sync bridge.js SIGNALS)",
+    "Cooperative pause in lecturepack/controllers/job_controller.py (stage-boundary; replace QThread.terminate for align/export; use plan_resume)",
+    "Wire plan_stage_retry into job_controller.run_pipeline (replace bulk reset); expose completion_metrics + build_diagnostics via bridge",
+    "Phase 5 UI: Notifications settings, queue/schedule/pause UI, Interrupted/Needs-Attention cards + History screen, completion/retry/diagnostics UI, empty states, animations + prefers-reduced-motion",
+    "Phase 6: version.py->0.9.0-beta.3 + win_version_info + iss + What's New/CHANGELOG/notes; build (Inno box); packaged + beta.2->beta.3 upgrade acceptance"
+  ],
+  "next_command": "Adapter phase: single-writer integration of win_integration + JobQueue + job_ops into engine_adapter.py/bridge.py/job_controller.py, then Phase 5 UI.",
   "publish_policy": "Do NOT publish beta.3 automatically. Stop at READY FOR USER AUTHORIZATION.",
   "never_touched": "C:\\Users\\marsh\\LecturePackData",
-  "handoff_doc": "docs/HANDOFF_BETA3_QOL.md",
-  "fanin_doc": "docs/evidence/beta3/fanin_reduction.json"
+  "handoff_doc": "docs/HANDOFF_BETA3_QOL.md"
 }
