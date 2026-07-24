@@ -1,44 +1,44 @@
 {
-  "head": "70cc7ff",
+  "head": "a1e0966",
   "branch": "feat/cuda-engine",
   "milestone": "0.9.0-beta.3 (QoL/reliability)",
   "safety_tag": "safety/resume-beta3-phases2b6-4e443d6",
   "beta2_tag": "deca663 (immutable; NOT touched)",
   "beta3_exists": false,
   "completed_nodes": [
-    "node0_truth", "arch_resolution", "audits(A-E)", "fanin",
-    "phase1_state_machine", "phase2a_clean_state_gate",
-    "phase2b_win_integration", "phase3_queue_schedule_pause_service",
-    "phase4_retry_completion_diagnostics_logic"
+    "node0", "audits(A-E)", "fanin",
+    "phase1_state_machine", "phase2a_clean_state_gate", "phase2b_win_integration",
+    "phase3_queue_schedule_pause_service", "phase4_retry_completion_diagnostics_logic",
+    "controller_pause_resume_retry_wiring"
   ],
-  "active_node": "checkpoint_after_phase4",
-  "commits_this_session": [
-    "0434b0e feat(windows): notifications + taskbar + keep-awake facade",
-    "8f80f95 feat(queue): persistent queue + scheduling + pause/resume logic (+tzdata)",
-    "70cc7ff feat(processing): stage retry + completion metrics + redacted diagnostics"
+  "active_node": "checkpoint_after_controller_wiring",
+  "commits_beta3": [
+    "32eb2a5 Phase 1 lifecycle state machine",
+    "83d644a Phase 2a clean-state gate",
+    "0434b0e Phase 2b win_integration facade",
+    "8f80f95 Phase 3 queue/schedule/pause service (+tzdata)",
+    "70cc7ff Phase 4 retry/completion/diagnostics logic",
+    "a1e0966 controller cooperative pause/resume + stage retry"
   ],
   "phase_status": {
     "1_core_state_machine": "DONE (56 tests)",
     "2a_clean_state_gate": "DONE (8 tests)",
-    "2b_win_integration": "MODULE DONE (15 tests); adapter/main wiring pending",
-    "3_queue_schedule_pause": "SERVICE DONE (18 tests); JobController cooperative-pause + adapter wiring pending",
-    "4_retry_completion_diagnostics": "LOGIC DONE (12 tests); JobController retry + adapter/bridge exposure pending",
-    "5_ui_integration_animation": "TODO (shipped app/ui + bridge.py/bridge.js)",
-    "6_version_release": "TODO (version bump, docs, build, packaged+upgrade acceptance)"
+    "2b_win_integration": "MODULE DONE (15 tests); adapter/main wiring PENDING",
+    "3_queue_schedule_pause": "SERVICE DONE (18 tests); controller pause/resume/retry WIRED+tested (3 integration tests); adapter/queue promotion wiring PENDING",
+    "4_retry_completion_diagnostics": "LOGIC DONE (12 tests); controller retry WIRED; adapter/bridge exposure PENDING",
+    "5_ui_integration_animation": "TODO (app/ui + bridge.py/bridge.js)",
+    "6_version_release": "TODO"
   },
-  "tests_added_total_beta3": "64 (phase1/2a) + 45 (phase2b/3/4) = 109",
-  "full_suite": "457 passed in 251.85s at 70cc7ff (prior 412 + 45 new), exit 0",
+  "full_suite": "460 passed in 300.48s at a1e0966 (457 + 3 pause/resume/retry), exit 0",
   "release_blockers": [],
-  "remaining_integration": [
-    "Wire win_integration into app/desktop/main.py (tray/taskbar/winId, aboutToQuit) + engine_adapter emit points (keep-awake/taskbar/notify)",
-    "Wire JobQueue into engine_adapter (one-active promotion, queue/schedule methods on bridge; sync bridge.js SIGNALS)",
-    "Cooperative pause in lecturepack/controllers/job_controller.py (stage-boundary; replace QThread.terminate for align/export; use plan_resume)",
-    "Wire plan_stage_retry into job_controller.run_pipeline (replace bulk reset); expose completion_metrics + build_diagnostics via bridge",
-    "Phase 5 UI: Notifications settings, queue/schedule/pause UI, Interrupted/Needs-Attention cards + History screen, completion/retry/diagnostics UI, empty states, animations + prefers-reduced-motion",
-    "Phase 6: version.py->0.9.0-beta.3 + win_version_info + iss + What's New/CHANGELOG/notes; build (Inno box); packaged + beta.2->beta.3 upgrade acceptance"
+  "remaining_work": [
+    "ADAPTER/BRIDGE (single writer on engine_adapter.py + bridge.py + bridge.js): expose pause_job/resume_job/retry_stage; queue ops (enqueue/reorder/run_now/remove) + one-active promotion via JobQueue; schedule ops; notification prefs get/set + test; run_diagnostics/open_job_folder; completion metrics via job_ops; wire win_integration keep-awake/taskbar/notify at lifecycle points; sync bridge.js SIGNALS with new bridge.py signals",
+    "main.py: create QSystemTrayIcon + taskbar HWND, connect messageClicked->route, aboutToQuit->win.on_shutdown",
+    "PHASE 5 UI (app/ui): Notifications settings (6 toggles+Test), queue UI, schedule UI, pause/resume controls, Interrupted/Needs-Attention cards (Resume/Restart/View/Remove) + History screen, completion panel + actions, empty states, animations + prefers-reduced-motion",
+    "PHASE 6: version.py->0.9.0-beta.3 + win_version_info + iss AppVersion + What's New/CHANGELOG/notes; build (Inno); packaged acceptance (20 scenarios, Windows MCP available); beta.2->beta.3 upgrade acceptance"
   ],
-  "next_command": "Adapter phase: single-writer integration of win_integration + JobQueue + job_ops into engine_adapter.py/bridge.py/job_controller.py, then Phase 5 UI.",
+  "next_command": "Adapter/bridge single-writer wiring: expose the 3 services to app/ui via engine_adapter.py + bridge.py (+ bridge.js SIGNALS), then Phase 5 UI.",
   "publish_policy": "Do NOT publish beta.3 automatically. Stop at READY FOR USER AUTHORIZATION.",
   "never_touched": "C:\\Users\\marsh\\LecturePackData",
-  "handoff_doc": "docs/HANDOFF_BETA3_QOL.md"
+  "windows_mcp": "available for packaged/GUI acceptance in Phase 6"
 }
