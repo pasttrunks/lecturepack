@@ -55,6 +55,14 @@ class Backend(QObject):
     cuda_pack = Signal(str)
     groq_status = Signal(str)
     smart_study = Signal(str)
+    # beta.3: queue/schedule, pause, notifications, diagnostics, completion.
+    queue_changed = Signal(str)
+    pause_state = Signal(str)
+    notification_prefs = Signal(str)
+    notification_navigate = Signal(str)
+    diagnostics = Signal(str)
+    job_completed = Signal(str)
+    post_completion = Signal(str)
 
     def __init__(self, window):
         super().__init__()
@@ -197,6 +205,76 @@ class Backend(QObject):
     @Slot()
     def cancel_job(self):
         self._adapter.cancel_job()
+
+    # ------------------------------------------------- beta.3 pause/resume/retry
+
+    @Slot()
+    def pause_job(self):
+        self._adapter.pause_job()
+
+    @Slot(str)
+    def resume_job(self, job_id: str):
+        self._adapter.resume_job(job_id)
+
+    @Slot(str)
+    def restart_job(self, job_id: str):
+        self._adapter.restart_job(job_id)
+
+    @Slot(str, str)
+    def retry_stage(self, job_id: str, stage: str):
+        self._adapter.retry_stage(job_id, stage)
+
+    # ------------------------------------------------- beta.3 queue / scheduling
+
+    @Slot(str)
+    def enqueue_job(self, job_id: str):
+        self._adapter.enqueue_job(job_id)
+
+    @Slot(str, int)
+    def reorder_queue(self, job_id: str, index: int):
+        self._adapter.reorder_queue(job_id, index)
+
+    @Slot(str)
+    def run_now(self, job_id: str):
+        self._adapter.run_now(job_id)
+
+    @Slot(str)
+    def remove_from_queue(self, job_id: str):
+        self._adapter.remove_from_queue(job_id)
+
+    @Slot(str, str, str, str)
+    def schedule_job(self, job_id: str, when: str, tz: str, missed_policy: str):
+        self._adapter.schedule_job(job_id, when, tz, missed_policy)
+
+    @Slot(str)
+    def unschedule_job(self, job_id: str):
+        self._adapter.unschedule_job(job_id)
+
+    # ------------------------------------------------- beta.3 notifications / diagnostics
+
+    @Slot()
+    def get_notification_prefs(self):
+        self._adapter.get_notification_prefs()
+
+    @Slot(str)
+    def set_notification_prefs(self, prefs_json: str):
+        self._adapter.set_notification_prefs(prefs_json)
+
+    @Slot()
+    def test_notification(self):
+        self._adapter.test_notification()
+
+    @Slot(str)
+    def run_diagnostics(self, job_id: str):
+        self._adapter.run_diagnostics(job_id)
+
+    @Slot(str)
+    def open_job_folder(self, job_id: str):
+        self._adapter.open_job_folder(job_id)
+
+    @Slot()
+    def get_post_completion(self):
+        self._adapter.get_post_completion()
 
     # ------------------------------------------------------------- review
 

@@ -22,12 +22,16 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import sys
+import uuid
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QFileDialog
 
 from .assets import asset_url, thumb_url
 from .paths import data_dir
+from .win_integration import WindowsIntegration
 
 
 class EngineAdapter(QObject):
@@ -187,6 +191,64 @@ class EngineAdapter(QObject):
 
     def save_project(self) -> None:
         """Persist current job state."""
+
+    # -- beta.3: pause/resume/retry, queue, notifications, diagnostics -------
+    def pause_job(self) -> None:
+        """Cooperatively pause the active job; emit pause_state."""
+
+    def resume_job(self, job_id: str = "") -> None:
+        """Resume a paused/interrupted job from its checkpoint."""
+
+    def retry_stage(self, job_id: str, stage: str) -> None:
+        """Retry a single failed stage, preserving completed upstream work."""
+
+    def restart_job(self, job_id: str) -> None:
+        """Restart an interrupted job from the beginning."""
+
+    def get_notification_prefs(self) -> None:
+        """Emit notification_prefs with the persisted toggles."""
+
+    def set_notification_prefs(self, prefs_json: str) -> None:
+        """Persist notification toggles; apply to the notifier."""
+
+    def test_notification(self) -> None:
+        """Fire a one-off test notification."""
+
+    def set_focused(self, focused: bool) -> None:
+        """Track window focus for notification focus-gating."""
+
+    def run_diagnostics(self, job_id: str) -> None:
+        """Emit a redacted diagnostics bundle for a job (diagnostics signal)."""
+
+    def open_job_folder(self, job_id: str) -> None:
+        """Open a job's folder in the OS file browser."""
+
+    def enqueue_job(self, job_id: str) -> None:
+        """Add a job to the processing queue."""
+
+    def reorder_queue(self, job_id: str, index: int) -> None:
+        """Move a queued job to a new position."""
+
+    def run_now(self, job_id: str) -> None:
+        """Jump a queued job to the front."""
+
+    def remove_from_queue(self, job_id: str) -> None:
+        """Remove a job from the queue/schedule."""
+
+    def schedule_job(self, job_id: str, when: str, tz: str, missed_policy: str) -> None:
+        """Schedule a job to run at a local date/time."""
+
+    def unschedule_job(self, job_id: str) -> None:
+        """Remove a job's schedule."""
+
+    def get_post_completion(self) -> None:
+        """Emit the persisted post-completion behavior preference."""
+
+    def attach_window(self, window, tray=None) -> None:
+        """Give the adapter the main window + tray for OS integration."""
+
+    def set_focused(self, focused) -> None:
+        """Track window focus for notification focus-gating."""
 
 
 class DemoAdapter(EngineAdapter):
@@ -581,6 +643,16 @@ class LecturePackAdapter(EngineAdapter):
         super().__init__(backend)
         self.config = ConfigManager()
         self.controller = JobController(self.config)
+        # Per-launch session id: stamps ownership on active jobs so startup
+        # reconciliation only reclaims dead-session jobs (see job_lifecycle).
+        self._session_id = uuid.uuid4().hex
+        # Windows OS integration (keep-awake / taskbar / notifications). Tray +
+        # HWND are attached later by main.py via attach_window(); until then it
+        # no-ops safely. Notification prefs are loaded from config.
+        self.win = WindowsIntegration(prefs=self._load_notification_prefs())
+        # Persistent queue / scheduler (one active job at a time).
+        from lecturepack.services.job_queue import JobQueue
+        self.queue = JobQueue(self.config.data_dir)
         self.current_job: Job | None = None
         self._pending_job: Job | None = None
         self._stages: list[dict] = []
@@ -607,6 +679,7 @@ class LecturePackAdapter(EngineAdapter):
         c.transcript_segment.connect(self._on_transcript_segment)
         c.pipeline_completed.connect(self._on_pipeline_completed)
         c.pipeline_failed.connect(self._on_pipeline_failed)
+        c.pause_state_changed.connect(self._on_pause_state)
 
     # ------------------------------------------------------------------ helpers
     def _ollama_settings(self) -> dict:
@@ -944,12 +1017,31 @@ class LecturePackAdapter(EngineAdapter):
         self._log("[engine]", f"Product mode: "
                   f"{constants.PRODUCT_MODE_LABELS.get(product_mode, product_mode)}",
                   "engine")
+        # Claim the active slot + stamp session ownership; acquire keep-awake and
+        # show taskbar progress for the duration of the run.
+        from lecturepack.models import job_lifecycle as _lc
+        try:
+            if job.get_lifecycle() in (_lc.NEW, _lc.QUEUED, _lc.PAUSED,
+                                       _lc.INTERRUPTED, _lc.FAILED):
+                if job.get_lifecycle() != _lc.QUEUED:
+                    # NEW/PAUSED/INTERRUPTED/FAILED -> QUEUED -> RUNNING
+                    _to_queued = {_lc.NEW, _lc.PAUSED, _lc.FAILED, _lc.INTERRUPTED}
+                    if job.get_lifecycle() in _to_queued:
+                        job.set_lifecycle(_lc.QUEUED)
+                owner = _lc.SessionOwner(session_id=self._session_id,
+                                         process_id=os.getpid())
+                job.set_lifecycle(_lc.RUNNING, owner=owner)
+        except _lc.IllegalTransition:
+            pass  # best-effort; overall_status still tracks progress
+        self.win.on_job_started()
         self.controller.run_pipeline()
 
     def cancel_job(self):
         try:
             self.controller.cancel()
         finally:
+            self.win.on_cancelled()
+            self._promote_next()
             self._emit("status_changed", {
                 "label": "Cancelled", "pct": 0, "detail": "job cancelled"})
             self._log("[engine]", "Pipeline cancelled by user.", "engine")
@@ -991,6 +1083,10 @@ class LecturePackAdapter(EngineAdapter):
         if s:
             s["state"] = "active"
             s["pct"] = int(pct)
+        # Reflect overall pipeline progress on the taskbar button.
+        done = sum(1 for st in self._stages if st["state"] == "done")
+        total = len(self._stages) or 1
+        self.win.on_progress(int((done + int(pct) / 100.0) / total * 100))
         self._render_pipeline()
         label = s["label"] if s else name
         self._emit("status_changed", {
@@ -1041,9 +1137,22 @@ class LecturePackAdapter(EngineAdapter):
             "label": "Done", "pct": 100, "detail": "processing complete", "side": "Done"})
         self._log("[engine]", "Pipeline complete.", "engine")
         self._write_performance_report()
+        # Lifecycle -> completed; release keep-awake, clear taskbar, notify.
+        job = self.current_job
+        if job is not None:
+            from lecturepack.models import job_lifecycle as _lc
+            try:
+                job.set_lifecycle(_lc.COMPLETED)
+            except _lc.IllegalTransition:
+                pass
+            self.win.on_completed(job.job_id, job.manifest.get("title", ""))
+            self._emit("job_completed", self._completion_payload(job))
+        else:
+            self.win.on_idle()
         self._push_jobs()
         self._push_review_data()
         self._push_study_data()
+        self._promote_next()
 
     def _write_performance_report(self):
         """Persist a per-stage timing profile for the just-finished run so the
@@ -1085,7 +1194,226 @@ class LecturePackAdapter(EngineAdapter):
         self._emit("status_changed", {
             "label": "Failed", "pct": 0, "detail": msg[:80]})
         self._log("[error]", f"Pipeline failed: {msg}", "error")
+        job = self.current_job
+        if job is not None:
+            from lecturepack.models import job_lifecycle as _lc
+            try:
+                job.set_lifecycle(_lc.FAILED)
+            except _lc.IllegalTransition:
+                pass
+            self.win.on_failed(job.job_id, msg[:200])
+        else:
+            self.win.on_idle()
         self._push_jobs()
+        self._promote_next()
+
+    def _on_pause_state(self, state: str):
+        """Relay controller pause transitions to the UI and OS integration."""
+        if state == "pause_requested":
+            self.win.on_pause_requested()
+        elif state == "paused":
+            self.win.on_paused()
+            job = self.current_job
+            if job is not None:
+                from lecturepack.models import job_lifecycle as _lc
+                for edge in ((_lc.RUNNING, _lc.PAUSE_REQUESTED),
+                             (_lc.PAUSE_REQUESTED, _lc.PAUSED)):
+                    try:
+                        if job.get_lifecycle() == edge[0]:
+                            job.set_lifecycle(edge[1])
+                    except _lc.IllegalTransition:
+                        pass
+            self._push_jobs()
+        self._emit("pause_state", {"state": state})
+
+    # ------------------------------------------------------------------ beta.3 job control
+    def attach_window(self, window, tray=None):
+        """Called by main.py once the QMainWindow + tray exist: give the OS
+        integration its tray (notifications) and HWND (taskbar), and route
+        notification clicks + focus changes."""
+        try:
+            hwnd = int(window.winId()) if window is not None else None
+        except Exception:
+            hwnd = None
+        self.win.notifier._tray = tray
+        self.win.taskbar._hwnd = hwnd
+
+    def pause_job(self):
+        if self.controller.request_pause():
+            self._log("[engine]", "Pause requested — finishing current step.", "engine")
+
+    def resume_job(self, job_id: str = ""):
+        job = self.current_job
+        if job_id:
+            job = self._reload_job(job_id) or job
+        if job is None:
+            return
+        self.current_job = job
+        self.controller.set_job(job)
+        from lecturepack.models import job_lifecycle as _lc
+        try:
+            if job.get_lifecycle() in (_lc.PAUSED, _lc.INTERRUPTED):
+                job.set_lifecycle(_lc.QUEUED)
+            job.set_lifecycle(_lc.RUNNING, owner=_lc.SessionOwner(
+                session_id=self._session_id, process_id=os.getpid()))
+        except _lc.IllegalTransition:
+            pass
+        self.win.on_job_started()
+        self.controller.resume()
+
+    def restart_job(self, job_id: str):
+        job = self._reload_job(job_id)
+        if job is None:
+            return
+        for stage in constants.STAGES:
+            job.set_stage_status(stage, "pending")
+        self.current_job = self._pending_job = job
+        self.start_processing(self._mode_for_job(job))
+
+    def retry_stage(self, job_id: str, stage: str):
+        job = self.current_job
+        if job_id and (not job or job.job_id != job_id):
+            job = self._reload_job(job_id) or job
+        if job is None:
+            return
+        self.current_job = job
+        self.controller.set_job(job)
+        self.win.on_job_started()
+        self.controller.retry_stage(stage)
+
+    # -- notifications -------------------------------------------------------
+    def _load_notification_prefs(self) -> dict:
+        raw = self.config.get("notifications", None)
+        return dict(raw) if isinstance(raw, dict) else {}
+
+    def get_notification_prefs(self):
+        self._emit("notification_prefs", dict(self.win.prefs))
+
+    def set_notification_prefs(self, prefs_json: str):
+        try:
+            prefs = json.loads(prefs_json) if isinstance(prefs_json, str) else dict(prefs_json)
+        except (ValueError, TypeError):
+            prefs = {}
+        self.win.set_prefs(prefs)
+        self.config.set("notifications", dict(self.win.prefs))
+        self._emit("notification_prefs", dict(self.win.prefs))
+
+    def test_notification(self):
+        self.win.test_notification()
+
+    def set_focused(self, focused):
+        self.win.set_focused(bool(focused))
+
+    # -- diagnostics / folders ----------------------------------------------
+    def run_diagnostics(self, job_id: str):
+        from lecturepack.services.job_ops import build_diagnostics
+        job = self._reload_job(job_id) or self.current_job
+        state = job.state if job is not None else {}
+        stages = state.get("stages", {}) if isinstance(state, dict) else {}
+        failed = next((n for n, sd in stages.items()
+                       if sd.get("status") in ("failed", "interrupted")), "")
+        err = stages.get(failed, {}).get("error", "") if failed else ""
+        diag = build_diagnostics(
+            app_version=self._app_version(),
+            job_id=job_id,
+            stage=failed,
+            status=state.get("lifecycle", state.get("overall_status", "")) if isinstance(state, dict) else "",
+            error=err,
+            exit_code=None,
+            timestamp=state.get("last_updated", "") if isinstance(state, dict) else "",
+            runtime_paths={
+                "whisper_exe": self.config.get("whisper_exe", ""),
+                "ffmpeg": getattr(self.controller.ffmpeg_wrapper, "ffmpeg_path", ""),
+                "data_dir": self.config.data_dir,
+            })
+        self._emit("diagnostics", diag)
+
+    def open_job_folder(self, job_id: str):
+        root = os.path.join(self.config.data_dir, "jobs", job_id)
+        if not os.path.isdir(root):
+            return
+        if os.name == "nt":
+            os.startfile(root)  # noqa: S606
+        else:
+            subprocess.Popen(["xdg-open", root])  # noqa: S603,S607
+
+    # -- queue / scheduling --------------------------------------------------
+    def enqueue_job(self, job_id: str):
+        self.queue.enqueue(job_id)
+        self._push_queue()
+
+    def reorder_queue(self, job_id: str, index: int):
+        self.queue.reorder(job_id, int(index))
+        self._push_queue()
+
+    def run_now(self, job_id: str):
+        self.queue.run_now(job_id)
+        self._push_queue()
+
+    def remove_from_queue(self, job_id: str):
+        self.queue.remove(job_id)
+        self._push_queue()
+
+    def schedule_job(self, job_id: str, when: str, tz: str, missed_policy: str):
+        self.queue.schedule(job_id, when, tz or "local", missed_policy or "run_when_opened")
+        self._push_queue()
+
+    def unschedule_job(self, job_id: str):
+        self.queue.unschedule(job_id)
+        self._push_queue()
+
+    def get_post_completion(self):
+        from lecturepack.services.job_ops import POST_COMPLETION_DEFAULT
+        self._emit("post_completion", {
+            "value": self.config.get("post_completion_behavior", POST_COMPLETION_DEFAULT)})
+
+    def _push_queue(self):
+        rows = []
+        for pos, jid in enumerate(self.queue.queued()):
+            rows.append({"id": jid, "position": pos})
+        self._emit("queue_changed", {
+            "active": self.queue.active, "queue": rows,
+            "schedules": self.queue.schedules()})
+
+    def _promote_next(self):
+        """Release the active slot when a job ends; keep the one-active invariant.
+        (Auto-launch of the next queued job is wired with the queue UI phase.)"""
+        if self.current_job is not None:
+            self.queue.finish_active(self.current_job.job_id)
+        self._push_queue()
+
+    def _completion_payload(self, job) -> dict:
+        from lecturepack.services.job_ops import completion_metrics
+        segments = FileManager.read_json_safe(
+            os.path.join(job.paths.get("transcript", ""), "raw.json"), []) or []
+        if isinstance(segments, dict):
+            segments = segments.get("segments", []) or []
+        candidates = FileManager.read_json_safe(
+            os.path.join(job.paths.get("root", ""), "candidates.json"), []) or []
+        n_slides = sum(1 for c in candidates if c.get("decision") == "accepted")
+        m = completion_metrics(
+            segments=segments, slides_detected=n_slides,
+            started_iso=job.manifest.get("created_at", ""),
+            finished_iso=job.state.get("last_updated", ""),
+            study_state="ready" if job.get_stage_status(constants.STAGE_REVIEW_READY) == "completed" else "none",
+            export_state="none")
+        m["job_id"] = job.job_id
+        m["title"] = job.manifest.get("title", "")
+        return m
+
+    def _reload_job(self, job_id: str):
+        try:
+            return Job(self.config.data_dir, job_id=job_id,
+                       current_session_id=self._session_id)
+        except Exception:
+            return None
+
+    def _mode_for_job(self, job) -> str:
+        pm = job.settings.get("product_mode", constants.PRODUCT_MODE_STUDY_PACK)
+        for ui_mode, mapped in _MODE_MAP.items():
+            if mapped == pm:
+                return ui_mode
+        return "study"
 
     # ------------------------------------------------------------------ review data
     def _push_review_data(self):

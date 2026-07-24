@@ -109,6 +109,38 @@ class MainWindow(QMainWindow):
         self.view.load(QUrl.fromLocalFile(index))
         self.setCentralWidget(self.view)
 
+        # Windows integration: a tray icon carries local notifications; the
+        # window HWND drives taskbar progress. Both degrade to no-ops if the
+        # tray/HWND is unavailable. (beta.3)
+        self.tray = None
+        try:
+            from PySide6.QtWidgets import QSystemTrayIcon
+            if QSystemTrayIcon.isSystemTrayAvailable():
+                self.tray = QSystemTrayIcon(self)
+                if os.path.exists(icon_path):
+                    self.tray.setIcon(QIcon(icon_path))
+                self.tray.setToolTip(version.APP_NAME)
+                self.tray.messageClicked.connect(self._on_notification_clicked)
+                self.tray.show()
+        except Exception:
+            self.tray = None
+        try:
+            self.backend._adapter.attach_window(self, self.tray)
+        except Exception:
+            pass
+
+    def _on_notification_clicked(self):
+        """A tray balloon was clicked: raise the window and route to the target
+        the last notification pointed at (open job / error / update)."""
+        try:
+            route = self.backend._adapter.win.on_notification_clicked()
+        except Exception:
+            route = ""
+        self.raise_()
+        self.activateWindow()
+        if route:
+            self.backend.notification_navigate.emit(route)
+
 
 def main() -> int:
     # Custom URL schemes must be registered before the QApplication is created.
@@ -123,6 +155,23 @@ def main() -> int:
 
     win = MainWindow()
     win.show()
+
+    # Focus-gate notifications: only fire when the app is not the active window.
+    def _on_app_state(state):
+        try:
+            win.backend._adapter.set_focused(state == Qt.ApplicationState.ApplicationActive)
+        except Exception:
+            pass
+    app.applicationStateChanged.connect(_on_app_state)
+
+    # Release keep-awake (and clear the taskbar) on quit.
+    def _on_quit():
+        try:
+            win.backend._adapter.win.on_shutdown()
+        except Exception:
+            pass
+    app.aboutToQuit.connect(_on_quit)
+
     return app.exec()
 
 

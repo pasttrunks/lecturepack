@@ -23,7 +23,9 @@ window.lpBridge = (function () {
     'update_available', 'update_progress', 'update_ready', 'update_error', 'update_state', 'whatsnew',
     'settings_changed', 'ollama_models', 'job_deleted',
     'quiz_changed', 'quiz_status', 'flashcards_changed', 'flashcards_status',
-    'vulkan_status', 'cuda_status', 'cuda_pack', 'groq_status', 'smart_study'
+    'vulkan_status', 'cuda_status', 'cuda_pack', 'groq_status', 'smart_study',
+    'queue_changed', 'pause_state', 'notification_prefs', 'notification_navigate',
+    'diagnostics', 'job_completed', 'post_completion'
   ];
 
   function connectQt() {
