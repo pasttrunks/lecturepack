@@ -1,6 +1,6 @@
 # LecturePack
 
-> **Public Beta — 0.9.0-beta.2.** The core lecture workflow (transcription, slides, transcript, exports, built-in quizzes/flashcards) works immediately after installation with no account, API key, or Ollama. Optional **Smart Study** adds private local AI. This is a public beta — keep copies of important source videos and exports, and please report issues. See [release notes](docs/RELEASE_NOTES_0.9.0-beta.1.md).
+> **Public Beta — 0.9.0-beta.3.** The core lecture workflow (transcription, slides, transcript, exports, built-in quizzes/flashcards) works immediately after installation with no account, API key, or Ollama. Optional **Smart Study** adds private local AI. This is a public beta — keep copies of important source videos and exports, and please report issues. See [release notes](docs/RELEASE_NOTES_0.9.0-beta.3.md).
 
 Turn a lecture recording into a synchronized, editable study workspace — completely locally on your Windows machine. No cloud. No account. No upload.
 
@@ -10,15 +10,15 @@ Turn a lecture recording into a synchronized, editable study workspace — compl
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 <p align="center">
-  <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.2/LecturePack-0.9.0-beta.2-Setup.exe">
+  <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.3/LecturePack-0.9.0-beta.3-Setup.exe">
     <img src="https://img.shields.io/badge/⬇%20Download%20for%20Windows-Setup.exe%20·%20Public%20Beta-2ea44f?style=for-the-badge&logo=windows&logoColor=white" alt="Download LecturePack for Windows" height="46">
   </a>
 </p>
 <p align="center">
   <sub>Windows 10/11 · per-user install, no admin required · also available as a
-  <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.2/LecturePack-0.9.0-beta.2-Portable.zip">Portable ZIP</a> ·
+  <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.3/LecturePack-0.9.0-beta.3-Portable.zip">Portable ZIP</a> ·
   <a href="https://github.com/pasttrunks/lecturepack/releases">all releases</a> ·
-  verify with <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.2/LecturePack-0.9.0-beta.2-SHA256SUMS.txt">SHA256SUMS</a></sub>
+  verify with <a href="https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.3/LecturePack-0.9.0-beta.3-SHA256SUMS.txt">SHA256SUMS</a></sub>
 </p>
 
 ![LecturePack — Study workspace with the AI Study Assistant](assets/hero.png)

@@ -49,7 +49,8 @@
   ],
   "build_acceptance": "DONE — Setup.exe/Portable.zip/SHA256SUMS built (all gates PASS), hashes reconcile, no secrets, tzdata bundled. Real-lecture pipeline acceptance PASS (446 words/18 segs + 3 slides on the built dist engine, disposable dir). Upgrade migration PASS (headless). See docs/evidence/beta3/acceptance.json.",
   "human_pending": "packaged GUI click-through + live beta.2->beta.3 install-over upgrade (built app has no data-dir override -> declined launching it against real ~/LecturePackData). Recommend adding LECTUREPACK_DATA_DIR override.",
-  "next_command": "READY FOR USER AUTHORIZATION. On explicit go-ahead: tag v0.9.0-beta.3, publish prerelease, upload Setup+Portable+SHA256SUMS, download+verify, live beta.2->beta.3 update, record acceptance. Never move beta.2 (deca663).",
+  "published": "DONE — v0.9.0-beta.3 published as prerelease (user-authorized): https://github.com/pasttrunks/lecturepack/releases/tag/v0.9.0-beta.3 . Published digests == local SHA256SUMS; live updater offers beta.3 to beta.2 users; beta.2 (deca663) untouched; README links updated to beta.3.",
+  "next_command": "Human-only: packaged GUI click-through + live beta.2->beta.3 install-over on a disposable profile. If a defect appears post-publish, prepare beta.4 (never move beta.3).",
   "publish_policy": "Do NOT publish beta.3 automatically. Stop at READY FOR USER AUTHORIZATION.",
   "never_touched": "C:\\Users\\marsh\\LecturePackData",
   "windows_mcp": "available for packaged/GUI acceptance in Phase 6"

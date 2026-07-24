@@ -43,5 +43,18 @@
     "Live fake-feed / real-feed updater click-through in the packaged window (logic covered by 22 updater tests)."
   ],
   "recommendation": "Add a LECTUREPACK_DATA_DIR env override (paths.data_dir + ConfigManager default) so packaged GUI acceptance can run against a disposable profile without risking real data.",
-  "outcome": "B — all machine-verifiable release gates pass; named packaged-GUI + live-upgrade validations remain (same disclosure posture as beta.1/beta.2)."
+  "outcome": "B — all machine-verifiable release gates pass; named packaged-GUI + live-upgrade validations remain (same disclosure posture as beta.1/beta.2).",
+  "published": {
+    "authorized_by_user": true,
+    "tag": "v0.9.0-beta.3 -> 8b69b46 (pushed; no CI rebuild — release.yml is workflow_dispatch, ci.yml only on main/v1.2)",
+    "url": "https://github.com/pasttrunks/lecturepack/releases/tag/v0.9.0-beta.3",
+    "prerelease": true,
+    "draft": false,
+    "assets_uploaded": ["Setup.exe", "Portable.zip", "SHA256SUMS.txt"],
+    "published_digests_match_local": "PASS (Setup bbd1db0f..., Portable bc101cb6... == SHA256SUMS)",
+    "live_updater_discovery": "PASS — beta.2 user on beta channel is offered 0.9.0-beta.3, selects Setup.exe with matching digest; beta.3 user sees no update",
+    "beta2_tag_untouched": "deca663",
+    "readme_links": "updated to beta.3",
+    "still_human_pending": "packaged GUI download->install click-through + live install-over data-preservation (disclosed)"
+  }
 }
