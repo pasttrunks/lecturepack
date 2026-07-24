@@ -64,6 +64,11 @@ class _JobCard(QFrame):
             badge_color = "#D63A2C"
             dot_bg = "#D63A2C"
             badge_text = "Failed"
+        elif status == "interrupted":
+            badge_bg = "#FEF3CD"
+            badge_color = "#856404"
+            dot_bg = "#F0A500"
+            badge_text = "Interrupted"
         elif is_running:
             badge_bg = "#FBE2D5"
             badge_color = "#B73A0B"

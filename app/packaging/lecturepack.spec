@@ -25,6 +25,10 @@ ICON = os.path.join(SPEC_DIR, "packaging", "lecturepack.ico")
 engine_hiddenimports = collect_submodules("lecturepack")
 engine_datas = collect_data_files("lecturepack")
 
+# IANA time-zone data for zoneinfo — Windows has no system zone db, so tz-aware
+# scheduling (beta.3) needs the tzdata package's data files bundled.
+tzdata_datas = collect_data_files("tzdata")
+
 # Bundle the entire web UI (html/css/js/fonts) next to the exe under ui/.
 ui_datas = []
 for root, _dirs, files in os.walk(UI_DIR):
@@ -34,14 +38,18 @@ for root, _dirs, files in os.walk(UI_DIR):
         ui_datas.append((src, rel))
 
 a = Analysis(
-    [os.path.join(SPEC_DIR, "desktop", "main.py")],
+    # Enter through the package wrapper, not desktop/main.py directly: a
+    # PyInstaller entry script runs as __main__ with no package, so main.py's
+    # relative imports (from . import ...) would crash at startup.
+    [os.path.join(SPEC_DIR, "lecturepack_desktop.py")],
     pathex=[SPEC_DIR, REPO_ROOT],
     binaries=[],
-    datas=ui_datas + engine_datas,
+    datas=ui_datas + engine_datas + tzdata_datas,
     hiddenimports=[
         "PySide6.QtWebEngineWidgets",
         "PySide6.QtWebEngineCore",
         "PySide6.QtWebChannel",
+        "tzdata",
     ] + engine_hiddenimports,
     hookspath=[],
     runtime_hooks=[],

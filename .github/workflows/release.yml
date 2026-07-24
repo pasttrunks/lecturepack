@@ -1,13 +1,18 @@
 name: Release LecturePack
 
-# Push a tag like v1.2.0 → builds the Windows installer and publishes a GitHub
-# Release. The in-app auto-updater checks this repo's releases and offers the
-# new build with the changelog shown below as the "what's new" overview.
+# Manual (workflow_dispatch) build of the Windows installer + portable ZIP +
+# SHA256SUMS for a given tag. Releases are published from LOCALLY-verified
+# artifacts (build.py runs the release-asset gate) so the published checksums
+# always match the exact binaries that were verified — a tag push must not
+# trigger a second, non-reproducible rebuild that overwrites them. Trigger this
+# manually only when you want CI to (re)build artifacts for a tag.
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. v0.9.0-beta.1)"
+        required: true
 
 permissions:
   contents: write
@@ -17,11 +22,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Verify tag matches version.py
         shell: bash
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${{ inputs.tag }}"; TAG="${TAG#v}"
           FILE=$(grep -oP '__version__\s*=\s*"\K[^"]+' app/desktop/version.py)
           echo "tag=$TAG  version.py=$FILE"
           if [ "$TAG" != "$FILE" ]; then
@@ -50,7 +57,7 @@ jobs:
         id: notes
         shell: bash
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${{ inputs.tag }}"; TAG="${TAG#v}"
           NOTES_FILE="$RUNNER_TEMP/notes.md"
           if [ -f CHANGELOG.md ]; then
             # Pull the section between "## [<version>]" and the next "## " heading.
@@ -68,8 +75,14 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          name: LecturePack ${{ github.ref_name }}
+          name: LecturePack ${{ inputs.tag }}
+          tag_name: ${{ inputs.tag }}
           body_path: ${{ steps.notes.outputs.path }}
-          files: app/dist/installer/LecturePack-Setup-*.exe
+          files: |
+            app/dist/installer/LecturePack-*-Setup.exe
+            app/dist/installer/LecturePack-*-Portable.zip
+            app/dist/installer/LecturePack-*-SHA256SUMS.txt
           draft: false
-          prerelease: false
+          # Tags carrying a pre-release suffix (e.g. -beta.1) publish as a
+          # GitHub pre-release so the stable auto-updater channel is unaffected.
+          prerelease: ${{ contains(inputs.tag, '-') }}

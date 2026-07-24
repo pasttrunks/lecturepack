@@ -1,0 +1,46 @@
+{
+  "purpose": "Machine verification that the PUBLISHED beta.2 bundled runtime actually works end-to-end using only bundled binaries (refutes the beta.1 'no runtime -> immediate job failure' mode).",
+  "verified_at_commit": "8fa428f",
+  "beta2_tag": "v0.9.0-beta.2 (deca663) — public, immutable, untouched",
+  "artifacts_published_and_local_identical": {
+    "Setup.exe":    {"bytes": 414545006, "sha256": "f2afc31c008d2e2128ece4a5531085eb3d7d4216aa9a0c2fccbcc5c5d3a5a37a"},
+    "Portable.zip": {"bytes": 551782783, "sha256": "236d626bc9f0bcc99d232eddeb1e1d4e6ea4cfb744c1f92a8c27432520438b47"},
+    "SHA256SUMS.txt": {"bytes": 207, "lists": "both binaries; hashes match local build AND GitHub asset digests"}
+  },
+  "bundled_runtime_present_in_portable_zip": [
+    "LecturePack/bin/ffmpeg.exe", "LecturePack/bin/ffprobe.exe",
+    "LecturePack/bin/whisper-cli.exe", "LecturePack/bin/whisper.dll",
+    "LecturePack/bin/ggml*.dll (12 files, incl ggml-cpu-*.dll per CPU arch)",
+    "LecturePack/models/ggml-base.en.bin"
+  ],
+  "frozen_path_resolution": {
+    "ffmpeg_wrapper.detect_binaries": "app_dir/bin when sys.frozen (app_dir=dirname(sys.executable))",
+    "transcription_engines._app_root/_cpu_exe": "root/bin/whisper-cli.exe when frozen",
+    "config_manager._app_dir/_find_bundled_binary": "app_dir/bin when frozen",
+    "verdict": "all three resolvers point at LecturePack/bin — where beta.2 bundles the runtime; consistent"
+  },
+  "real_media_transcription": {
+    "media": "C:/Users/marsh/Downloads/Video/m2-res_1080p.mp4 (42.0s, mp4)",
+    "tools_used": "ONLY app/dist/LecturePack/bin/{ffprobe,ffmpeg,whisper-cli}.exe + app/dist/LecturePack/models/ggml-base.en.bin (the exact packaged onedir that was zipped and published)",
+    "audio_extraction": "bundled ffmpeg -> 16kHz mono pcm_s16le WAV, OK",
+    "transcription": "bundled whisper-cli + bundled base.en model, CPU only (no GPU)",
+    "segments": 11,
+    "transcript_chars": 242,
+    "timestamps_valid": true,
+    "wall_time_ms": 5113,
+    "no_developer_paths": true,
+    "no_python_no_ollama_no_gpu_required": true
+  },
+  "updater_live": {
+    "public_feed_http": 200,
+    "beta1_user_beta_channel_selects": "0.9.0-beta.2",
+    "stable_channel_selects": null,
+    "installer_asset": "LecturePack-0.9.0-beta.2-Setup.exe",
+    "asset_digest_matches_verified_artifact": true,
+    "note": "GUI download->install click-through remains the only human step; logic covered by test_update_service (16) + test_update_integration (6)"
+  },
+  "human_pending_gates": [
+    "Clean/new-user install of Setup.exe on a fresh Windows profile/VM",
+    "Packaged GUI updater click-through + live beta.1 -> beta.2 in-app upgrade preserving LecturePackData"
+  ]
+}

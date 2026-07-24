@@ -4,7 +4,7 @@
 ; version in via /DAppVersion=x.y.z so this stays in sync with version.py.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "0.9.0-beta.3"
 #endif
 
 #define AppName "LecturePack"
@@ -28,7 +28,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequiredOverridesAllowed=dialog
 PrivilegesRequired=lowest
 OutputDir=..\dist\installer
-OutputBaseFilename=LecturePack-Setup-{#AppVersion}
+OutputBaseFilename=LecturePack-{#AppVersion}-Setup
 SetupIconFile=lecturepack.ico
 UninstallDisplayIcon={app}\{#AppExeName}
 Compression=lzma2/max

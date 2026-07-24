@@ -29,18 +29,21 @@ loaded backend.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional
 
 ENGINE_CPU = "whispercpp-cpu"
 ENGINE_VULKAN = "whispercpp-vulkan"
+ENGINE_CUDA = "whispercpp-cuda"
 ENGINE_AUTO = "auto"
 
 ENGINE_LABELS = {
     ENGINE_AUTO: "Auto (best available)",
     ENGINE_CPU: "whisper.cpp — CPU (verified)",
     ENGINE_VULKAN: "whisper.cpp — Vulkan GPU",
+    ENGINE_CUDA: "whisper.cpp — CUDA (NVIDIA GPU)",
 }
 
 # Model profiles (Phase 7). Filenames follow the official ggml naming from
@@ -91,6 +94,36 @@ def vulkan_runtime_present() -> bool:
     return os.path.isfile(os.path.join(sysdir, "vulkan-1.dll"))
 
 
+def user_cuda_dir() -> str:
+    """Per-user, always-writable location for the on-demand CUDA pack.
+
+    The packaged app may be installed to a read-only directory, so the optional
+    CUDA acceleration pack is installed here (under %LOCALAPPDATA%) and the
+    registry probes it. Shared by the pack installer and the engine registry so
+    they never disagree.
+    """
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(
+        os.path.expanduser("~"), "AppData", "Local")
+    return os.path.join(base, "LecturePack", "bin", "cuda")
+
+
+def nvidia_cuda_present() -> bool:
+    """True when an NVIDIA CUDA driver is installed.
+
+    ``nvcuda.dll`` ships in System32 with the NVIDIA display driver whenever a
+    CUDA-capable GPU is present; ``nvidia-smi`` is a secondary signal. This only
+    proves the *driver* is present — the CUDA whisper.cpp binary is checked
+    separately, and auto-selection is still gated on a real benchmark.
+    """
+    if os.name == "nt":
+        sysdir = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+        if os.path.isfile(os.path.join(sysdir, "nvcuda.dll")):
+            return True
+        return bool(shutil.which("nvidia-smi"))
+    # POSIX (not a shipping target, but keep detection honest for tests/dev).
+    return os.path.exists("/proc/driver/nvidia/version") or bool(shutil.which("nvidia-smi"))
+
+
 class EngineRegistry:
     """Discovers engines and applies the selection policy."""
 
@@ -128,6 +161,22 @@ class EngineRegistry:
                 return cand
         return ""
 
+    def _cuda_exe(self) -> str:
+        if self.config_manager is not None:
+            p = self.config_manager.get("whisper_cuda_exe", "")
+            if p and os.path.isfile(p):
+                return p
+        root = _app_root()
+        # Probe the per-user pack location FIRST (always writable, so the
+        # on-demand CUDA pack installs there — the packaged app's install dir
+        # may be read-only), then the bundled/dev bin/cuda.
+        for cand in (os.path.join(user_cuda_dir(), "whisper-cli.exe"),
+                     os.path.join(root, "bin", "cuda", "whisper-cli.exe"),
+                     os.path.join(root, "bin-cuda", "whisper-cli.exe")):
+            if os.path.isfile(cand):
+                return cand
+        return ""
+
     def detect_engines(self) -> Dict[str, EngineInfo]:
         cpu_exe = self._cpu_exe()
         cpu = EngineInfo(
@@ -153,19 +202,51 @@ class EngineRegistry:
             else:
                 vk = EngineInfo(key=ENGINE_VULKAN, label=ENGINE_LABELS[ENGINE_VULKAN],
                                 exe_path=v_exe, available=True, backend="Vulkan")
-        return {ENGINE_CPU: cpu, ENGINE_VULKAN: vk}
+
+        c_exe = self._cuda_exe()
+        if not c_exe:
+            cuda = EngineInfo(key=ENGINE_CUDA, label=ENGINE_LABELS[ENGINE_CUDA],
+                              available=False, backend="CUDA",
+                              reason="CUDA whisper-cli.exe not installed "
+                                     "(drop a CUDA build in bin/cuda/)")
+        elif not nvidia_cuda_present():
+            cuda = EngineInfo(key=ENGINE_CUDA, label=ENGINE_LABELS[ENGINE_CUDA],
+                              exe_path=c_exe, available=False, backend="CUDA",
+                              reason="No NVIDIA CUDA driver (nvcuda.dll) detected")
+        else:
+            cuda = EngineInfo(key=ENGINE_CUDA, label=ENGINE_LABELS[ENGINE_CUDA],
+                              exe_path=c_exe, available=True, backend="CUDA")
+        return {ENGINE_CPU: cpu, ENGINE_VULKAN: vk, ENGINE_CUDA: cuda}
 
     # ---- selection ----------------------------------------------------- #
+    # The WebEngine UI persists short engine aliases ("cpu"/"vulkan"/"cuda"),
+    # while the registry keys are the full "whispercpp-*" ids. Normalize so an
+    # explicit selection is honoured (not silently routed through auto).
+    _ENGINE_ALIASES = {
+        "cpu": ENGINE_CPU, "vulkan": ENGINE_VULKAN, "cuda": ENGINE_CUDA,
+        "auto": ENGINE_AUTO,
+    }
+
     def resolve(self, requested: str = ENGINE_AUTO) -> EngineInfo:
         """Return the engine to use for a run. Never returns an unavailable
         engine: unavailable requests degrade to the CPU engine with a reason.
         """
+        requested = self._ENGINE_ALIASES.get(requested, requested)
         engines = self.detect_engines()
         cpu = engines[ENGINE_CPU]
         vk = engines[ENGINE_VULKAN]
+        cuda = engines.get(ENGINE_CUDA) or EngineInfo(
+            key=ENGINE_CUDA, label=ENGINE_LABELS[ENGINE_CUDA], available=False,
+            backend="CUDA", reason="not detected")
 
         if requested == ENGINE_CPU:
             cpu.reason = "explicitly selected"
+            return cpu
+        if requested == ENGINE_CUDA:
+            if cuda.available:
+                cuda.reason = "explicitly selected"
+                return cuda
+            cpu.reason = f"CUDA requested but unavailable ({cuda.reason}); using CPU"
             return cpu
         if requested == ENGINE_VULKAN:
             if vk.available:
@@ -174,23 +255,31 @@ class EngineRegistry:
             cpu.reason = f"Vulkan requested but unavailable ({vk.reason}); using CPU"
             return cpu
 
-        # auto policy
-        if vk.available and self._vulkan_benchmark_ok():
+        # auto policy: prefer CUDA, then Vulkan, then verified CPU — but only a
+        # GPU backend that has actually benchmarked faster on this machine.
+        if cuda.available and self._benchmark_ok("cuda_benchmark_ok"):
+            cuda.reason = "auto: CUDA available and benchmarked faster"
+            return cuda
+        if vk.available and self._benchmark_ok("vulkan_benchmark_ok"):
             vk.reason = "auto: Vulkan available and benchmarked faster"
             return vk
-        if vk.available:
+        if cuda.available:
+            cpu.reason = "auto: CUDA present but not benchmarked faster; using verified CPU"
+        elif vk.available:
             cpu.reason = "auto: Vulkan present but not benchmarked faster; using verified CPU"
         else:
-            cpu.reason = f"auto: {vk.reason}; using verified CPU"
+            cpu.reason = f"auto: {cuda.reason}; using verified CPU"
         return cpu
 
-    def _vulkan_benchmark_ok(self) -> bool:
-        """The packaged benchmark records whether Vulkan beat CPU on this
-        machine (config key set by the Settings benchmark action / release
-        validation). Defaults to False -- never assume Vulkan is faster."""
+    def _benchmark_ok(self, key: str) -> bool:
+        """A GPU backend is auto-selected only after a recorded benchmark says
+        it beat CPU on this machine. Defaults to False — never assume faster."""
         if self.config_manager is None:
             return False
-        return bool(self.config_manager.get("vulkan_benchmark_ok", False))
+        return bool(self.config_manager.get(key, False))
+
+    def _vulkan_benchmark_ok(self) -> bool:  # back-compat alias
+        return self._benchmark_ok("vulkan_benchmark_ok")
 
 
 def resolve_profile_model(profile: str, search_dirs: List[str]) -> Optional[str]:

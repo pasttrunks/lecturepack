@@ -144,6 +144,63 @@ class OllamaClient:
             "details": data.get("details", {}) or {},
         }
 
+    def pull_model(self, name: str,
+                   on_progress: Optional[Callable[[Dict[str, Any]], None]] = None,
+                   cancel_event: Optional[threading.Event] = None,
+                   timeout: Optional[float] = None) -> Dict[str, Any]:
+        """Download a model via the streaming ``/api/pull`` endpoint.
+
+        ``on_progress`` receives {status, percent (0-100 or None), completed,
+        total} per chunk. Cancellable mid-stream. Raises the usual typed
+        OllamaError subclasses. Returns {status} of the final chunk.
+        """
+        payload = {"model": name, "stream": True}
+        if cancel_event is not None and cancel_event.is_set():
+            raise OllamaCancelled("cancelled before pull")
+        # Model downloads are large; allow a generous overall deadline but keep
+        # the per-read stall timeout so a dead connection still aborts quickly.
+        deadline = time.monotonic() + (timeout or 3600.0)
+        resp = self._request("/api/pull", payload, timeout=STREAM_STALL_TIMEOUT)
+        last_status = ""
+        try:
+            for line in resp:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise OllamaCancelled("cancelled during pull")
+                if time.monotonic() > deadline:
+                    raise OllamaTimeout("model pull exceeded the time limit")
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError) as e:
+                    raise OllamaBadResponse("malformed pull stream chunk") from e
+                if chunk.get("error"):
+                    raise OllamaBadResponse(f"server error: {chunk['error']}")
+                status = str(chunk.get("status", ""))
+                total = int(chunk.get("total", 0) or 0)
+                completed = int(chunk.get("completed", 0) or 0)
+                pct = (completed / total * 100.0) if total > 0 else None
+                last_status = status or last_status
+                if on_progress is not None:
+                    try:
+                        on_progress({"status": status, "percent": pct,
+                                     "completed": completed, "total": total})
+                    except Exception:
+                        pass
+        except OSError as e:
+            if isinstance(e, OllamaError):
+                raise
+            if "timed out" in str(e).lower():
+                raise OllamaTimeout("pull stalled (no data from Ollama)") from e
+            raise OllamaUnavailable(f"connection lost during pull: {e}") from e
+        finally:
+            try:
+                resp.close()
+            except Exception:
+                pass
+        return {"status": last_status or "success"}
+
     def unload(self, model: str) -> None:
         """Best-effort immediate unload (keep_alive: 0). Never raises."""
         try:

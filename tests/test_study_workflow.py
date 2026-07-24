@@ -304,7 +304,13 @@ def test_retranscribe_only_stages(tmp_path, qtbot):
             return self.settings.get(key, default)
         def set(self, key, value):
             self.settings[key] = value
-            
+        def autodetect_ffmpeg(self):
+            # Mirror ConfigManager's fallback contract: return the saved
+            # (possibly empty) paths when nothing bundled/system is found.
+            return self.get("ffmpeg_exe", ""), self.get("ffprobe_exe", "")
+        def autodetect_whisper(self):
+            return self.get("whisper_exe", ""), self.get("whisper_model", "")
+
     cfg = MockConfigManager()
     cfg.set("whisper_exe", str(tmp_path / "whisper-cli.exe"))
     cfg.set("whisper_model", str(tmp_path / "whisper_model.bin"))

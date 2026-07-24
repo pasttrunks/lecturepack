@@ -104,19 +104,56 @@ def _chat_prompt(transcript_text: str, history: list, question: str):
     return system, user, CHAT_SCHEMA
 
 
-def _quiz_prompt(transcript_text: str, count: int):
-    system = (_SYSTEM_BASE + f" Write exactly {count} multiple-choice questions that test "
-             "understanding of the lecture's key ideas. Each question needs 3-4 options, "
-             "exactly one correct, and a one-sentence explanation of the answer.")
-    user = f"Lecture transcript excerpt:\n{transcript_text}\n\nGenerate the quiz now."
+_QUIZ_DIFFICULTY_HINT = {
+    "easy": "Target simple recall of facts, names, or figures stated outright.",
+    "medium": "Target understanding and connections between ideas, not just recall.",
+    "hard": "Target deeper reasoning, implications, and fine distinctions from the material.",
+    "mixed": "Vary difficulty across the set, from recall to deeper reasoning.",
+}
+
+
+def _quiz_prompt(transcript_text: str, count: int,
+                 difficulty: str = "Mixed", qtype: str = "Multiple choice"):
+    tf = "true" in (qtype or "").lower()
+    form = ('true/false questions (options MUST be exactly ["True","False"])' if tf
+            else "multiple-choice questions with 3 or 4 options")
+    diff = _QUIZ_DIFFICULTY_HINT.get((difficulty or "mixed").strip().lower(),
+                                     _QUIZ_DIFFICULTY_HINT["mixed"])
+    system = (
+        "You are an expert exam writer. Using ONLY the lecture transcript excerpt "
+        f"provided, write exactly {count} {form}. Requirements: "
+        "(1) Each question tests a SPECIFIC fact, name, number, definition, cause, or "
+        "claim actually stated in the transcript — never test outside knowledge or "
+        "invent details. (2) Exactly one option is correct; wrong options must be "
+        "plausible and on the SAME topic as the lecture (not silly or generic). "
+        "(3) Never ask meta questions about 'the lecture', 'the speaker', 'this "
+        "recording', the audio, or the transcript itself — ask about the subject "
+        "matter. (4) No 'all/none of the above'; no duplicate questions. "
+        "(5) Each question is one clear sentence; the explanation is one sentence that "
+        "states the supporting fact from the transcript. " + diff +
+        " Ground everything strictly in the transcript; if it is too thin, write fewer "
+        "but valid questions rather than inventing content."
+    )
+    user = f"Lecture transcript excerpt:\n{transcript_text}\n\nGenerate the quiz now as JSON."
     return system, user, QUIZ_SCHEMA
 
 
-def _flashcards_prompt(transcript_text: str, count: int):
-    system = (_SYSTEM_BASE + f" Write exactly {count} flashcards covering the lecture's key "
-             "terms or concepts. Each card has a short \"term\" (the front) and a concise "
-             "1-2 sentence \"definition\" (the back) grounded in the transcript.")
-    user = f"Lecture transcript excerpt:\n{transcript_text}\n\nGenerate the flashcards now."
+def _flashcards_prompt(transcript_text: str, count: int,
+                       difficulty: str = "Basic", qtype: str = ""):
+    depth = {
+        "basic": "Keep definitions short (one sentence).",
+        "detailed": "Give a fuller 1-2 sentence definition with a concrete detail.",
+        "exam-focused": "Phrase each card the way it would be tested on an exam.",
+    }.get((difficulty or "basic").strip().lower(), "Keep definitions concise.")
+    system = (
+        f"You are a study assistant. Using ONLY the lecture transcript excerpt, write "
+        f"exactly {count} flashcards for the most important terms/concepts ACTUALLY "
+        "discussed. Each card: a short specific \"term\" (the front) and a concise "
+        "\"definition\" (the back) grounded in what the transcript says about it. "
+        "Never invent terms not in the transcript; skip filler/stopwords; no duplicates. "
+        + depth
+    )
+    user = f"Lecture transcript excerpt:\n{transcript_text}\n\nGenerate the flashcards now as JSON."
     return system, user, FLASHCARDS_SCHEMA
 
 
@@ -136,7 +173,7 @@ class StudyAssistantWorker(QObject):
     def __init__(self, task: str, transcript_text: str,
                  ollama_settings: Optional[dict] = None,
                  history: Optional[list] = None, question: str = "",
-                 count: int = 5):
+                 count: int = 5, difficulty: str = "Mixed", qtype: str = ""):
         super().__init__()
         assert task in ("chat", "quiz", "flashcards")
         self.task = task
@@ -145,6 +182,8 @@ class StudyAssistantWorker(QObject):
         self.history = list(history or [])
         self.question = question
         self.count = count
+        self.difficulty = difficulty
+        self.qtype = qtype
         self.cancel_event = threading.Event()
         self._thread: Optional[QThread] = None
 
@@ -198,9 +237,11 @@ class StudyAssistantWorker(QObject):
         if self.task == "chat":
             system, user, schema = _chat_prompt(self.transcript_text, self.history, self.question)
         elif self.task == "quiz":
-            system, user, schema = _quiz_prompt(self.transcript_text, self.count)
+            system, user, schema = _quiz_prompt(self.transcript_text, self.count,
+                                                self.difficulty, self.qtype)
         else:
-            system, user, schema = _flashcards_prompt(self.transcript_text, self.count)
+            system, user, schema = _flashcards_prompt(self.transcript_text, self.count,
+                                                      self.difficulty, self.qtype)
 
         self.status.emit(f"Asking {self.ollama.get('model')}…")
         try:

@@ -33,6 +33,9 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
   --bg:#F3F0E8; --panel:#FFFFFF; --panel2:#F7F4ED; --sunk:#F0ECE2;
   --ink:#1C1A16; --muted:#8A8173; --border:#241F19; --line:#E3DCCD;
   --blue:#3FB4C7; --blue-strong:#2A93A6; --blue-soft:#DDF5F9; --blue-ink:#0C6675; --blue-tint:#EDFAFC;
+  /* secondary = deep-blue surface + cyan text/icon/border (see dark below) */
+  --secondary-surface:#DDF5F9; --secondary-surface-hover:#CDEFF5; --secondary-surface-active:#BEE8F0;
+  --secondary-border:#3FB4C7; --secondary-text:#0C6675; --secondary-icon:#0C6675; --secondary-muted:#5A9AA6;
   --glass:rgba(255,255,255,.70); --glow-a:#EF5A1E; --glow-b:#B3EBF2; --glow-op:.30;
   --orange:#EF5A1E; --orange-ink:#C6430E; --orange-soft:#FBE2D5;
   --green:#128A52; --green-soft:#D3F0DF; --red:#D63A2C; --red-soft:#FADAD5; --yellow:#D99400; --yellow-soft:#FBEDC6;
@@ -45,6 +48,9 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
   --bg:#131519; --panel:#1B1E24; --panel2:#21252C; --sunk:#171A1F;
   --ink:#ECE7DB; --muted:#8C93A2; --border:#000000; --line:#2C313A;
   --blue:#B3EBF2; --blue-strong:#8FE0EA; --blue-soft:#123840; --blue-ink:#B3EBF2; --blue-tint:#102A30;
+  /* deep blue/navy secondary surfaces with cyan text — no bright-cyan fills */
+  --secondary-surface:#12303F; --secondary-surface-hover:#173C4C; --secondary-surface-active:#1B465A;
+  --secondary-border:#2D7186; --secondary-text:#9DE8EE; --secondary-icon:#72D5DE; --secondary-muted:#4A8996;
   --glass:var(--panel);
   --orange:#FF6C36; --orange-ink:#FF8A5C; --orange-soft:#38220F;
   --green:#4CCB86; --green-soft:#123020; --red:#FF6E5E; --red-soft:#361715; --yellow:#F2C24A; --yellow-soft:#332810;
@@ -56,6 +62,7 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
 @keyframes lpblink{0%,100%{opacity:1}50%{opacity:.3}}
 @keyframes lpbar{0%{background-position:0 0}100%{background-position:26px 0}}
 @keyframes lpin{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
+@keyframes lpspin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
 @keyframes lpiris{0%{transform:scale(.965);opacity:.4}55%{transform:scale(1.028)}100%{transform:scale(1.02);opacity:1}}
 
 /* ===== focus mode (camera iris) ===== */
@@ -96,4 +103,20 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
 
 /* theme picker buttons (Settings › Appearance) */
 .lp-theme-btn{flex:1;text-align:center;font:700 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid var(--line);border-radius:9px;background:var(--panel);color:var(--muted);cursor:pointer}
-.lp-theme-btn.active{border-color:var(--blue);background:var(--blue);color:#fff}
+.lp-theme-btn.active{border-color:var(--secondary-border);background:var(--secondary-surface);color:var(--secondary-text)}
+
+/* beta.3: honor the OS "reduce motion" setting. Keep opacity/color feedback but
+   drop transforms, looping animations, and long page transitions so nothing
+   moves for users who asked for stillness. Input is never delayed. */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;
+    scroll-behavior:auto !important;
+  }
+  .lp-caret{animation:none !important;opacity:1 !important}
+  .lp-stagger>*{animation:none !important}
+  [data-focus="true"] .lp-main{animation:none !important;transform:none !important}
+  .lp-chrome,.lp-main{transition:none !important}
+}

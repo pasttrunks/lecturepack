@@ -1,0 +1,57 @@
+{
+  "head": "cafed15",
+  "branch": "feat/cuda-engine",
+  "milestone": "0.9.0-beta.3 (QoL/reliability)",
+  "safety_tag": "safety/resume-beta3-phases2b6-4e443d6",
+  "live_verified": "Real app launched via Windows MCP: renders with full seam; surfaced+fixed the startup-reconciliation gap (e7b3938). App closed without touching real jobs.",
+  "session3_commits": [
+    "e549297 adapter/bridge/main seam wiring",
+    "dc5963c prefers-reduced-motion CSS",
+    "1f80044 adapter startup smoke test",
+    "3de9c9b Settings->Notifications UI",
+    "5753ca3 completion panel + pause/resume controls",
+    "e7b3938 startup reconciliation sweep + Interrupted cards",
+    "5bd8d22 queue orchestration + Home queue UI"
+  ],
+  "beta2_tag": "deca663 (immutable; NOT touched)",
+  "beta3_exists": false,
+  "completed_nodes": [
+    "node0", "audits(A-E)", "fanin",
+    "phase1_state_machine", "phase2a_clean_state_gate", "phase2b_win_integration",
+    "phase3_queue_schedule_pause_service", "phase4_retry_completion_diagnostics_logic",
+    "controller_pause_resume_retry_wiring"
+  ],
+  "active_node": "checkpoint_after_adapter_wiring",
+  "commits_beta3": [
+    "32eb2a5 Phase 1 lifecycle state machine",
+    "83d644a Phase 2a clean-state gate",
+    "0434b0e Phase 2b win_integration facade",
+    "8f80f95 Phase 3 queue/schedule/pause service (+tzdata)",
+    "70cc7ff Phase 4 retry/completion/diagnostics logic",
+    "a1e0966 controller cooperative pause/resume + stage retry"
+  ],
+  "phase_status": {
+    "1_core_state_machine": "DONE (56 tests)",
+    "2a_clean_state_gate": "DONE (8 tests)",
+    "2b_win_integration": "MODULE DONE (15 tests); adapter/main wiring PENDING",
+    "3_queue_schedule_pause": "SERVICE DONE (18 tests); controller pause/resume/retry WIRED+tested (3 integration tests); adapter/queue promotion wiring PENDING",
+    "4_retry_completion_diagnostics": "LOGIC DONE (12 tests); controller retry WIRED; adapter/bridge exposure PENDING",
+    "5_ui_integration_animation": "DONE: seam, reduced-motion, Notifications settings, completion panel + actions, pause/resume controls, Interrupted/Needs-Attention cards, Home queue UI (Run Now/reorder/remove), scheduling UI (date-time + missed policy) + Scheduled list. (Optional polish: dedicated History screen + Processing empty state.)",
+    "6_version_release": "version+docs DONE (cafed15): version.py/win_version_info/iss -> 0.9.0-beta.3, CHANGELOG (beta.2+beta.3), RELEASE_NOTES_0.9.0-beta.3.md. REMAINING: build (Inno) Setup+Portable+SHA256SUMS; 20-scenario packaged acceptance (Windows MCP); beta.2->beta.3 upgrade acceptance; then READY FOR USER AUTHORIZATION."
+  },
+  "full_suite": "467 passed in 218.24s at e549297 (460 + 7 adapter beta.3), exit 0",
+  "release_blockers": [],
+  "remaining_work": [
+    "ADAPTER/BRIDGE (single writer on engine_adapter.py + bridge.py + bridge.js): expose pause_job/resume_job/retry_stage; queue ops (enqueue/reorder/run_now/remove) + one-active promotion via JobQueue; schedule ops; notification prefs get/set + test; run_diagnostics/open_job_folder; completion metrics via job_ops; wire win_integration keep-awake/taskbar/notify at lifecycle points; sync bridge.js SIGNALS with new bridge.py signals",
+    "main.py: create QSystemTrayIcon + taskbar HWND, connect messageClicked->route, aboutToQuit->win.on_shutdown",
+    "PHASE 5 UI (app/ui): Notifications settings (6 toggles+Test), queue UI, schedule UI, pause/resume controls, Interrupted/Needs-Attention cards (Resume/Restart/View/Remove) + History screen, completion panel + actions, empty states, animations + prefers-reduced-motion",
+    "PHASE 6: version.py->0.9.0-beta.3 + win_version_info + iss AppVersion + What's New/CHANGELOG/notes; build (Inno); packaged acceptance (20 scenarios, Windows MCP available); beta.2->beta.3 upgrade acceptance"
+  ],
+  "build_acceptance": "DONE — Setup.exe/Portable.zip/SHA256SUMS built (all gates PASS), hashes reconcile, no secrets, tzdata bundled. Real-lecture pipeline acceptance PASS (446 words/18 segs + 3 slides on the built dist engine, disposable dir). Upgrade migration PASS (headless). See docs/evidence/beta3/acceptance.json.",
+  "human_pending": "packaged GUI click-through + live beta.2->beta.3 install-over upgrade (built app has no data-dir override -> declined launching it against real ~/LecturePackData). Recommend adding LECTUREPACK_DATA_DIR override.",
+  "published": "DONE — v0.9.0-beta.3 published as prerelease (user-authorized): https://github.com/pasttrunks/lecturepack/releases/tag/v0.9.0-beta.3 . Published digests == local SHA256SUMS; live updater offers beta.3 to beta.2 users; beta.2 (deca663) untouched; README links updated to beta.3.",
+  "next_command": "Human-only: packaged GUI click-through + live beta.2->beta.3 install-over on a disposable profile. If a defect appears post-publish, prepare beta.4 (never move beta.3).",
+  "publish_policy": "Do NOT publish beta.3 automatically. Stop at READY FOR USER AUTHORIZATION.",
+  "never_touched": "C:\\Users\\marsh\\LecturePackData",
+  "windows_mcp": "available for packaged/GUI acceptance in Phase 6"
+}

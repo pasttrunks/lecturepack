@@ -1,0 +1,16 @@
+{
+  "m2-1080p(7@1920x1080)": {
+    "n": 7,
+    "src_MB": 15.7,
+    "thumb_MB": 0.08,
+    "reduction_x": 192.6,
+    "fmt": "image/webp"
+  },
+  "mesopotamia(sample30)": {
+    "n": 30,
+    "src_MB": 23.2,
+    "thumb_MB": 0.37,
+    "reduction_x": 63.1,
+    "fmt": "image/webp"
+  }
+}

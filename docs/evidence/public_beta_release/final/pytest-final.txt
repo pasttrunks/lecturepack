@@ -1,0 +1,47 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+PySide6 6.11.1 -- Qt runtime 6.11.1 -- Qt compiled 6.11.1
+rootdir: C:\Users\marsh\Documents\LecturePack
+configfile: pytest.ini
+testpaths: tests
+plugins: qt-4.5.0
+collected 330 items
+
+tests\test_alignment.py ....                                             [  1%]
+tests\test_content_hygiene.py ..                                         [  1%]
+tests\test_context_repair.py .....                                       [  3%]
+tests\test_detection_eval.py .......                                     [  5%]
+tests\test_detection_targets.py ...                                      [  6%]
+tests\test_exports.py .                                                  [  6%]
+tests\test_groq_transcription.py ............                            [ 10%]
+tests\test_integration.py .                                              [ 10%]
+tests\test_job_persistence.py .                                          [ 10%]
+tests\test_live_transcript_streaming.py ................                 [ 15%]
+tests\test_ollama_and_repair.py ................                         [ 20%]
+tests\test_packaging_and_safety.py .......                               [ 22%]
+tests\test_product_modes.py ...                                          [ 23%]
+tests\test_scheduler_and_engines.py .........                            [ 26%]
+tests\test_slide_detection.py .                                          [ 26%]
+tests\test_smart_study.py .................                              [ 31%]
+tests\test_stability_phase.py ...........                                [ 35%]
+tests\test_study_workflow.py .............                               [ 39%]
+tests\test_study_workspace_v12.py .........                              [ 41%]
+tests\test_transcript_formats.py ........                                [ 44%]
+tests\test_transcript_layers.py ...................                      [ 50%]
+tests\test_transcription_backend_contract.py .........                   [ 52%]
+tests\test_ui_phase2.py ......................................           [ 64%]
+tests\test_ui_v11.py ...............                                     [ 68%]
+tests\test_update_integration.py ......                                  [ 70%]
+tests\test_update_service.py ................                            [ 75%]
+tests\test_video_extensions.py ....                                      [ 76%]
+tests\test_webview_assets.py ......................                      [ 83%]
+tests\test_webview_flashcards.py ......                                  [ 85%]
+tests\test_webview_groq.py ......                                        [ 86%]
+tests\test_webview_jobs.py ............                                  [ 90%]
+tests\test_webview_packaging.py ....                                     [ 91%]
+tests\test_webview_quiz.py .........                                     [ 94%]
+tests\test_webview_settings_bridge.py ..........                         [ 97%]
+tests\test_webview_theme.py .....                                        [ 99%]
+tests\test_webview_vulkan.py ...                                         [100%]
+
+======================= 330 passed in 211.11s (0:03:31) =======================

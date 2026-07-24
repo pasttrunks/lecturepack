@@ -1,0 +1,21 @@
+{
+  "config_engine": "vulkan",
+  "vulkan_benchmark_ok": true,
+  "engines": {
+    "whispercpp-cpu": {
+      "available": true,
+      "backend": "CPU",
+      "reason": ""
+    },
+    "whispercpp-vulkan": {
+      "available": true,
+      "backend": "Vulkan",
+      "reason": ""
+    }
+  },
+  "resolve_current": {
+    "label": "whisper.cpp \u2014 Vulkan GPU",
+    "backend": "Vulkan",
+    "reason": "auto: Vulkan available and benchmarked faster"
+  }
+}

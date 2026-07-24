@@ -1,0 +1,60 @@
+{
+  "version": "0.9.0-beta.3",
+  "built_at_commit": "cafed15 (code d71ac9e)",
+  "beta2_tag_untouched": "deca663",
+  "build": {
+    "clean_state_gate": "PASS (build-time: no job/dev data bundled; engine payload present)",
+    "release_gate": "PASS (Setup + Portable + SHA256SUMS present, checksums list both)",
+    "engine_bundled": "ffmpeg + ffprobe + whisper-cli + whisper/ggml DLLs (13 whisper files) + ggml-base.en.bin",
+    "tzdata_bundled": "yes (hook-tzdata processed by PyInstaller)"
+  },
+  "artifacts": {
+    "Setup.exe":    {"bytes": 395084531, "sha256": "bbd1db0fcab5830450bd99f79bae4279c92ceab36bf463415192ee467226e420"},
+    "Portable.zip": {"bytes": 526355264, "sha256": "bc101cb68dd98b49060c10e09e8ebffb58c928def2cb5423fddd02c4b2bac812"},
+    "SHA256SUMS.txt": {"bytes": 207, "reconciled": "computed == SHA256SUMS content for both"}
+  },
+  "no_secrets": "PASS (dist scanned; no api keys / user paths in shipped py/json/js/txt)",
+  "real_lecture_pipeline_acceptance": {
+    "input": "CL100 - Day 2 - Egypt and Archaeology (real lecture), 4-min segment @1024x768 with slides",
+    "engine": "built dist binaries (app/dist/LecturePack/bin) — no dev tools",
+    "data_dir": "disposable temp (real ~/LecturePackData NOT touched)",
+    "pipeline_completed": true,
+    "transcript_segments": 18,
+    "transcript_words": 446,
+    "transcript_sample": "The Egyptian Museum at Turin, the second most famous ... museum ... after Cairo ...",
+    "slide_candidates": 3,
+    "slides_accepted": 3,
+    "verdict": "PASS — transcription + slide detection + alignment + study completed on a real lecture with slides using the packaged engine"
+  },
+  "full_suite": "475 passed at ff8265c; version/docs (cafed15) focused-verified (updater+packaging 30 passed)",
+  "upgrade_migration_acceptance": {
+    "method": "headless, disposable data",
+    "verified": [
+      "beta.2 job (no lifecycle field) backfills lifecycle on load",
+      "orphaned running job from dead session -> interrupted (startup sweep) + persisted",
+      "queue.json FIFO/reorder persists across restart",
+      "schedule (tz + missed policy) persists across restart"
+    ],
+    "verdict": "PASS (data-safety + lifecycle migration); live install-over-beta.2 remains a human/VM step"
+  },
+  "human_pending_gates": [
+    "Packaged GUI click-through on the installed app (queue/pause/notifications/completion/interrupted). NOT auto-run: the built app has no data-dir override, so launching it would run the startup reconciliation sweep against real ~/LecturePackData jobs — declined to protect real data.",
+    "Live beta.2 -> beta.3 install-over upgrade on a disposable Windows profile/VM (data preservation).",
+    "Live fake-feed / real-feed updater click-through in the packaged window (logic covered by 22 updater tests)."
+  ],
+  "recommendation": "Add a LECTUREPACK_DATA_DIR env override (paths.data_dir + ConfigManager default) so packaged GUI acceptance can run against a disposable profile without risking real data.",
+  "outcome": "B — all machine-verifiable release gates pass; named packaged-GUI + live-upgrade validations remain (same disclosure posture as beta.1/beta.2).",
+  "published": {
+    "authorized_by_user": true,
+    "tag": "v0.9.0-beta.3 -> 8b69b46 (pushed; no CI rebuild — release.yml is workflow_dispatch, ci.yml only on main/v1.2)",
+    "url": "https://github.com/pasttrunks/lecturepack/releases/tag/v0.9.0-beta.3",
+    "prerelease": true,
+    "draft": false,
+    "assets_uploaded": ["Setup.exe", "Portable.zip", "SHA256SUMS.txt"],
+    "published_digests_match_local": "PASS (Setup bbd1db0f..., Portable bc101cb6... == SHA256SUMS)",
+    "live_updater_discovery": "PASS — beta.2 user on beta channel is offered 0.9.0-beta.3, selects Setup.exe with matching digest; beta.3 user sees no update",
+    "beta2_tag_untouched": "deca663",
+    "readme_links": "updated to beta.3",
+    "still_human_pending": "packaged GUI download->install click-through + live install-over data-preservation (disclosed)"
+  }
+}
