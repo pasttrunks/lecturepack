@@ -40,6 +40,48 @@ re-debug the same thing from scratch.
 
 *None open.*
 
+## FIXED THIS SESSION
+
+### BUG-09 — Link import hung forever: worker-thread signals never delivered   ✅ FIXED (verified)
+- **Area:** desktop shell / thread marshalling (`app/desktop/engine_adapter.py::_emit_soon`)
+- **Reported / found:** 2026-07-25, while doing the handoff TODO "drive the link-import
+  flow once in the real app, end to end". Found on the **packaged beta.3 build**, then
+  reproduced from source — it was never build-specific.
+- **Symptom:** paste a URL → "Check link" → the modal sits on **"Looking it up…" forever**.
+  No error, no timeout, **empty stderr**, no crash. Cancel still worked.
+- **Why it survived this long:** the previous session verified the service
+  (`MediaFetcher.probe`/`download`) directly, and verified the three modals in a browser
+  with **no backend attached**. Both halves passed. The *only* thing never exercised was
+  the seam between them — which is exactly where the bug was. The handoff honestly listed
+  this flow under "NOT verified".
+- **Root cause:** `_emit_soon` did `QTimer.singleShot(0, lambda: signal.emit(data))`.
+  That overload starts the timer **in the calling thread**. Every caller is a plain
+  `threading.Thread` worker with no Qt event loop, so the timer never fired, the functor
+  never ran, and the signal was never emitted. The worker's own `try/except` had already
+  completed successfully, so there was nothing to log — hence the silent hang.
+- **Blast radius:** all three link-import signals — `media_probe`, `media_progress`,
+  `media_done` — plus the post-download handoff at the `import_video` call site, which had
+  the identical bare-`singleShot` shape. So even a successful download would never have
+  become a job. **Link import could never have worked in any build.**
+- **Not affected:** `_promote_next`'s bare `singleShot(0, _go)` is fine — it is reached
+  from `_on_pipeline_completed`/`_on_pipeline_failed`, which are Qt slots connected to
+  controller signals and therefore already run on the main thread. Checked before changing.
+- **Current fix:** pass a main-thread QObject as the context argument —
+  `QTimer.singleShot(0, self.backend, lambda: ...)`. Qt then runs the functor in that
+  object's thread. Applied at both sites.
+- **Verification:** proved the mechanism in isolation first (bare overload from a worker
+  thread delivers **nothing**; context overload delivers) rather than assuming. Then drove
+  the real app end to end against a throwaway `LECTUREPACK_DATA_DIR`: paste → **confirm
+  card appeared** ("acceptance_clip · unknown length · Generic") → Download → file landed
+  in `downloads/` at **168,518 bytes, byte-for-byte the source size** → job auto-created
+  with `manifest.json` + a generated `poster.webp` → "New job" modal showed
+  `640×360 · 00:12 · h264` matching the clip. Self-generated clip over local HTTP; no
+  third-party content downloaded.
+- **Tests:** `tests/test_emit_soon_threading.py` — a functional test that calls the real
+  `_emit_soon` from a real worker thread, plus a static guard against the bare shape.
+  **Mutation-checked:** reverting the fix fails both.
+- **Files:** `app/desktop/engine_adapter.py`.
+
 ## DEFERRED (known, accepted for now)
 
 ### BUG-07 — Preview-mode demo job seed appears when no bridge is attached   ⚪️ DEFERRED
@@ -327,6 +369,18 @@ re-debug the same thing from scratch.
    further rules earned here: (a) enumerate each token's *worst* surface, not the one it
    was reported on - `--muted` sits on four; (b) check the **reverse** direction before
    darkening a text token, because the same token is often also a background elsewhere.
-7. **Inline styles beat class rules.** The design markup carries layout as inline styles,
+7. **Verifying both halves is not verifying the seam.** BUG-09 sat behind a service that
+   was tested directly and a UI that was tested with no backend. Both passed; the feature
+   was 100% dead. When a handoff says "X and Y verified separately, the integration was
+   never driven", treat that as a **red flag naming the most likely bug site**, not as a
+   minor coverage gap. Drive the seam once, for real, before calling a feature done.
+8. **A silent hang with empty stderr means the code never ran, not that it failed.**
+   If a worker's `try/except` is broad and *nothing* is logged, stop looking for a
+   swallowed exception and ask what never got invoked. For Qt: `QTimer.singleShot(0, fn)`
+   without a context QObject starts the timer in the CALLING thread, so from a plain
+   `threading.Thread` it never fires. Always pass a main-thread context object when
+   marshalling out of a worker — and prove the mechanism in a 10-line script before
+   trusting a fix for it.
+9. **Inline styles beat class rules.** The design markup carries layout as inline styles,
    so any responsive override of it needs `!important` (BUG-03). A media query that "does
    nothing" is usually this.

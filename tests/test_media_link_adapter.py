@@ -132,8 +132,18 @@ class _ImmediateThread:
 def stub(tmp_path, monkeypatch):
     # Run queued main-thread callbacks immediately, and run the download worker
     # inline -- otherwise assertions race the background thread.
+    # NOTE (BUG-09): this stub replaces the very call that was broken in
+    # production -- `QTimer.singleShot` from a worker thread never fired -- so
+    # every test in this file passed while link import was completely dead.
+    # A stub that swallows the arity difference cannot detect that class of
+    # bug; `tests/test_emit_soon_threading.py` exercises the REAL call instead.
+    # Accept both the (ms, fn) and (ms, context, fn) overloads so this fixture
+    # never again dictates which one production code is allowed to use.
+    def _immediate_single_shot(ms, *args):
+        args[-1]()
+
     monkeypatch.setattr(ea.QTimer, "singleShot",
-                        staticmethod(lambda ms, fn: fn()))
+                        staticmethod(_immediate_single_shot))
     monkeypatch.setattr(ea.threading, "Thread", _ImmediateThread)
     return _Stub(_FakeBackend(), tmp_path)
 

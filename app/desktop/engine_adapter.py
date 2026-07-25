@@ -1183,15 +1183,25 @@ class LecturePackAdapter(EngineAdapter):
                 self._media_cancel = None
             self._emit_soon(self.backend.media_done, payload)
             # Hand off on the MAIN thread: import_video touches Qt + the engine.
+            # Context object required -- see _emit_soon / BUG-09.
             if payload.get("ok"):
-                QTimer.singleShot(0, lambda: self.import_video(payload["path"]))
+                QTimer.singleShot(
+                    0, self.backend, lambda: self.import_video(payload["path"]))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _emit_soon(self, signal, payload):
-        """Emit a JSON signal on the main thread from a worker thread."""
+        """Emit a JSON signal on the main thread from a worker thread.
+
+        The context object is REQUIRED. ``QTimer.singleShot(0, fn)`` starts the
+        timer in the *calling* thread, and these callers are plain
+        ``threading.Thread`` workers with no Qt event loop -- so the functor
+        was never invoked and the signal never reached the UI. Passing a
+        QObject that lives on the main thread makes Qt run the functor in that
+        object's thread instead. See BUG-09.
+        """
         data = json.dumps(payload)
-        QTimer.singleShot(0, lambda: signal.emit(data))
+        QTimer.singleShot(0, self.backend, lambda: signal.emit(data))
 
     def import_video(self, path: str):
         if not os.path.exists(path):
