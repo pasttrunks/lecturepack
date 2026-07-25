@@ -236,24 +236,51 @@
   }
   /* Job-card poster frame. The backend generates posters lazily and returns 404
      until one is cached, so the icon placeholder stays underneath and the <img>
-     simply removes itself on error -- no broken-image glyph, no layout shift.
-     `posterEpoch` busts the cache after a job list refresh so a poster that
-     finished generating in the background gets picked up. */
-  var posterEpoch = 0;
+     stays invisible until it actually loads -- no broken-image glyph, no layout
+     shift.
+
+     The URL is deliberately STABLE (no cache-busting query): jobs_changed fires
+     on every job state change, and a per-refresh epoch made all N posters
+     refetch on every tick (measured: a full grid rebuild is ~1.1ms per 3 cards
+     plus N image loads). Instead a missing poster retries a bounded number of
+     times with backoff, which is all that's needed now that posters prewarm
+     when a job appears. */
+  var POSTER_RETRIES = 3;
+
+  function posterSrc(id, attempt) {
+    var u = 'lpasset://poster/' + encodeURIComponent(id) + '/poster';
+    return attempt ? u + '?r=' + attempt : u;      // only retries bust the cache
+  }
 
   function posterHtml(j) {
     var ph = '<span data-poster-ph style="position:absolute;display:flex;align-items:center;justify-content:center">' +
       thumb(30, 'var(--muted)') + '</span>';
     if (!j.id) return ph;
-    var src = 'lpasset://poster/' + encodeURIComponent(j.id) + '/poster?v=' + posterEpoch;
-    // decoding=async + loading=lazy keep a 20-card grid off the main thread.
-    var img = '<img src="' + src + '" alt="" loading="lazy" decoding="async" ' +
+    // decoding=async + loading=lazy keep a large grid off the main thread.
+    var img = '<img src="' + posterSrc(j.id, 0) + '" alt="" loading="lazy" decoding="async" ' +
+      'data-poster-job="' + esc(j.id) + '" ' +
       'style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;' +
-      'transition:opacity var(--motion-medium,.22s) var(--ease-out,ease)" ' +
-      'onload="this.style.opacity=1;var p=this.parentNode.querySelector(\'[data-poster-ph]\');if(p)p.hidden=true" ' +
-      'onerror="this.remove()">';
+      'transition:opacity var(--motion-medium,.22s) var(--motion-ease,ease)" ' +
+      'onload="LP.posterLoaded(this)" onerror="LP.posterRetry(this)">';
     return ph + img;
   }
+
+  // Exposed on LP because the handlers are inline attributes on generated HTML.
+  LP.posterLoaded = function (img) {
+    img.style.opacity = 1;
+    var ph = img.parentNode && img.parentNode.querySelector('[data-poster-ph]');
+    if (ph) ph.hidden = true;
+  };
+
+  LP.posterRetry = function (img) {
+    var n = parseInt(img.getAttribute('data-try') || '0', 10) + 1;
+    if (n > POSTER_RETRIES) { img.remove(); return; }   // give up; icon remains
+    img.setAttribute('data-try', String(n));
+    var id = img.getAttribute('data-poster-job');
+    setTimeout(function () {
+      if (img.parentNode) img.src = posterSrc(id, n);   // backend may have it now
+    }, 700 * n);
+  };
 
   function _jobCardHtml(j) {
     var b = JOB_BADGES[j.status] || JOB_BADGES.done;
@@ -2095,8 +2122,7 @@
     });
     lpBridge.on('jobs_changed', function (json) {
       LP.data.jobs = JSON.parse(json);
-      posterEpoch++;          // re-request posters generated since the last list
-      renderJobs();
+      renderJobs();           // poster URLs are stable, so loaded ones stay cached
     });
 
     // ---- import from a link ----
