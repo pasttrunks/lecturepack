@@ -25,7 +25,8 @@ window.lpBridge = (function () {
     'quiz_changed', 'quiz_status', 'flashcards_changed', 'flashcards_status',
     'vulkan_status', 'cuda_status', 'cuda_pack', 'groq_status', 'smart_study',
     'queue_changed', 'pause_state', 'notification_prefs', 'notification_navigate',
-    'diagnostics', 'job_completed', 'post_completion'
+    'diagnostics', 'job_completed', 'post_completion',
+    'media_link_state', 'media_probe', 'media_progress', 'media_done'
   ];
 
   function connectQt() {

@@ -8,3 +8,4 @@ ReportLab>=4.0.0
 Jinja2>=3.1.0
 Send2Trash>=1.8.0
 tzdata>=2024.1  # IANA time-zone data for zoneinfo (Windows has none) — tz-aware scheduling
+yt-dlp>=2025.1.15  # "Import from a link" — optional at runtime; app hides the button if absent

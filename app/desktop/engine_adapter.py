@@ -34,6 +34,23 @@ from .paths import data_dir
 from .win_integration import WindowsIntegration
 
 
+def _media_fetch_available() -> bool:
+    """yt-dlp presence, resolved lazily so a build without it still starts."""
+    try:
+        from lecturepack.services import media_fetch
+        return media_fetch.is_available()
+    except Exception:
+        return False
+
+
+def _media_fetch_version() -> str:
+    try:
+        from lecturepack.services import media_fetch
+        return media_fetch.version()
+    except Exception:
+        return ""
+
+
 class EngineAdapter(QObject):
     """Interface the desktop shell expects. All signal emission goes through
     self.backend (a Backend instance); payloads are JSON strings."""
@@ -73,6 +90,26 @@ class EngineAdapter(QObject):
 
     def notify_drag_over(self):
         """Optional: UI feedback while a file is dragged over the window."""
+
+    # -- import from a link ---------------------------------------------------
+    def media_link_support(self) -> None:
+        """Emit media_link_state {available, version} so the UI can hide the
+        paste-a-link affordance in builds without yt-dlp."""
+        self.backend.media_link_state.emit(json.dumps(
+            {"available": _media_fetch_available(), "version": _media_fetch_version()}))
+
+    def probe_media_url(self, url: str) -> None:
+        """Emit media_probe {ok, title, duration, uploader, error}."""
+        self.backend.media_probe.emit(json.dumps(
+            {"ok": False, "error": "Link import isn't available here."}))
+
+    def import_media_url(self, url: str, title: str) -> None:
+        """Download then call import_video(path). Emits media_progress/media_done."""
+        self.backend.media_done.emit(json.dumps(
+            {"ok": False, "error": "Link import isn't available here."}))
+
+    def cancel_media_url(self) -> None:
+        """Cancel an in-flight link download."""
 
     def start_processing(self, mode: str) -> None:
         """Kick off the engine pipeline for the pending import. Emit
@@ -968,6 +1005,98 @@ class LecturePackAdapter(EngineAdapter):
             "Video files (*.mp4 *.mkv *.mov *.m4v *.webm);;All files (*.*)")
         if path:
             self.import_video(path)
+
+    # -------------------------------------------------------- import from a link
+    def media_link_support(self):
+        self.backend.media_link_state.emit(json.dumps(
+            {"available": _media_fetch_available(),
+             "version": _media_fetch_version()}))
+
+    def _downloads_dir(self) -> str:
+        """Where fetched media lands: inside the data dir, so it is covered by
+        the same disk/cleanup story as everything else (never the repo)."""
+        d = os.path.join(self.config.data_dir, "downloads")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def probe_media_url(self, url: str):
+        """Resolve a link's metadata on a worker thread, then emit media_probe."""
+        try:
+            from lecturepack.services.media_fetch import MediaFetcher, MediaFetchError
+        except Exception:
+            self.backend.media_probe.emit(json.dumps(
+                {"ok": False, "error": "Link import isn't available in this build."}))
+            return
+
+        def worker():
+            try:
+                info = MediaFetcher().probe(url)
+                info["ok"] = True
+                payload = info
+            except MediaFetchError as exc:
+                payload = {"ok": False, "error": str(exc)}
+            except Exception as exc:                       # never kill the thread
+                payload = {"ok": False, "error": str(exc)[:300]}
+            self._emit_soon(self.backend.media_probe, payload)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def cancel_media_url(self):
+        ev = getattr(self, "_media_cancel", None)
+        if ev is not None:
+            ev.set()
+            self._log("[import]", "link download cancelled", "engine")
+
+    def import_media_url(self, url: str, title: str = ""):
+        """Download ``url`` then hand the local file to :meth:`import_video`."""
+        try:
+            from lecturepack.services.media_fetch import (
+                MediaFetchCancelled, MediaFetcher, MediaFetchError)
+        except Exception:
+            self.backend.media_done.emit(json.dumps(
+                {"ok": False, "error": "Link import isn't available in this build."}))
+            return
+        if getattr(self, "_media_busy", False):
+            self.backend.media_done.emit(json.dumps(
+                {"ok": False, "error": "A link download is already running."}))
+            return
+
+        self._media_busy = True
+        cancel = threading.Event()
+        self._media_cancel = cancel
+        dest = self._downloads_dir()
+        self._log("[import]", f"fetching {url}", "engine")
+
+        def worker():
+            try:
+                path = MediaFetcher().download(
+                    url, dest,
+                    progress_cb=lambda p: self._emit_soon(self.backend.media_progress, p),
+                    cancel_check=cancel.is_set,
+                    title=title or None,
+                )
+                payload = {"ok": True, "path": path,
+                           "name": os.path.basename(path)}
+            except MediaFetchCancelled:
+                payload = {"ok": False, "cancelled": True}
+            except MediaFetchError as exc:
+                payload = {"ok": False, "error": str(exc)}
+            except Exception as exc:
+                payload = {"ok": False, "error": str(exc)[:300]}
+            finally:
+                self._media_busy = False
+                self._media_cancel = None
+            self._emit_soon(self.backend.media_done, payload)
+            # Hand off on the MAIN thread: import_video touches Qt + the engine.
+            if payload.get("ok"):
+                QTimer.singleShot(0, lambda: self.import_video(payload["path"]))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _emit_soon(self, signal, payload):
+        """Emit a JSON signal on the main thread from a worker thread."""
+        data = json.dumps(payload)
+        QTimer.singleShot(0, lambda: signal.emit(data))
 
     def import_video(self, path: str):
         if not os.path.exists(path):

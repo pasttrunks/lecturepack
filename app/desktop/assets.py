@@ -338,6 +338,30 @@ class AssetResolver:
                 return ""
         return f or ""
 
+    def prewarm_posters(self, job_ids) -> list[str]:
+        """Start generating any missing posters NOW, off the main thread.
+
+        Called when the job list changes so a freshly imported lecture has its
+        poster ready by the time its card paints, instead of showing the icon
+        placeholder until the next refresh. Cached posters are skipped, so this
+        is cheap to call on every list update. Returns the ids it scheduled.
+        """
+        scheduled = []
+        for job_id in job_ids or ():
+            dst = self.poster_path(job_id)
+            if dst is None or os.path.isfile(dst):
+                continue
+            frame = self._existing_frame(job_id)
+            if frame is not None:
+                self._schedule_thumb(frame, dst)
+                scheduled.append(job_id)
+                continue
+            video = self.source_video(job_id)
+            if video is not None:
+                self._schedule_poster_extract(video, dst)
+                scheduled.append(job_id)
+        return scheduled
+
     def make_poster_now(self, job_id: str) -> tuple[str, bytes] | None:
         """Synchronous generate+return — for tests/prewarming, not the handler."""
         dst = self.poster_path(job_id)

@@ -25,6 +25,12 @@ from .updater import Updater
 class Backend(QObject):
     # ---- signals consumed by ui/app.js (names must match bridge.js SIGNALS) ----
     jobs_changed = Signal(str)
+    # link import (paste a URL): capability report, probe result, transfer
+    # progress, and terminal outcome. Mirrored in app/ui/bridge.js SIGNALS.
+    media_link_state = Signal(str)
+    media_probe = Signal(str)
+    media_progress = Signal(str)
+    media_done = Signal(str)
     pipeline_changed = Signal(str)
     log_line = Signal(str)
     status_changed = Signal(str)
@@ -185,6 +191,27 @@ class Backend(QObject):
 
     def notify_drag_over(self):
         self._adapter.notify_drag_over()
+
+    # ------------------------------------------------------- import from a link
+
+    @Slot()
+    def media_link_support(self):
+        """Report whether link import is available in this build."""
+        self._adapter.media_link_support()
+
+    @Slot(str)
+    def probe_media_url(self, url: str):
+        """Look up a link's title/duration without downloading it."""
+        self._adapter.probe_media_url(url)
+
+    @Slot(str, str)
+    def import_media_url(self, url: str, title: str):
+        """Download a link, then hand the file to the normal import path."""
+        self._adapter.import_media_url(url, title)
+
+    @Slot()
+    def cancel_media_url(self):
+        self._adapter.cancel_media_url()
 
     @Slot(str)
     def start_processing(self, mode: str):

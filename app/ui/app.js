@@ -283,6 +283,109 @@
       '<div style="padding:14px 16px">' + body + '</div></div>';
   }
 
+  /* ==================== import from a link (yt-dlp) ====================
+     Three short steps, each its own lpModal so they inherit the focus trap:
+     paste -> confirm what was found -> transfer with progress/cancel.
+     The backend hands the finished file to the normal import path, so the
+     existing New-job overlay takes over from there. */
+  var mediaLink = { available: false, version: '', progressModal: null, done: null };
+
+  function fmtDuration(sec) {
+    sec = Math.max(0, parseInt(sec, 10) || 0);
+    if (!sec) return 'unknown length';
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return h ? h + ':' + p(m) + ':' + p(s) : m + ':' + p(s);
+  }
+
+  function fmtBytes(n) {
+    n = parseFloat(n) || 0;
+    if (n < 1024) return n.toFixed(0) + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
+    if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+    return (n / 1073741824).toFixed(2) + ' GB';
+  }
+
+  function linkImportDialog() {
+    if (!lpBridge.connected()) { toast('Preview mode — link import needs the app'); return; }
+    var inp = 'width:100%;box-sizing:border-box;font:500 13px \'JetBrains Mono\';padding:10px 12px;border:2px solid var(--border);border-radius:8px;background:var(--sunk);color:var(--ink)';
+    var body =
+      '<label for="link-url" style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:6px">Video link</label>' +
+      '<input id="link-url" type="url" spellcheck="false" placeholder="https://…" style="' + inp + '">' +
+      '<div id="link-msg" role="status" style="min-height:18px;font-size:12px;color:var(--muted);margin-top:9px"></div>' +
+      '<div style="font-size:12px;line-height:1.5;color:var(--muted);margin-top:4px">Downloads the recording to your computer so it can be processed here. Only fetch lectures you have the right to download.</div>';
+    var m = lpModal({
+      title: 'Import from a link',
+      bodyHtml: body,
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Check link', primary: true, onClick: function () {
+          var v = ($('link-url') || {}).value || '';
+          v = v.trim();
+          if (!/^https?:\/\/.+/i.test(v)) { setLinkMsg('Enter a full http(s) link.', true); return true; }
+          setLinkMsg('Looking it up…');
+          mediaLink.pending = v;
+          lpBridge.call('probe_media_url', v);
+          return true;                 // keep the dialog open while we wait
+        } }
+      ]
+    });
+    mediaLink.probeModal = m;
+    setTimeout(function () { var i = $('link-url'); if (i) i.focus(); }, 40);
+  }
+
+  function setLinkMsg(text, isError) {
+    var el = $('link-msg');
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = isError ? 'var(--red)' : 'var(--muted)';
+  }
+
+  function linkConfirmDialog(info) {
+    var meta = [fmtDuration(info.duration), info.uploader, info.extractor]
+      .filter(Boolean).join(' · ');
+    var warn = info.is_live
+      ? '<div style="font-size:12px;color:var(--orange-ink);margin-top:9px">This looks like a live stream — only the portion already broadcast can be fetched.</div>'
+      : '';
+    lpModal({
+      title: 'Import this recording?',
+      bodyHtml: '<div style="font-weight:700;font-size:15px;margin-bottom:5px;word-break:break-word">' + esc(info.title || 'Untitled') + '</div>' +
+        '<div style="font:500 12px \'JetBrains Mono\';color:var(--muted)">' + esc(meta) + '</div>' + warn,
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Download', primary: true, onClick: function () {
+          linkProgressDialog(info.title || '');
+          lpBridge.call('import_media_url', info.webpage_url || mediaLink.pending || '', info.title || '');
+        } }
+      ]
+    });
+  }
+
+  function linkProgressDialog(title) {
+    var m = lpModal({
+      title: 'Downloading',
+      bodyHtml: '<div style="font-weight:600;font-size:14px;margin-bottom:10px;word-break:break-word">' + esc(title || 'Fetching…') + '</div>' +
+        '<div style="height:9px;border-radius:6px;background:var(--sunk);overflow:hidden"><div id="link-bar" style="width:0%;height:100%;background:var(--orange);transition:width var(--motion-fast,.14s) linear"></div></div>' +
+        '<div id="link-stat" role="status" style="font:500 11px \'JetBrains Mono\';color:var(--muted);margin-top:8px">starting…</div>',
+      actions: [{ label: 'Cancel download', danger: true, onClick: function () {
+        lpBridge.call('cancel_media_url');
+      } }]
+    });
+    mediaLink.progressModal = m;
+  }
+
+  function onMediaProgress(p) {
+    var bar = $('link-bar'), stat = $('link-stat');
+    if (!bar || !stat) return;
+    bar.style.width = (p.pct || 0) + '%';
+    var bits = [(p.pct || 0) + '%'];
+    if (p.total) bits.push(fmtBytes(p.downloaded) + ' / ' + fmtBytes(p.total));
+    else if (p.downloaded) bits.push(fmtBytes(p.downloaded));
+    if (p.speed) bits.push(fmtBytes(p.speed) + '/s');
+    if (p.eta) bits.push('~' + fmtDuration(p.eta) + ' left');
+    stat.textContent = p.status === 'finished' ? 'finishing up…' : bits.join(' · ');
+  }
+
   // "YYYY-MM-DDTHH:MM" for *local* time -- toISOString() would return UTC and
   // shift the floor by the timezone offset.
   function localNowValue() {
@@ -1614,6 +1717,11 @@
       e.stopPropagation();
       if (lpBridge.connected()) lpBridge.call('browse_video'); else setOnb('drop');
     });
+
+    $('btn-paste-link').addEventListener('click', function (e) {
+      e.stopPropagation();
+      linkImportDialog();
+    });
     dz.addEventListener('dragover', function (e) { e.preventDefault(); if (LP.state.onb !== 'detected') setOnb('drop'); });
     dz.addEventListener('drop', function (e) { e.preventDefault(); setOnb('detected'); });
     // "drop anywhere": in the desktop shell native drops are captured by Qt and
@@ -1990,6 +2098,34 @@
       posterEpoch++;          // re-request posters generated since the last list
       renderJobs();
     });
+
+    // ---- import from a link ----
+    lpBridge.on('media_link_state', function (json) {
+      var s = JSON.parse(json || '{}');
+      mediaLink.available = !!s.available;
+      mediaLink.version = s.version || '';
+      var btn = $('btn-paste-link');
+      if (btn) btn.hidden = !mediaLink.available;
+    });
+
+    lpBridge.on('media_probe', function (json) {
+      var info = JSON.parse(json || '{}');
+      if (!info.ok) { setLinkMsg(info.error || 'That link could not be read.', true); return; }
+      if (mediaLink.probeModal) { mediaLink.probeModal.close(); mediaLink.probeModal = null; }
+      linkConfirmDialog(info);
+    });
+
+    lpBridge.on('media_progress', function (json) {
+      try { onMediaProgress(JSON.parse(json || '{}')); } catch (err) { /* ignore */ }
+    });
+
+    lpBridge.on('media_done', function (json) {
+      var r = JSON.parse(json || '{}');
+      if (mediaLink.progressModal) { mediaLink.progressModal.close(); mediaLink.progressModal = null; }
+      if (r.ok) toast('Downloaded ' + (r.name || 'the recording'));
+      else if (r.cancelled) toast('Download cancelled');
+      else lpModal({ title: 'Download failed', bodyHtml: esc(r.error || 'Unknown error.'), actions: [{ label: 'Close', primary: true }] });
+    });
     lpBridge.on('job_deleted', function (json) {
       var d = JSON.parse(json);
       toast(d.ok ? ('Lecture deleted · ' + (d.freed || '') + ' freed') : 'Delete failed');
@@ -2232,6 +2368,9 @@
 
     lpBridge.ready(function (backend) {
       if (backend && backend.list_ollama_models) lpBridge.call('list_ollama_models');
+      // Ask whether link import exists in this build; the button stays hidden
+      // until the backend says yes.
+      if (backend && backend.media_link_support) lpBridge.call('media_link_support');
       if (backend && backend.get_bootstrap) {
         lpBridge.call('get_bootstrap').then(function (json) {
           if (!json) return;
