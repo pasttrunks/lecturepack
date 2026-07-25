@@ -99,6 +99,13 @@ class EngineAdapter(QObject):
         """Optional: UI feedback while a file is dragged over the window."""
 
     # -- import from a link ---------------------------------------------------
+    def push_storage(self) -> None:
+        """Emit storage_changed {ok, used, used_h, free_h, pct}.
+
+        The demo/preview adapter reports nothing, so the widget stays hidden
+        rather than showing a fabricated number (BUG-04)."""
+        self.backend.storage_changed.emit(json.dumps({"ok": False}))
+
     def media_link_support(self) -> None:
         """Emit media_link_state {available, version} so the UI can hide the
         paste-a-link affordance in builds without yt-dlp."""
@@ -841,6 +848,58 @@ class LecturePackAdapter(EngineAdapter):
 
     def _push_jobs(self):
         self._emit("jobs_changed", self._list_jobs())
+        self.push_storage()
+
+    def push_storage(self):
+        """Measure the data dir on a worker thread, then emit storage_changed.
+
+        BUG-04 left the sidebar storage widget permanently hidden because no
+        backend ever reported disk usage, and the UI (correctly) refuses to
+        invent a figure. This is that missing signal.
+
+        Walked on a worker thread on purpose: a data dir with many lectures is
+        thousands of files, and os.walk on the Qt main thread would stutter the
+        UI every time the job list moved. Delivery goes through _emit_soon, so
+        it lands on the main thread (see BUG-09 -- this only works because the
+        context object is passed).
+        """
+        root = self.config.data_dir
+
+        def worker():
+            try:
+                used = 0
+                for dirpath, _dirnames, filenames in os.walk(root):
+                    for fn in filenames:
+                        try:
+                            used += os.path.getsize(os.path.join(dirpath, fn))
+                        except OSError:
+                            pass          # file vanished mid-walk; skip it
+                free = shutil.disk_usage(root).free
+                # Fraction of the space actually available to LecturePack that
+                # LecturePack is using -- not whole-disk usage, which would be
+                # a figure about the user's SSD rather than about this app.
+                denom = used + free
+                pct = (used / denom * 100.0) if denom else 0.0
+                payload = {
+                    "ok": True,
+                    "used": used,
+                    "used_h": _human_size(used),
+                    "free_h": _human_size(free),
+                    "pct": round(pct, 2),
+                }
+            except Exception as exc:
+                payload = {"ok": False, "error": str(exc)[:200]}
+            try:
+                self._emit_soon(self.backend.storage_changed, payload)
+            except Exception:
+                # The walk can outlive the thing that asked for it -- on app
+                # exit (or between tests) the Qt bindings may already be torn
+                # down, and this daemon thread would then die with a bare
+                # NameError on a module global. A storage figure is never worth
+                # a noisy shutdown, so a late emit is simply dropped.
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ------------------------------------------------------------------ lifecycle
     def on_ui_ready(self):

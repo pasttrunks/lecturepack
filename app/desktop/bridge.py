@@ -25,6 +25,9 @@ from .updater import Updater
 class Backend(QObject):
     # ---- signals consumed by ui/app.js (names must match bridge.js SIGNALS) ----
     jobs_changed = Signal(str)
+    # disk usage of the data dir; the sidebar storage widget stays hidden until
+    # this arrives, so it never shows an invented figure (BUG-04)
+    storage_changed = Signal(str)
     # Which lecture the workspace screens belong to ({id, title}); id "" means
     # nothing is loaded and the workspace must render empty.
     active_job = Signal(str)

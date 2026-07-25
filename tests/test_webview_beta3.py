@@ -26,7 +26,7 @@ class _Signal:
 
 
 class _FakeBackend:
-    _SIGNALS = ("log_line", "jobs_changed", "job_deleted", "queue_changed",
+    _SIGNALS = ("log_line", "jobs_changed", "storage_changed", "job_deleted", "queue_changed",
                 "pause_state", "notification_prefs", "diagnostics",
                 "job_completed", "post_completion", "status_changed")
     def __init__(self):

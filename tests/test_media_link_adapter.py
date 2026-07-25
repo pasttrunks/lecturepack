@@ -29,7 +29,7 @@ class _Signal:
 
 
 class _FakeBackend:
-    _SIGNALS = ("log_line", "jobs_changed", "media_link_state", "media_probe",
+    _SIGNALS = ("log_line", "jobs_changed", "storage_changed", "media_link_state", "media_probe",
                 "media_progress", "media_done", "status_changed")
 
     def __init__(self):

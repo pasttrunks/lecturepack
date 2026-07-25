@@ -31,7 +31,7 @@ class _Signal:
 
 class _FakeBackend:
     def __init__(self):
-        for name in ("log_line", "jobs_changed", "job_deleted"):
+        for name in ("log_line", "jobs_changed", "storage_changed", "job_deleted"):
             setattr(self, name, _Signal())
 
 

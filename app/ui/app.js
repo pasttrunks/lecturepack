@@ -63,11 +63,24 @@
     },
     data: {
       version: '0.0.0',
-      jobs: [
-        { name: 'egypt_excerpt', file: 'egypt_excerpt.m4v', meta: '06:12 · 14 slides · Jul 16', status: 'done' },
-        { name: 'm2-res_1080p', status: 'running', pct: 62, stage: 'Transcribe', eta: '~3m' },
-        { name: 'synthetic_lecture', file: 'synthetic_lecture.mp4', meta: '00:30 · 3 slides · Jul 15', status: 'done' }
-      ],
+      // BUG-07: these three demo lectures exist ONLY so the static screenshot
+      // pipeline and a bare `python -m http.server app/ui` have something to
+      // render. In the packaged app a live bridge overwrites them on the first
+      // jobs_changed, so they were never user-visible -- but shipping fake job
+      // data that is one bridge-failure away from appearing is a foot-gun, and
+      // it already cost a false positive once (a DOM scan matched
+      // `egypt_excerpt` after the markup had been cleaned).
+      // Now opt-in: only seeded when the URL carries ?preview=1.
+      jobs: (function () {
+        try {
+          if (!/[?&]preview=1(&|$)/.test(location.search)) return [];
+        } catch (e) { return []; }
+        return [
+          { name: 'egypt_excerpt', file: 'egypt_excerpt.m4v', meta: '06:12 · 14 slides · Jul 16', status: 'done' },
+          { name: 'm2-res_1080p', status: 'running', pct: 62, stage: 'Transcribe', eta: '~3m' },
+          { name: 'synthetic_lecture', file: 'synthetic_lecture.mp4', meta: '00:30 · 3 slides · Jul 15', status: 'done' }
+        ];
+      })(),
       pipeline: {
         title: 'Transcribing…', meta: 'elapsed 00:41 · 62%',
         stages: [
@@ -2441,6 +2454,21 @@
         if (cb.dataset.notif in prefs) cb.checked = !!prefs[cb.dataset.notif];
       });
     });
+    // BUG-04: the storage widget ships hidden and only appears once a backend
+    // actually reports usage. `ok:false` (demo adapter, or a failed walk) keeps
+    // it hidden rather than showing an invented figure -- inventing one was the
+    // original bug.
+    lpBridge.on('storage_changed', function (json) {
+      var w = $('storage-widget');
+      if (!w) return;
+      var s;
+      try { s = JSON.parse(json); } catch (e) { w.hidden = true; return; }
+      if (!s || !s.ok) { w.hidden = true; return; }
+      $('storage-label').textContent = s.used_h + ' · ' + s.free_h + ' free';
+      setFill('storage-bar', s.pct);
+      w.hidden = false;
+    });
+
     lpBridge.on('jobs_changed', function (json) {
       LP.data.jobs = JSON.parse(json);
       // Forget selections whose job is gone, else the count lies.

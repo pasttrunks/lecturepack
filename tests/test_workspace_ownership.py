@@ -44,7 +44,7 @@ class _Backend:
     _NAMES = ("active_job", "pipeline_changed", "slides_changed",
               "transcript_changed", "study_changed", "quiz_changed",
               "flashcards_changed", "export_progress", "export_done",
-              "post_completion", "log_line", "jobs_changed",
+              "post_completion", "log_line", "jobs_changed", "storage_changed",
               "status_changed", "settings_changed", "job_deleted")
 
     def __init__(self):

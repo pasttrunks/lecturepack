@@ -42,6 +42,29 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### BUG-07 — Preview-mode demo job seed appears when no bridge is attached   ✅ FIXED (verified)
+- **Area:** UI / preview mode (`app/ui/app.js` `LP.data.jobs` seed)
+- **Reported / found:** 2026-07-25, while fixing BUG-04 (a DOM scan still matched
+  `egypt_excerpt` after the markup was cleaned).
+- **Symptom:** With no QWebChannel backend (static server / screenshot pipeline), three
+  demo jobs render — `egypt_excerpt`, `m2-res_1080p`, `synthetic_lecture`.
+- **Root cause:** intentional. `app.js:59-63` seeds `LP.data.jobs` so the UI is
+  presentable without a backend; a live bridge overwrites it via `_list_jobs`
+  (confirmed live: a real launch on an empty profile showed `RECENT JOBS 0`).
+- **Attempts:** considered emptying the seed → **rejected**: it is what makes the README
+  screenshot pipeline work, and it is unreachable in the packaged app once the bridge
+  connects.
+- **Current fix (2026-07-25, un-deferred before the beta.4 release):** the seed is now
+  **opt-in** — it only populates when the URL carries `?preview=1`, exactly the escape
+  hatch this entry predicted. Shipping fake job data that is one bridge-failure away from
+  being user-visible is a foot-gun, and it had already cost one false positive (the DOM
+  scan above). The screenshot pipeline keeps working by adding the flag; the packaged app
+  can never produce it.
+- **Verification:** live app on a throwaway profile showed 0 jobs (seed not user-visible)
+  both before and after; the content-hygiene guard asserting `egypt_excerpt` is absent
+  from the markup still passes; 684 tests pass.
+- **Files:** `app/ui/app.js`.
+
 ### BUG-10 — Test suite opened real Qt windows that flashed on screen   ✅ FIXED (verified)
 - **Area:** test infrastructure (`tests/conftest.py`, previously absent)
 - **Reported / found:** 2026-07-25 **by the user**, who noticed "the LecturePack app
@@ -63,9 +86,18 @@ re-debug the same thing from scratch.
 - **Verification:** the three window-showing modules + the two `qapp` modules pass
   offscreen (88 passed); full suite **677 passed**; and a continuous ~135s window poll
   spanning an entire run saw **zero** Qt/python windows (previously they appeared).
-- **Still open (NOT fixed here — needs an owner decision):** ~109 tests exercise
-  `lecturepack/ui/`, which ships in nothing. That inflates the suite's apparent coverage
-  with dead code and costs real runtime. Deleting them is a scope call, not a bug fix.
+- **Dead-UI test cleanup — ATTEMPTED 2026-07-25, then DEFERRED on purpose.** Deleting
+  `test_ui_v11.py` + `test_ui_phase2.py` (52 purely dead-UI tests) broke collection: they
+  are load-bearing for live tests. `test_study_workspace_v12.py` and
+  `tests/generate_study_evidence.py` import `_make_job` from `test_ui_v11`, and
+  `test_stability_phase.py` loads `test_ui_v11.py` **by file path** via `importlib` to
+  reuse that fixture — and itself builds a `MainWindow`. Doing this properly means
+  extracting a shared fixture module and rewiring four files, and logically expands to
+  deleting more window tests. That is entangled churn with zero user-visible benefit, so
+  it was reverted rather than rushed immediately before cutting a release. Only ~52 of
+  the ~109 referencing tests are purely dead-UI; the rest test live logic and merely
+  import `lecturepack.ui` incidentally. **Do this as its own change, starting by moving
+  `_make_job` into `tests/_ui_fixtures.py`.**
 - **Files:** `tests/conftest.py`.
 
 ### BUG-09 — Link import hung forever: worker-thread signals never delivered   ✅ FIXED (verified)
@@ -110,23 +142,7 @@ re-debug the same thing from scratch.
 
 ## DEFERRED (known, accepted for now)
 
-### BUG-07 — Preview-mode demo job seed appears when no bridge is attached   ⚪️ DEFERRED
-- **Area:** UI / preview mode (`app/ui/app.js` `LP.data.jobs` seed)
-- **Reported / found:** 2026-07-25, while fixing BUG-04 (a DOM scan still matched
-  `egypt_excerpt` after the markup was cleaned).
-- **Symptom:** With no QWebChannel backend (static server / screenshot pipeline), three
-  demo jobs render — `egypt_excerpt`, `m2-res_1080p`, `synthetic_lecture`.
-- **Root cause:** intentional. `app.js:59-63` seeds `LP.data.jobs` so the UI is
-  presentable without a backend; a live bridge overwrites it via `_list_jobs`
-  (confirmed live: a real launch on an empty profile showed `RECENT JOBS 0`).
-- **Attempts:** considered emptying the seed → **rejected**: it is what makes the README
-  screenshot pipeline work, and it is unreachable in the packaged app once the bridge
-  connects.
-- **Current fix:** none needed; accepted as preview-mode behaviour. If it ever becomes
-  user-visible in a real launch (e.g. a bridge-connect race showing demo cards for a
-  frame), reopen as a real bug and gate the seed behind a `?preview=1` flag instead.
-- **Verification:** live app on a throwaway profile showed 0 jobs — seed not user-visible.
-- **Files:** `app/ui/app.js:57-63`.
+*None — BUG-07 was un-deferred and fixed on 2026-07-25.*
 
 ## FIXED
 
@@ -323,10 +339,16 @@ re-debug the same thing from scratch.
   `Home`, empty progress text, `width:0%`, no `lpblink` on the idle dot) and the storage
   widget ships `hidden`. `resetJobChrome()` in `app.js` re-applies the idle state as the
   first statement of `boot()`.
-- **Remaining work (tracked, not a regression):** there is still **no backend signal for
-  disk usage** — `grep` found no `storage`/`disk_usage` in `bridge.py` or
-  `engine_adapter.py`. The widget stays hidden until one is added; wire
-  `storage-widget`/`storage-label`/`storage-bar` when it is.
+- **Remaining work — DONE 2026-07-25.** The missing backend signal now exists:
+  `storage_changed` on `bridge.py`, fed by `LecturePackAdapter.push_storage()`, which
+  walks the data dir on a worker thread (thousands of files would stutter the Qt main
+  thread) and emits `{ok, used, used_h, free_h, pct}` after every `jobs_changed`.
+  `pct` is usage as a fraction of the space *available to LecturePack* (used/(used+free)),
+  not whole-disk usage — the latter would be a figure about the user's SSD, not this app.
+  The honesty rule is preserved and tested: `ok:false` (demo adapter, or a failed walk)
+  keeps the widget **hidden** rather than showing a guess. The bar markup was also fixed —
+  it shipped `width:0%` while `setFill()` drives `scaleX`, so it could never have rendered.
+  Covered by `tests/test_storage_signal.py` (7 tests).
 - **Verification:** **verified live in a browser** — all of `side-job-name`,
   `proc-source-name`, `crumb-job`, `status-label` read their idle values,
   `status-pct` empty, `status-bar` `width:0%`, `storage-widget.hidden === true`. Plus

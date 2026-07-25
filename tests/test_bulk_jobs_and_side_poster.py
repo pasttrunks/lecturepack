@@ -35,7 +35,7 @@ class _Signal:
 
 
 class _Backend:
-    _NAMES = ("job_deleted", "jobs_changed", "log_line", "active_job")
+    _NAMES = ("job_deleted", "jobs_changed", "storage_changed", "log_line", "active_job")
 
     def __init__(self):
         for n in self._NAMES:
