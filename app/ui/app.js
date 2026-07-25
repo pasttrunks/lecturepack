@@ -234,6 +234,27 @@
       : 'background:var(--panel);border:1.5px solid var(--border);color:var(--ink)';
     return '<button class="lp-hit" data-jobact="' + act + '" data-jobid="' + esc(id) + '" style="font:600 11px \'Space Grotesk\';border-radius:7px;padding:6px 11px;cursor:pointer;' + s + '">' + label + '</button>';
   }
+  /* Job-card poster frame. The backend generates posters lazily and returns 404
+     until one is cached, so the icon placeholder stays underneath and the <img>
+     simply removes itself on error -- no broken-image glyph, no layout shift.
+     `posterEpoch` busts the cache after a job list refresh so a poster that
+     finished generating in the background gets picked up. */
+  var posterEpoch = 0;
+
+  function posterHtml(j) {
+    var ph = '<span data-poster-ph style="position:absolute;display:flex;align-items:center;justify-content:center">' +
+      thumb(30, 'var(--muted)') + '</span>';
+    if (!j.id) return ph;
+    var src = 'lpasset://poster/' + encodeURIComponent(j.id) + '/poster?v=' + posterEpoch;
+    // decoding=async + loading=lazy keep a 20-card grid off the main thread.
+    var img = '<img src="' + src + '" alt="" loading="lazy" decoding="async" ' +
+      'style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;' +
+      'transition:opacity var(--motion-medium,.22s) var(--ease-out,ease)" ' +
+      'onload="this.style.opacity=1;var p=this.parentNode.querySelector(\'[data-poster-ph]\');if(p)p.hidden=true" ' +
+      'onerror="this.remove()">';
+    return ph + img;
+  }
+
   function _jobCardHtml(j) {
     var b = JOB_BADGES[j.status] || JOB_BADGES.done;
     var dot = '<span style="width:6px;height:6px;border-radius:50%;background:' + b.dot + (b.blink ? ';animation:lpblink 1s infinite' : '') + '"></span>';
@@ -258,7 +279,7 @@
         _jobActBtn('remove', j.id, 'Remove') + '</div>';
     }
     return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'style="background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
-      '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + thumb(30, 'var(--muted)') + menu + badge + '</div>' +
+      '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + menu + badge + '</div>' +
       '<div style="padding:14px 16px">' + body + '</div></div>';
   }
 
@@ -1964,7 +1985,11 @@
         if (cb.dataset.notif in prefs) cb.checked = !!prefs[cb.dataset.notif];
       });
     });
-    lpBridge.on('jobs_changed', function (json) { LP.data.jobs = JSON.parse(json); renderJobs(); });
+    lpBridge.on('jobs_changed', function (json) {
+      LP.data.jobs = JSON.parse(json);
+      posterEpoch++;          // re-request posters generated since the last list
+      renderJobs();
+    });
     lpBridge.on('job_deleted', function (json) {
       var d = JSON.parse(json);
       toast(d.ok ? ('Lecture deleted · ' + (d.freed || '') + ' freed') : 'Delete failed');

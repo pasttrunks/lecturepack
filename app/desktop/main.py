@@ -95,9 +95,11 @@ class MainWindow(QMainWindow):
 
         # Serve job slide images through the central, security-checked asset
         # resolver (lpasset:// scheme) rather than raw file:// URLs.
+        # ffmpeg is resolved lazily (callable) because the adapter configures the
+        # binary paths after this point; poster extraction only needs it later.
         self._asset_handler = install_asset_handler(
             self.view.page().profile(),
-            AssetResolver(data_dir()),
+            AssetResolver(data_dir(), ffmpeg_exe=self._ffmpeg_exe),
             logger=self.backend.log_asset_error,
         )
 
@@ -108,6 +110,18 @@ class MainWindow(QMainWindow):
         index = os.path.join(ui_dir(), "index.html")
         self.view.load(QUrl.fromLocalFile(index))
         self.setCentralWidget(self.view)
+
+    def _ffmpeg_exe(self) -> str:
+        """Current ffmpeg path, asked for lazily by the poster generator.
+
+        Read through the adapter's ConfigManager at call time rather than
+        captured at construction: binary detection runs after the window is
+        built, so an eagerly-read value would be empty on first launch.
+        """
+        try:
+            return self.backend._adapter.config.get("ffmpeg_exe", "") or ""
+        except Exception:
+            return ""
 
         # Windows integration: a tray icon carries local notifications; the
         # window HWND drives taskbar progress. Both degrade to no-ops if the
