@@ -91,11 +91,22 @@ re-debug the same thing from scratch.
   weight/size-aware (AA-large only where genuinely large), in both themes:
   **dark theme 0 failures** (was 2.82 worst-case). Tests recompute the ratios from the
   shipped token values, so a future palette tweak that breaks AA fails the suite.
-- **Remaining (pre-existing, not caused by this fix):** three light-theme near-misses on
-  SOFT backgrounds at 10-12px — `Done` badge 3.62, `Running` 4.02, muted meta 4.35 (light
-  `--muted` on `--panel` is 3.84). These are AA-large-only. Fixing them means darkening
-  `--muted` and the badge inks, which shifts a lot of surface, so it is left for an owner
-  decision rather than changed unilaterally (`app.css` is marked "do not improve values").
+- **Second pass, 2026-07-25 (owner approved "fix them properly") — light theme now 0 too.**
+  The three "remaining near-misses" were again **an under-count of a systemic fault**: a
+  weight/size-aware sweep of the whole light palette found **11** failing pairs, not 3.
+  `--muted` failed on *all four* surfaces it is used on (panel 3.84, panel2 3.50, bg 3.37,
+  sunk 3.26 — the reported 4.35 was not even the worst case), and the `Done` 3.62,
+  `Failed` 3.57, `Running`/`Interrupted` 4.02 and `Queued`/`Scheduled` 3.26 badges all
+  failed as TEXT on their soft backgrounds, plus `--green` on `--panel` at 4.39.
+  **Fix:** darkened four light-theme text tokens by the smallest hue- and
+  saturation-preserving step (HLS lightness ×0.825–0.930) that clears 4.5:1 against every
+  surface each is used on — `--muted` `#8A8173`→`#726A5F`, `--green` `#128A52`→`#107847`,
+  `--red` `#D63A2C`→`#BA3024`, `--orange-ink` `#C6430E`→`#B83E0D`. Dark theme was already
+  at 0 and is **untouched**. Checked the reverse direction too: `--green` and `--muted` are
+  also used as *backgrounds* (white-tick circles, status dots, scrollbar thumb) — darkening
+  only *increases* contrast there, so no usage regressed.
+  **Note the earlier "no pre-existing value is changed" claim in `app.css` is now stale and
+  was rewritten in place** — do not re-apply it.
 - **Files:** `app/ui/app.css`, `app/ui/index.html`, `app/ui/app.js`.
 - **Refs:** `docs/UI_UX_AUDIT_BETA3.md` defect 4.
 
@@ -309,6 +320,13 @@ re-debug the same thing from scratch.
    different ways (inline styles, CSS classes, and selected-state ternaries). When one
    colour pair fails, compute the whole palette before fixing, and grep for every way the
    foreground can be set - a single-pattern sweep silently left 9 elements failing.
+   **This recurred.** The follow-up pass was handed a tidy list of "3 remaining
+   near-misses" and found **11** - and the reported figure (muted at 4.35) was not even
+   the worst case (3.26). A previously-measured count is a *lower bound*, never a work
+   list: re-run the full sweep from the token values every time, before and after. Two
+   further rules earned here: (a) enumerate each token's *worst* surface, not the one it
+   was reported on - `--muted` sits on four; (b) check the **reverse** direction before
+   darkening a text token, because the same token is often also a background elsewhere.
 7. **Inline styles beat class rules.** The design markup carries layout as inline styles,
    so any responsive override of it needs `!important` (BUG-03). A media query that "does
    nothing" is usually this.

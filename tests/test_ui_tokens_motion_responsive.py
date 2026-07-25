@@ -98,19 +98,91 @@ def test_class_based_orange_surfaces_use_the_ink_token():
         assert "color:#fff" not in body
 
 
-def test_shared_signal_tokens_were_not_retuned():
-    """--green/--red are also TEXT colours on soft backgrounds; retuning them
-    for fills would have broken the badges, hence the separate *-fill tokens."""
-    assert token("--green", "light") == "#128A52"
-    assert token("--red", "light") == "#D63A2C"
-    assert token("--green-fill", "light") != token("--green", "light")
-    assert token("--red-fill", "light") != token("--red", "light")
+def test_text_and_fill_signal_tokens_stay_separate():
+    """--green/--red carry TEXT on soft backgrounds while --green-fill/--red-fill
+    are BACKGROUNDS carrying --on-signal ink. The two roles pull in opposite
+    directions (text wants darker, fill wants lighter), so collapsing them back
+    into one token is always a regression -- whatever the values are.
+
+    This deliberately asserts no literals: the values WERE retuned on
+    2026-07-25 (BUG-05 second pass) and pinning them made this test fail for a
+    change that was actually correct. Contrast is asserted behaviourally below.
+    """
+    for theme in ("light", "dark"):
+        for text_tok, fill_tok in (("--green", "--green-fill"),
+                                   ("--red", "--red-fill")):
+            assert token(fill_tok, theme), f"{fill_tok} missing in {theme}"
+            if theme == "light":
+                assert token(text_tok, theme) != token(fill_tok, theme), (
+                    f"{text_tok} and {fill_tok} collapsed in {theme}")
 
 
-def test_badge_text_on_soft_background_still_readable_as_large_text():
-    """Known gap: 10px badges only reach AA-large in the light theme."""
-    r = contrast(token("--green", "light"), token("--green-soft", "light"))
-    assert r >= AA_LARGE
+# Every pair where a token is rendered as TEXT on an opaque surface, with the
+# size/weight it is actually used at. Badge text is 10px/600 and muted meta is
+# 12px/400 -- both NORMAL text under WCAG, so both need 4.5:1, not 3:1.
+#   (label, foreground token, background token)
+TEXT_ON_SURFACE = [
+    ("badge Running",     "--orange-ink", "--orange-soft"),
+    ("badge Interrupted", "--orange-ink", "--orange-soft"),
+    ("badge Done",        "--green",      "--green-soft"),
+    ("badge Failed",      "--red",        "--red-soft"),
+    ("badge Paused",      "--blue-ink",   "--blue-tint"),
+    ("badge Queued",      "--muted",      "--sunk"),
+    ("badge Scheduled",   "--muted",      "--sunk"),
+    ("muted on panel",    "--muted",      "--panel"),
+    ("muted on panel2",   "--muted",      "--panel2"),
+    ("muted on bg",       "--muted",      "--bg"),
+    ("muted on sunk",     "--muted",      "--sunk"),
+    ("green on panel",    "--green",      "--panel"),
+    ("red on panel",      "--red",        "--panel"),
+    ("orange-ink/panel",  "--orange-ink", "--panel"),
+    ("ink on panel",      "--ink",        "--panel"),
+    ("ink on bg",         "--ink",        "--bg"),
+    ("nav-ink on bg",     "--nav-ink",    "--bg"),
+]
+
+
+def test_all_text_on_surface_pairs_meet_aa_normal_in_both_themes():
+    """The full sweep, both themes, no AA-large escape hatch.
+
+    BUG-05's first pass left 11 light-theme pairs failing and they were logged
+    as 3 "near-misses" -- because only the reported pairs were measured. Every
+    pair is enumerated here so the next palette change is checked in full
+    automatically. A token used on four surfaces is checked on all four.
+    """
+    failures = []
+    for theme in ("light", "dark"):
+        for label, fg, bg in TEXT_ON_SURFACE:
+            r = contrast(token(fg, theme), token(bg, theme))
+            if r < AA_NORMAL:
+                failures.append(f"{theme} {label}: {r:.2f} < {AA_NORMAL}")
+    assert not failures, "WCAG AA failures:\n  " + "\n  ".join(failures)
+
+
+def test_darkening_a_text_token_did_not_break_its_background_usages():
+    """--green and --muted are ALSO backgrounds (tick circles, status dots).
+    Darkening them for text must not push those below the 3:1 UI-component
+    floor against the surfaces they sit on."""
+    for theme in ("light", "dark"):
+        for fill, over in (("--green", "--panel"), ("--muted", "--panel")):
+            r = contrast(token(fill, theme), token(over, theme))
+            assert r >= AA_LARGE, f"{theme} {fill} on {over}: {r:.2f} < {AA_LARGE}"
+        # Tick/check icons sit on a signal fill and use --on-signal, not #fff.
+        # (graphical contrast floor is 3:1)
+        ink = token("--on-signal", theme)
+        for fill in ("--green-fill", "--orange", "--blue"):
+            r = contrast(ink, token(fill, theme))
+            assert r >= AA_LARGE, f"{theme} icon on {fill}: {r:.2f} < {AA_LARGE}"
+
+
+def test_no_white_stroked_icon_survives_on_a_signal_fill():
+    """BUG-05's first sweep grepped `color:#fff` and so missed icons, which set
+    their colour with an SVG `stroke` attribute instead. All five surviving
+    sites sat on a saturated fill and all five failed the 3:1 graphical floor
+    (white on dark-theme --green 2.06, on --orange 2.82, on --blue 1.31)."""
+    for src, name in ((HTML, "index.html"), (JS, "app.js")):
+        assert 'stroke="#fff"' not in src, f"{name} still strokes an icon #fff"
+        assert 'stroke="#FFFFFF"' not in src, f"{name} still strokes an icon white"
 
 
 # ----------------------------------------------------- BUG-03 responsive

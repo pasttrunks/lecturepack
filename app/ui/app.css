@@ -40,14 +40,14 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
 /* ===== design tokens ===== */
 :root{
   --bg:#F3F0E8; --panel:#FFFFFF; --panel2:#F7F4ED; --sunk:#F0ECE2;
-  --ink:#1C1A16; --muted:#8A8173; --border:#241F19; --line:#E3DCCD;
+  --ink:#1C1A16; --muted:#726A5F; --border:#241F19; --line:#E3DCCD;
   --blue:#3FB4C7; --blue-strong:#2A93A6; --blue-soft:#DDF5F9; --blue-ink:#0C6675; --blue-tint:#EDFAFC;
   /* secondary = deep-blue surface + cyan text/icon/border (see dark below) */
   --secondary-surface:#DDF5F9; --secondary-surface-hover:#CDEFF5; --secondary-surface-active:#BEE8F0;
   --secondary-border:#3FB4C7; --secondary-text:#0C6675; --secondary-icon:#0C6675; --secondary-muted:#5A9AA6;
   --glass:rgba(255,255,255,.70); --glow-a:#EF5A1E; --glow-b:#B3EBF2; --glow-op:.30;
-  --orange:#EF5A1E; --orange-ink:#C6430E; --orange-soft:#FBE2D5;
-  --green:#128A52; --green-soft:#D3F0DF; --red:#D63A2C; --red-soft:#FADAD5; --yellow:#D99400; --yellow-soft:#FBEDC6;
+  --orange:#EF5A1E; --orange-ink:#B83E0D; --orange-soft:#FBE2D5;
+  --green:#107847; --green-soft:#D3F0DF; --red:#BA3024; --red-soft:#FADAD5; --yellow:#D99400; --yellow-soft:#FBEDC6;
   --nav-ink:#4A4438;
   --shadow-soft:0 1px 2px rgba(28,26,22,.06),0 4px 14px rgba(28,26,22,.05);
   --shadow-hi:0 2px 6px rgba(28,26,22,.10),0 14px 34px rgba(28,26,22,.10);
@@ -59,9 +59,20 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
      2.57, on dark green 2.06). Near-black ink on a saturated fill is both AA
      and truer to this UI's refined-neobrutalist voice, so text-bearing filled
      controls use --on-signal instead of #fff.
-     NOTE: no pre-existing value is changed here -- --green and --red are also
-     used as TEXT colours on soft backgrounds, so fills that carry text get
-     their own tokens rather than retuning the shared ones. */
+     Fills that carry text get their OWN tokens (--green-fill / --red-fill)
+     rather than reusing --green / --red, because those two are also TEXT
+     colours on soft backgrounds and the two roles want opposite adjustments.
+
+     UPDATE 2026-07-25 (second pass, owner-approved): four LIGHT-theme text
+     tokens WERE retuned -- --muted, --green, --red, --orange-ink. A full
+     weight/size-aware sweep of the light palette found 11 AA failures, not the
+     3 originally reported: --muted failed on all four surfaces (3.26-3.84) and
+     the Done/Failed/Running/Interrupted/Queued/Scheduled badges failed as text
+     on their soft backgrounds. Each token was darkened by the SMALLEST
+     hue- and saturation-preserving step (HLS lightness x0.825-0.930) that
+     clears 4.5:1 against every surface it is used on. Dark theme was already
+     at 0 failures and is untouched. Light + dark are both 0 failures now --
+     re-run the sweep before changing any value below. */
   --on-signal:#1C1A16;      /* ink on orange 5.09 · blue 7.09 · yellow 6.77 */
   --green-fill:#18AC68;     /* ink 5.91 (bare --green would be 3.96 = fail)  */
   --red-fill:#E85A4B;       /* ink 4.96 (bare --red would be 3.72 = fail)    */
