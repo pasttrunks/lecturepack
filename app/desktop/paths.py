@@ -26,8 +26,22 @@ def ui_dir() -> str:
     return os.path.join(app_root(), "ui")
 
 
+# Kept in sync with lecturepack.constants.DATA_DIR_ENV_VAR; this module stays
+# import-light (no engine imports) because main.py loads it before Qt is up.
+DATA_DIR_ENV_VAR = "LECTUREPACK_DATA_DIR"
+
+
 def data_dir() -> str:
-    """Per-user mutable data (jobs, models, exports) — mirrors ~/LecturePackData."""
-    d = os.path.join(os.path.expanduser("~"), "LecturePackData")
+    """Per-user mutable data (jobs, models, exports) — mirrors ~/LecturePackData.
+
+    ``LECTUREPACK_DATA_DIR`` overrides the location so packaged-GUI acceptance
+    and upgrade tests can run against a disposable profile instead of mutating
+    the user's real jobs.
+    """
+    override = os.environ.get(DATA_DIR_ENV_VAR, "").strip()
+    if override:
+        d = os.path.abspath(os.path.expanduser(override))
+    else:
+        d = os.path.join(os.path.expanduser("~"), "LecturePackData")
     os.makedirs(d, exist_ok=True)
     return d

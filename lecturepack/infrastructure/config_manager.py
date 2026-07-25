@@ -2,8 +2,16 @@ import os
 import sys
 import shutil
 import copy
-from lecturepack.constants import DEFAULT_DATA_DIR
+from lecturepack.constants import DATA_DIR_ENV_VAR, DEFAULT_DATA_DIR
 from lecturepack.infrastructure.file_manager import FileManager
+
+
+def _env_data_dir():
+    """``LECTUREPACK_DATA_DIR`` if set and non-empty, else None."""
+    override = os.environ.get(DATA_DIR_ENV_VAR, "").strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    return None
 
 
 def _app_dir():
@@ -48,8 +56,9 @@ class ConfigManager:
         self.app_dir = app_dir
         self.resource_dir = _resource_dir()
 
+        # Precedence: explicit argument > LECTUREPACK_DATA_DIR > default root.
         if data_dir is None:
-            data_dir = DEFAULT_DATA_DIR
+            data_dir = _env_data_dir() or DEFAULT_DATA_DIR
         self.data_dir = data_dir
         self.config_path = os.path.join(data_dir, self.CONFIG_FILENAME)
         self.settings = copy.deepcopy(self.DEFAULT_SETTINGS)
@@ -95,7 +104,9 @@ class ConfigManager:
         self.save()
 
     def resolve_data_dir(self):
-        d = self.get("data_directory", DEFAULT_DATA_DIR)
+        # The env override outranks a persisted ``data_directory`` so a config
+        # copied from a real profile cannot pull a test run back onto real jobs.
+        d = _env_data_dir() or self.get("data_directory", DEFAULT_DATA_DIR)
         os.makedirs(d, exist_ok=True)
         return d
 
