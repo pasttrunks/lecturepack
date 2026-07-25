@@ -88,6 +88,13 @@ class EngineAdapter(QObject):
     def set_job_group(self, job_id: str, group: str) -> None:
         """Set a job's course/subject group; refresh the jobs list."""
 
+    def delete_jobs(self, ids_json: str) -> None:
+        """Delete several jobs (Home multi-select). One list refresh and one
+        summary job_deleted signal for the whole batch."""
+
+    def set_jobs_group(self, ids_json: str, group: str) -> None:
+        """Group several jobs at once; one list refresh for the batch."""
+
     def notify_drag_over(self):
         """Optional: UI feedback while a file is dragged over the window."""
 
@@ -976,15 +983,14 @@ class LecturePackAdapter(EngineAdapter):
                     pass
         return total
 
-    def delete_job(self, job_id: str) -> None:
-        """Delete a job the user chose to remove (confirmed in the UI). Prefers
-        the OS recycle bin (recoverable) and only hard-deletes as a fallback.
-        Never called automatically — only from an explicit UI confirmation."""
+    def _delete_one(self, job_id: str) -> dict:
+        """Remove a single job directory. Shared by single and bulk delete so
+        both take exactly the same recycle-bin-first path. Emits nothing and
+        refreshes nothing -- the caller owns signalling."""
         real = self._job_dir_guarded(job_id)
         if real is None:
             self._log("[error]", f"cannot delete: unknown job {job_id}", "error")
-            self._emit("job_deleted", {"ok": False, "id": job_id})
-            return
+            return {"ok": False, "id": job_id, "freed_bytes": 0}
         freed = self._dir_size(real)
         was_current = (self.current_job is not None
                        and self.current_job.job_id == job_id)
@@ -999,23 +1005,77 @@ class LecturePackAdapter(EngineAdapter):
             self._set_active_job(None)
         self._log("[home]", f"deleted job {job_id} → {method} "
                   f"({_human_size(freed)} freed)", "engine")
-        self._emit("job_deleted", {"ok": True, "id": job_id,
-                                   "freed": _human_size(freed), "method": method})
+        return {"ok": True, "id": job_id, "freed_bytes": freed,
+                "method": method, "was_current": was_current}
+
+    def delete_job(self, job_id: str) -> None:
+        """Delete a job the user chose to remove (confirmed in the UI). Prefers
+        the OS recycle bin (recoverable) and only hard-deletes as a fallback.
+        Never called automatically — only from an explicit UI confirmation."""
+        res = self._delete_one(job_id)
+        if not res["ok"]:
+            self._emit("job_deleted", {"ok": False, "id": job_id})
+            return
+        self._emit("job_deleted", {
+            "ok": True, "id": job_id,
+            "freed": _human_size(res["freed_bytes"]), "method": res["method"]})
         self._push_jobs()
-        if was_current:
+        if res.get("was_current"):
             self._load_latest_completed_job()
 
-    def set_job_group(self, job_id: str, group: str) -> None:
-        """Set/clear a job's course/subject group (persisted in its manifest)."""
+    def delete_jobs(self, ids_json: str) -> None:
+        """Delete several jobs (multi-select on Home), confirmed in the UI.
+
+        One refresh and one summary signal for the whole batch rather than N of
+        each, and a partial failure still reports what DID get deleted.
+        """
+        try:
+            ids = json.loads(ids_json or "[]")
+        except ValueError:
+            ids = []
+        ids = [str(i) for i in ids if i]
+        if not ids:
+            self._emit("job_deleted", {"ok": False, "bulk": True, "count": 0,
+                                       "error": "Nothing selected."})
+            return
+        deleted, failed, freed, reload_needed = [], [], 0, False
+        for job_id in ids:
+            res = self._delete_one(job_id)
+            if res["ok"]:
+                deleted.append(res["id"])
+                freed += res["freed_bytes"]
+                reload_needed = reload_needed or bool(res.get("was_current"))
+            else:
+                failed.append(job_id)
+        self._emit("job_deleted", {
+            "ok": bool(deleted), "bulk": True, "ids": deleted,
+            "count": len(deleted), "failed": failed,
+            "freed": _human_size(freed)})
+        self._push_jobs()
+        if reload_needed:
+            self._load_latest_completed_job()
+
+    def set_jobs_group(self, ids_json: str, group: str) -> None:
+        """Group several jobs at once; one list refresh for the batch."""
+        try:
+            ids = json.loads(ids_json or "[]")
+        except ValueError:
+            ids = []
+        for job_id in [str(i) for i in ids if i]:
+            self._set_job_group_quiet(job_id, group)
+        self._push_jobs()
+
+    def _set_job_group_quiet(self, job_id: str, group: str) -> bool:
+        """Write one job's group. No list refresh -- the caller batches that."""
         real = self._job_dir_guarded(job_id)
         if real is None:
             self._log("[error]", f"cannot group: unknown job {job_id}", "error")
-            return
+            return False
         manifest_path = os.path.join(real, "manifest.json")
         man = FileManager.read_json_safe(manifest_path, None)
         if not isinstance(man, dict):
             self._log("[error]", f"cannot group: bad manifest {job_id}", "error")
-            return
+            return False
         group = (group or "").strip()
         if group:
             man["group"] = group
@@ -1026,7 +1086,12 @@ class LecturePackAdapter(EngineAdapter):
             self.current_job.manifest["group"] = group
         self._log("[home]", f"job {job_id} grouped as "
                   f"'{group or _derive_group(man.get('title', ''))}'", "engine")
-        self._push_jobs()
+        return True
+
+    def set_job_group(self, job_id: str, group: str) -> None:
+        """Set/clear a job's course/subject group (persisted in its manifest)."""
+        if self._set_job_group_quiet(job_id, group):
+            self._push_jobs()
 
     # ------------------------------------------------------------------ import
     def browse_video(self, parent):

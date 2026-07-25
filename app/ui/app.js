@@ -36,6 +36,8 @@
       // workspace renders structurally empty rather than showing whatever the
       // backend last happened to push.
       jobId: '', jobTitle: '',
+      // Home multi-select: an explicit mode, so a plain click still opens.
+      selecting: false, selected: {},
       screen: 'home', theme: 'dark', focus: false, onb: null, jobsEmpty: false,
       exportPhase: 'idle', studyTab: 'chat',
       chat: [
@@ -260,6 +262,36 @@
     }
     $('side-job-name').textContent = name || 'Untitled lecture';
     $('crumb-job').textContent = name || 'Lecture';
+    renderSidePoster(LP.state.jobId);
+  }
+
+  /* The sidebar chip showed a generic icon even once a lecture was loaded.
+     Reuse the same poster the job cards use; the icon stays underneath as the
+     fallback while the poster generates (or if the job has no frame at all). */
+  function renderSidePoster(jobId) {
+    var img = $('side-job-poster'), ph = $('side-job-thumb');
+    if (!img) return;
+    var placeholder = ph && ph.querySelector('[data-side-ph]');
+    if (!jobId) {
+      img.hidden = true; img.style.opacity = 0; img.removeAttribute('src');
+      if (placeholder) placeholder.hidden = false;
+      return;
+    }
+    if (img.getAttribute('data-for') === jobId && !img.hidden) return;
+    img.setAttribute('data-for', jobId);
+    img.hidden = false;
+    img.style.opacity = 0;
+    if (placeholder) placeholder.hidden = false;
+    img.onload = function () {
+      img.style.opacity = 1;
+      if (placeholder) placeholder.hidden = true;
+    };
+    img.onerror = function () {
+      // no poster yet: keep the icon, and let the next list refresh retry
+      img.hidden = true;
+      if (placeholder) placeholder.hidden = false;
+    };
+    img.src = posterSrc(jobId, 0);
   }
 
   /* ======================= renderers ======================= */
@@ -406,6 +438,110 @@
     }, 700 * n);
   };
 
+  /* ==================== Home multi-select ====================
+     Selecting is an explicit mode so a normal click still opens a lecture -- no
+     accidental selection, and no checkbox clutter until it is wanted. Bulk
+     delete/group go through one bridge call each so the backend performs one
+     list refresh for the whole batch instead of N. */
+  function selCount() { return Object.keys(LP.state.selected).length; }
+
+  function setSelectMode(on) {
+    LP.state.selecting = !!on;
+    if (!on) LP.state.selected = {};
+    var bar = $('jobs-selectbar');
+    if (bar) bar.hidden = !on;
+    var btn = $('btn-select-mode');
+    if (btn) btn.textContent = on ? 'Cancel' : 'Select';
+    renderJobs();
+    renderSelCount();
+  }
+
+  function toggleSelected(id) {
+    if (!id) return;
+    if (LP.state.selected[id]) delete LP.state.selected[id];
+    else LP.state.selected[id] = true;
+    renderSelCount();
+    // repaint just this card's checkbox rather than the whole grid
+    var card = document.querySelector('.lp-card[data-job="' + cssEsc(id) + '"]');
+    var box = card && card.querySelector('[data-selbox]');
+    if (box) paintSelBox(box, !!LP.state.selected[id]);
+    if (card) card.style.borderColor = LP.state.selected[id] ? 'var(--blue)' : 'var(--border)';
+  }
+
+  function cssEsc(s) {
+    return String(s).replace(/["\\]/g, '\\$&');
+  }
+
+  function paintSelBox(box, on) {
+    box.style.background = on ? 'var(--blue)' : 'var(--panel)';
+    box.style.borderColor = on ? 'var(--blue)' : 'var(--border)';
+    box.innerHTML = on
+      ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+      : '';
+    box.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+
+  function renderSelCount() {
+    var n = selCount();
+    var el = $('jobs-selcount');
+    if (el) el.textContent = n + ' selected';
+    ['btn-bulk-delete', 'btn-bulk-group'].forEach(function (id) {
+      var b = $(id);
+      if (!b) return;
+      b.disabled = n === 0;
+      b.style.opacity = n === 0 ? '.45' : '1';
+      b.style.cursor = n === 0 ? 'default' : 'pointer';
+    });
+  }
+
+  function selectableIds() {
+    return LP.data.jobs.filter(function (j) { return j.id; })
+      .map(function (j) { return j.id; });
+  }
+
+  function bulkDelete() {
+    var ids = Object.keys(LP.state.selected);
+    if (!ids.length) return;
+    var names = LP.data.jobs.filter(function (j) { return LP.state.selected[j.id]; })
+      .map(function (j) { return j.name; });
+    var preview = names.slice(0, 5).map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('');
+    if (names.length > 5) preview += '<li>and ' + (names.length - 5) + ' more</li>';
+    lpModal({
+      title: 'Delete ' + ids.length + (ids.length === 1 ? ' lecture?' : ' lectures?'),
+      bodyHtml: '<ul style="margin:0 0 10px 18px;padding:0">' + preview + '</ul>' +
+        'They move to the Recycle Bin and are removed from LecturePack, freeing disk space. Their export files go too.',
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Delete ' + ids.length, danger: true, onClick: function () {
+          if (lpBridge.connected()) lpBridge.call('delete_jobs', JSON.stringify(ids));
+          else toast('Preview mode — nothing deleted');
+          setSelectMode(false);
+        } }
+      ]
+    });
+  }
+
+  function bulkGroup() {
+    var ids = Object.keys(LP.state.selected);
+    if (!ids.length) return;
+    lpModal({
+      title: 'Group ' + ids.length + (ids.length === 1 ? ' lecture' : ' lectures'),
+      bodyHtml: '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px">Course / subject</label>' +
+        '<input id="lp-bulk-group-input" type="text" spellcheck="false" placeholder="e.g. CL100" style="width:100%;box-sizing:border-box;font:600 14px \'JetBrains Mono\';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--ink)">' +
+        '<div style="font-size:12px;color:var(--muted);margin-top:8px">Leave blank to auto-group by each lecture title.</div>',
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Apply', primary: true, onClick: function () {
+          var i = $('lp-bulk-group-input');
+          if (lpBridge.connected()) lpBridge.call('set_jobs_group', JSON.stringify(ids), (i && i.value || '').trim());
+          else toast('Preview mode — not grouped');
+          setSelectMode(false);
+        } }
+      ]
+    });
+    setTimeout(function () { var i = $('lp-bulk-group-input'); if (i) i.focus(); }, 30);
+  }
+
   function _jobCardHtml(j) {
     var b = JOB_BADGES[j.status] || JOB_BADGES.done;
     var dot = '<span style="width:6px;height:6px;border-radius:50%;background:' + b.dot + (b.blink ? ';animation:lpblink 1s infinite' : '') + '"></span>';
@@ -429,8 +565,22 @@
         _jobActBtn('view', j.id, 'View Details') +
         _jobActBtn('remove', j.id, 'Remove') + '</div>';
     }
-    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'style="background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
-      '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + menu + badge + '</div>' +
+    // In select mode the per-card menu is replaced by a checkbox, and the whole
+    // card toggles selection instead of opening.
+    var selecting = LP.state.selecting && j.id;
+    var chosen = selecting && !!LP.state.selected[j.id];
+    var selbox = selecting
+      ? '<span data-selbox role="checkbox" aria-checked="' + (chosen ? 'true' : 'false') + '" ' +
+        'style="position:absolute;top:9px;left:9px;width:22px;height:22px;border-radius:6px;' +
+        'border:2px solid ' + (chosen ? 'var(--blue)' : 'var(--border)') + ';background:' +
+        (chosen ? 'var(--blue)' : 'var(--panel)') + ';display:flex;align-items:center;justify-content:center;' +
+        'box-shadow:var(--shadow-soft)">' +
+        (chosen ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : '') +
+        '</span>'
+      : '';
+    var border = chosen ? 'var(--blue)' : 'var(--border)';
+    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
+      '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + (selecting ? selbox : menu) + badge + '</div>' +
       '<div style="padding:14px 16px">' + body + '</div></div>';
   }
 
@@ -1419,6 +1569,7 @@
     $('status-label').textContent = 'Idle';
     $('status-pct').textContent = '';
     setFill('status-bar', 0);
+    renderSidePoster('');
     var w = $('storage-widget');
     if (w) w.hidden = true;
   }
@@ -1878,6 +2029,32 @@
       e.stopPropagation();
       linkImportDialog();
     });
+
+    // ---- Home multi-select ----
+    $('btn-select-mode').addEventListener('click', function (e) {
+      e.stopPropagation();
+      setSelectMode(!LP.state.selecting);
+    });
+    $('btn-select-done').addEventListener('click', function (e) {
+      e.stopPropagation(); setSelectMode(false);
+    });
+    $('btn-select-all').addEventListener('click', function (e) {
+      e.stopPropagation();
+      LP.state.selected = {};
+      selectableIds().forEach(function (id) { LP.state.selected[id] = true; });
+      renderJobs(); renderSelCount();
+    });
+    $('btn-select-none').addEventListener('click', function (e) {
+      e.stopPropagation();
+      LP.state.selected = {};
+      renderJobs(); renderSelCount();
+    });
+    $('btn-bulk-delete').addEventListener('click', function (e) {
+      e.stopPropagation(); bulkDelete();
+    });
+    $('btn-bulk-group').addEventListener('click', function (e) {
+      e.stopPropagation(); bulkGroup();
+    });
     dz.addEventListener('dragover', function (e) { e.preventDefault(); if (LP.state.onb !== 'detected') setOnb('drop'); });
     dz.addEventListener('drop', function (e) { e.preventDefault(); setOnb('detected'); });
     // "drop anywhere": in the desktop shell native drops are captured by Qt and
@@ -1891,6 +2068,12 @@
     // Home grid: per-card menu buttons (delete / set group) take priority,
     // otherwise clicking a card opens the job.
     $('jobs-grid').addEventListener('click', function (e) {
+      // Select mode owns the click: toggle instead of opening the lecture.
+      if (LP.state.selecting) {
+        var selCard = e.target.closest('.lp-card[data-job]');
+        if (selCard) { e.stopPropagation(); toggleSelected(selCard.dataset.job); }
+        return;
+      }
       var btn = e.target.closest('.lp-jobbtn');
       if (btn) {
         e.stopPropagation();
@@ -2251,6 +2434,15 @@
     });
     lpBridge.on('jobs_changed', function (json) {
       LP.data.jobs = JSON.parse(json);
+      // Forget selections whose job is gone, else the count lies.
+      if (LP.state.selecting) {
+        var alive = {};
+        LP.data.jobs.forEach(function (j) { if (j.id) alive[j.id] = true; });
+        Object.keys(LP.state.selected).forEach(function (id) {
+          if (!alive[id]) delete LP.state.selected[id];
+        });
+        renderSelCount();
+      }
       renderJobs();           // poster URLs are stable, so loaded ones stay cached
     });
 
@@ -2283,6 +2475,23 @@
     });
     lpBridge.on('job_deleted', function (json) {
       var d = JSON.parse(json);
+      if (d.bulk) {
+        var msg = d.ok
+          ? (d.count + (d.count === 1 ? ' lecture' : ' lectures') + ' deleted · ' + (d.freed || '') + ' freed')
+          : (d.error || 'Delete failed');
+        if (d.ok && (d.failed || []).length) msg += ' · ' + d.failed.length + ' could not be deleted';
+        toast(msg);
+        (d.ids || []).forEach(function (id) {
+          // Deactivate FIRST, same reason as the single-delete path below:
+          // setActiveJob snapshots the outgoing lecture into byJob, so dropping
+          // the cache entry before the switch would put it straight back.
+          if (id === LP.state.jobId) setActiveJob('', '');
+          delete LP.byJob[id];
+          delete LP.state.selected[id];
+        });
+        renderSelCount();
+        return;
+      }
       toast(d.ok ? ('Lecture deleted · ' + (d.freed || '') + ' freed') : 'Delete failed');
       // Drop the deleted lecture's cached workspace so it can never come back
       // if a job id is ever reused, and empty the screens if it was active.

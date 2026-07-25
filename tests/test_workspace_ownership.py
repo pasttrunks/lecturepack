@@ -213,9 +213,11 @@ def test_switching_jobs_snapshots_then_applies():
 
 
 def test_deleting_the_active_job_empties_the_workspace():
-    block = JS.split("lpBridge.on('job_deleted'", 1)[1][:600]
-    assert "delete LP.byJob[d.id]" in block
-    assert "setActiveJob('', '')" in block
+    handler = _job_deleted_handler()
+    assert "delete LP.byJob[d.id]" in handler
+    assert "setActiveJob('', '')" in handler
+    # and the bulk branch drops each deleted lecture's cache entry too
+    assert "delete LP.byJob[id]" in handler
 
 
 def test_log_lines_are_dropped_when_no_lecture_is_loaded():
@@ -246,11 +248,20 @@ def test_chrome_renders_before_the_workspace():
     assert body.index("renderJobChrome()") < body.index("renderWorkspace()")
 
 
+def _job_deleted_handler():
+    """The whole job_deleted handler body (it now has a bulk branch too)."""
+    return JS.split("lpBridge.on('job_deleted'", 1)[1].split("\n    });", 1)[0]
+
+
 def test_delete_deactivates_before_dropping_the_cache_entry():
     """setActiveJob snapshots the outgoing lecture into byJob, so deleting the
-    cache entry first put it straight back."""
-    block = JS.split("lpBridge.on('job_deleted'", 1)[1][:700]
-    assert block.index("setActiveJob('', '')") < block.index("delete LP.byJob[d.id]")
+    cache entry first put it straight back. Must hold in BOTH branches."""
+    handler = _job_deleted_handler()
+    single = handler.split("if (d.bulk)", 1)[1].split("return;", 1)[1]
+    assert single.index("setActiveJob('', '')") < single.index("delete LP.byJob[d.id]")
+
+    bulk = handler.split("if (d.bulk)", 1)[1].split("return;", 1)[0]
+    assert bulk.index("setActiveJob('', '')") < bulk.index("delete LP.byJob[id]"),         "bulk branch must deactivate before dropping the cache entry too"
 
 
 def test_bridge_exposes_a_local_dispatch():

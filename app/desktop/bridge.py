@@ -232,6 +232,16 @@ class Backend(QObject):
     def set_job_group(self, job_id: str, group: str):
         self._adapter.set_job_group(job_id, group)
 
+    @Slot(str)
+    def delete_jobs(self, ids_json: str):
+        """Bulk delete from Home multi-select; ids_json is a JSON array."""
+        self._adapter.delete_jobs(ids_json)
+
+    @Slot(str, str)
+    def set_jobs_group(self, ids_json: str, group: str):
+        """Bulk group from Home multi-select; ids_json is a JSON array."""
+        self._adapter.set_jobs_group(ids_json, group)
+
     @Slot()
     def cancel_job(self):
         self._adapter.cancel_job()

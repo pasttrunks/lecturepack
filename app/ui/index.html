@@ -39,7 +39,7 @@
     <!-- ===== SIDEBAR ===== -->
     <aside class="lp-chrome" style="width:224px;flex:none;background:var(--panel);border-right:2px solid var(--border);display:flex;flex-direction:column;padding:14px 12px;overflow-y:auto">
       <div style="display:flex;align-items:center;gap:11px;padding:10px;border:1.5px solid var(--line);border-radius:11px;background:var(--panel2);margin-bottom:16px">
-        <div style="width:40px;height:30px;flex:none;border-radius:6px;border:1.5px solid var(--line);background:var(--blue-soft);display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue-ink)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></div>
+        <div id="side-job-thumb" style="width:40px;height:30px;flex:none;border-radius:6px;border:1.5px solid var(--line);background:var(--blue-soft);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden"><span data-side-ph style="display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue-ink)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span><img id="side-job-poster" alt="" decoding="async" hidden style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity var(--motion-medium) var(--motion-ease)"></div>
         <div style="min-width:0"><div id="side-job-name" style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">No lecture loaded</div><div id="side-job-status" style="display:flex;align-items:center;gap:5px;font:500 10px 'JetBrains Mono';color:var(--muted)">Idle</div></div>
       </div>
 
@@ -99,7 +99,18 @@
             <button id="btn-show-empty" class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--muted);border:2px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer">Preview first-run</button>
             <button class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Archive</button>
             <button class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Restore</button>
+            <button id="btn-select-mode" class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Select</button>
           </div>
+        </div>
+        <!-- Multi-select action bar: only visible while selecting. -->
+        <div id="jobs-selectbar" hidden style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:10px 13px;border:2px solid var(--border);border-radius:11px;background:var(--panel)">
+          <span id="jobs-selcount" style="font:600 12px 'JetBrains Mono';color:var(--ink)">0 selected</span>
+          <div style="flex:1"></div>
+          <button id="btn-select-all" class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Select all</button>
+          <button id="btn-select-none" class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Clear</button>
+          <button id="btn-bulk-group" class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Group…</button>
+          <button id="btn-bulk-delete" class="lp-hit" style="font:600 12px 'JetBrains Mono';background:var(--red-fill);color:var(--on-signal);border:2px solid var(--red);border-radius:8px;padding:7px 12px;cursor:pointer">Delete</button>
+          <button id="btn-select-done" class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Done</button>
         </div>
         <div id="jobs-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px"></div>
         </div>
