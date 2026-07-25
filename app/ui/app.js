@@ -178,6 +178,10 @@
     ov.addEventListener('mousedown', function (e) { if (e.target === ov) close(); });
     function onKey(e) { if (e.key === 'Escape') close(); }
     document.addEventListener('keydown', onKey);
+    // Move focus into the dialog; the global handler keeps Tab inside it.
+    ov.setAttribute('role', 'dialog');
+    ov.setAttribute('aria-modal', 'true');
+    focusFirst(ov);
     return { close: close };
   }
   var _toastT = null;
@@ -258,11 +262,20 @@
       '<div style="padding:14px 16px">' + body + '</div></div>';
   }
 
+  // "YYYY-MM-DDTHH:MM" for *local* time -- toISOString() would return UTC and
+  // shift the floor by the timezone offset.
+  function localNowValue() {
+    var d = new Date();
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+      'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
   function scheduleJobDialog(id) {
     var inp = 'width:100%;font:500 13px \'JetBrains Mono\';padding:9px 11px;border:2px solid var(--border);border-radius:8px;background:var(--sunk);color:var(--ink)';
     var body =
       '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:6px">When (your local time)</label>' +
-      '<input id="sched-when" type="datetime-local" style="' + inp + ';margin-bottom:15px">' +
+      '<input id="sched-when" type="datetime-local" min="' + localNowValue() + '" style="' + inp + ';margin-bottom:15px">' +
       '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:6px">If the app was closed at that time</label>' +
       '<select id="sched-policy" style="' + inp + '">' +
         '<option value="run_when_opened">Run when the app next opens</option>' +
@@ -277,6 +290,9 @@
         { label: 'Schedule', primary: true, onClick: function () {
           var when = (document.getElementById('sched-when') || {}).value;
           if (!when) { toast('Pick a date and time'); return true; }
+          // `min` is advisory only -- typed input bypasses it, so re-check here
+          // rather than silently scheduling a run in the past (BUG-06).
+          if (when < localNowValue()) { toast('Pick a time in the future'); return true; }
           var pol = (document.getElementById('sched-policy') || {}).value || 'run_when_opened';
           if (lpBridge.connected()) lpBridge.call('schedule_job', id, when, 'local', pol);
           else toast('Preview mode — not scheduled');
@@ -1064,6 +1080,67 @@
     $('onb-overlay').hidden = state === null;
     $('onb-drop').hidden = state !== 'drop';
     $('onb-detected').hidden = state !== 'detected';
+    if (state !== null) focusFirst($('onb-overlay'));
+  }
+
+  /* ---------- modal containment (BUG-01 / BUG-02) ----------
+     Overlays in this UI are plain divs toggled with [hidden] plus dynamically
+     created .lp-modal-ov nodes.  These helpers give whichever one is on top
+     ownership of the keyboard. */
+  var FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),' +
+    'select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+  function visibleFocusable(scope) {
+    return Array.prototype.filter.call(scope.querySelectorAll(FOCUSABLE), function (el) {
+      if (el.hidden || el.closest('[hidden]')) return false;
+      return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+    });
+  }
+
+  // Highest-z-index open overlay, or null when none is open.
+  function topOverlay() {
+    var open = [];
+    ['onb-overlay', 'whatsnew-overlay'].forEach(function (id) {
+      var el = $(id);
+      if (el && !el.hidden) open.push(el);
+    });
+    Array.prototype.push.apply(open, document.querySelectorAll('.lp-modal-ov'));
+    if (!open.length) return null;
+    return open.reduce(function (a, b) {
+      var za = parseInt(window.getComputedStyle(a).zIndex, 10) || 0;
+      var zb = parseInt(window.getComputedStyle(b).zIndex, 10) || 0;
+      return zb >= za ? b : a;   // later/higher wins, so the newest modal owns focus
+    });
+  }
+
+  function focusFirst(scope) {
+    var items = visibleFocusable(scope);
+    if (items.length) setTimeout(function () { items[0].focus(); }, 30);
+  }
+
+  // Cycle Tab within `scope` instead of letting it reach the page behind.
+  function trapFocus(scope, e) {
+    var items = visibleFocusable(scope);
+    if (!items.length) { e.preventDefault(); return; }
+    var first = items[0], last = items[items.length - 1], active = document.activeElement;
+    if (!scope.contains(active)) { e.preventDefault(); first.focus(); return; }
+    if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+  }
+
+  /* Clears the design-time placeholder chrome shipped in index.html so a fresh
+     profile never shows a fake in-progress job (BUG-04). */
+  function resetJobChrome() {
+    $('side-job-name').textContent = 'No lecture loaded';
+    $('side-job-status').innerHTML = 'Idle';
+    $('crumb-job').textContent = 'Home';
+    $('proc-source-name').textContent = 'No lecture loaded';
+    $('proc-status-meta').textContent = '';
+    $('status-label').textContent = 'Idle';
+    $('status-pct').textContent = '';
+    $('status-bar').style.width = '0%';
+    var w = $('storage-widget');
+    if (w) w.hidden = true;
   }
 
   function setStudyTab(tab) {
@@ -1818,13 +1895,21 @@
       if (lpBridge.connected()) lpBridge.call('test_notification');
     });
 
-    // keyboard shortcuts (prototype behavior)
+    // Keyboard shortcuts.  An open overlay OWNS the keyboard: digit/F shortcuts
+    // must not change the screen behind a modal, and Tab must not escape to
+    // controls the user cannot see (both were live defects -- see BUG_LIST.md
+    // BUG-01 and BUG-02).
     window.addEventListener('keydown', function (e) {
       var tag = (e.target && e.target.tagName) || '';
-      var editing = /INPUT|TEXTAREA/.test(tag) || (e.target && e.target.isContentEditable);
+      var editing = /INPUT|TEXTAREA|SELECT/.test(tag) || (e.target && e.target.isContentEditable);
       if (e.key === 'Escape') {
         setFocus(false); setOnb(null);
         if (!$('whatsnew-overlay').hidden) hideWhatsNew();
+        return;
+      }
+      var overlay = topOverlay();
+      if (overlay) {
+        if (e.key === 'Tab') trapFocus(overlay, e);
         return;
       }
       if (editing) return;
@@ -2138,6 +2223,7 @@
   /* ======================= boot ======================= */
 
   function boot() {
+    resetJobChrome();           // clear index.html's design-time placeholders
     renderJobs();
     renderPipeline();
     renderSlides();
