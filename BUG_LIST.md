@@ -42,6 +42,32 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### BUG-10 — Test suite opened real Qt windows that flashed on screen   ✅ FIXED (verified)
+- **Area:** test infrastructure (`tests/conftest.py`, previously absent)
+- **Reported / found:** 2026-07-25 **by the user**, who noticed "the LecturePack app
+  opens for a bit and flashes away" during test runs and suspected it was running old UI.
+- **Symptom:** native windows appeared and vanished during `pytest`, stealing focus.
+- **Root cause:** there was **no `conftest.py` at all** and `pytest.ini` never set
+  `QT_QPA_PLATFORM`. `pytest-qt`'s `qapp` fixture therefore built a real `QApplication`
+  on the native Windows platform plugin, and three test modules call `.show()` on real
+  widgets (`test_ui_v11.py`, `test_ui_phase2.py`, `test_stability_phase.py`).
+  `test_adapter_startup.py`'s docstring *claimed* "an offscreen Qt app" — that claim was
+  simply untrue, nothing enforced it.
+- **The user's suspicion was correct.** The flashing window is the **old
+  `lecturepack/ui/` PySide UI**, not the shipped WebEngine UI — `test_ui_v11.py` and
+  `test_ui_phase2.py` import `lecturepack.ui.main_window.MainWindow`. Confirmed that this
+  package is dead in production: **0 `lecturepack.ui` modules are frozen into the shipped
+  exe** (inspected the PYZ), yet ~109 tests still reference it.
+- **Current fix:** added `tests/conftest.py` setting `QT_QPA_PLATFORM=offscreen` at import
+  time (before Qt loads), via `setdefault` so an explicit override still wins.
+- **Verification:** the three window-showing modules + the two `qapp` modules pass
+  offscreen (88 passed); full suite **677 passed**; and a continuous ~135s window poll
+  spanning an entire run saw **zero** Qt/python windows (previously they appeared).
+- **Still open (NOT fixed here — needs an owner decision):** ~109 tests exercise
+  `lecturepack/ui/`, which ships in nothing. That inflates the suite's apparent coverage
+  with dead code and costs real runtime. Deleting them is a scope call, not a bug fix.
+- **Files:** `tests/conftest.py`.
+
 ### BUG-09 — Link import hung forever: worker-thread signals never delivered   ✅ FIXED (verified)
 - **Area:** desktop shell / thread marshalling (`app/desktop/engine_adapter.py::_emit_soon`)
 - **Reported / found:** 2026-07-25, while doing the handoff TODO "drive the link-import
