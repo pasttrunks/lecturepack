@@ -24,13 +24,49 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
    because these fire hundreds of times a session. */
 .lp-hit{transition:transform var(--motion-fast) var(--motion-ease),box-shadow var(--motion-fast) var(--motion-ease),background var(--motion-fast) var(--motion-ease)}
 .lp-hit:hover{transform:translateY(-1px)}
-.lp-hit:active{transform:translateY(0)}
+/* press state lives with the other press rules below (search "press feedback") */
 .lp-card{transition:transform var(--motion-fast) var(--motion-ease),box-shadow var(--motion-fast) var(--motion-ease),border-color var(--motion-fast) var(--motion-ease)}
 .lp-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-hi);border-color:var(--blue)}
 .lp-nav{transition:background var(--motion-fast) var(--motion-ease)}
 .lp-nav:hover{background:var(--panel2)}
 .lp-tick{transition:transform var(--motion-fast) var(--motion-ease)}
 .lp-tick:hover{transform:scaleY(1.35)}
+
+/* --- press feedback (added 2026-07-25) --------------------------------------
+   Every clickable surface acknowledges the press, not just .lp-hit. Before
+   this, `.lp-hit:active` merely CANCELLED the hover lift, so a press produced
+   no signal of its own and buttons felt dead under the finger.
+
+   Deliberate deviation from the common `scale(0.96)` press: this UI is
+   refined-neobrutalist and carries its weight in 2px borders (112 of them).
+   Scaling a bordered slab resamples the border to a fractional width and it
+   visibly softens -- the exact quality the look depends on. Pressing the slab
+   DOWN along the axis it already lifts on keeps every border crisp and reads
+   as more physical here than a shrink. Hover -1px, press +1px. */
+.lp-hit:active{transform:translateY(1px)}
+.lp-card:active{transform:translateY(-1px)}
+button,[role="button"],.lp-nav,.lp-tab,.lp-theme-btn{
+  transition:transform var(--motion-fast) var(--motion-ease),
+             background var(--motion-fast) var(--motion-ease),
+             border-color var(--motion-fast) var(--motion-ease),
+             color var(--motion-fast) var(--motion-ease)}
+button:active:not(:disabled),[role="button"]:active,.lp-nav:active,.lp-tab:active{
+  transform:translateY(1px)}
+button:disabled{cursor:not-allowed}
+
+/* --- keyboard focus (added 2026-07-25) --------------------------------------
+   There were ZERO :focus-visible rules in this stylesheet, so keyboard
+   navigation was effectively invisible -- a real accessibility hole as well as
+   a "feel" one. :focus-visible (not :focus) so a mouse click never paints a
+   ring. A solid 2px offset ring matches the border language; a soft glow would
+   not. --blue reads against both themes and is not used for any error state. */
+/* No border-radius here on purpose: Chromium already conforms the outline to
+   each element's own radius, and setting one would square off rounded controls
+   for as long as they held focus. */
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.lp-nav:focus-visible,.lp-card:focus-visible{outline-offset:-2px}
+/* the ring must never animate -- keyboard users get it instantly */
+*:focus-visible{transition-property:transform,background,border-color,color}
 
 /* Progress fills animate on the compositor (scaleX) instead of `width`, which
    forces layout + paint on every frame. Origin-left so they grow rightwards. */
@@ -86,6 +122,13 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
   --motion-slow:240ms;      /* the largest move we allow in product chrome  */
   --motion-ease:cubic-bezier(.22,1,.36,1);      /* decisive ease-out        */
   --motion-ease-in:cubic-bezier(.55,0,1,.45);   /* for exits only           */
+  /* Spring approximation for STATE changes (a thing becoming another thing:
+     icon swaps, badge flips, panel reveals). CSS transitions cannot do real
+     spring physics; this curve is the standard critically-damped stand-in --
+     it settles without overshoot, which is what a tool UI wants. Overshoot
+     ("bounce") is deliberately absent: it reads as toy-like and would fight
+     the neobrutalist weight. Use --motion-ease for movement, this for state. */
+  --motion-spring:cubic-bezier(.2,0,0,1);
 }
 [data-theme="dark"]{
   --bg:#131519; --panel:#1B1E24; --panel2:#21252C; --sunk:#171A1F;
@@ -110,6 +153,33 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
 @keyframes lpblink{0%,100%{opacity:1}50%{opacity:.3}}
 @keyframes lpbar{0%{background-position:0 0}100%{background-position:26px 0}}
 @keyframes lpin{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
+
+/* --- screen change (added 2026-07-25) ---------------------------------------
+   Switching screens was a HARD CUT: nothing on [data-screen] animated, and the
+   "retrigger entrance animation" reset in setScreen() was dead code because no
+   animation was ever declared for it. A cut is not "fast", it just loses the
+   thread of where content came from.
+
+   This is the most frequent transition in the app, so it is deliberately at
+   the floor of the scale (--motion-fast, 120ms) and moves only 3px. Anything
+   longer would tax navigation; anything larger would read as decoration.
+   opacity+transform only -- both composite, neither triggers layout. */
+@keyframes lpscreen{from{opacity:0;transform:translateY(3px)}}
+main [data-screen]:not([hidden]){
+  animation:lpscreen var(--motion-fast) var(--motion-spring) both}
+
+/* Numbers that change in place (durations, %, sizes, counts) must not reflow
+   the text around them as digits swap. Tabular figures keep every digit the
+   same advance width. Applied to the live/numeric surfaces only -- not to
+   body copy, where proportional figures read better. */
+.lp-num,#status-label,.lp-badge,[id$="-pct"],[id$="-count"],[id$="-time"]{
+  font-variant-numeric:tabular-nums}
+
+/* Headings balance across lines instead of leaving one orphaned word; body
+   copy avoids a single-word last line. Lecture titles are user-supplied and
+   arbitrary length, so this is doing real work, not micro-polish. */
+h1,h2,h3,.lp-title{text-wrap:balance}
+p,.lp-sub,.lp-meta{text-wrap:pretty}
 @keyframes lpspin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
 @keyframes lpiris{0%{transform:scale(.965);opacity:.4}55%{transform:scale(1.028)}100%{transform:scale(1.02);opacity:1}}
 
@@ -133,7 +203,7 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
 /* ===== ported dynamic style-strings (state-driven) =====
    These reproduce the prototype's navStyle()/tabStyle()/optStyle()/bubble strings verbatim. */
 
-.lp-nav{display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;border:1.5px solid transparent;border-radius:9px;background:transparent;color:var(--nav-ink);cursor:pointer;font:600 13.5px 'Space Grotesk';text-align:left;transition:background var(--motion-fast) var(--motion-ease),color var(--motion-fast) var(--motion-ease)}
+.lp-nav{display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;border:1.5px solid transparent;border-radius:9px;background:transparent;color:var(--nav-ink);cursor:pointer;font:600 13.5px 'Space Grotesk';text-align:left;transition:background var(--motion-fast) var(--motion-ease),color var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-ease)}
 .lp-nav.active{border-color:var(--blue);background:var(--blue-soft);color:var(--blue-ink);font-weight:700}
 .lp-nav.active:hover{background:var(--blue-soft)}
 

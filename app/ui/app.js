@@ -1060,7 +1060,16 @@
     $('transcript-duration').textContent = t.duration;
     $('transcript-segcount').textContent = t.segments + ' segments';
     $('transcript-corrections').textContent = t.corrections + ' corrections';
-    $('transcript-blocks').innerHTML = t.blocks.map(function (b) {
+    // The staggered entrance (.lp-stagger) must run ONCE, when the transcript
+    // first arrives -- not on every re-render. This container is rebuilt with
+    // innerHTML on every transcript update, so while a lecture is transcribing
+    // each update re-ran a 500ms animation with delays ramping to 300ms on
+    // EVERY block at once. That reads as a flicker, and it fights the user if
+    // they are reading while it streams. Stagger the arrival, not the updates.
+    var blocksEl = $('transcript-blocks');
+    var hadContent = blocksEl.childElementCount > 0;
+    blocksEl.classList.toggle('lp-stagger', !hadContent);
+    blocksEl.innerHTML = t.blocks.map(function (b) {
       var chip = b.hotTime
         ? '<span style="font:700 12px \'JetBrains Mono\';color:var(--orange-ink);background:var(--orange-soft);border-radius:7px;padding:3px 7px">' + esc(b.t) + '</span>'
         : '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted)">' + esc(b.t) + '</span>';
