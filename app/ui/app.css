@@ -8,7 +8,7 @@ body{width:100vw;height:100vh;overflow:hidden}
 
 /* thin glowing scrollbars */
 ::-webkit-scrollbar{width:11px;height:11px}
-::-webkit-scrollbar-thumb{background:transparent;border:4px solid transparent;background-clip:padding-box;border-radius:20px;transition:background .2s}
+::-webkit-scrollbar-thumb{background:transparent;border:4px solid transparent;background-clip:padding-box;border-radius:20px;transition:background var(--motion-medium) var(--motion-ease)}
 *:hover::-webkit-scrollbar-thumb{background:var(--muted);background-clip:padding-box}
 ::-webkit-scrollbar-thumb:hover{background:var(--blue);background-clip:padding-box;box-shadow:0 0 10px var(--blue)}
 ::-webkit-scrollbar-track{background:transparent}
@@ -18,15 +18,24 @@ a:hover{color:var(--orange)}
 [contenteditable]:focus{outline:2px solid var(--blue);outline-offset:2px;border-radius:3px}
 input:focus{outline:2px solid var(--blue);outline-offset:0}
 
-/* micro-interactions */
-.lp-hit{transition:transform .12s ease,box-shadow .12s ease,background .12s ease}
+/* micro-interactions
+   One easing curve (--motion-ease) across every interactive surface so the whole
+   UI decelerates identically; hover/press feedback stays at --motion-fast
+   because these fire hundreds of times a session. */
+.lp-hit{transition:transform var(--motion-fast) var(--motion-ease),box-shadow var(--motion-fast) var(--motion-ease),background var(--motion-fast) var(--motion-ease)}
 .lp-hit:hover{transform:translateY(-1px)}
 .lp-hit:active{transform:translateY(0)}
-.lp-card{transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease}
+.lp-card{transition:transform var(--motion-fast) var(--motion-ease),box-shadow var(--motion-fast) var(--motion-ease),border-color var(--motion-fast) var(--motion-ease)}
 .lp-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-hi);border-color:var(--blue)}
+.lp-nav{transition:background var(--motion-fast) var(--motion-ease)}
 .lp-nav:hover{background:var(--panel2)}
-.lp-tick{transition:transform .12s ease}
+.lp-tick{transition:transform var(--motion-fast) var(--motion-ease)}
 .lp-tick:hover{transform:scaleY(1.35)}
+
+/* Progress fills animate on the compositor (scaleX) instead of `width`, which
+   forces layout + paint on every frame. Origin-left so they grow rightwards. */
+.lp-fill{transform-origin:left center;will-change:transform;
+  transition:transform var(--motion-medium) linear}
 
 /* ===== design tokens ===== */
 :root{
@@ -43,6 +52,29 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
   --shadow-soft:0 1px 2px rgba(28,26,22,.06),0 4px 14px rgba(28,26,22,.05);
   --shadow-hi:0 2px 6px rgba(28,26,22,.10),0 14px 34px rgba(28,26,22,.10);
   --glass:var(--panel);
+
+  /* --- accessibility tokens (added 2026-07-25, BUG-05) ---------------------
+     White text on a saturated fill failed WCAG AA everywhere it was used
+     (measured: white on orange 3.41 light / 2.82 dark, on blue 2.45, on yellow
+     2.57, on dark green 2.06). Near-black ink on a saturated fill is both AA
+     and truer to this UI's refined-neobrutalist voice, so text-bearing filled
+     controls use --on-signal instead of #fff.
+     NOTE: no pre-existing value is changed here -- --green and --red are also
+     used as TEXT colours on soft backgrounds, so fills that carry text get
+     their own tokens rather than retuning the shared ones. */
+  --on-signal:#1C1A16;      /* ink on orange 5.09 · blue 7.09 · yellow 6.77 */
+  --green-fill:#18AC68;     /* ink 5.91 (bare --green would be 3.96 = fail)  */
+  --red-fill:#E85A4B;       /* ink 4.96 (bare --red would be 3.72 = fail)    */
+
+  /* --- motion tokens (added 2026-07-25) -----------------------------------
+     PRODUCT register: this is a tool used daily, so motion is subtle and fast
+     (150-250ms), never decorative. One easing curve, applied everywhere, so
+     the whole UI decelerates identically -- browser `ease` is not used. */
+  --motion-fast:120ms;      /* hover/press feedback: near-instant           */
+  --motion-medium:180ms;    /* state changes, fades, panel reveals          */
+  --motion-slow:240ms;      /* the largest move we allow in product chrome  */
+  --motion-ease:cubic-bezier(.22,1,.36,1);      /* decisive ease-out        */
+  --motion-ease-in:cubic-bezier(.55,0,1,.45);   /* for exits only           */
 }
 [data-theme="dark"]{
   --bg:#131519; --panel:#1B1E24; --panel2:#21252C; --sunk:#171A1F;
@@ -57,6 +89,11 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
   --nav-ink:#AEB3BF;
   --shadow-soft:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.35);
   --shadow-hi:0 2px 8px rgba(0,0,0,.5),0 18px 40px rgba(0,0,0,.5);
+  /* dark fills are lighter, so the same near-black ink reads even better:
+     orange 6.48 · red 6.65 · green 8.87 · blue 14.00 · yellow 10.96 */
+  --on-signal:#131519;
+  --green-fill:#4CCB86;
+  --red-fill:#FF6E5E;
 }
 
 @keyframes lpblink{0%,100%{opacity:1}50%{opacity:.3}}
@@ -66,7 +103,7 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
 @keyframes lpiris{0%{transform:scale(.965);opacity:.4}55%{transform:scale(1.028)}100%{transform:scale(1.02);opacity:1}}
 
 /* ===== focus mode (camera iris) ===== */
-.lp-chrome{transition:opacity .42s cubic-bezier(.4,0,.2,1),transform .42s cubic-bezier(.5,-.3,.3,1.3),width .5s cubic-bezier(.4,0,.2,1),height .5s cubic-bezier(.4,0,.2,1),padding .5s ease,border-color .5s ease}
+.lp-chrome{transition:opacity .42s cubic-bezier(.4,0,.2,1),transform .42s cubic-bezier(.5,-.3,.3,1.3),width .5s cubic-bezier(.4,0,.2,1),height .5s cubic-bezier(.4,0,.2,1),padding .5s var(--motion-ease),border-color .5s var(--motion-ease)}
 .lp-main{transition:transform .55s cubic-bezier(.4,0,.2,1)}
 [data-focus="true"] .lp-chrome{opacity:0;pointer-events:none}
 [data-focus="true"] header.lp-chrome{height:0 !important;padding-top:0 !important;padding-bottom:0 !important;border-bottom-width:0 !important;overflow:hidden;transform:translateY(-14px)}
@@ -85,19 +122,19 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
 /* ===== ported dynamic style-strings (state-driven) =====
    These reproduce the prototype's navStyle()/tabStyle()/optStyle()/bubble strings verbatim. */
 
-.lp-nav{display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;border:1.5px solid transparent;border-radius:9px;background:transparent;color:var(--nav-ink);cursor:pointer;font:600 13.5px 'Space Grotesk';text-align:left;transition:background .12s ease,color .12s ease}
+.lp-nav{display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;border:1.5px solid transparent;border-radius:9px;background:transparent;color:var(--nav-ink);cursor:pointer;font:600 13.5px 'Space Grotesk';text-align:left;transition:background var(--motion-fast) var(--motion-ease),color var(--motion-fast) var(--motion-ease)}
 .lp-nav.active{border-color:var(--blue);background:var(--blue-soft);color:var(--blue-ink);font-weight:700}
 .lp-nav.active:hover{background:var(--blue-soft)}
 
 .lp-tab{flex:1;text-align:center;font:600 12px 'Space Grotesk';padding:9px 0;border-radius:8px;border:2px solid transparent;background:transparent;color:var(--muted);cursor:pointer}
-.lp-tab.active{font-weight:700;border-color:var(--border);background:var(--orange);color:#fff}
+.lp-tab.active{font-weight:700;border-color:var(--border);background:var(--orange);color:var(--on-signal)}
 
 .lp-opt{display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:2px solid var(--border);border-radius:11px;padding:12px 14px;background:var(--panel);color:var(--ink);cursor:pointer;font:600 14px 'Space Grotesk'}
 .lp-opt.correct{background:var(--green-soft);border-color:var(--green)}
 .lp-opt.wrong{background:var(--red-soft);border-color:var(--red)}
 .lp-opt.dim{opacity:.55}
 
-.lp-bubble-user{align-self:flex-end;max-width:78%;background:var(--orange);color:#fff;border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:14px;line-height:1.55;box-shadow:var(--shadow-soft)}
+.lp-bubble-user{align-self:flex-end;max-width:78%;background:var(--orange);color:var(--on-signal);border-radius:14px 14px 4px 14px;padding:10px 14px;font-size:14px;line-height:1.55;box-shadow:var(--shadow-soft)}
 .lp-bubble-ai{align-self:flex-start;max-width:82%;background:var(--panel);border:2px solid var(--line);border-radius:14px 14px 14px 4px;padding:12px 15px;font-size:14px;line-height:1.6;box-shadow:var(--shadow-soft)}
 .lp-caret{display:inline-block;width:7px;height:15px;background:var(--orange);margin-left:2px;vertical-align:-2px;animation:lpblink .8s steps(1) infinite}
 
@@ -108,6 +145,34 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
 /* beta.3: honor the OS "reduce motion" setting. Keep opacity/color feedback but
    drop transforms, looping animations, and long page transitions so nothing
    moves for users who asked for stillness. Input is never delayed. */
+/* ===== responsive: the review workspace (BUG-05 sibling, BUG-03) =====
+   The review row is 250px + (320px min) + 360px + 28px of gaps = ~958px, and it
+   sits inside .lp-main (overflow-x:hidden) beside a 224px sidebar, so below
+   ~1220px the right-hand "Transcript for selection" panel was clipped with NO
+   way to scroll to it -- unreachable content, not merely cramped.
+
+   Reflow rather than introduce a horizontal scrollbar: the three panels become
+   a single scrollable column, in reading order (slides, then the main pane,
+   then the transcript). Fixed track widths are released so nothing can overflow
+   again at any width. */
+@media (max-width:1220px){
+  .lp-review-row{flex-direction:column;overflow-y:auto;overflow-x:hidden}
+  /* !important is required, not lazy: the three panels carry their widths as
+     INLINE styles (width:250px / min-width:320px / width:360px) from the design
+     markup, and inline styles outrank class rules. Without it they stay at their
+     desktop widths while stacked. */
+  .lp-review-row > .lp-review-col{
+    width:auto !important;min-width:0 !important;flex:none !important}
+  /* give each stacked panel a workable height instead of collapsing to nothing */
+  .lp-review-row > .lp-review-col-slides{max-height:230px}
+  .lp-review-row > .lp-review-col-main{min-height:340px}
+  .lp-review-row > .lp-review-col-transcript{min-height:300px}
+}
+/* Very narrow: drop the horizontal padding that eats usable width. */
+@media (max-width:820px){
+  [data-screen]{padding-left:12px !important;padding-right:12px !important}
+}
+
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{
     animation-duration:.001ms !important;

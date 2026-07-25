@@ -280,8 +280,8 @@
       var b = document.createElement('button');
       b.textContent = a.label;
       var base = 'font:600 13px \'Space Grotesk\';border-radius:9px;padding:9px 16px;cursor:pointer;border:2px solid var(--border)';
-      b.style.cssText = a.danger ? base + ';background:var(--red);color:#fff;border-color:var(--red)'
-        : a.primary ? base + ';background:var(--orange);color:#fff;border-color:var(--orange-ink)'
+      b.style.cssText = a.danger ? base + ';background:var(--red-fill);color:var(--on-signal);border-color:var(--red)'
+        : a.primary ? base + ';background:var(--orange);color:var(--on-signal);border-color:var(--orange-ink)'
           : base + ';background:var(--panel);color:var(--ink)';
       b.addEventListener('click', function () { if (!(a.onClick && a.onClick())) close(); });
       row.appendChild(b);
@@ -296,6 +296,18 @@
     focusFirst(ov);
     return { close: close };
   }
+  /* Progress fills: drive them with transform:scaleX() rather than width, so a
+     per-frame progress tick stays on the compositor instead of forcing layout +
+     paint. The element must carry .lp-fill and width:100%; pct is 0-100.
+     One-shot bars (what's-new, CUDA pack, endpoint test) still animate width --
+     they run once, so the layout cost is irrelevant there. */
+  function setFill(el, pct) {
+    if (typeof el === 'string') el = $(el);
+    if (!el) return;
+    var p = Math.max(0, Math.min(100, parseFloat(pct) || 0));
+    el.style.transform = 'scaleX(' + (p / 100) + ')';
+  }
+
   var _toastT = null;
   function toast(msg) {
     var t = $('lp-toast');
@@ -504,7 +516,7 @@
     var m = lpModal({
       title: 'Downloading',
       bodyHtml: '<div style="font-weight:600;font-size:14px;margin-bottom:10px;word-break:break-word">' + esc(title || 'Fetching…') + '</div>' +
-        '<div style="height:9px;border-radius:6px;background:var(--sunk);overflow:hidden"><div id="link-bar" style="width:0%;height:100%;background:var(--orange);transition:width var(--motion-fast,.14s) linear"></div></div>' +
+        '<div style="height:9px;border-radius:6px;background:var(--sunk);overflow:hidden"><div id="link-bar" class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(0)"></div></div>' +
         '<div id="link-stat" role="status" style="font:500 11px \'JetBrains Mono\';color:var(--muted);margin-top:8px">starting…</div>',
       actions: [{ label: 'Cancel download', danger: true, onClick: function () {
         lpBridge.call('cancel_media_url');
@@ -516,7 +528,7 @@
   function onMediaProgress(p) {
     var bar = $('link-bar'), stat = $('link-stat');
     if (!bar || !stat) return;
-    bar.style.width = (p.pct || 0) + '%';
+    setFill(bar, p.pct || 0);
     var bits = [(p.pct || 0) + '%'];
     if (p.total) bits.push(fmtBytes(p.downloaded) + ' / ' + fmtBytes(p.total));
     else if (p.downloaded) bits.push(fmtBytes(p.downloaded));
@@ -874,7 +886,7 @@
     // does not exist, so the timeline must render at zero rather than throw --
     // a throw here aborted the whole renderWorkspace() pass.
     var at = LP.data.slides[v];
-    $('timeline-progress').style.width = (at ? at.pct : 0) + '%';
+    setFill('timeline-progress', at ? at.pct : 0);
     $('timeline-meta').textContent = LP.data.slides.length
       ? LP.data.slides.length + ' slides · ' + (LP.data.duration || '')
       : 'No slides yet';
@@ -962,7 +974,7 @@
     return '<div style="display:flex;flex-wrap:wrap;gap:6px">' + opts.map(function (o) {
       var on = String(o) === String(cur);
       return '<button data-qset="' + name + '" data-qval="' + esc(o) + '" style="font:600 12px \'JetBrains Mono\';padding:6px 11px;border-radius:8px;cursor:pointer;border:1.5px solid ' +
-        (on ? 'var(--orange)' : 'var(--border)') + ';background:' + (on ? 'var(--orange)' : 'var(--panel)') + ';color:' + (on ? '#fff' : 'var(--ink)') + '">' + esc(o) + '</button>';
+        (on ? 'var(--orange)' : 'var(--border)') + ';background:' + (on ? 'var(--orange)' : 'var(--panel)') + ';color:' + (on ? 'var(--on-signal)' : 'var(--ink)') + '">' + esc(o) + '</button>';
     }).join('') + '</div>';
   }
   function _qField(label, html) {
@@ -1017,7 +1029,7 @@
         _qField('Type', _seg('type', ['Multiple choice', 'True / false', 'Mixed'], s.type)) +
         _qField('Source', _seg('source', ['Transcript', 'Slides', 'Both'], s.source)) +
         '<div style="display:flex;gap:10px;margin-top:8px">' +
-        '<button data-qact="generate" style="font:700 14px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:10px;padding:11px 22px;cursor:pointer">Generate quiz</button>' +
+        '<button data-qact="generate" style="font:700 14px \'Space Grotesk\';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:10px;padding:11px 22px;cursor:pointer">Generate quiz</button>' +
         (qs.length ? '<button data-qact="resume" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:10px;padding:11px 18px;cursor:pointer;color:var(--ink)">Resume last</button>' : '') +
         '</div>' +
         '<div style="font-size:12px;color:var(--muted);margin-top:14px">Difficulty/type/source are recorded with the quiz; question count is applied now. Falls back to a built-in quiz if local AI is off.</div>';
@@ -1061,7 +1073,7 @@
       '<div style="display:flex;flex-direction:column;gap:9px">' + opts + '</div>' + reveal +
       '<div style="display:flex;align-items:center;gap:10px;margin-top:18px">' +
       '<button data-qact="prev"' + (i === 0 ? ' disabled' : '') + ' style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:9px 15px;cursor:pointer;color:var(--ink);opacity:' + (i === 0 ? '.5' : '1') + '">Prev</button>' +
-      (answered ? '' : '<button data-qact="submit"' + (q.pick == null ? ' disabled' : '') + ' style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:9px 17px;cursor:pointer;opacity:' + (q.pick == null ? '.5' : '1') + '">Submit</button>') +
+      (answered ? '' : '<button data-qact="submit"' + (q.pick == null ? ' disabled' : '') + ' style="font:700 13px \'Space Grotesk\';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 17px;cursor:pointer;opacity:' + (q.pick == null ? '.5' : '1') + '">Submit</button>') +
       '<label style="display:flex;align-items:center;gap:6px;font:500 11px \'JetBrains Mono\';color:var(--muted);cursor:pointer;margin-left:auto"><input type="checkbox" data-qact="auto"' + (q.autoAdvance ? ' checked' : '') + '>auto-advance</label>' +
       (last ? '<button data-qact="finish" style="font:700 13px \'Space Grotesk\';background:var(--secondary-surface);color:var(--secondary-text);border:2px solid var(--secondary-border);border-radius:9px;padding:9px 17px;cursor:pointer">Finish</button>'
         : '<button data-qact="next"' + (answered ? '' : ' disabled') + ' style="font:700 13px \'Space Grotesk\';background:var(--secondary-surface);color:var(--secondary-text);border:2px solid var(--secondary-border);border-radius:9px;padding:9px 17px;cursor:pointer;opacity:' + (answered ? '1' : '.5') + '">Next</button>') +
@@ -1082,7 +1094,7 @@
           '<span>' + esc(it.question) + (q.flags[i] ? ' <span style="color:var(--yellow)">⚑</span>' : '') + '</span></div>';
       }).join('') + '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:10px">' +
-      (wrong.length ? '<button data-qact="retry-wrong" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Retry incorrect (' + wrong.length + ')</button>' : '') +
+      (wrong.length ? '<button data-qact="retry-wrong" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Retry incorrect (' + wrong.length + ')</button>' : '') +
       '<button data-qact="restart" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Restart</button>' +
       '<button data-qact="copy" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Copy</button>' +
       '<button data-qact="newquiz" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">New quiz settings</button>' +
@@ -1165,7 +1177,7 @@
         _qField('Depth', _fSeg('difficulty', ['Basic', 'Detailed', 'Exam-focused'], s.difficulty)) +
         _qField('Style', _fSeg('style', ['Term → definition', 'Question → answer', 'Concept → explanation', 'Mixed'], s.style)) +
         '<div style="display:flex;gap:10px;margin-top:8px">' +
-        '<button data-fact="generate" style="font:700 14px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:10px;padding:11px 22px;cursor:pointer">Generate flashcards</button>' +
+        '<button data-fact="generate" style="font:700 14px \'Space Grotesk\';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:10px;padding:11px 22px;cursor:pointer">Generate flashcards</button>' +
         (cards.length ? '<button data-fact="resume" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:10px;padding:11px 18px;cursor:pointer;color:var(--ink)">Resume last</button>' : '') +
         '</div>';
       return;
@@ -1178,7 +1190,7 @@
     return '<div style="display:flex;flex-wrap:wrap;gap:6px">' + opts.map(function (o) {
       var on = String(o) === String(cur);
       return '<button data-fset="' + name + '" data-fval="' + esc(o) + '" style="font:600 12px \'JetBrains Mono\';padding:6px 11px;border-radius:8px;cursor:pointer;border:1.5px solid ' +
-        (on ? 'var(--orange)' : 'var(--border)') + ';background:' + (on ? 'var(--orange)' : 'var(--panel)') + ';color:' + (on ? '#fff' : 'var(--ink)') + '">' + esc(o) + '</button>';
+        (on ? 'var(--orange)' : 'var(--border)') + ';background:' + (on ? 'var(--orange)' : 'var(--panel)') + ';color:' + (on ? 'var(--on-signal)' : 'var(--ink)') + '">' + esc(o) + '</button>';
     }).join('') + '</div>';
   }
 
@@ -1197,7 +1209,7 @@
       '<span style="font-weight:700;font-size:18px;line-height:1.4">' + esc(f.flipped ? c.definition : c.term) + '</span>' +
       '<span style="font:500 11px \'JetBrains Mono\';color:var(--muted);margin-top:16px">tap or Space to flip</span></div>' +
       '<div style="display:flex;gap:8px;margin-top:14px;justify-content:center">' +
-      '<button data-fact="known" style="font:700 12px \'Space Grotesk\';background:' + (marked === 'known' ? 'var(--green)' : 'var(--green-soft)') + ';color:' + (marked === 'known' ? '#fff' : 'var(--green)') + ';border:2px solid var(--green);border-radius:9px;padding:9px 15px;cursor:pointer">Known</button>' +
+      '<button data-fact="known" style="font:700 12px \'Space Grotesk\';background:' + (marked === 'known' ? 'var(--green-fill)' : 'var(--green-soft)') + ';color:' + (marked === 'known' ? 'var(--on-signal)' : 'var(--green)') + ';border:2px solid var(--green);border-radius:9px;padding:9px 15px;cursor:pointer">Known</button>' +
       '<button data-fact="unsure" style="font:700 12px \'Space Grotesk\';background:' + (marked === 'unsure' ? 'var(--yellow)' : 'var(--yellow-soft)') + ';color:var(--ink);border:2px solid var(--yellow);border-radius:9px;padding:9px 15px;cursor:pointer">Unsure</button>' +
       '<button data-fact="bookmark" title="Bookmark" style="font:700 12px \'Space Grotesk\';background:' + (bm ? 'var(--orange-soft)' : 'var(--panel)') + ';color:var(--ink);border:2px solid ' + (bm ? 'var(--orange)' : 'var(--border)') + ';border-radius:9px;padding:9px 13px;cursor:pointer">☆</button>' +
       '</div>' +
@@ -1223,7 +1235,7 @@
       '<div style="flex:1;background:var(--panel);border:2px solid var(--border);border-radius:12px;padding:16px;text-align:center"><div style="font-size:26px;font-weight:800">' + cards.length + '</div><div style="font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted)">Total</div></div>' +
       '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:10px">' +
-      (unsure ? '<button data-fact="retry-unsure" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Review unsure (' + unsure + ')</button>' : '') +
+      (unsure ? '<button data-fact="retry-unsure" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Review unsure (' + unsure + ')</button>' : '') +
       '<button data-fact="restart" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Restart</button>' +
       '<button data-fact="copy" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Copy</button>' +
       '<button data-fact="newdeck" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">New settings</button>' +
@@ -1406,7 +1418,7 @@
     $('proc-status-meta').textContent = '';
     $('status-label').textContent = 'Idle';
     $('status-pct').textContent = '';
-    $('status-bar').style.width = '0%';
+    setFill('status-bar', 0);
     var w = $('storage-widget');
     if (w) w.hidden = true;
   }
@@ -2305,7 +2317,7 @@
     lpBridge.on('status_changed', function (json) {
       var s = JSON.parse(json);
       if (s.label !== undefined) $('status-label').textContent = s.label;
-      if (s.pct !== undefined) { $('status-bar').style.width = s.pct + '%'; }
+      if (s.pct !== undefined) setFill('status-bar', s.pct);
       if (s.detail !== undefined) $('status-pct').textContent = s.detail;
       if (s.right !== undefined) $('status-right').textContent = s.right;
       if (s.job !== undefined && LP.state.jobId) {
@@ -2377,7 +2389,7 @@
     lpBridge.on('export_progress', function (json) {
       var p = JSON.parse(json);
       LP.state.exportPhase = 'running'; renderExportPhase();
-      $('export-progress-bar').style.width = (p.pct || 0) + '%';
+      setFill('export-progress-bar', p.pct || 0);
       $('export-progress-label').textContent = p.label || '';
     });
     lpBridge.on('export_done', function (json) {

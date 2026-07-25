@@ -30,7 +30,7 @@
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path id="theme-icon" d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><span id="theme-label">LIGHT</span>
     </button>
     <button id="btn-save" class="lp-hit" style="font:600 13.5px 'Space Grotesk';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:9px;padding:9px 15px;cursor:pointer">Save</button>
-    <button id="btn-export-top" class="lp-hit" style="display:flex;align-items:center;gap:8px;font:600 13.5px 'Space Grotesk';background:var(--orange);color:#fff;border:1.5px solid var(--orange-ink);border-radius:9px;padding:9px 17px;cursor:pointer;box-shadow:var(--shadow-soft)">
+    <button id="btn-export-top" class="lp-hit" style="display:flex;align-items:center;gap:8px;font:600 13.5px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:9px;padding:9px 17px;cursor:pointer;box-shadow:var(--shadow-soft)">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>Export
     </button>
   </header>
@@ -71,7 +71,7 @@
       <!-- ===== HOME ===== -->
       <section data-screen="home" style="padding:36px 44px 52px;max-width:1140px;animation:lpin .3s ease">
         <div style="font:500 11px 'JetBrains Mono';letter-spacing:.16em;text-transform:uppercase;color:var(--orange-ink);margin-bottom:12px">Local · Private · No account</div>
-        <h1 style="font-size:40px;font-weight:700;letter-spacing:-.025em;line-height:1.2;margin:0 0 12px;max-width:680px;text-wrap:balance">Turn lecture recordings into <span style="background:var(--orange);color:#fff;padding:2px 11px;border-radius:9px;box-shadow:var(--shadow-soft);display:inline-block;line-height:1.4;vertical-align:middle">study packs</span>.</h1>
+        <h1 style="font-size:40px;font-weight:700;letter-spacing:-.025em;line-height:1.2;margin:0 0 12px;max-width:680px;text-wrap:balance">Turn lecture recordings into <span style="background:var(--orange);color:var(--on-signal);padding:2px 11px;border-radius:9px;box-shadow:var(--shadow-soft);display:inline-block;line-height:1.4;vertical-align:middle">study packs</span>.</h1>
         <p style="font-size:16px;color:var(--muted);margin:0 0 30px;max-width:540px;line-height:1.55">Slides, transcripts and a study workspace — captured and exported beautifully, entirely on your machine.</p>
 
         <div id="dropzone" class="lp-card" style="display:flex;align-items:center;gap:22px;background:var(--panel);border:2px solid var(--border);border-radius:16px;padding:24px 26px;box-shadow:var(--shadow-soft);margin-bottom:40px;position:relative;overflow:hidden;cursor:pointer">
@@ -80,7 +80,7 @@
           <div style="flex:1"><div style="font-weight:700;font-size:18px;margin-bottom:3px">Drop a lecture video anywhere</div><div style="font:500 12px 'JetBrains Mono';color:var(--muted)">.mp4 · .mkv · .mov · .m4v · .webm — any length</div></div>
           <div style="display:flex;gap:10px;align-items:center;flex:none">
             <button id="btn-paste-link" class="lp-hit" hidden style="font:600 15px 'Space Grotesk';background:var(--panel);color:var(--ink);border:1.5px solid var(--border);border-radius:11px;padding:12px 18px;cursor:pointer;display:flex;align-items:center;gap:8px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Paste a link</button>
-            <button id="btn-browse" class="lp-hit" style="font:600 15px 'Space Grotesk';background:var(--orange);color:#fff;border:1.5px solid var(--orange-ink);border-radius:11px;padding:12px 22px;box-shadow:var(--shadow-soft);cursor:pointer">Browse for video</button>
+            <button id="btn-browse" class="lp-hit" style="font:600 15px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:11px;padding:12px 22px;box-shadow:var(--shadow-soft);cursor:pointer">Browse for video</button>
           </div>
         </div>
 
@@ -203,25 +203,25 @@
               <div id="scrub-needle" style="position:absolute;top:-3px;bottom:-3px;left:0%;width:2px;background:var(--orange);transform:translateX(-50%);pointer-events:none;z-index:5;box-shadow:0 0 8px var(--orange)"></div>
             </div>
             <div style="position:absolute;top:11px;left:0;right:0;height:4px;border-radius:3px;background:var(--sunk)"></div>
-            <div id="timeline-progress" style="position:absolute;top:11px;left:0;width:11.6%;height:4px;border-radius:3px;background:var(--blue)"></div>
+            <div id="timeline-progress" class="lp-fill" style="position:absolute;top:11px;left:0;width:100%;height:4px;border-radius:3px;background:var(--blue);transform:scaleX(0)"></div>
             <div id="timeline-ticks"></div>
           </div>
           <div style="display:flex;justify-content:space-between;font:500 10px 'JetBrains Mono';color:var(--muted);margin-top:5px"><span>00:00</span><span id="timeline-mid">03:06</span><span id="timeline-end">06:12</span></div>
         </div>
 
-        <div style="flex:1;display:flex;gap:14px;min-height:0">
+        <div class="lp-review-row" style="flex:1;display:flex;gap:14px;min-height:0">
           <!-- slide list -->
-          <div style="width:250px;flex:none;display:flex;flex-direction:column;min-height:0">
+          <div class="lp-review-col lp-review-col-slides" style="width:250px;flex:none;display:flex;flex-direction:column;min-height:0">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span style="font-weight:700;font-size:14px">Slides <span id="slides-sel" style="color:var(--blue-ink);font:500 12px 'JetBrains Mono'">· 2 sel</span></span><div style="display:flex;border:2px solid var(--border);border-radius:8px;overflow:hidden"><span style="font:500 11px 'JetBrains Mono';padding:5px 9px;background:var(--secondary-surface);color:var(--secondary-text)">Grid</span><span style="font:500 11px 'JetBrains Mono';padding:5px 9px;color:var(--muted)">List</span></div></div>
             <div id="slide-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:9px;padding-right:4px"></div>
             <div style="display:flex;gap:7px;margin-top:11px">
-              <button id="btn-keep" class="lp-hit" style="flex:1;font:700 13px 'Space Grotesk';background:var(--green);color:#fff;border:1.5px solid var(--green);border-radius:9px;padding:9px 0;cursor:pointer;box-shadow:var(--shadow-soft)">Keep</button>
+              <button id="btn-keep" class="lp-hit" style="flex:1;font:700 13px 'Space Grotesk';background:var(--green-fill);color:var(--on-signal);border:1.5px solid var(--green);border-radius:9px;padding:9px 0;cursor:pointer;box-shadow:var(--shadow-soft)">Keep</button>
               <button id="btn-reject" class="lp-hit" style="flex:1;font:700 13px 'Space Grotesk';background:var(--panel);color:var(--red);border:1.5px solid var(--red);border-radius:9px;padding:9px 0;cursor:pointer">Reject</button>
             </div>
           </div>
 
           <!-- preview -->
-          <div style="flex:1;min-width:320px;display:flex;flex-direction:column;gap:12px">
+          <div class="lp-review-col lp-review-col-main" style="flex:1;min-width:320px;display:flex;flex-direction:column;gap:12px">
             <div style="flex:1;background:var(--sunk);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:0">
               <div id="slide-frame" style="width:100%;height:100%;box-sizing:border-box;padding:16px;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></div>
             </div>
@@ -233,12 +233,12 @@
           </div>
 
           <!-- transcript -->
-          <div style="width:360px;flex:none;display:flex;flex-direction:column;min-height:0">
+          <div class="lp-review-col lp-review-col-transcript" style="width:360px;flex:none;display:flex;flex-direction:column;min-height:0">
             <div style="font-weight:700;font-size:14px;margin-bottom:9px">Transcript for selection</div>
             <div style="display:flex;gap:7px;margin-bottom:9px"><div style="flex:1;display:flex;align-items:center;gap:7px;background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:0 10px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input id="review-search" placeholder="Search…" style="flex:1;border:none;background:transparent;font:500 12px 'JetBrains Mono';padding:8px 0;color:var(--ink);outline:none"></div><button class="lp-hit" style="font:500 11px 'JetBrains Mono';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:0 11px;cursor:pointer;color:var(--ink)">Next</button></div>
             <div id="review-transcript" style="flex:1;overflow-y:auto;border:2px solid var(--border);border-radius:12px;box-shadow:var(--shadow-soft);background:var(--panel)"></div>
             <div style="display:flex;gap:8px;margin-top:11px">
-              <button id="btn-save-corrections" class="lp-hit" style="flex:1;font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:1.5px solid var(--orange-ink);border-radius:9px;padding:10px 0;cursor:pointer;box-shadow:var(--shadow-soft)">Save corrections</button>
+              <button id="btn-save-corrections" class="lp-hit" style="flex:1;font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:9px;padding:10px 0;cursor:pointer;box-shadow:var(--shadow-soft)">Save corrections</button>
               <button id="btn-repair" class="lp-hit" style="flex:none;display:flex;align-items:center;gap:7px;font:600 13px 'Space Grotesk';background:var(--blue-tint);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:9px;padding:10px 13px;cursor:pointer"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/></svg>Repair</button>
             </div>
           </div>
@@ -299,14 +299,14 @@
                 <div id="ss-rec-text" style="font:600 12px 'JetBrains Mono';color:var(--secondary-text);margin-bottom:10px">Recommended for this computer: Balanced Study · approximately 2.5 GB</div>
                 <div id="ss-preset-seg" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px"></div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap">
-                  <button id="btn-ss-install" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer;box-shadow:var(--shadow-soft)">Install Smart Study</button>
+                  <button id="btn-ss-install" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer;box-shadow:var(--shadow-soft)">Install Smart Study</button>
                   <button id="btn-ss-continue2" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;color:var(--ink)">Continue with Built-in Study</button>
                 </div>
               </div>
               <div id="ss-need-engine" hidden style="margin-top:14px">
                 <div id="ss-need-msg" style="font-size:13px;color:var(--ink);line-height:1.5;margin-bottom:11px">Smart Study needs the free Local AI Engine (Ollama). Install it, then return here.</div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap">
-                  <button id="btn-ss-install-engine" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer;box-shadow:var(--shadow-soft)">Install Local AI Engine</button>
+                  <button id="btn-ss-install-engine" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer;box-shadow:var(--shadow-soft)">Install Local AI Engine</button>
                   <button id="btn-ss-recheck" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;color:var(--ink)">I've installed it — re-check</button>
                 </div>
               </div>
@@ -338,7 +338,7 @@
               <div id="chat-feed" style="flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:13px;background:var(--sunk)"></div>
               <div style="display:flex;gap:9px;padding:13px 16px;border-top:2px solid var(--line)">
                 <input id="chat-input" placeholder="Ask about this lecture…" style="flex:1;font:500 14px 'Space Grotesk';background:var(--sunk);border:2px solid var(--border);border-radius:9px;padding:10px 13px;color:var(--ink)">
-                <button id="btn-send" class="lp-hit" style="font:700 14px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer;box-shadow:var(--shadow-soft)">Send</button>
+                <button id="btn-send" class="lp-hit" style="font:700 14px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer;box-shadow:var(--shadow-soft)">Send</button>
               </div>
               </div>
 
@@ -384,7 +384,7 @@
         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-bottom:26px">
           <div class="lp-card" style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px;display:flex;gap:15px;align-items:flex-start">
             <div style="width:46px;height:46px;flex:none;background:var(--orange-soft);border-radius:11px;display:flex;align-items:center;justify-content:center"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="var(--orange-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg></div>
-            <div style="flex:1"><div style="font-weight:700;font-size:16px;margin-bottom:3px">Slides PDF</div><div id="export-pdf-desc" style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px">14 accepted slides, one per page, full resolution.</div><button id="btn-export-pdf" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:1.5px solid var(--orange-ink);border-radius:8px;padding:8px 16px;cursor:pointer;box-shadow:var(--shadow-soft)">Export PDF</button></div>
+            <div style="flex:1"><div style="font-weight:700;font-size:16px;margin-bottom:3px">Slides PDF</div><div id="export-pdf-desc" style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px">14 accepted slides, one per page, full resolution.</div><button id="btn-export-pdf" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:8px;padding:8px 16px;cursor:pointer;box-shadow:var(--shadow-soft)">Export PDF</button></div>
           </div>
           <div class="lp-card" style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px;display:flex;gap:15px;align-items:flex-start">
             <div style="width:46px;height:46px;flex:none;background:var(--blue-soft);border-radius:11px;display:flex;align-items:center;justify-content:center"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="var(--blue-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M4 9h16M8 5v14"/></svg></div>
@@ -398,13 +398,13 @@
         <div id="export-idle">
         <div style="display:flex;align-items:center;justify-content:space-between;background:var(--blue-tint);border:2px solid var(--blue);border-radius:13px;box-shadow:var(--shadow-soft);padding:18px 22px">
           <div><div style="font-weight:700;font-size:16px;color:var(--blue-ink)">Export everything</div><div id="export-all-desc" style="font:500 12px 'JetBrains Mono';color:var(--blue-ink);opacity:.75">PDF + HTML + 3 transcript formats</div></div>
-          <button id="btn-export-all" class="lp-hit" style="display:flex;align-items:center;gap:9px;font:700 15px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:10px;padding:12px 24px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.22)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>Export all</button>
+          <button id="btn-export-all" class="lp-hit" style="display:flex;align-items:center;gap:9px;font:700 15px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:10px;padding:12px 24px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.22)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>Export all</button>
         </div>
         </div>
         <div id="export-running" hidden>
         <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:18px 22px">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:13px"><span style="width:11px;height:11px;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span><span style="font-weight:700;font-size:16px">Exporting…</span><div style="flex:1"></div><span id="export-progress-label" style="font:500 12px 'JetBrains Mono';color:var(--muted)">3 of 5 · rendering slides PDF</span></div>
-          <div style="height:10px;border-radius:6px;background:var(--sunk);overflow:hidden"><div id="export-progress-bar" style="width:60%;height:100%;background:var(--orange);background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.32) 6px,rgba(255,255,255,.32) 13px);animation:lpbar 1s linear infinite"></div></div>
+          <div style="height:10px;border-radius:6px;background:var(--sunk);overflow:hidden"><div id="export-progress-bar" class="lp-fill" style="transform:scaleX(0);width:100%;height:100%;background:var(--orange);background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.32) 6px,rgba(255,255,255,.32) 13px);animation:lpbar 1s linear infinite"></div></div>
         </div>
         </div>
         <div id="export-done" hidden>
@@ -414,7 +414,7 @@
             <div style="flex:1"><div style="font-weight:700;font-size:16px">Export complete</div><div id="export-done-meta" style="font:500 12px 'JetBrains Mono';color:var(--muted)">5 files · 42.6 MB · 3.2s</div></div>
             <div style="display:flex;gap:9px">
               <button id="btn-open-folder" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:9px;padding:9px 15px;cursor:pointer">Open folder</button>
-              <button id="btn-export-again" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--green);color:#fff;border:2px solid var(--green);border-radius:9px;padding:9px 15px;cursor:pointer;box-shadow:var(--shadow-soft)">Export again</button>
+              <button id="btn-export-again" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--green-fill);color:var(--on-signal);border:2px solid var(--green);border-radius:9px;padding:9px 15px;cursor:pointer;box-shadow:var(--shadow-soft)">Export again</button>
             </div>
           </div>
           <div id="export-files" style="display:flex;flex-wrap:wrap;gap:7px"></div>
@@ -441,7 +441,7 @@
             <div id="cuda-pack" hidden style="margin-top:12px;border-top:2px solid var(--line);padding-top:12px">
               <div id="cuda-pack-msg" style="font-size:13px;color:var(--ink);line-height:1.5;margin-bottom:10px">NVIDIA GPU detected. Install optional CUDA acceleration for faster transcription.</div>
               <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-                <button id="btn-cuda-pack-install" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;box-shadow:var(--shadow-soft)">Install CUDA acceleration</button>
+                <button id="btn-cuda-pack-install" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;box-shadow:var(--shadow-soft)">Install CUDA acceleration</button>
                 <span id="cuda-pack-note" style="font:500 11px 'JetBrains Mono';color:var(--muted)"></span>
               </div>
               <div id="cuda-pack-progress" hidden style="margin-top:11px">
@@ -456,7 +456,7 @@
             <div id="ss-settings-rec" style="font:600 12px 'JetBrains Mono';color:var(--secondary-text);margin-bottom:9px"></div>
             <div id="ss-settings-seg" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:11px"></div>
             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px">
-              <button id="btn-ss-setup" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;box-shadow:var(--shadow-soft)">Set up Smart Study</button>
+              <button id="btn-ss-setup" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;box-shadow:var(--shadow-soft)">Set up Smart Study</button>
               <span id="ss-settings-msg" style="align-self:center;font:500 12px 'JetBrains Mono';color:var(--muted)"></span>
             </div>
             <details style="margin-top:8px">
@@ -525,14 +525,14 @@
   <!-- ===== STATUS BAR ===== -->
   <footer class="lp-chrome" style="display:flex;align-items:center;gap:15px;padding:0 18px;height:34px;flex:none;background:var(--panel);border-top:2px solid var(--border);position:relative;z-index:5">
     <span id="status-chip" style="display:flex;align-items:center;gap:7px;font:600 11px 'JetBrains Mono';text-transform:uppercase;color:var(--muted)"><span id="status-dot" style="width:7px;height:7px;border-radius:50%;background:var(--muted)"></span><span id="status-label">Idle</span></span>
-    <div style="width:200px;height:7px;border-radius:5px;overflow:hidden;background:var(--sunk)"><div id="status-bar" style="width:0%;height:100%;background:var(--orange)"></div></div>
+    <div style="width:200px;height:7px;border-radius:5px;overflow:hidden;background:var(--sunk)"><div id="status-bar" class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(0)"></div></div>
     <span id="status-pct" style="font:500 11px 'JetBrains Mono';color:var(--muted)"></span>
     <div style="flex:1"></div>
     <span id="status-right" style="font:500 11px 'JetBrains Mono';color:var(--muted)">whisper.cpp · CPU AVX2 · ggml-base.en.bin</span>
   </footer>
 
   <!-- focus exit pill -->
-  <button id="focus-pill" hidden style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;font:700 12px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:22px;padding:9px 18px;cursor:pointer;box-shadow:var(--shadow-hi)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>Exit focus · Esc</button>
+  <button id="focus-pill" hidden style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;font:700 12px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:22px;padding:9px 18px;cursor:pointer;box-shadow:var(--shadow-hi)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>Exit focus · Esc</button>
 
   <!-- ===== NEW JOB OVERLAY ===== -->
   <div id="onb-overlay" hidden role="dialog" aria-modal="true" style="position:fixed;inset:0;z-index:50;background:rgba(8,10,14,.62);display:flex;align-items:center;justify-content:center;padding:32px;animation:lpin .2s ease">
@@ -550,7 +550,7 @@
         </div>
         <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end">
           <button class="lp-hit" data-onb-close style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;color:var(--ink)">Cancel</button>
-          <button id="btn-onb-sample" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer;box-shadow:var(--shadow-soft)">Use a sample video</button>
+          <button id="btn-onb-sample" class="lp-hit" style="font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer;box-shadow:var(--shadow-soft)">Use a sample video</button>
         </div>
       </div>
       </div>
@@ -569,7 +569,7 @@
         </div>
         <div style="display:flex;gap:10px;justify-content:flex-end">
           <button class="lp-hit" data-onb-close style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;color:var(--ink)">Cancel</button>
-          <button id="btn-start-processing" class="lp-hit" style="display:flex;align-items:center;gap:8px;font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 20px;cursor:pointer;box-shadow:var(--shadow-soft)"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 4.5l12 7.5-12 7.5z"/></svg>Start processing</button>
+          <button id="btn-start-processing" class="lp-hit" style="display:flex;align-items:center;gap:8px;font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 20px;cursor:pointer;box-shadow:var(--shadow-soft)"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 4.5l12 7.5-12 7.5z"/></svg>Start processing</button>
         </div>
       </div>
       </div>
@@ -610,7 +610,7 @@
           <div style="flex:1"></div>
           <button id="btn-update-github" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 14px;cursor:pointer;color:var(--ink)">View on GitHub</button>
           <button id="btn-update-later" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;color:var(--ink)">Remind me later</button>
-          <button id="btn-update-install" class="lp-hit" style="display:flex;align-items:center;gap:8px;font:700 13px 'Space Grotesk';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 20px;cursor:pointer;box-shadow:var(--shadow-soft)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>Download and Install</button>
+          <button id="btn-update-install" class="lp-hit" style="display:flex;align-items:center;gap:8px;font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 20px;cursor:pointer;box-shadow:var(--shadow-soft)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>Download and Install</button>
         </div>
       </div>
     </div>

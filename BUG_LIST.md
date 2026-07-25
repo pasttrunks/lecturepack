@@ -38,42 +38,7 @@ re-debug the same thing from scratch.
 
 *(newest first)*
 
-### BUG-03 — Review screen's fixed 3-column layout is unreachable below 1280px   🔴 OPEN
-- **Area:** UI / responsive layout (`app/ui/app.css`, review screen)
-- **Reported / found:** 2026-07-25, UI/UX audit agent (static DOM measurement over
-  `app/ui/` served locally). Build: source tree at `b288418` (same markup as 0.9.0-beta.3).
-- **Symptom:** At 1024×768 and at 768px width the review screen's columns
-  (`250px` + `320px` min + `360px`) exceed the width of `.lp-main`, which sets
-  `overflow-x:hidden`. The entire "Transcript for selection" panel is clipped off-screen
-  with **no way to scroll to it** — the content is unreachable, not merely cramped.
-- **Root cause:** `app/ui/app.css` contains **zero** `@media` breakpoints, so the review
-  grid's fixed track widths never reflow; combined with `overflow-x:hidden` on the parent
-  the overflow is silently swallowed instead of producing a scrollbar.
-- **Attempts:** none yet — deliberately not auto-fixed. Choosing a breakpoint strategy for
-  a 3-column review surface is a design decision (§11 anti-slop gate, T2: new
-  surface/tokens), so it is queued for the owner's input rather than guessed at.
-- **Current fix:** none in tree.
-- **Verification:** N/A (open). Measured, not fixed.
-- **Files:** `app/ui/app.css`, `app/ui/index.html` (review screen).
-- **Refs:** `docs/UI_UX_AUDIT_BETA3.md` defect 3.
-
-### BUG-05 — Primary orange CTA fails WCAG AA contrast (2.82:1)   🔴 OPEN
-- **Area:** UI / accessibility, design tokens
-- **Reported / found:** 2026-07-25, UI/UX audit agent (computed contrast ratio).
-  Build: source at `b288418` (same tokens as 0.9.0-beta.3).
-- **Symptom:** Primary CTA buttons (Export, Browse for video) render **white text on the
-  orange fill at a measured 2.82:1** — below the 4.5:1 AA floor for normal text and below
-  3:1 even treated as large/bold text.
-- **Root cause:** the `--orange` token was chosen for brand presence, not text contrast;
-  white is used as the on-orange foreground throughout.
-- **Attempts:** none yet — fixing this changes a **brand token** that propagates across
-  every primary control, so it needs the owner's call (darken `--orange` for fills, vs.
-  switch the on-orange foreground to a dark ink, vs. a token split of brand-orange for
-  decoration and a darker orange for text-bearing surfaces).
-- **Current fix:** none in tree.
-- **Verification:** N/A (open).
-- **Files:** `app/ui/app.css` (`--orange`, `--orange-ink`).
-- **Refs:** `docs/UI_UX_AUDIT_BETA3.md` defect 4.
+*None open.*
 
 ## DEFERRED (known, accepted for now)
 
@@ -96,6 +61,69 @@ re-debug the same thing from scratch.
 - **Files:** `app/ui/app.js:57-63`.
 
 ## FIXED
+
+### BUG-05 — White text on saturated fills failed WCAG AA (systemic)   ✅ FIXED (verified)
+- **Area:** UI / accessibility, design tokens (`app/ui/app.css`)
+- **Reported / found:** 2026-07-25, UI/UX audit agent reported the orange CTA at 2.82:1.
+  Build: source at `b288418` (same tokens as shipped 0.9.0-beta.3).
+- **Symptom:** white text on the orange fill measured 2.82:1 — below the 4.5:1 AA floor and
+  below 3:1 even as large text.
+- **Wider than reported.** Computing every signal fill showed the audit found one instance
+  of a systemic fault. White text failed on **five** fills, not one:
+  orange 3.41 light / **2.82 dark**, red 4.67 / **2.75**, green 4.39 / **2.06**,
+  blue **2.45** / 1.31, yellow **2.57** / 1.67. The 2.82 figure was the DARK theme.
+- **Root cause:** `#fff` was the default foreground for every filled control, chosen for
+  brand presence rather than contrast. It reached the DOM three different ways — inline
+  styles, two CSS classes (`.lp-tab.active`, `.lp-bubble-user`), and ternaries in `app.js`
+  that emit `'#fff'` only in the selected state. A single-pattern sweep missed the last two.
+- **Attempts:** 1) darken `--orange` and keep white text → **rejected**: dilutes the brand
+  colour and needs a different darkening per fill. 2) Retune `--green`/`--red` → **rejected
+  after checking usage**: both are also TEXT colours on soft backgrounds (badges), so
+  retuning them would have broken the badges. 3) Near-black ink on the fills plus separate
+  `*-fill` tokens only where a fill carries text → **worked**, changes no existing value,
+  and is truer to the refined-neobrutalist voice than white-on-colour.
+- **Current fix:** `--on-signal` (`#1C1A16` light / `#131519` dark) is the foreground for
+  every text-bearing fill; `--green-fill` / `--red-fill` exist so the shared `--green` /
+  `--red` text tokens stay untouched. 24 call sites recoloured across `index.html`,
+  `app.js` and `app.css`. Computed ratios: orange 5.09/6.48, red 4.96/6.65,
+  green 5.91/8.87, blue 7.09/14.00, yellow 6.77/10.96 — all AA-normal in both themes.
+- **Verification:** a browser sweep of EVERY element with text on an opaque background,
+  weight/size-aware (AA-large only where genuinely large), in both themes:
+  **dark theme 0 failures** (was 2.82 worst-case). Tests recompute the ratios from the
+  shipped token values, so a future palette tweak that breaks AA fails the suite.
+- **Remaining (pre-existing, not caused by this fix):** three light-theme near-misses on
+  SOFT backgrounds at 10-12px — `Done` badge 3.62, `Running` 4.02, muted meta 4.35 (light
+  `--muted` on `--panel` is 3.84). These are AA-large-only. Fixing them means darkening
+  `--muted` and the badge inks, which shifts a lot of surface, so it is left for an owner
+  decision rather than changed unilaterally (`app.css` is marked "do not improve values").
+- **Files:** `app/ui/app.css`, `app/ui/index.html`, `app/ui/app.js`.
+- **Refs:** `docs/UI_UX_AUDIT_BETA3.md` defect 4.
+
+### BUG-03 — Review screen's 3-column layout unreachable below ~1220px   ✅ FIXED (verified)
+- **Area:** UI / responsive layout (`app/ui/app.css`, review screen)
+- **Reported / found:** 2026-07-25, UI/UX audit agent. Build: source at `b288418`.
+- **Symptom:** the review row is `250px` + `min-width:320px` + `360px` + 28px of gaps
+  = ~958px, inside `.lp-main` (`overflow-x:hidden`) beside a 224px sidebar — so below
+  ~1220px the "Transcript for selection" panel was clipped with **no way to scroll to
+  it**. Unreachable content, not merely cramped.
+- **Root cause:** `app.css` had **zero** `@media` breakpoints, so fixed track widths never
+  reflowed, and `overflow-x:hidden` on the parent swallowed the overflow instead of
+  producing a scrollbar.
+- **Attempts:** 1) switch the parent to `overflow-x:auto` → **rejected**: a horizontal
+  scrollbar in a workspace pane is worse than a reflow. 2) Stack into one scrollable
+  column at a breakpoint → **worked**. 3) First attempt used plain class rules and had
+  **no effect** — the three panels carry their widths as INLINE styles, which outrank class
+  rules; `!important` is required here and is commented as such.
+- **Current fix:** `@media (max-width:1220px)` turns `.lp-review-row` into a scrollable
+  column and releases the inline widths; each stacked panel gets a workable min/max
+  height. A second breakpoint at 820px trims screen padding.
+- **Verification:** measured in a browser at three widths. **1024×768:** direction column,
+  no horizontal overflow on the row OR the page, all three panels 749px wide, transcript
+  within `.lp-main` and non-zero area, row scrollable. **768×900:** same, transcript 509px,
+  padding 12px. **1440×900:** desktop layout intact — direction row, slides 250px,
+  transcript 360px, no overflow (confirms the normal case did not regress).
+- **Files:** `app/ui/app.css`, `app/ui/index.html` (review columns tagged).
+- **Refs:** `docs/UI_UX_AUDIT_BETA3.md` defect 3.
 
 ### BUG-08 — Workspace screens showed other lectures' data (no owner)   ✅ FIXED (verified)
 - **Area:** UI / state ownership (`app/ui/app.js`, `app/desktop/engine_adapter.py`)
@@ -276,3 +304,11 @@ re-debug the same thing from scratch.
    look like when there is none?" before it ships. The enforcement points now exist —
    `WORKSPACE_KEYS` + `emptyWorkspace()` for ownership, `_emit()` stamping +
    `ownsPayload()` for freshness — so extend those rather than adding a parallel path.
+6. **A contrast finding is usually systemic, not local.** BUG-05 was reported as one
+   button and turned out to be five fills across both themes, reaching the DOM three
+   different ways (inline styles, CSS classes, and selected-state ternaries). When one
+   colour pair fails, compute the whole palette before fixing, and grep for every way the
+   foreground can be set - a single-pattern sweep silently left 9 elements failing.
+7. **Inline styles beat class rules.** The design markup carries layout as inline styles,
+   so any responsive override of it needs `!important` (BUG-03). A media query that "does
+   nothing" is usually this.

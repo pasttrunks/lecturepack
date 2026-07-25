@@ -46,8 +46,11 @@ def test_no_fake_progress_in_shipped_markup():
     """No blinking activity dot or non-zero progress before a job exists."""
     assert _element_text(HTML, "status-pct") == ""
     assert _element_text(HTML, "proc-status-meta") == ""
+    # The bar shows empty via transform:scaleX(0) since the motion pass moved
+    # progress fills onto the compositor; `width:100%` is the track it scales.
     bar = re.search(r'id="status-bar"[^>]*style="([^"]*)"', HTML).group(1)
-    assert "width:0%" in bar
+    assert "scaleX(0)" in bar
+    assert "width:100%" in bar
     # the footer chip must not animate while idle
     chip = re.search(r'id="status-dot"[^>]*style="([^"]*)"', HTML).group(1)
     assert "lpblink" not in chip
