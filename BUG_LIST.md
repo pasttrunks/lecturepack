@@ -97,6 +97,48 @@ re-debug the same thing from scratch.
 
 ## FIXED
 
+### BUG-08 — Workspace screens showed other lectures' data (no owner)   ✅ FIXED (verified)
+- **Area:** UI / state ownership (`app/ui/app.js`, `app/desktop/engine_adapter.py`)
+- **Reported / found:** 2026-07-25, user observation while clicking through tabs with no
+  lecture loaded. Build: source at `df1369c` (present in shipped 0.9.0-beta.3).
+- **Symptom:** With no lecture loaded, Process / Review / Transcript / Study still showed
+  content from previous jobs — some complete and relevant, some incomplete and
+  irrelevant. The user could not tell which lecture any screen belonged to.
+- **Root cause:** the UI had **no concept of an active lecture at all**. `LP.state`
+  tracked `jobsEmpty` but never a job identity. Every workspace screen read one global
+  scratchpad (`LP.data.pipeline/slides/transcript/study/quiz/flashcards`) that was
+  (a) seeded with demo content at boot, (b) overwritten by whatever the backend last
+  pushed, and (c) never cleared — `job_deleted` only fired a toast. So screens rendered
+  a union of demo seed + last-opened job + partially-loaded data. A second, subtler half:
+  nothing stamped payloads with an owner, so a slow signal from the PREVIOUS lecture that
+  landed after a switch silently repainted its data over the new one.
+- **Attempts:** 1) considered wiping all blobs on every job change → **rejected**: flickers,
+  loses instant switch-back, and does not fix the late-signal race. 2) Owner + per-job
+  cache + centrally stamped payloads → **worked**, and makes staleness unrepresentable
+  rather than something to remember to clean up.
+- **Current fix:** `LP.state.jobId` owns the workspace; per-lecture blobs cached in
+  `LP.byJob`; `emptyWorkspace()` means "nothing loaded" is structurally empty;
+  `setActiveJob()` snapshots the outgoing lecture and applies the incoming one (also
+  resetting per-lecture view state: chat, quiz session, export phase). The backend is
+  authoritative: `_set_active_job()` is the single place `current_job` changes and emits
+  `active_job`; `_emit()` stamps every job-scoped payload with its owning job id, and
+  `ownsPayload()` drops any payload belonging to another lecture.
+- **Two bugs found DURING verification (both fixed):** `renderTimeline` indexed
+  `slides[v]` unconditionally, so an empty workspace threw and aborted the whole
+  `renderWorkspace()` pass — which is why the sidebar kept naming an inactive lecture;
+  and `job_deleted` deleted the cache entry *before* deactivating, so `setActiveJob`'s
+  snapshot put it straight back.
+- **Verification:** driven in a browser through the real signal path — activating a
+  lecture wipes the demo seed and names it in the sidebar/breadcrumb; switching lectures
+  shows 0 carried blocks/slides; **a late payload from the previous lecture is rejected**
+  (data and title unchanged); switching back restores the cached workspace instantly;
+  deleting the active lecture empties the workspace and drops its cache entry; deleting an
+  inactive one leaves the active alone; a failed delete is a no-op; orphan log lines are
+  dropped; app-wide state (theme, export formats) survives switches. 24 tests.
+  **NOT verified in the packaged app** (needs a rebuild).
+- **Files:** `app/ui/app.js`, `app/ui/bridge.js`, `app/desktop/engine_adapter.py`,
+  `app/desktop/bridge.py`.
+
 ### BUG-01 — Global shortcuts fire through an open modal   ✅ FIXED (verified)
 - **Area:** UI / keyboard handling (`app/ui/app.js`)
 - **Reported / found:** 2026-07-25, UI/UX audit agent; independently re-verified by
@@ -228,3 +270,9 @@ re-debug the same thing from scratch.
    widths). Both passes are needed; neither alone is coverage.
 4. **Client-side `min`/`max` on inputs is advisory.** Always re-validate in the handler
    (BUG-06), and build date floors from local-time components, never `toISOString()`.
+5. **State with no owner rots.** BUG-04 and BUG-08 were the same disease at two
+   altitudes: UI state that no single thing owns will drift into showing something false.
+   Any new screen data must answer "which lecture does this belong to, and what does it
+   look like when there is none?" before it ships. The enforcement points now exist —
+   `WORKSPACE_KEYS` + `emptyWorkspace()` for ownership, `_emit()` stamping +
+   `ownsPayload()` for freshness — so extend those rather than adding a parallel path.

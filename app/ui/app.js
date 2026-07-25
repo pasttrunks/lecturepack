@@ -31,6 +31,11 @@
   /* ======================= demo data (design content) ======================= */
   var LP = window.LP = {
     state: {
+      // jobId owns the workspace: Process/Review/Transcript/Study render the
+      // data belonging to THIS lecture. '' means nothing is loaded, and the
+      // workspace renders structurally empty rather than showing whatever the
+      // backend last happened to push.
+      jobId: '', jobTitle: '',
       screen: 'home', theme: 'dark', focus: false, onb: null, jobsEmpty: false,
       exportPhase: 'idle', studyTab: 'chat',
       chat: [
@@ -147,8 +152,115 @@
         { key: 'JSON', sel: false }, { key: 'CSV', sel: false }, { key: 'DOCX', sel: false }, { key: 'TSV', sel: false }
       ],
       exportFiles: ['slides.pdf', 'study_pack.html', 'transcript.txt', 'transcript.srt', 'transcript.md']
-    }
+    },
+    // Per-lecture workspace store, keyed by job id. LP.data.<blob> is the live
+    // VIEW of LP.state.jobId; switching lectures saves the outgoing blobs here
+    // and loads the incoming ones, so switching back is instant and no lecture
+    // can ever paint over another.
+    byJob: {}
   };
+
+  /* ================= workspace ownership (job-scoped state) =================
+     The workspace screens (Process/Review/Transcript/Study/Exports) used to
+     read one global scratchpad that was seeded with demo content, overwritten
+     by whatever the backend last pushed, and never cleared -- so with no
+     lecture loaded they showed a mix of stale and half-loaded data from earlier
+     jobs. Now a single owner (LP.state.jobId) decides what they render, and
+     "nothing loaded" is structurally empty rather than merely uncleaned. */
+
+  // The blobs that belong to one lecture. Anything NOT listed here is app-wide
+  // (theme, settings, export format choices) and must survive a job switch.
+  var WORKSPACE_KEYS = ['pipeline', 'slides', 'transcript', 'study',
+                        'quiz', 'flashcards', 'exportFiles'];
+
+  function emptyWorkspace() {
+    return {
+      pipeline: { title: 'No lecture loaded', meta: '', stages: [], log: [] },
+      slides: [],
+      transcript: { title: '', duration: '', segments: 0, corrections: 0, blocks: [] },
+      study: {
+        topics: [], topicBlocks: [], topicLabels: [], keyTerms: [],
+        bookmarks: [], stats: [], cards: []
+      },
+      quiz: { questions: [], provider: '', model: '', meta: {} },
+      flashcards: { cards: [], provider: '', model: '', meta: {} },
+      exportFiles: []
+    };
+  }
+
+  function snapshotWorkspace() {
+    var snap = {};
+    WORKSPACE_KEYS.forEach(function (k) { snap[k] = LP.data[k]; });
+    return snap;
+  }
+
+  function applyWorkspace(snap) {
+    WORKSPACE_KEYS.forEach(function (k) { LP.data[k] = snap[k]; });
+  }
+
+  /* Switch which lecture the workspace belongs to. Driven by the backend's
+     active_job signal -- the UI never invents a job identity. */
+  function setActiveJob(id, title) {
+    id = id || '';
+    if (id === LP.state.jobId) {
+      if (title) LP.state.jobTitle = title;
+      renderJobChrome();
+      return;
+    }
+    if (LP.state.jobId) LP.byJob[LP.state.jobId] = snapshotWorkspace();
+    LP.state.jobId = id;
+    LP.state.jobTitle = title || '';
+    applyWorkspace(id && LP.byJob[id] ? LP.byJob[id] : emptyWorkspace());
+    // Per-lecture view state must not leak across lectures either.
+    LP.state.chat = [];
+    LP.state.quiz.phase = 'setup';
+    LP.state.quiz.index = 0;
+    LP.state.quiz.answers = {};
+    LP.state.quiz.flags = {};
+    LP.state.exportPhase = 'idle';
+    // Chrome first: it names the lecture, and it must not be collateral damage
+    // if a workspace renderer throws on unusual data.
+    renderJobChrome();
+    renderWorkspace();
+  }
+
+  /* Reject a payload that belongs to a lecture other than the active one.
+     Without this, a slow signal from the PREVIOUS job lands after a switch and
+     silently repaints its data over the new lecture. An unstamped payload (or
+     one arriving while a job is loading) is accepted for compatibility. */
+  function ownsPayload(p) {
+    if (!p || typeof p !== 'object') return true;
+    var owner = p.job;
+    if (!owner) return true;                 // unstamped -- legacy/app-wide
+    if (!LP.state.jobId) {                   // first data for a fresh load
+      LP.state.jobId = owner;
+      return true;
+    }
+    return owner === LP.state.jobId;
+  }
+
+  function renderWorkspace() {
+    renderPipeline();
+    renderSlides();
+    renderReviewTranscript();
+    renderTranscript();
+    renderStudy();
+    renderChat();
+    renderQuiz();
+    renderExportPhase();
+  }
+
+  /* Sidebar chip + breadcrumb: name the lecture the workspace is scoped to, so
+     content is never anonymous. Idle when nothing is loaded. */
+  function renderJobChrome() {
+    var name = LP.state.jobTitle || '';
+    if (!LP.state.jobId) {
+      resetJobChrome();
+      return;
+    }
+    $('side-job-name').textContent = name || 'Untitled lecture';
+    $('crumb-job').textContent = name || 'Lecture';
+  }
 
   /* ======================= renderers ======================= */
 
@@ -758,11 +870,16 @@
       var color = s.state === 'rejected' ? 'var(--red)' : 'var(--blue)';
       return '<div class="lp-tick" data-slide="' + i + '" style="position:absolute;top:6px;left:' + s.pct + '%;width:3px;height:14px;border-radius:2px;background:' + color + '"></div>';
     }).join('');
-    $('timeline-progress').style.width = LP.data.slides[v].pct + '%';
-    var accepted = LP.data.slides.filter(function (s) { return s.state !== 'rejected'; }).length;
-    $('timeline-meta').textContent = LP.data.slides.length + ' slides · ' + LP.data.duration;
-    $('timeline-mid').textContent = LP.data.durationMid;
-    $('timeline-end').textContent = LP.data.duration;
+    // An empty workspace (no lecture loaded) is a legitimate state: slides[v]
+    // does not exist, so the timeline must render at zero rather than throw --
+    // a throw here aborted the whole renderWorkspace() pass.
+    var at = LP.data.slides[v];
+    $('timeline-progress').style.width = (at ? at.pct : 0) + '%';
+    $('timeline-meta').textContent = LP.data.slides.length
+      ? LP.data.slides.length + ' slides · ' + (LP.data.duration || '')
+      : 'No slides yet';
+    $('timeline-mid').textContent = LP.data.durationMid || '';
+    $('timeline-end').textContent = LP.data.duration || '';
   }
 
   function renderReviewTranscript() {
@@ -2155,9 +2272,24 @@
     lpBridge.on('job_deleted', function (json) {
       var d = JSON.parse(json);
       toast(d.ok ? ('Lecture deleted · ' + (d.freed || '') + ' freed') : 'Delete failed');
+      // Drop the deleted lecture's cached workspace so it can never come back
+      // if a job id is ever reused, and empty the screens if it was active.
+      if (d.ok && d.id) {
+        // Deactivate FIRST: setActiveJob snapshots the outgoing lecture into
+        // byJob, so deleting before the switch would put it straight back.
+        if (d.id === LP.state.jobId) setActiveJob('', '');
+        delete LP.byJob[d.id];
+      }
+    });
+
+    // The backend owns which lecture the workspace belongs to; the UI follows.
+    lpBridge.on('active_job', function (json) {
+      var a = JSON.parse(json || '{}');
+      setActiveJob(a.id || '', a.title || '');
     });
     lpBridge.on('pipeline_changed', function (json) {
       var p = JSON.parse(json);
+      if (!ownsPayload(p)) return;      // stale: belongs to another lecture
       if (p.log) LP.data.pipeline.log = p.log;
       LP.data.pipeline.title = p.title || LP.data.pipeline.title;
       LP.data.pipeline.meta = p.meta || LP.data.pipeline.meta;
@@ -2165,6 +2297,7 @@
       renderPipeline();
     });
     lpBridge.on('log_line', function (json) {
+      if (!LP.state.jobId) return;      // no lecture owns this log yet
       LP.data.pipeline.log.push(JSON.parse(json));
       if (LP.data.pipeline.log.length > 500) LP.data.pipeline.log.shift();
       renderPipeline();
@@ -2175,11 +2308,14 @@
       if (s.pct !== undefined) { $('status-bar').style.width = s.pct + '%'; }
       if (s.detail !== undefined) $('status-pct').textContent = s.detail;
       if (s.right !== undefined) $('status-right').textContent = s.right;
-      if (s.job !== undefined) { $('side-job-name').textContent = s.job; $('crumb-job').textContent = s.job; }
+      if (s.job !== undefined && LP.state.jobId) {
+        $('side-job-name').textContent = s.job; $('crumb-job').textContent = s.job;
+      }
       if (s.side !== undefined) $('side-job-status').innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>' + esc(s.side);
     });
     lpBridge.on('slides_changed', function (json) {
       var d = JSON.parse(json);
+      if (!ownsPayload(d)) return;
       LP.data.slides = d.slides || LP.data.slides;
       if (d.duration) LP.data.duration = d.duration;
       if (d.durationMid) LP.data.durationMid = d.durationMid;
@@ -2189,16 +2325,20 @@
     });
     lpBridge.on('transcript_changed', function (json) {
       var d = JSON.parse(json);
+      if (!ownsPayload(d)) return;
       if (d.reviewSegments) { LP.data.reviewSegments = d.reviewSegments; renderReviewTranscript(); }
       if (d.transcript) { LP.data.transcript = d.transcript; renderTranscript(); }
     });
     lpBridge.on('study_changed', function (json) {
-      LP.data.study = JSON.parse(json); renderStudy();
+      var sd = JSON.parse(json);
+      if (!ownsPayload(sd)) return;
+      LP.data.study = sd; renderStudy();
       var na = $('notes-area');
       if (na && document.activeElement !== na) na.value = LP.data.study.notes || '';
     });
     lpBridge.on('quiz_changed', function (json) {
       var d = JSON.parse(json), q = LP.state.quiz;
+      if (!ownsPayload(d)) return;
       LP.data.quiz = { questions: d.questions || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
       if (d.session && typeof d.session === 'object' && Object.keys(d.session).length) {
         q.index = d.session.index || 0; q.answers = d.session.answers || {}; q.flags = d.session.flags || {};
@@ -2217,6 +2357,7 @@
     });
     lpBridge.on('flashcards_changed', function (json) {
       var d = JSON.parse(json), f = LP.state.flash;
+      if (!ownsPayload(d)) return;
       LP.data.flashcards = { cards: d.cards || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
       if (d.session && typeof d.session === 'object' && Object.keys(d.session).length) {
         f.index = d.session.index || 0; f.known = d.session.known || {}; f.unsure = d.session.unsure || {};

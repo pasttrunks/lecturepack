@@ -26,7 +26,8 @@ window.lpBridge = (function () {
     'vulkan_status', 'cuda_status', 'cuda_pack', 'groq_status', 'smart_study',
     'queue_changed', 'pause_state', 'notification_prefs', 'notification_navigate',
     'diagnostics', 'job_completed', 'post_completion',
-    'media_link_state', 'media_probe', 'media_progress', 'media_done'
+    'media_link_state', 'media_probe', 'media_progress', 'media_done',
+    'active_job'
   ];
 
   function connectQt() {
@@ -62,6 +63,10 @@ window.lpBridge = (function () {
     connected: function () { return backend !== null; },
     /** Subscribe to a backend signal by name. */
     on: function (name, fn) { (listeners[name] = listeners[name] || []).push(fn); },
+    /** Dispatch a signal locally, exactly as the backend would. Lets preview
+        mode drive the real handlers (and makes the signal layer verifiable
+        without a live QWebChannel). */
+    emit: function (name /*, ...args */) { fire.apply(null, arguments); },
     /** Invoke a backend slot; resolves with its return value, or null in browser mode. */
     call: function (name /*, ...args */) {
       var args = Array.prototype.slice.call(arguments, 1);

@@ -722,9 +722,39 @@ class LecturePackAdapter(EngineAdapter):
     def _ollama_settings(self) -> dict:
         return dict(self.config.get("ollama", {}) or {})
 
+    # Workspace signals carry data that belongs to ONE lecture. Stamping the
+    # owning job id centrally lets the UI reject a payload that arrives after
+    # the user switched lectures (a late signal used to silently repaint the
+    # previous job's data over the new one).
+    _JOB_SCOPED_SIGNALS = frozenset({
+        "pipeline_changed", "slides_changed", "transcript_changed",
+        "study_changed", "quiz_changed", "flashcards_changed",
+        "export_progress", "export_done", "post_completion",
+    })
+
     def _emit(self, signal, payload):
+        if signal in self._JOB_SCOPED_SIGNALS and isinstance(payload, dict) \
+                and "job" not in payload:
+            job = getattr(self, "current_job", None)
+            payload = dict(payload, job=getattr(job, "job_id", "") or "")
         getattr(self.backend, signal).emit(
             payload if isinstance(payload, str) else json.dumps(payload))
+
+    def _set_active_job(self, job):
+        """Single place that changes which lecture the workspace belongs to.
+
+        Emits ``active_job`` so the UI can scope (and clear) its screens. The
+        UI owns no job identity of its own -- it follows this signal.
+        """
+        self.current_job = job
+        job_id = getattr(job, "job_id", "") or ""
+        title = ""
+        if job is not None:
+            try:
+                title = job.manifest.get("title", "") or ""
+            except Exception:
+                title = ""
+        self._emit("active_job", {"id": job_id, "title": title})
 
     def _log(self, tag: str, text: str, key: str = ""):
         color = _LOG_COLORS.get(key or tag.strip("[]").lower(), "var(--ink)")
@@ -900,11 +930,11 @@ class LecturePackAdapter(EngineAdapter):
                     best = (key, job_id)
         if best:
             try:
-                self.current_job = Job(self.config.data_dir, job_id=best[1])
+                self._set_active_job(Job(self.config.data_dir, job_id=best[1]))
                 self._push_review_data()
                 self._push_study_data()
             except Exception:
-                self.current_job = None
+                self._set_active_job(None)
 
     def open_job(self, job_id: str):
         """Open a completed job from the Home grid: load it and push its review /
@@ -914,7 +944,7 @@ class LecturePackAdapter(EngineAdapter):
             self._log("[error]", f"job not found: {job_id}", "error")
             return
         try:
-            self.current_job = Job(self.config.data_dir, job_id=job_id)
+            self._set_active_job(Job(self.config.data_dir, job_id=job_id))
         except Exception as exc:
             self._log("[error]", f"failed to open job: {exc}", "error")
             return
@@ -966,7 +996,7 @@ class LecturePackAdapter(EngineAdapter):
             shutil.rmtree(real, ignore_errors=False)
             method = "permanently"
         if was_current:
-            self.current_job = None
+            self._set_active_job(None)
         self._log("[home]", f"deleted job {job_id} → {method} "
                   f"({_human_size(freed)} freed)", "engine")
         self._emit("job_deleted", {"ok": True, "id": job_id,
@@ -1105,7 +1135,7 @@ class LecturePackAdapter(EngineAdapter):
             job = Job(self.config.data_dir, video_path=path)
             self.controller.set_job(job)
             self._pending_job = job
-            self.current_job = job
+            self._set_active_job(job)
             meta_str = f"{_human_size(os.path.getsize(path))}"
             try:
                 self.controller.ffmpeg_wrapper.detect_binaries()
@@ -1161,7 +1191,7 @@ class LecturePackAdapter(EngineAdapter):
         job.settings.setdefault("whisper", {})["transcription_backend"] = \
             self.config.get("transcription_backend", "local-whispercpp")
         job.save()
-        self.current_job = job
+        self._set_active_job(job)
 
         # Validate whisper availability for modes that need it.
         needs_whisper = product_mode != constants.PRODUCT_MODE_SLIDES_ONLY
@@ -1420,7 +1450,7 @@ class LecturePackAdapter(EngineAdapter):
             job = self._reload_job(job_id) or job
         if job is None:
             return
-        self.current_job = job
+        self._set_active_job(job)
         self.controller.set_job(job)
         from lecturepack.models import job_lifecycle as _lc
         try:
@@ -1439,7 +1469,8 @@ class LecturePackAdapter(EngineAdapter):
             return
         for stage in constants.STAGES:
             job.set_stage_status(stage, "pending")
-        self.current_job = self._pending_job = job
+        self._pending_job = job
+        self._set_active_job(job)
         self.start_processing(self._mode_for_job(job))
 
     def retry_stage(self, job_id: str, stage: str):
@@ -1448,7 +1479,7 @@ class LecturePackAdapter(EngineAdapter):
             job = self._reload_job(job_id) or job
         if job is None:
             return
-        self.current_job = job
+        self._set_active_job(job)
         self.controller.set_job(job)
         self.win.on_job_started()
         self.controller.retry_stage(stage)
@@ -1577,7 +1608,7 @@ class LecturePackAdapter(EngineAdapter):
         # starts on the Qt event loop.
         def _go():
             self._pending_job = job
-            self.current_job = job
+            self._set_active_job(job)
             self.start_processing(self._mode_for_job(job))
         QTimer.singleShot(0, _go)
 
