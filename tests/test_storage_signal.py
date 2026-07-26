@@ -52,7 +52,9 @@ class _ImmediateThread:
 
 class _Stub:
     push_storage = ea.LecturePackAdapter.push_storage
+    _run_storage_walk = ea.LecturePackAdapter._run_storage_walk
     _emit_soon = ea.LecturePackAdapter._emit_soon
+    _STORAGE_DEBOUNCE_MS = ea.LecturePackAdapter._STORAGE_DEBOUNCE_MS
 
     def __init__(self, backend, data_dir):
         self.backend = backend
@@ -128,6 +130,57 @@ def test_ui_hides_the_widget_unless_ok():
     assert "storage_changed" in js, "UI never listens for the signal"
     handler = js.split("storage_changed", 1)[1][:600]
     assert "s.ok" in handler and "hidden = true" in handler
+
+
+def test_a_burst_of_job_changes_causes_exactly_one_walk(tmp_path, monkeypatch):
+    """BUG-13: bulk delete / queue promotion fire jobs_changed several times in
+    a row. Each one used to launch its own full os.walk of the data root on an
+    unbounded thread. They must coalesce into a single measurement."""
+    (tmp_path / "a.bin").write_bytes(b"x" * 100)
+
+    walks = []
+    real_walk = os.walk
+    monkeypatch.setattr(ea.os, "walk", lambda p: (walks.append(p), real_walk(p))[1])
+
+    # Capture the debounced callback instead of firing it, so a burst can be
+    # delivered before the timer would have elapsed -- that is the real case.
+    scheduled = []
+    monkeypatch.setattr(ea.QTimer, "singleShot",
+                        staticmethod(lambda ms, *a: scheduled.append(a[-1])))
+    monkeypatch.setattr(ea.threading, "Thread", _ImmediateThread)
+
+    s = _Stub(_FakeBackend(), tmp_path)
+    for _ in range(10):
+        s.push_storage()
+
+    assert len(scheduled) == 1, f"burst armed {len(scheduled)} timers, expected 1"
+    scheduled[0]()                       # the debounce elapses
+    assert len(walks) == 1, f"{len(walks)} walks for one burst, expected 1"
+
+
+def test_a_walk_already_running_is_not_stacked(tmp_path, monkeypatch):
+    """A second measurement must never run concurrently with the first."""
+    monkeypatch.setattr(ea.QTimer, "singleShot", staticmethod(lambda ms, *a: a[-1]()))
+    monkeypatch.setattr(ea.threading, "Thread", _ImmediateThread)
+    s = _Stub(_FakeBackend(), tmp_path)
+
+    s._storage_inflight = True           # pretend a walk is in progress
+    walks = []
+    monkeypatch.setattr(ea.os, "walk", lambda p: walks.append(p) or iter(()))
+    s._storage_timer_armed = False
+    s._run_storage_walk()
+    assert walks == [], "started a second concurrent walk"
+
+
+def test_inflight_flag_clears_even_when_the_walk_fails(tmp_path, monkeypatch):
+    """A failed walk must not wedge the widget for the rest of the session."""
+    monkeypatch.setattr(ea.QTimer, "singleShot", staticmethod(lambda ms, *a: a[-1]()))
+    monkeypatch.setattr(ea.threading, "Thread", _ImmediateThread)
+    monkeypatch.setattr(ea.shutil, "disk_usage",
+                        lambda p: (_ for _ in ()).throw(OSError("boom")))
+    s = _Stub(_FakeBackend(), tmp_path)
+    s.push_storage()
+    assert s._storage_inflight is False
 
 
 def test_signal_is_declared_on_the_bridge():

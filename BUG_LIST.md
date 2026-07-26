@@ -42,6 +42,115 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### BUG-11 - Tray notifications and taskbar progress silently dead   FIXED (verified)
+- **Area:** desktop shell (`app/desktop/main.py::MainWindow.__init__`)
+- **Found:** beta.4 pre-release review (independent agent), 2026-07-25. Not user-reported
+  - the features simply never fired, with no error.
+- **Root cause:** the poster-prewarm commit inserted `_prewarm_posters` and `_ffmpeg_exe`
+  **into the middle of `__init__`**. Everything below the insertion - tray-icon creation
+  and `attach_window(self, self.tray)` - ended up **after `return ""` inside
+  `_ffmpeg_exe`**, i.e. unreachable. `self.tray` was never assigned and `attach_window`
+  never ran, so `notifier._tray` and `taskbar._hwnd` stayed `None`.
+- **Impact:** a straight regression from beta.3, which shipped both as headline features.
+  `_on_notification_clicked` was also unreachable.
+- **Fix:** moved the block back inside `__init__` (after `setCentralWidget`, where
+  `icon_path` is in scope), with a comment saying why it must stay there.
+- **Lesson:** inserting a method mid-`__init__` orphans every statement after it. Python
+  gives no warning - the code reads fine and the class still constructs.
+- **Files:** `app/desktop/main.py`.
+
+### BUG-12 - `storage_changed` never reached the UI (feature dead on arrival)   FIXED (verified)
+- **Area:** `app/ui/bridge.js` SIGNALS list
+- **Found:** beta.4 pre-release review, hours after BUG-04's fix was written.
+- **Root cause:** `bridge.js` only connects Qt signals named in a hardcoded array.
+  `storage_changed` was declared in `bridge.py`, emitted by the adapter and handled in
+  `app.js` - but never listed, so it was never connected. Silent: no console error.
+- **Fix:** added it, and **rewrote the guard test to derive the expected list from
+  `bridge.py`** instead of checking four hardcoded `media_*` names. Mutation-checked:
+  removing the entry now fails the test.
+- **Verified live:** the sidebar reads `STORAGE 686 B - 227.5 GB free` on a real launch.
+- **Files:** `app/ui/bridge.js`, `tests/test_media_link_adapter.py`.
+
+### BUG-13 - Full `os.walk` of the data dir on every `jobs_changed`   FIXED (verified)
+- **Area:** `app/desktop/engine_adapter.py::push_storage`
+- **Found:** beta.4 pre-release review (self-suspected while writing BUG-04's fix).
+- **Root cause:** `_push_jobs()` called `push_storage()` unconditionally, spawning a
+  fresh daemon thread that walked the whole data root. There are 10 `_push_jobs()` call
+  sites, and bursty flows (bulk delete, queue promotion, startup reconciliation) fire
+  several in a row - N overlapping unbounded walks over tens of thousands of files,
+  concurrent with the pipeline's own heavy I/O.
+- **Fix:** 1.5s debounce (a burst collapses to one walk) + an in-flight guard + a dirty
+  flag so a change arriving mid-walk re-measures once afterwards. The re-arm is a flag,
+  NOT a recursive `push_storage()` call - a test proved that recurses to stack
+  exhaustion when the timer fires synchronously.
+- **Files:** `app/desktop/engine_adapter.py`, `tests/test_storage_signal.py`.
+
+### BUG-14 - Recycle-bin delete silently escalated to permanent delete   FIXED (verified)
+- **Area:** `app/desktop/engine_adapter.py` delete path - **data loss**
+- **Found:** beta.4 pre-release review.
+- **Root cause:** `except Exception: shutil.rmtree(...)` wrapped `send2trash`. ANY
+  runtime failure - a file locked by an antivirus scan, a `MAX_PATH` overrun, a data dir
+  on a network or removable volume - turned a delete the user confirmed as "move to
+  Recycle Bin" into an unrecoverable one. Bulk delete multiplied it across a whole
+  selection in one click.
+- **Fix:** only `ImportError` (send2trash genuinely absent) justifies a hard delete. A
+  runtime failure now **fails the operation** and leaves the lecture on disk - failing is
+  recoverable, escalating is not.
+- **Tests:** the existing test asserted the UNSAFE behaviour and was rewritten; added
+  `test_runtime_send2trash_failure_preserves_the_lecture`.
+- **Files:** `app/desktop/engine_adapter.py`, `tests/test_webview_jobs.py`.
+
+### BUG-15 - Fresh install showed a fake lecture on Review/Transcript/Study   FIXED (verified)
+- **Area:** `app/ui/app.js` demo data - **the worst user-facing find of the review**
+- **Found:** beta.4 pre-release review; **reproduced in the real app** before fixing.
+- **Symptom:** on a brand-new empty profile, Home correctly showed "No lecture loaded"
+  and `RECENT JOBS 0`, but pressing **3 (Review)** showed a complete fabricated lecture:
+  a "14 slides - 06:12" timeline, a slide list with accepted/rejected states, and a
+  Great Pyramid of Giza transcript.
+- **Root cause:** BUG-07 gated only `LP.data.jobs` behind `?preview=1`. The
+  `pipeline`/`slides`/`reviewSegments`/`transcript`/`study` literals are also design-time
+  demo content and stayed live. `active_job` cannot clear them, because
+  `_load_latest_completed_job()` returns early **without emitting** when there is nothing
+  to load. Timeline axis labels (`00:00/03:06/06:12`) were hardcoded in `index.html` too.
+- **Fix:** one `PREVIEW` flag; `boot()` blanks the whole workspace via the existing
+  `emptyWorkspace()` unless previewing; `resetJobChrome()` clears the axis labels and
+  `renderSlides()` restores the origin once a lecture exists.
+- **Verified:** real app, empty profile - Review now reads "No slides yet", 0 slides,
+  empty transcript.
+- **Files:** `app/ui/app.js`, `app/ui/index.html`.
+
+### BUG-16 - Process "Source" card had no writer   FIXED (verified)
+- **Area:** `app/ui/app.js` - same class as BUG-04
+- **Found:** while fixing BUG-15 (grepped for other writer-less elements).
+- **Root cause:** `proc-source-name` / `proc-source-meta` were written **only** by
+  `resetJobChrome()`. BUG-04 spotted the missing writer and gave them honest idle values
+  but never wired a real one - so the Source card read "No lecture loaded" plus a
+  hardcoded `1920x1080 - 06:12 - H.264` *even while a lecture was processing*.
+- **Fix:** `renderPipeline()` now writes both from the `pipeline_changed` payload.
+- **Files:** `app/ui/app.js`, `tests/test_webview_ui_fixes.py`.
+
+### BUG-17 - A failed download could import a PREVIOUS one and report success   FIXED
+- **Area:** `lecturepack/services/media_fetch.py::_newest_media`
+- **Found:** beta.4 pre-release review.
+- **Root cause:** the fallback scans the **shared** `<data_dir>/downloads`, not a
+  per-download dir. If yt-dlp did not report a filename, it returned the newest file
+  present - the user's previous import - and the caller emitted `ok: True` and imported
+  it. A destructive flow reporting success: a new job containing yesterday's lecture,
+  with no error shown anywhere.
+- **Fix:** a `not_before` timestamp floor, so only files written by this download qualify.
+- **Files:** `lecturepack/services/media_fetch.py`, `tests/test_media_link_adapter.py`.
+
+### BUG-18 - A cancelled link download still became a job   FIXED
+- **Area:** `app/desktop/engine_adapter.py::import_media_url`
+- **Found:** beta.4 pre-release review - which described it as a permanent wedge of
+  `_media_busy`. **That part was wrong**: `_media_busy` is cleared in a `finally`. The
+  real defect is below, found by re-verifying the claim instead of trusting it.
+- **Root cause:** cancel is only observed from yt-dlp's progress hook. Arriving while no
+  hook is firing (extractor resolution, a stalled socket, the final merge), the transfer
+  ran to completion and reported `ok: True`, so the import proceeded behind the user.
+- **Fix:** re-check `cancel.is_set()` after `download()` returns.
+- **Files:** `app/desktop/engine_adapter.py`, `tests/test_media_link_adapter.py`.
+
 ### BUG-07 — Preview-mode demo job seed appears when no bridge is attached   ✅ FIXED (verified)
 - **Area:** UI / preview mode (`app/ui/app.js` `LP.data.jobs` seed)
 - **Reported / found:** 2026-07-25, while fixing BUG-04 (a DOM scan still matched

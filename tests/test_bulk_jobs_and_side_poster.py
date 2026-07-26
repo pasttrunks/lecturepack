@@ -13,6 +13,7 @@ import re
 import sys
 
 import pytest
+from PySide6.QtCore import QObject
 
 APP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")
 if APP_DIR not in sys.path:

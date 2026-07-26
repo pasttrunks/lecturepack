@@ -20,6 +20,7 @@ Design notes:
 from __future__ import annotations
 
 import os
+import time
 import re
 import unicodedata
 from urllib.parse import urlparse
@@ -167,6 +168,11 @@ class MediaFetcher:
             raise MediaFetchError("That doesn't look like a web link.")
         os.makedirs(dest_dir, exist_ok=True)
 
+        # Floor for the _newest_media fallback: only files written by THIS
+        # download may be returned (BUG-17). 1s of slack absorbs clock/FS
+        # timestamp granularity.
+        started_at = time.time() - 1.0
+
         state = {"path": "", "cancelled": False}
 
         def hook(d):
@@ -224,7 +230,7 @@ class MediaFetcher:
         path = state["path"] or _path_from_info(info)
         if not path or not os.path.isfile(path):
             # yt-dlp may report a pre-merge name; fall back to the newest file.
-            path = _newest_media(dest_dir) or ""
+            path = _newest_media(dest_dir, not_before=started_at) or ""
         if not path or not os.path.isfile(path):
             raise MediaFetchError("The download finished but no file was written.")
         return path
@@ -239,13 +245,31 @@ def _path_from_info(info) -> str:
     return info.get("_filename") or ""
 
 
-def _newest_media(dest_dir: str) -> str:
+def _newest_media(dest_dir: str, not_before: float = 0.0) -> str:
+    """Newest finished media in ``dest_dir``, ignoring anything older than
+    ``not_before`` (a time.time() stamp taken when this download started).
+
+    BUG-17: ``dest_dir`` is the SHARED ``<data_dir>/downloads`` folder, not a
+    per-download temp dir. Without the timestamp floor, a download that failed
+    to report its own filename fell back to "newest file here" and happily
+    returned the user's PREVIOUS import -- which the caller then reported as
+    ``ok: True`` and imported, creating a new job containing yesterday's
+    lecture with no error shown anywhere. A failure must look like a failure.
+    """
     try:
         entries = [os.path.join(dest_dir, n) for n in os.listdir(dest_dir)]
     except OSError:
         return ""
-    files = [p for p in entries
-             if os.path.isfile(p) and not p.endswith((".part", ".ytdl", ".tmp"))]
+    files = []
+    for p in entries:
+        if not os.path.isfile(p) or p.endswith((".part", ".ytdl", ".tmp")):
+            continue
+        try:
+            if os.path.getmtime(p) < not_before:
+                continue          # predates this download; not ours
+        except OSError:
+            continue
+        files.append(p)
     if not files:
         return ""
     return max(files, key=os.path.getmtime)

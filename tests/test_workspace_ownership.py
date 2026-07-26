@@ -25,6 +25,7 @@ if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
 from desktop import engine_adapter as ea  # noqa: E402
+from PySide6.QtCore import QObject
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JS = open(os.path.join(ROOT, "app", "ui", "app.js"), encoding="utf-8").read()

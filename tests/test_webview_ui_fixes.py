@@ -65,8 +65,38 @@ def test_storage_widget_hidden_until_backend_reports():
 
 
 def test_boot_resets_placeholder_chrome():
+    """boot() must clear index.html's design-time placeholders before it paints.
+
+    Asserts the ORDER (reset happens before any render), not that reset is
+    literally the first statement -- BUG-15 added workspace blanking ahead of
+    it, which has to run first for the same reason.
+    """
     assert "function resetJobChrome" in JS
-    assert re.search(r"function boot\(\)\s*\{\s*resetJobChrome\(\);", JS)
+    body = JS.split("function boot()", 1)[1]
+    reset_at = body.index("resetJobChrome();")
+    first_render = min(body.index(fn) for fn in
+                       ("renderJobs();", "renderPipeline();", "renderSlides();"))
+    assert reset_at < first_render, "chrome reset must precede the first render"
+
+
+def test_boot_blanks_the_demo_workspace_unless_previewing():
+    """BUG-15: gating only LP.data.jobs left the pipeline/slides/transcript/
+    study demo literals live, so a fresh install showed a fake 14-slide
+    'Great Pyramid of Giza' lecture on Review. Verified in the real app."""
+    assert "var PREVIEW" in JS, "no single preview flag"
+    body = JS.split("function boot()", 1)[1][:1200]
+    assert "if (!PREVIEW)" in body, "boot() does not blank the workspace"
+    assert "emptyWorkspace()" in body, "boot() does not reuse emptyWorkspace()"
+
+
+def test_process_source_card_has_a_real_writer():
+    """BUG-16: proc-source-name/-meta were only ever written by resetJobChrome,
+    so the Source card read 'No lecture loaded' with a hardcoded resolution
+    even while a lecture was processing -- the BUG-04 'display with no owner'
+    class again."""
+    render = JS.split("function renderPipeline", 1)[1][:1500]
+    assert "proc-source-name" in render, "Source card never written on render"
+    assert "proc-source-meta" in render
 
 
 # --------------------------- BUG-01 / BUG-02 -------------------------------

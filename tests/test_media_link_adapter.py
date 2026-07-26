@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -44,13 +45,34 @@ class _FakeBackend:
 # --------------------------------------------------------------- signal wiring
 
 def test_bridge_signals_match_ui_signal_list():
-    """bridge.py signals MUST stay in sync with app/ui/bridge.js SIGNALS."""
+    """EVERY bridge.py signal must appear in app/ui/bridge.js SIGNALS.
+
+    bridge.js only connects Qt signals named in its hardcoded array, so a
+    signal declared and emitted in Python but missing from that list is
+    silently never delivered -- no error, no console warning, the feature just
+    does nothing in every packaged build.
+
+    This test used to check only four hardcoded `media_*` names, so it passed
+    while `storage_changed` was missing and the entire sidebar storage feature
+    was dead. It now derives the list from bridge.py, so the next signal added
+    without wiring the JS side fails here instead of shipping. (BUG-12)
+    """
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     js = open(os.path.join(root, "app", "ui", "bridge.js"), encoding="utf-8").read()
     py = open(os.path.join(root, "app", "desktop", "bridge.py"), encoding="utf-8").read()
-    for name in ("media_link_state", "media_probe", "media_progress", "media_done"):
-        assert f"'{name}'" in js, f"{name} missing from bridge.js SIGNALS"
-        assert f"{name} = Signal(str)" in py, f"{name} missing from bridge.py"
+
+    declared = set(re.findall(r"^\s*(\w+)\s*=\s*Signal\(", py, re.M))
+    assert declared, "no Signal declarations found in bridge.py -- parser broke"
+
+    listed = set(re.findall(r"'([a-z_]+)'", js.split("var SIGNALS = [", 1)[1].split("]", 1)[0]))
+
+    missing = sorted(declared - listed)
+    assert not missing, (
+        "signals declared in bridge.py but missing from bridge.js SIGNALS "
+        f"(they will never reach the UI): {missing}")
+
+    stale = sorted(listed - declared)
+    assert not stale, f"bridge.js lists signals that no longer exist in bridge.py: {stale}"
 
 
 def test_bridge_exposes_link_slots():
@@ -300,3 +322,60 @@ def test_downloads_dir_never_bundled():
                  encoding="utf-8").read()
     forbidden = build.split("forbidden_dir_names = {", 1)[1].split("}", 1)[0]
     assert "downloads" in forbidden
+
+
+# --------------------------------------------------- pre-release review fixes
+
+def test_late_cancel_does_not_import_behind_the_user(stub, tmp_path, monkeypatch):
+    """BUG-18: cancel is only seen from yt-dlp's progress hook. If it lands
+    while no hook is firing, the transfer completes -- and used to report
+    ok:True, so a cancelled download still became a job."""
+    target = tmp_path / "downloads" / "lec.mp4"
+
+    class FakeFetcher:
+        def download(self, url, dest, progress_cb=None, cancel_check=None, title=None):
+            os.makedirs(dest, exist_ok=True)
+            target.write_bytes(b"data")
+            # user cancels here, after the last hook call
+            stub._media_cancel.set()
+            return str(target)
+
+    monkeypatch.setattr("lecturepack.services.media_fetch.MediaFetcher", FakeFetcher)
+    stub.import_media_url("https://e.com/x", "t")
+
+    done = stub.backend.last("media_done")
+    assert done["ok"] is False and done.get("cancelled") is True
+    assert stub.imported == [], "imported a download the user cancelled"
+
+
+def test_busy_flag_clears_after_a_cancelled_download(stub, tmp_path, monkeypatch):
+    """A cancelled download must not block the next one for the session."""
+    class FakeFetcher:
+        def download(self, url, dest, progress_cb=None, cancel_check=None, title=None):
+            from lecturepack.services.media_fetch import MediaFetchCancelled
+            raise MediaFetchCancelled()
+
+    monkeypatch.setattr("lecturepack.services.media_fetch.MediaFetcher", FakeFetcher)
+    stub.import_media_url("https://e.com/x", "t")
+    assert getattr(stub, "_media_busy", False) is False
+
+
+def test_newest_media_ignores_a_previous_download(tmp_path):
+    """BUG-17: the fallback scans the SHARED downloads dir. Without a
+    timestamp floor a failed download returned the user's PREVIOUS import,
+    which the caller reported as ok:True and imported -- a new job containing
+    yesterday's lecture, with no error anywhere."""
+    import time as _t
+    from lecturepack.services.media_fetch import _newest_media
+
+    old = tmp_path / "yesterday.mp4"
+    old.write_bytes(b"old")
+    os.utime(old, (1_000_000, 1_000_000))        # clearly in the past
+
+    started = _t.time() - 1.0
+    assert _newest_media(str(tmp_path), not_before=started) == "", \
+        "returned a file that predates this download"
+
+    fresh = tmp_path / "today.mp4"
+    fresh.write_bytes(b"new")
+    assert _newest_media(str(tmp_path), not_before=started) == str(fresh)

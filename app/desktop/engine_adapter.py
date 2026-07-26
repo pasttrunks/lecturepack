@@ -850,7 +850,29 @@ class LecturePackAdapter(EngineAdapter):
         self._emit("jobs_changed", self._list_jobs())
         self.push_storage()
 
+    # Bursty flows (bulk delete, queue promotion, startup reconciliation) fire
+    # several jobs_changed in a row. Without coalescing, each one launched its
+    # own full os.walk of the data root -- N overlapping unbounded threads
+    # stat-ing tens of thousands of files, concurrently with the pipeline's own
+    # heavy I/O. Flagged by the beta.4 pre-release review; see BUG-13.
+    _STORAGE_DEBOUNCE_MS = 1500
+
     def push_storage(self):
+        """Coalesce storage measurements; the real work is in _run_storage_walk.
+
+        Restarting a single-shot timer on every call collapses a burst of
+        jobs_changed into ONE walk, 1.5s after the last of them.
+        """
+        # getattr defaults throughout: tests build the adapter with __new__,
+        # so __init__ has not necessarily run.
+        pending = getattr(self, "_storage_timer_armed", False)
+        self._storage_timer_armed = True
+        if pending:
+            return          # a walk is already scheduled; let it absorb this
+        QTimer.singleShot(self._STORAGE_DEBOUNCE_MS, self.backend,
+                          self._run_storage_walk)
+
+    def _run_storage_walk(self):
         """Measure the data dir on a worker thread, then emit storage_changed.
 
         BUG-04 left the sidebar storage widget permanently hidden because no
@@ -863,6 +885,16 @@ class LecturePackAdapter(EngineAdapter):
         it lands on the main thread (see BUG-09 -- this only works because the
         context object is passed).
         """
+        self._storage_timer_armed = False
+        if getattr(self, "_storage_inflight", False):
+            # A walk is still running. Don't stack a second one, and do NOT
+            # re-arm by calling push_storage() here -- if the timer ever fires
+            # synchronously that recurses until the stack blows. Just record
+            # that the result will be stale; the running walk re-arms on exit.
+            self._storage_dirty = True
+            return
+        self._storage_inflight = True
+        self._storage_dirty = False
         root = self.config.data_dir
 
         def worker():
@@ -889,6 +921,19 @@ class LecturePackAdapter(EngineAdapter):
                 }
             except Exception as exc:
                 payload = {"ok": False, "error": str(exc)[:200]}
+            finally:
+                # Must clear even on failure, or one bad walk wedges the
+                # widget for the rest of the session.
+                self._storage_inflight = False
+            if getattr(self, "_storage_dirty", False):
+                # Jobs changed while we were walking: the number we just
+                # computed is already stale, so schedule one more pass.
+                self._storage_dirty = False
+                try:
+                    QTimer.singleShot(self._STORAGE_DEBOUNCE_MS, self.backend,
+                                      self._run_storage_walk)
+                except Exception:
+                    pass
             try:
                 self._emit_soon(self.backend.storage_changed, payload)
             except Exception:
@@ -1053,13 +1098,29 @@ class LecturePackAdapter(EngineAdapter):
         freed = self._dir_size(real)
         was_current = (self.current_job is not None
                        and self.current_job.job_id == job_id)
+        # BUG-14: this used to be `except Exception: shutil.rmtree(...)`, so ANY
+        # send2trash failure -- a file locked by an antivirus scan, a MAX_PATH
+        # overrun, a data dir on a network or removable volume -- silently
+        # turned a recoverable delete into an unrecoverable one. The user
+        # confirmed "move to Recycle Bin" and could lose a lecture for good,
+        # and bulk delete multiplied that across a whole selection in one click.
+        #
+        # Only a genuinely absent send2trash justifies a hard delete now. A
+        # runtime failure fails the operation instead: the lecture stays on
+        # disk and the user can retry, which is always recoverable from.
         try:
             from send2trash import send2trash
-            send2trash(real)
-            method = "recycle bin"
-        except Exception:
+        except ImportError:
             shutil.rmtree(real, ignore_errors=False)
             method = "permanently"
+        else:
+            try:
+                send2trash(real)
+            except Exception as exc:
+                self._log("[home]", f"delete failed for {job_id}: {exc}", "error")
+                return {"ok": False, "id": job_id, "error": str(exc)[:200],
+                        "freed_bytes": 0, "method": "none", "was_current": False}
+            method = "recycle bin"
         if was_current:
             self._set_active_job(None)
         self._log("[home]", f"deleted job {job_id} → {method} "
@@ -1229,8 +1290,17 @@ class LecturePackAdapter(EngineAdapter):
                     cancel_check=cancel.is_set,
                     title=title or None,
                 )
-                payload = {"ok": True, "path": path,
-                           "name": os.path.basename(path)}
+                if cancel.is_set():
+                    # BUG-18: cancel is only observed from yt-dlp's progress
+                    # hook. If it arrives while no hook is firing (extractor
+                    # resolution, a stalled socket, the final merge), the
+                    # transfer runs to completion and used to report ok:True --
+                    # so a download the user cancelled still became a job.
+                    # Honour the cancel here instead of importing behind them.
+                    payload = {"ok": False, "cancelled": True}
+                else:
+                    payload = {"ok": True, "path": path,
+                               "name": os.path.basename(path)}
             except MediaFetchCancelled:
                 payload = {"ok": False, "cancelled": True}
             except MediaFetchError as exc:

@@ -28,7 +28,17 @@
   }
   var CHECK_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
-  /* ======================= demo data (design content) ======================= */
+  /* ======================= demo data (design content) =======================
+     Everything below is DESIGN-TIME content for the static screenshot pipeline
+     and for opening app/ui/index.html with no backend. It is opt-in: without
+     ?preview=1 the job list starts empty and boot() blanks the whole workspace,
+     so a real launch can never show a lecture that does not exist. See BUG-15.
+     ------------------------------------------------------------------------ */
+  var PREVIEW = (function () {
+    try { return /[?&]preview=1(&|$)/.test(location.search); }
+    catch (e) { return false; }        // no location (odd host) -> not preview
+  })();
+
   var LP = window.LP = {
     state: {
       // jobId owns the workspace: Process/Review/Transcript/Study render the
@@ -72,9 +82,7 @@
       // `egypt_excerpt` after the markup had been cleaned).
       // Now opt-in: only seeded when the URL carries ?preview=1.
       jobs: (function () {
-        try {
-          if (!/[?&]preview=1(&|$)/.test(location.search)) return [];
-        } catch (e) { return []; }
+        if (!PREVIEW) return [];
         return [
           { name: 'egypt_excerpt', file: 'egypt_excerpt.m4v', meta: '06:12 · 14 slides · Jul 16', status: 'done' },
           { name: 'm2-res_1080p', status: 'running', pct: 62, stage: 'Transcribe', eta: '~3m' },
@@ -828,6 +836,14 @@
     var p = LP.data.pipeline;
     $('proc-status-title').textContent = p.title;
     $('proc-status-meta').textContent = p.meta;
+    // BUG-16: the Process screen's "Source" card had NO writer anywhere in
+    // app.js -- the same defect class as BUG-04's storage figure. It was only
+    // ever set by resetJobChrome(), so it read "No lecture loaded" plus a
+    // hardcoded "1920x1080 · 06:12 · H.264" even while a real lecture was
+    // being processed. The pipeline payload already carries both values.
+    var hasJob = !!(p.title && p.stages && p.stages.length);
+    $('proc-source-name').textContent = hasJob ? p.title : 'No lecture loaded';
+    $('proc-source-meta').textContent = hasJob ? (p.meta || '') : '';
     $('pipeline-stages').innerHTML = p.stages.map(function (st) {
       if (st.state === 'done') {
         return '<div style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;background:var(--green-fill);border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--green-soft);overflow:hidden"><div style="width:100%;height:100%;background:var(--green)"></div></div></div>';
@@ -1055,6 +1071,9 @@
       : 'No slides yet';
     $('timeline-mid').textContent = LP.data.durationMid || '';
     $('timeline-end').textContent = LP.data.duration || '';
+    // Restore the axis origin once there is a lecture to measure against;
+    // resetJobChrome() blanks it, and nothing else re-sets it (BUG-15).
+    $('timeline-start').textContent = LP.data.slides.length ? '00:00' : '';
   }
 
   function renderReviewTranscript() {
@@ -1588,6 +1607,15 @@
     $('crumb-job').textContent = 'Home';
     $('proc-source-name').textContent = 'No lecture loaded';
     $('proc-status-meta').textContent = '';
+    // BUG-15: these ship with the demo lecture's real numbers baked in
+    // (1920x1080 · 06:12 · H.264, a 00:00/03:06/06:12 timeline axis), so with
+    // no lecture loaded the Review timeline still advertised a 6-minute
+    // lecture that does not exist. Blank them with everything else.
+    ['proc-source-meta', 'transcript-duration',
+     'timeline-start', 'timeline-mid', 'timeline-end'].forEach(function (id) {
+      var el = $(id);
+      if (el) el.textContent = '';
+    });
     $('status-label').textContent = 'Idle';
     $('status-pct').textContent = '';
     setFill('status-bar', 0);
@@ -2812,6 +2840,24 @@
   /* ======================= boot ======================= */
 
   function boot() {
+    // BUG-15: gating only `LP.data.jobs` behind ?preview=1 was not enough. The
+    // pipeline/slides/reviewSegments/transcript/study literals are ALSO
+    // design-time demo content (a 14-slide "Great Pyramid of Giza" lecture),
+    // and Home was the only screen that got cleaned. Verified on a real launch
+    // against an empty profile: Home correctly showed "No lecture loaded" and
+    // RECENT JOBS 0, while Review showed a full fake lecture — timeline,
+    // slide list with accepted/rejected states, and transcript.
+    //
+    // A brand-new user pressing Review would see a lecture that does not
+    // exist. `active_job` cannot be relied on to clear it, because
+    // _load_latest_completed_job() returns early without emitting when there
+    // is nothing to load. So the workspace starts EMPTY unless explicitly
+    // previewing, and real data only ever arrives from the backend.
+    if (!PREVIEW) {
+      var blank = emptyWorkspace();
+      Object.keys(blank).forEach(function (k) { LP.data[k] = blank[k]; });
+      LP.data.reviewSegments = [];
+    }
     resetJobChrome();           // clear index.html's design-time placeholders
     renderJobs();
     renderPipeline();

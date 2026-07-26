@@ -115,6 +115,32 @@ class MainWindow(QMainWindow):
         self.view.load(QUrl.fromLocalFile(index))
         self.setCentralWidget(self.view)
 
+        # Windows integration: a tray icon carries local notifications; the
+        # window HWND drives taskbar progress. Both degrade to no-ops if the
+        # tray/HWND is unavailable. (beta.3)
+        #
+        # This block MUST stay inside __init__. It was previously orphaned
+        # below `_ffmpeg_exe`'s `return ""`, where it was unreachable — which
+        # silently killed every tray notification and all taskbar progress,
+        # because `self.tray` was never assigned and `attach_window` never ran.
+        # Caught by the beta.4 pre-release review; see BUG-11.
+        self.tray = None
+        try:
+            from PySide6.QtWidgets import QSystemTrayIcon
+            if QSystemTrayIcon.isSystemTrayAvailable():
+                self.tray = QSystemTrayIcon(self)
+                if os.path.exists(icon_path):
+                    self.tray.setIcon(QIcon(icon_path))
+                self.tray.setToolTip(version.APP_NAME)
+                self.tray.messageClicked.connect(self._on_notification_clicked)
+                self.tray.show()
+        except Exception:
+            self.tray = None
+        try:
+            self.backend._adapter.attach_window(self, self.tray)
+        except Exception:
+            pass
+
     def _prewarm_posters(self, payload: str) -> None:
         """Kick off poster generation for every job in a jobs_changed payload."""
         try:
@@ -139,26 +165,6 @@ class MainWindow(QMainWindow):
             return self.backend._adapter.config.get("ffmpeg_exe", "") or ""
         except Exception:
             return ""
-
-        # Windows integration: a tray icon carries local notifications; the
-        # window HWND drives taskbar progress. Both degrade to no-ops if the
-        # tray/HWND is unavailable. (beta.3)
-        self.tray = None
-        try:
-            from PySide6.QtWidgets import QSystemTrayIcon
-            if QSystemTrayIcon.isSystemTrayAvailable():
-                self.tray = QSystemTrayIcon(self)
-                if os.path.exists(icon_path):
-                    self.tray.setIcon(QIcon(icon_path))
-                self.tray.setToolTip(version.APP_NAME)
-                self.tray.messageClicked.connect(self._on_notification_clicked)
-                self.tray.show()
-        except Exception:
-            self.tray = None
-        try:
-            self.backend._adapter.attach_window(self, self.tray)
-        except Exception:
-            pass
 
     def _on_notification_clicked(self):
         """A tray balloon was clicked: raise the window and route to the target
