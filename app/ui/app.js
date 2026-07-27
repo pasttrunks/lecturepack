@@ -536,7 +536,12 @@
      plus N image loads). Instead a missing poster retries a bounded number of
      times with backoff, which is all that's needed now that posters prewarm
      when a job appears. */
-  var POSTER_RETRIES = 3;
+  // 3 tries x 700ms*n gave up after ~4.2s and then removed the img for good, so
+  // a poster that took longer to extract (a multi-hundred-MB source) never
+  // appeared at all -- the file landed on disk seconds after the UI stopped
+  // asking. Budget now spans ~30s, which covers a cold extract, while still
+  // ending rather than polling forever.
+  var POSTER_RETRIES = 9;
 
   function posterSrc(id, attempt) {
     var u = 'lpasset://poster/' + encodeURIComponent(id) + '/poster';
@@ -2450,8 +2455,8 @@
         Array.prototype.forEach.call(document.querySelectorAll('[data-onb-mode]'), function (o) {
           var on = o === el;
           o.style.cssText = on
-            ? 'flex:1;text-align:center;font:700 12px \'Space Grotesk\';padding:9px 0;border:2px solid var(--orange);border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);cursor:pointer'
-            : 'flex:1;text-align:center;font:500 12px \'Space Grotesk\';padding:9px 0;border:2px solid transparent;border-radius:9px;color:var(--muted);cursor:pointer';
+            ? 'flex:1;text-align:center;font:700 12px \'Space Grotesk\';padding:9px 0;border:2px solid var(--orange);border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);box-shadow:var(--shadow-hard-sm);cursor:pointer'
+            : 'flex:1;text-align:center;font:500 12px \'Space Grotesk\';padding:9px 0;border:2px solid transparent;border-radius:9px;color:var(--muted);box-shadow:var(--shadow-hard-sm);cursor:pointer';
         });
         LP.state.onbMode = el.dataset.onbMode;
       });

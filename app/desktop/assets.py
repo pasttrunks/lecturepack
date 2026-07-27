@@ -396,7 +396,7 @@ class AssetResolver:
                 scheduled.append(job_id)
         return scheduled
 
-    def make_poster_now(self, job_id: str) -> tuple[str, bytes] | None:
+    def make_poster_now(self, job_id: str, fast: bool = False) -> tuple[str, bytes] | None:
         """Synchronous generate+return — for tests/prewarming, not the handler.
 
         Guarded by the module-level in-flight set, not just this instance's
@@ -412,7 +412,7 @@ class AssetResolver:
         if not _claim(dst):
             return self._read_poster(dst)
         try:
-            return self._make_poster_locked(job_id, dst)
+            return self._make_poster_locked(job_id, dst, fast=fast)
         finally:
             _release(dst)
 
@@ -426,7 +426,7 @@ class AssetResolver:
             pass
         return None
 
-    def _make_poster_locked(self, job_id: str, dst: str) -> tuple[str, bytes] | None:
+    def _make_poster_locked(self, job_id: str, dst: str, fast: bool = False) -> tuple[str, bytes] | None:
         _, mime, _ = _thumb_format()
         frame = self._existing_frame(job_id)
         data = None
@@ -434,7 +434,12 @@ class AssetResolver:
             data = _make_thumb(frame, dst, POSTER_MAX)
         if data is None:
             video = self.source_video(job_id)
-            if video is not None and _extract_poster(video, dst, self._resolve_ffmpeg()):
+            # fast=True grabs the frame at t=0 instead of seeking to
+            # POSTER_SEEK_FRACTION. Seeking into a multi-hundred-MB file takes
+            # longer than the UI is willing to wait for a first thumbnail, and a
+            # first frame is a perfectly good placeholder.
+            extract = _extract_poster_at_start if fast else _extract_poster
+            if video is not None and extract(video, dst, self._resolve_ffmpeg()):
                 try:
                     with open(dst, "rb") as fh:
                         data = fh.read()

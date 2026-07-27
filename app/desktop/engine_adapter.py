@@ -1346,7 +1346,7 @@ class LecturePackAdapter(EngineAdapter):
         try:
             res = AssetResolver(self.config.data_dir,
                                 ffmpeg_exe=self.config.get("ffmpeg_exe", None))
-            threading.Thread(target=res.make_poster_now, args=(job.job_id,),
+            threading.Thread(target=res.make_poster_now, args=(job.job_id,), kwargs={"fast": True},
                              daemon=True, name="lp-import-poster").start()
         except Exception:
             pass
@@ -1491,16 +1491,27 @@ class LecturePackAdapter(EngineAdapter):
             # steps coarsely; the estimate uses a finer fraction that folds in
             # the ACTIVE stage's own pct, otherwise the ETA would sit frozen for
             # a whole stage and then lurch.
-            frac = done / total
-            act = next((x for x in self._stages if x["state"] == "active"), None)
-            if act is not None and isinstance(act.get("pct"), (int, float)):
-                frac += (max(0.0, min(100.0, float(act["pct"]))) / 100.0) / total
+            # Stages can run in PARALLEL here (parallel_pipeline), so there is
+            # not one "active" stage with a pct -- there can be several, and the
+            # FIRST one may sit at 0% while a later one is at 42%. Taking only
+            # next(active) froze frac at done/total, which made the percentage
+            # stick (33%) while the ETA, being elapsed*(1-frac)/frac with frac
+            # constant, climbed forever. Sum every in-flight stage instead.
+            active_frac = 0.0
+            for x in self._stages:
+                if x["state"] == "active" and isinstance(x.get("pct"), (int, float)):
+                    active_frac += max(0.0, min(100.0, float(x["pct"]))) / 100.0
+            frac = min(1.0, (done + active_frac) / total)
+            # Report the SAME fine-grained number the ETA is based on, so the
+            # percentage advances smoothly instead of jumping a whole stage at a
+            # time. A percentage that does not move while a clock does reads as
+            # broken even when both are technically correct.
+            shown = int(round(frac * 100))
             if elapsed > 5 and frac > 0.02:
                 remaining = elapsed * (1.0 - frac) / frac
-                meta = f"~{_fmt_mmss(remaining)} left · {overall}%"
+                meta = f"~{_fmt_mmss(remaining)} left · {shown}%"
             else:
-                # too early to be honest about it
-                meta = f"estimating… · {overall}%"
+                meta = f"estimating… · {shown}%"
         stages = [{"label": s["label"], "state": s["state"],
                    **({"pct": s["pct"], "color": s["color"]}
                       if s["state"] == "active" else {})}

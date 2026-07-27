@@ -38,7 +38,42 @@ re-debug the same thing from scratch.
 
 *(newest first)*
 
-*None open.*
+### BUG-26 — imported video's thumbnail never appears on the job card   🔴 OPEN (known, shipped in 0.9.0-beta.5)
+- **Area:** `app/ui/app.js` (`posterSrc` / `LP.posterRetry` / `posterHtml`) ↔
+  `app/desktop/assets.py` (`resolve_poster`, `make_poster_now`).
+- **Reported by:** owner, 2026-07-27, twice — on import of `CL100 - Day 3` (1.4 GB, h264)
+  the card shows the placeholder icon and never resolves to a real frame.
+  Owner classified it as minor and chose to release with it open.
+- **What is NOT the problem (measured, so don't re-debug this part):** generation WORKS.
+  `poster.webp` exists on disk for every imported job, including the failing one
+  (`8978e4cf…/poster.webp`, 16,524 bytes, written 19:22). ffmpeg resolves
+  (`config.ffmpeg_exe` exists). So this is a DISPLAY/refresh failure, not extraction.
+- **Key evidence, and why it is confusing:** the CDP monitor logged
+  `lpasset://poster/8978e4cf…/poster` → **404 / ERR_FILE_NOT_FOUND at 19:22:49**, i.e.
+  *after* the file already existed on disk (mtime 19:22). A 404 for a file that exists
+  points at the resolver or the URL, NOT at a timing race — which is what the first two
+  fix attempts assumed.
+- **Two attempted fixes that did NOT resolve it** (both still in the tree, both defensible
+  on their own merits, neither sufficient):
+  1. `_kick_poster` generates the poster on import instead of lazily (BUG-25 era), later
+     switched to `fast=True` → `_extract_poster_at_start` (frame at t=0, no seek) because
+     seeking 10% into a 692 MB file took longer than the UI would wait.
+  2. `POSTER_RETRIES` raised 3 → 9 (budget ~4.2s → ~30s), since the old budget expired
+     before a cold extract finished.
+- **Two hypotheses NOT yet separated** (the app was closed before this could be settled):
+  (a) **QtWebEngine served a cached `app.js`**, so the raised retry budget was never live —
+      this profile has been relaunched many times and the handoff explicitly warns that
+      WebEngine caches `app.css`/`app.js` hard. Check by reading `POSTER_RETRIES` /
+      `LP.posterRetry.toString()` out of the live page BEFORE concluding anything.
+  (b) **`resolve_poster` 404s even when the poster exists.** Worth auditing against the
+      `_claim()` guard added for BUG-25: if the scheme handler's path reaches
+      `make_poster_now` while the import thread still holds the claim, it now returns
+      `_read_poster(dst)`, which is `None` until the file lands — turning a "generating"
+      state into a hard 404. Verify whether `resolve_poster` shares that path.
+- **Next step:** confirm which file the page actually loaded (rule out the cache) with a
+  hard cache-bust or a fresh profile, then trace `resolve_poster` for the existing-file 404.
+  Do NOT add a third timing/retry fix before the 404-on-existing-file is explained.
+- **Files:** `app/ui/app.js`, `app/desktop/assets.py`.
 
 ## FIXED THIS SESSION
 
