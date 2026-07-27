@@ -19,17 +19,18 @@ a:hover{color:var(--orange)}
 input:focus{outline:2px solid var(--blue);outline-offset:0}
 
 /* micro-interactions
-   One easing curve (--motion-ease) across every interactive surface so the whole
-   UI decelerates identically; hover/press feedback stays at --motion-fast
-   because these fire hundreds of times a session. */
-.lp-hit{transition:transform var(--motion-fast) var(--motion-ease),box-shadow var(--motion-fast) var(--motion-ease),background var(--motion-fast) var(--motion-ease)}
+   Hover/press feedback stays at --motion-fast because these fire hundreds of
+   times a session. MOVEMENT (transform) uses --motion-spring, the same
+   critically-damped curve every entrance now uses, so a hover lift and a screen
+   arrival read as the same material; colour/shadow keep --motion-ease. */
+.lp-hit{transition:transform var(--motion-fast) var(--motion-spring),box-shadow var(--motion-fast) var(--motion-ease),background var(--motion-fast) var(--motion-ease)}
 .lp-hit:hover{transform:translateY(-1px)}
 /* press state lives with the other press rules below (search "press feedback") */
-.lp-card{transition:transform var(--motion-fast) var(--motion-ease),box-shadow var(--motion-fast) var(--motion-ease),border-color var(--motion-fast) var(--motion-ease)}
-.lp-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-hi);border-color:var(--blue)}
+.lp-card,.lp-lift{transition:transform var(--motion-fast) var(--motion-spring),box-shadow var(--motion-fast) var(--motion-ease),border-color var(--motion-fast) var(--motion-ease)}
+.lp-card:hover,.lp-lift:hover{transform:translateY(-2px);box-shadow:var(--shadow-hi);border-color:var(--blue)}
 .lp-nav{transition:background var(--motion-fast) var(--motion-ease)}
 .lp-nav:hover{background:var(--panel2)}
-.lp-tick{transition:transform var(--motion-fast) var(--motion-ease)}
+.lp-tick{transition:transform var(--motion-fast) var(--motion-spring)}
 .lp-tick:hover{transform:scaleY(1.35)}
 
 /* --- press feedback (added 2026-07-25) --------------------------------------
@@ -44,9 +45,9 @@ input:focus{outline:2px solid var(--blue);outline-offset:0}
    DOWN along the axis it already lifts on keeps every border crisp and reads
    as more physical here than a shrink. Hover -1px, press +1px. */
 .lp-hit:active{transform:translateY(1px)}
-.lp-card:active{transform:translateY(-1px)}
+.lp-card:active,.lp-lift:active{transform:translateY(-1px)}
 button,[role="button"],.lp-nav,.lp-tab,.lp-theme-btn{
-  transition:transform var(--motion-fast) var(--motion-ease),
+  transition:transform var(--motion-fast) var(--motion-spring),
              background var(--motion-fast) var(--motion-ease),
              border-color var(--motion-fast) var(--motion-ease),
              color var(--motion-fast) var(--motion-ease)}
@@ -69,9 +70,12 @@ button:disabled{cursor:not-allowed}
 *:focus-visible{transition-property:transform,background,border-color,color}
 
 /* Progress fills animate on the compositor (scaleX) instead of `width`, which
-   forces layout + paint on every frame. Origin-left so they grow rightwards. */
+   forces layout + paint on every frame. Origin-left so they grow rightwards.
+   Retuned for MOTION SYSTEM v1: eased instead of linear, plus a background-color
+   transition for fills that swap color on state change. */
 .lp-fill{transform-origin:left center;will-change:transform;
-  transition:transform var(--motion-medium) linear}
+  transition:transform var(--motion-slow) var(--motion-ease),
+             background-color var(--motion-normal) var(--motion-ease)}
 
 /* ===== design tokens ===== */
 :root{
@@ -87,6 +91,23 @@ button:disabled{cursor:not-allowed}
   --nav-ink:#4A4438;
   --shadow-soft:0 1px 2px rgba(28,26,22,.06),0 4px 14px rgba(28,26,22,.05);
   --shadow-hi:0 2px 6px rgba(28,26,22,.10),0 14px 34px rgba(28,26,22,.10);
+  /* --- hard-shadow ink (added 2026-07-27) ----------------------------------
+     DEDICATED token, deliberately NOT var(--border). The hard offset shadow is
+     the press affordance and one of this UI's identity signals, so it needs a
+     colour chosen for CONTRAST AGAINST --panel, which is a different job from
+     --border's (~112 real borders; do not repoint those at this token).
+     LIGHT: #241F19 on --panel #FFFFFF = 16.34:1 -- dramatic, correct, and
+     byte-identical to the light --border this replaced, so light mode renders
+     exactly as before.
+     DARK keeps this at #000000; see the dark block for the measured tradeoff. */
+  --shadow-ink:#241F19;
+  /* button-character edges (light): darkening works here (16.34:1). */
+  --btn-edge-hover:2px 2px 0 var(--shadow-ink);
+  --btn-edge-press:inset 3px 3px 0 var(--border);
+  --btn-edge-on:2px 2px 0 var(--shadow-ink);
+  --btn-edge-danger:2px 2px 0 var(--shadow-ink);
+  --shadow-hard:3px 3px 0 var(--shadow-ink);
+  --shadow-hard-sm:2px 2px 0 var(--shadow-ink);
   --glass:var(--panel);
 
   /* --- accessibility tokens (added 2026-07-25, BUG-05) ---------------------
@@ -113,26 +134,42 @@ button:disabled{cursor:not-allowed}
   --green-fill:#18AC68;     /* ink 5.91 (bare --green would be 3.96 = fail)  */
   --red-fill:#E85A4B;       /* ink 4.96 (bare --red would be 3.72 = fail)    */
 
-  /* --- motion tokens (added 2026-07-25) -----------------------------------
-     PRODUCT register: this is a tool used daily, so motion is subtle and fast
-     (150-250ms), never decorative. One easing curve, applied everywhere, so
-     the whole UI decelerates identically -- browser `ease` is not used. */
-  --motion-fast:120ms;      /* hover/press feedback: near-instant           */
-  --motion-medium:180ms;    /* state changes, fades, panel reveals          */
-  --motion-slow:240ms;      /* the largest move we allow in product chrome  */
-  --motion-ease:cubic-bezier(.22,1,.36,1);      /* decisive ease-out        */
-  --motion-ease-in:cubic-bezier(.55,0,1,.45);   /* for exits only           */
-  /* Spring approximation for STATE changes (a thing becoming another thing:
-     icon swaps, badge flips, panel reveals). CSS transitions cannot do real
-     spring physics; this curve is the standard critically-damped stand-in --
-     it settles without overshoot, which is what a tool UI wants. Overshoot
-     ("bounce") is deliberately absent: it reads as toy-like and would fight
-     the neobrutalist weight. Use --motion-ease for movement, this for state. */
+  /* --- motion tokens (added 2026-07-25; MECHANICAL rebuild 2026-07-27) -----
+     PRODUCT register: this is a tool used daily, so motion is subtle and fast,
+     never decorative. The register is MECHANICAL: objects have mass and hard
+     2px edges, they travel on ONE axis and stop hard, like a machined part
+     seating into a detent. They do not drift, float, or cross-fade.
+     Nothing anywhere exceeds --motion-slow (220ms). */
+  --motion-fast:90ms;       /* hover, press, focus -- fires hundreds of times a session */
+  --motion-snap:110ms;      /* NEW: shortest travel -- nav indicator, stagger items,   */
+                            /* reveal children. Arrives before anything else moves.    */
+  --motion-seat:140ms;      /* NEW: the mechanical default -- screen travel, entrances,*/
+                            /* modal panel. Replaces --motion-normal for MOVEMENT.     */
+  --motion-normal:160ms;    /* colour/state changes (background, border, text)          */
+  --motion-medium:160ms;    /* DEPRECATED ALIAS of --motion-normal. ~40 existing rules  */
+                            /* reference it; keep it so nothing breaks. Do not remove.  */
+  --motion-slow:220ms;      /* the largest move allowed: progress, completion reveal    */
+  /* PRIMARY MOVEMENT CURVE. Critically damped: fast-out, then a firm settle
+     with NO overshoot -- that firm settle IS the mechanical read, the same
+     one .lp-press expresses physically. Every transform in the motion system
+     uses this. Overshoot ("bounce") is banned project-wide: it reads toy-like
+     and fights the neobrutalist weight. */
   --motion-spring:cubic-bezier(.2,0,0,1);
+  /* OPACITY CURVE, and the only curve opacity may ever use. Gentle in-out, no
+     front-loading -- the eye is far more sensitive to luminance than position,
+     so a front-loaded curve on opacity reads as a flash. */
+  --motion-ease-soft:cubic-bezier(.33,0,.2,1);
+  /* DEMOTED 2026-07-27. Near-exponential ease-out (~80% of its change in the
+     first third). Correct for a 2-4px transform, but that front-loading is
+     what read as a snap/flash. No longer used for opacity ANYWHERE, and no
+     longer the default for transform -- --motion-spring is. Retained because
+     ~40 pre-existing colour/state transitions reference it. */
+  --motion-ease:cubic-bezier(.22,1,.36,1);
+  --motion-ease-in:cubic-bezier(.55,0,1,.45);   /* for exits only           */
 }
 [data-theme="dark"]{
-  --bg:#131519; --panel:#1B1E24; --panel2:#21252C; --sunk:#171A1F;
-  --ink:#ECE7DB; --muted:#8C93A2; --border:#000000; --line:#2C313A;
+  --bg:#16191F; --panel:#1F242C; --panel2:#262C35; --sunk:#1A1E24;
+  --ink:#ECE7DB; --muted:#A3AAB8; --border:#000000; --line:#4E5563;
   --blue:#B3EBF2; --blue-strong:#8FE0EA; --blue-soft:#123840; --blue-ink:#B3EBF2; --blue-tint:#102A30;
   /* deep blue/navy secondary surfaces with cyan text — no bright-cyan fills */
   --secondary-surface:#12303F; --secondary-surface-hover:#173C4C; --secondary-surface-active:#1B465A;
@@ -140,9 +177,35 @@ button:disabled{cursor:not-allowed}
   --glass:var(--panel);
   --orange:#FF6C36; --orange-ink:#FF8A5C; --orange-soft:#38220F;
   --green:#4CCB86; --green-soft:#123020; --red:#FF6E5E; --red-soft:#361715; --yellow:#F2C24A; --yellow-soft:#332810;
-  --nav-ink:#AEB3BF;
+  --nav-ink:#C2C7D2;
   --shadow-soft:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.35);
   --shadow-hi:0 2px 8px rgba(0,0,0,.5),0 18px 40px rgba(0,0,0,.5);
+  /* --- hard-shadow ink (dark) ----------------------------------------------
+     KNOWN LIMITATION, deliberately accepted 2026-07-27: this matches --border
+     (#000000), which on --panel #1B1E24 measures only 1.26:1 -- below the ~3:1
+     floor at which a non-text UI shape is discernible -- so the hard-shadow
+     press affordance is effectively INVISIBLE in dark mode. You cannot cast a
+     shadow by going darker than a near-black surface.
+     A cream inversion (#ECE7DB, 13.53:1) was implemented and REJECTED on review
+     as looking out of place. Other measured candidates, all rejected: white@14%
+     1.56:1, white@22% 2.06:1, --line 1.28:1 (still invisible); --orange 5.92:1
+     (visible but loud, and dilutes a signal colour).
+     Conclusion: in a near-black theme the raised read has to come from the
+     button's own border/fill weight, not from an offset shadow. Tracked as part
+     of the button-character work rather than patched here. */
+  --shadow-ink:#000000;
+  /* button-character edges (dark): identical DEVICE to light (darkening), now
+     that the dark surfaces were lightened so a #000000 offset actually reads.
+     Measured after lightening: shadow vs --panel 1.35:1 (was 1.26), vs --panel2
+     1.60:1. Still well under light mode's 16.34:1 -- reaching 3:1 would need a
+     mid-grey ~#4F5561, which stops being a dark theme. An earlier brightening
+     inset ring was rejected for being inconsistent with the darkening ones. */
+  --btn-edge-hover:2px 2px 0 var(--shadow-ink);
+  --btn-edge-press:inset 3px 3px 0 var(--border);
+  --btn-edge-on:2px 2px 0 var(--shadow-ink);
+  --btn-edge-danger:2px 2px 0 var(--shadow-ink);
+  --shadow-hard:3px 3px 0 var(--shadow-ink);
+  --shadow-hard-sm:2px 2px 0 var(--shadow-ink);
   /* dark fills are lighter, so the same near-black ink reads even better:
      orange 6.48 · red 6.65 · green 8.87 · blue 14.00 · yellow 10.96 */
   --on-signal:#131519;
@@ -152,21 +215,44 @@ button:disabled{cursor:not-allowed}
 
 @keyframes lpblink{0%,100%{opacity:1}50%{opacity:.3}}
 @keyframes lpbar{0%{background-position:0 0}100%{background-position:26px 0}}
-@keyframes lpin{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
+/* ===== MECHANICAL keyframe vocabulary (2026-07-27 rebuild) =================
+   This is the WHOLE vocabulary. Five keyframes for entrances, three for exits
+   (further down). Do not add a one-off keyframe for a single component --
+   extend one of these.
 
-/* --- screen change (added 2026-07-25) ---------------------------------------
-   Switching screens was a HARD CUT: nothing on [data-screen] animated, and the
-   "retrigger entrance animation" reset in setScreen() was dead code because no
-   animation was ever declared for it. A cut is not "fast", it just loses the
-   thread of where content came from.
+   Invariants, enforced structurally by the fact that these are the only
+   entrance keyframes in the file:
+   - Every entrance keyframe animates transform on exactly ONE axis, or
+     opacity, never both in one block (so each can carry its own curve).
+   - There is exactly ONE opacity-entrance keyframe (lpsupport) and its floor
+     is .7. Nothing entrance-animates opacity from 0, and nothing from below
+     .7. Opacity is SUPPORT; it must never be the thing the user notices.
+     (The single exception is .lp-scrim -- see 3.8 -- which is a light source
+     dimming, not an object, and must start from 0.)
+   - No scale() on anything bordered: scaling a 2px border resamples it to a
+     fractional pixel and softens the exact weight this UI depends on.
+   - No overshoot: no cubic-bezier with a Y outside 0..1. */
+@keyframes lprail{from{transform:translateX(10px)}}    /* screen travel, X axis */
+@keyframes lpseat{from{transform:translateY(6px)}}      /* standard entrance     */
+@keyframes lpseat-sm{from{transform:translateY(3px)}}   /* small / fast entrance */
+@keyframes lpdrop{from{transform:translateY(14px)}}     /* the one big moment    */
+@keyframes lpsupport{from{opacity:.7}}                  /* opacity support only  */
 
-   This is the most frequent transition in the app, so it is deliberately at
-   the floor of the scale (--motion-fast, 120ms) and moves only 3px. Anything
-   longer would tax navigation; anything larger would read as decoration.
-   opacity+transform only -- both composite, neither triggers layout. */
-@keyframes lpscreen{from{opacity:0;transform:translateY(3px)}}
+/* --- screen change (added 2026-07-25; MECHANICAL rebuild 2026-07-27) --------
+   The app's most frequent transition, and the one the user reported as "still
+   too intense" in dark mode. It was TWO stacked opacity ramps (this rule's
+   lpfade .35->1 plus the root View Transition's 0->1 crossfade) and ~10px of
+   stacked Y movement per navigation. The View Transition layer is gone (see
+   3.3) and this rule is now the only layer.
+
+   Single axis (X), transform ONLY, no opacity at all: the incoming screen
+   slides 10px along a rail and stops hard on the critically-damped spring --
+   it seats into place rather than fading in. Transform-only is also the
+   complete answer to the dark-mode complaint: nothing ramps luminance, so
+   there is no bright-panel-out-of-black flash to perceive. X also reads as
+   orthogonal to the sidebar indicator's Y travel, which leads it. */
 main [data-screen]:not([hidden]){
-  animation:lpscreen var(--motion-fast) var(--motion-spring) both}
+  animation:lprail var(--motion-seat) var(--motion-spring) both}
 
 /* Numbers that change in place (durations, %, sizes, counts) must not reflow
    the text around them as digits swap. Tabular figures keep every digit the
@@ -192,25 +278,33 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 [data-focus="true"] aside.lp-chrome{width:0 !important;padding:0 !important;border-right-width:0 !important;overflow:hidden;transform:translateX(-20px)}
 [data-focus="true"] .lp-main{animation:lpiris .55s cubic-bezier(.4,0,.2,1) forwards}
 
-/* ===== staggered content reveal ===== */
-.lp-stagger>*{animation:lpin .5s cubic-bezier(.2,.7,.3,1) backwards}
-.lp-stagger>*:nth-child(1){animation-delay:.02s}
-.lp-stagger>*:nth-child(2){animation-delay:.09s}
-.lp-stagger>*:nth-child(3){animation-delay:.16s}
-.lp-stagger>*:nth-child(4){animation-delay:.23s}
-.lp-stagger>*:nth-child(5){animation-delay:.30s}
+/* ===== staggered content reveal (MECHANICAL rebuild -- see bottom of file) =====
+   Transform only, 3px, --motion-snap: each item is a part seating into the
+   list in sequence, not a wave of fading cards. `backwards` fill holds the
+   3px offset (fully opaque) during the delay, so nothing is invisible while
+   it waits its turn. Delay ladder unchanged (capped so long lists don't crawl). */
+.lp-stagger>*{animation:lpseat-sm var(--motion-snap) var(--motion-spring) backwards}
+.lp-stagger>*:nth-child(1){animation-delay:0ms}
+.lp-stagger>*:nth-child(2){animation-delay:30ms}
+.lp-stagger>*:nth-child(3){animation-delay:60ms}
+.lp-stagger>*:nth-child(4){animation-delay:90ms}
+.lp-stagger>*:nth-child(5){animation-delay:120ms}
+.lp-stagger>*:nth-child(6){animation-delay:150ms}
+.lp-stagger>*:nth-child(7){animation-delay:180ms}
+.lp-stagger>*:nth-child(8){animation-delay:210ms}
+.lp-stagger>*:nth-child(n+9){animation-delay:210ms}
 
 /* ===== ported dynamic style-strings (state-driven) =====
    These reproduce the prototype's navStyle()/tabStyle()/optStyle()/bubble strings verbatim. */
 
-.lp-nav{display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;border:1.5px solid transparent;border-radius:9px;background:transparent;color:var(--nav-ink);cursor:pointer;font:600 13.5px 'Space Grotesk';text-align:left;transition:background var(--motion-fast) var(--motion-ease),color var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-ease)}
+.lp-nav{display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;border:1.5px solid transparent;border-radius:9px;background:transparent;color:var(--nav-ink);cursor:pointer;font:600 13.5px 'Space Grotesk';text-align:left;transition:background var(--motion-fast) var(--motion-ease),color var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-ease),border-color var(--motion-fast) var(--motion-ease)}
 .lp-nav.active{border-color:var(--blue);background:var(--blue-soft);color:var(--blue-ink);font-weight:700}
 .lp-nav.active:hover{background:var(--blue-soft)}
 
-.lp-tab{flex:1;text-align:center;font:600 12px 'Space Grotesk';padding:9px 0;border-radius:8px;border:2px solid transparent;background:transparent;color:var(--muted);cursor:pointer}
+.lp-tab{flex:1;text-align:center;font:600 12px 'Space Grotesk';padding:9px 0;border-radius:8px;border:2px solid transparent;background:transparent;color:var(--muted);cursor:pointer;transition:background-color var(--motion-normal) var(--motion-ease),border-color var(--motion-normal) var(--motion-ease),color var(--motion-normal) var(--motion-ease)}
 .lp-tab.active{font-weight:700;border-color:var(--border);background:var(--orange);color:var(--on-signal)}
 
-.lp-opt{display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:2px solid var(--border);border-radius:11px;padding:12px 14px;background:var(--panel);color:var(--ink);cursor:pointer;font:600 14px 'Space Grotesk'}
+.lp-opt{display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:2px solid var(--border);border-radius:11px;padding:12px 14px;background:var(--panel);color:var(--ink);cursor:pointer;font:600 14px 'Space Grotesk';transition:background-color var(--motion-normal) var(--motion-ease),border-color var(--motion-normal) var(--motion-ease),color var(--motion-normal) var(--motion-ease),opacity var(--motion-normal) var(--motion-ease)}
 .lp-opt.correct{background:var(--green-soft);border-color:var(--green)}
 .lp-opt.wrong{background:var(--red-soft);border-color:var(--red)}
 .lp-opt.dim{opacity:.55}
@@ -220,7 +314,7 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 .lp-caret{display:inline-block;width:7px;height:15px;background:var(--orange);margin-left:2px;vertical-align:-2px;animation:lpblink .8s steps(1) infinite}
 
 /* theme picker buttons (Settings › Appearance) */
-.lp-theme-btn{flex:1;text-align:center;font:700 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid var(--line);border-radius:9px;background:var(--panel);color:var(--muted);cursor:pointer}
+.lp-theme-btn{flex:1;text-align:center;font:700 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid var(--line);border-radius:9px;background:var(--panel);color:var(--muted);cursor:pointer;transition:background-color var(--motion-normal) var(--motion-ease),border-color var(--motion-normal) var(--motion-ease),color var(--motion-normal) var(--motion-ease)}
 .lp-theme-btn.active{border-color:var(--secondary-border);background:var(--secondary-surface);color:var(--secondary-text)}
 
 /* beta.3: honor the OS "reduce motion" setting. Keep opacity/color feedback but
@@ -254,6 +348,362 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   [data-screen]{padding-left:12px !important;padding-right:12px !important}
 }
 
+/* ============ MOTION SYSTEM v2 -- MECHANICAL (2026-07-27) ================
+   v1 (2026-07-26) was treated as a draft and rebuilt. v1's vocabulary was
+   "fade + rise" on almost everything -- default SaaS motion, which did not
+   match a UI whose identity is ~112 hard 2px borders and hard offset shadows.
+   The user's report was two-fold: the screen transition was "still too
+   intense" in dark mode, and the animations overall were unimpressive.
+
+   THE REGISTER IS MECHANICAL. Objects have mass and hard edges and move on
+   rails. They travel on ONE axis and stop hard, like a machined part seating
+   into a detent. They do not drift, float, or cross-fade. .lp-press (3.4) is
+   the reference; everything here speaks its language.
+
+   The rules, all of them enforceable by reading this block:
+   1. --motion-spring is the ONLY curve for transform. Critically damped:
+      fast-out, firm settle, no overshoot.
+   2. --motion-ease-soft is the ONLY curve for opacity. --motion-ease is
+      demoted and must never touch opacity again.
+   3. Opacity is SUPPORT, never the effect. One entrance keyframe carries it
+      (lpsupport), its floor is .7, and most entrances omit it entirely.
+   4. One axis per animation. No simultaneous X+Y. No scale on anything with
+      a border (it resamples the 2px edge to a fractional pixel).
+   5. Nothing exceeds --motion-slow (220ms). Prefer shortening.
+   6. No overshoot anywhere: no cubic-bezier with a Y outside 0..1.
+   7. Only transform / opacity / background-color / border-color / box-shadow
+      are ever animated. Nothing here touches width/height/top/left/margin/
+      padding/filter -- the last `height` animation (the nav indicator) was
+      removed in this rebuild.
+   8. Every class here is neutralized in the prefers-reduced-motion block at
+      the bottom of this file. Adding an animation without adding it there is
+      an incomplete change.
+   Extend a class here rather than adding a per-screen one-off.
+   ======================================================================= */
+
+/* --- 3.1 entrance ---
+   MECHANICAL rebuild 2026-07-27: the fade+rise pair is gone. These two classes
+   are applied app-wide, so this is where most of the perceived quality change
+   comes from. They are now transform-ONLY, one axis, on --motion-spring: an
+   element arrives by travelling a short distance and stopping hard. Nothing
+   ramps opacity, so nothing can read as a fade or a flash -- in either theme.
+   Keyframes are defined once, above, next to the screen-transition rule. */
+.lp-anim-in{animation:lpseat var(--motion-seat) var(--motion-spring) both}
+.lp-anim-in-fast{animation:lpseat-sm var(--motion-fast) var(--motion-spring) both}
+/* .lp-stagger>* rebuilt in place above (search "staggered content reveal") */
+
+/* Opacity-only, zero movement -- for panes that swap inside a STATIONARY card
+   (Study's Ask/Quiz/Flashcards/Notes tabs). This is the one deliberate place
+   opacity carries the transition: a pane sliding inside a still frame is what
+   the user read as "bouncy" (§4.4), and the content changes wholesale, so a
+   hard cut is genuinely disorienting. Floor raised .35 -> .7 so the ramp is a
+   settle, not a reveal. */
+.lp-anim-fade{animation:lpsupport var(--motion-seat) var(--motion-ease-soft) both}
+
+/* --- 3.2 card lift --- */
+/* .lp-card / .lp-lift retuned in place above (search ".lp-card,.lp-lift") */
+
+/* --- 3.3 screen transitions --- */
+/* main [data-screen] rebuilt in place above (search "screen change").
+   The root View Transition layer (html.lp-vt::view-transition-old/new(root),
+   @keyframes lpvtout/lpvtin) was DELETED 2026-07-27, along with the lp-vt
+   class and the document.startViewTransition() path in LP.motion.nav():
+   - No element ever set `view-transition-name`, so there were no
+     shared-element transitions to gain -- the whole layer was root-only.
+   - The UA's default root transition IS a full-page crossfade, which is
+     exactly the page-level flash the user reported (and it faded the page to
+     opacity 0 and back FROM 0, stacked on top of this rule's own opacity
+     ramp: two ramps per navigation).
+   - Its callback is invoked ASYNCHRONOUSLY, which had also caused
+     LP.motion.indicator() to measure the previously-active nav button.
+   Do not reintroduce it without per-element view-transition-name. */
+
+/* --- 3.4 physical press (hard shadow collapse) ---
+   THE REFERENCE. Everything else in this block was rebuilt to speak this
+   rule's language: mass, hard edges, a single short axis of travel, a firm
+   stop. The mechanic is untouched -- the only change (2026-07-27) is that the
+   TRANSFORM component now uses --motion-spring, so the press and every
+   entrance share one movement curve. Distances, shadows, and the collapse
+   itself are byte-identical. Do not add scale() here. */
+.lp-press{box-shadow:var(--shadow-hard);
+  transition:transform var(--motion-fast) var(--motion-spring),
+             box-shadow var(--motion-fast) var(--motion-ease),
+             background-color var(--motion-fast) var(--motion-ease),
+             border-color var(--motion-fast) var(--motion-ease)}
+.lp-press:hover:not(:disabled){transform:translate(-1px,-1px);box-shadow:5px 5px 0 var(--shadow-ink)}
+.lp-press:active:not(:disabled){transform:translate(3px,3px);box-shadow:0 0 0 var(--shadow-ink)}
+.lp-press:disabled{box-shadow:var(--shadow-hard-sm);opacity:.55}
+.lp-press-sm{box-shadow:var(--shadow-hard-sm);
+  transition:transform var(--motion-fast) var(--motion-spring),
+             box-shadow var(--motion-fast) var(--motion-ease),
+             background-color var(--motion-fast) var(--motion-ease),
+             border-color var(--motion-fast) var(--motion-ease)}
+.lp-press-sm:hover:not(:disabled){transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--shadow-ink)}
+.lp-press-sm:active:not(:disabled){transform:translate(2px,2px);box-shadow:0 0 0 var(--shadow-ink)}
+.lp-press-sm:disabled{box-shadow:var(--shadow-hard-sm);opacity:.55}
+
+/* --- 3.4b BUTTON CHARACTER (bold) — the language reaches all 88 buttons ----
+   Before this, the design language lived only on the 25 .lp-press buttons: a
+   generic button's ENTIRE styling was :hover{translateY(-1px)} and
+   :active{translateY(1px)}. Nothing else.
+   Built from box-shadow + transform ONLY, deliberately: 75 of 88 buttons carry
+   an inline border/background/color, and inline beats a class rule regardless
+   of pseudo-class (BUG_LIST lesson #9, and the defect in §4.6), so class rules
+   for those properties would be silently inert. box-shadow is inline on just 2
+   buttons and transform on 1, so these apply. No !important needed anywhere,
+   and signal-coloured inline borders (orange/red/blue) keep their identity
+   because we never touch border-color. */
+
+/* tabs/segmented need box-shadow in their transition list (theirs omits it). */
+.lp-tab,.lp-theme-btn,#tbk-seg [data-tbk],[data-channel]{
+  transition:box-shadow var(--motion-fast) var(--motion-spring),
+             background-color var(--motion-normal) var(--motion-ease),
+             border-color var(--motion-normal) var(--motion-ease),
+             color var(--motion-normal) var(--motion-ease)}
+
+/* generic action buttons (~49) — excludes press buttons and the sidebar nav,
+   which keeps the sliding rail as its affordance. */
+.lp-hit:not(.lp-press):not(.lp-press-sm):not(.lp-nav):hover:not(:disabled){
+  box-shadow:var(--btn-edge-hover)}
+.lp-hit:not(.lp-press):not(.lp-press-sm):not(.lp-nav):active:not(:disabled){
+  transform:translate(2px,2px);box-shadow:var(--btn-edge-press)}
+
+/* tabs / segmented controls — inactive members were completely inert. */
+/* FULL bold for .lp-tab / .lp-theme-btn: unlike the other 75 buttons these
+   carry NO inline style attribute at all, so border/background/colour class
+   rules actually apply here and need no !important. An earlier pass gave them
+   only a box-shadow, which left them looking untouched -- their resting border
+   was `2px solid transparent`, i.e. invisible, so there was nothing to
+   materialise. Now the border exists at rest and hardens on hover. */
+/* sidebar nav — bold too, by owner request. Originally excluded on the theory
+   that the sliding rail was affordance enough, but that left 7 of the most-used
+   buttons in the app with no character. Like .lp-tab these carry NO inline
+   style, so border/fill/colour rules apply with no !important. The rail is at
+   left:0 and the shadow offsets down-right, so they never collide. .active
+   keeps its blue identity untouched.
+
+   NO RESTING BORDER on purpose: a permanent --line outline read as a pale
+   outline in dark (--line #4E5563) and a standing outline is the opposite of
+   this language anyway. Bold's actual device is MATERIALISATION -- nothing at
+   rest, a hard DARK edge (var(--border), never --line) the moment you touch it,
+   plus the slab stepping sideways out of the rail. One axis, X, matching the
+   vertical list. */
+.lp-nav{border-color:transparent}
+.lp-nav:not(.active):hover{border-color:var(--border);background:var(--panel2);
+  color:var(--ink);box-shadow:var(--btn-edge-hover);transform:translateX(2px)}
+.lp-nav:not(.active):active{transform:translateX(2px) translateY(1px);
+  box-shadow:var(--btn-edge-press)}
+.lp-nav.active{box-shadow:var(--btn-edge-on)}
+
+/* the sidebar lecture chip is now a real button (see #side-job-btn in JS). */
+#side-job-btn{display:flex;align-items:center;gap:11px;width:100%;padding:10px;
+  border:1.5px solid transparent;border-radius:11px;background:var(--panel2);
+  margin-bottom:16px;cursor:pointer;text-align:left;font:inherit;color:inherit}
+#side-job-btn:hover{border-color:var(--border);box-shadow:var(--btn-edge-hover)}
+#side-job-btn:active{box-shadow:var(--btn-edge-press)}
+/* the thumb tile inside the chip carried its own pale --line ring. */
+#side-job-thumb{border-color:transparent !important}
+
+/* --- nav polish + icon motion ---------------------------------------------
+   The icons were the one part of the sidebar with nothing happening. They now
+   LEAD the slab: the button steps 2px on X, the icon steps another 2px inside
+   it, so the icon arrives first and the label trails -- a follow-through read
+   that costs one property and no layout. The active item's icon sits slightly
+   proud instead of moving, because it is already where it belongs, and it gets
+   the deeper 3px shadow so the current screen sits above its neighbours.
+
+   MAGNITUDE NOTE: a first attempt used translateX(2px) only. It fired
+   correctly (measured matrix(1,0,0,1,2,0)) but was invisible -- 2px of
+   RELATIVE movement inside a button already sliding 2px reads as nothing. The
+   icon needs its own range to register, hence the scale.
+   scale() is allowed HERE specifically, unlike on buttons: these are stroked
+   19px glyphs with no border to resample, so §4.6's objection does not apply,
+   and at that size scale is the only device with enough visible range. */
+.lp-nav svg{transition:transform var(--motion-normal) var(--motion-spring)}
+.lp-nav:not(.active):hover svg{transform:translateX(3px) scale(1.22)}
+.lp-nav:not(.active):active svg{transform:translateX(2px) scale(1.04)}
+.lp-nav.active svg{transform:scale(1.14)}
+.lp-nav.active:hover svg{transform:scale(1.22)}
+.lp-nav.active{box-shadow:3px 3px 0 var(--shadow-ink)}
+
+/* NO PALE OUTLINES ANYWHERE. --line in dark is #4E5563, lighter than --panel,
+   so any resting --line border read as a white outline. Every neutral resting
+   border is transparent now and materialises as a pitch-black edge on hover.
+   Signal-coloured borders (orange-ink, teal, red, green) are NOT touched --
+   those are the button's identity, not a pale outline. */
+.lp-tab{border-color:transparent}
+.lp-theme-btn{border-color:transparent}
+.lp-tab:not(.active):hover{border-color:var(--border);background:var(--panel2);
+  color:var(--ink);box-shadow:var(--btn-edge-hover)}
+.lp-theme-btn:not(.active):hover{border-color:var(--border);background:var(--panel2);
+  color:var(--ink);box-shadow:var(--btn-edge-hover)}
+#tbk-seg [data-tbk]:hover,[data-channel]:hover{box-shadow:var(--btn-edge-hover)}
+.lp-tab:not(.active):active,.lp-theme-btn:not(.active):active,
+#tbk-seg [data-tbk]:active,[data-channel]:active{box-shadow:var(--btn-edge-press)}
+.lp-tab.active,.lp-theme-btn.active{box-shadow:var(--btn-edge-on)}
+
+/* primary — bold pushes the raised hover further and adds a felt press. The
+   inset is what keeps the press perceptible in dark mode, where the outset
+   hard shadow is invisible (1.26:1). Offsets/translate otherwise unchanged. */
+.lp-press:active:not(:disabled){box-shadow:0 0 0 var(--shadow-ink),var(--btn-edge-press)}
+.lp-press-sm:active:not(:disabled){box-shadow:0 0 0 var(--shadow-ink),var(--btn-edge-press)}
+
+/* destructive — reads in the danger colour rather than neutral. */
+#btn-bulk-delete:hover,#btn-reject:hover,#btn-groq-remove:hover{
+  box-shadow:var(--btn-edge-danger)}
+
+/* icon-only (28-32px, often inside overflow:hidden) — inset only, so a 2px
+   outset offset can never clip against the ancestor. */
+#btn-ss-continue:hover,#btn-whatsnew-close:hover{box-shadow:var(--btn-edge-press)}
+
+/* ghost / link buttons — bold's "the box materialises". These carry inline
+   `border:none`, `text-decoration:underline` and 2px padding, so the box comes
+   from an INSET ring (box-shadow is not inline here, so no !important needed
+   for it) and the padding is set at REST, not on hover, so the ring appearing
+   never reflows the row. The two !important flags are the minimum needed to
+   beat those inline declarations, and are scoped to these two buttons. */
+.lp-ghost{padding:6px 10px !important;border-radius:8px}
+.lp-ghost:hover{box-shadow:inset 0 0 0 1.5px var(--border);text-decoration:none !important}
+.lp-ghost:active{box-shadow:var(--btn-edge-press)}
+
+@media (prefers-reduced-motion:reduce){
+  /* keep the box-shadow/colour feedback -- that is information -- but drop the
+     positional shove, consistent with §4.5. */
+  .lp-hit:not(.lp-press):not(.lp-press-sm):not(.lp-nav):active:not(:disabled){
+    transform:none !important}
+  /* the sidebar slab's sideways step is decoration; its border/fill/shadow
+     feedback is information and is kept. */
+  .lp-nav:not(.active):hover,.lp-nav:not(.active):active{transform:none !important}
+  .lp-nav svg{transition:none !important}
+  .lp-nav:not(.active):hover svg,.lp-nav:not(.active):active svg{transform:none !important}
+  /* the ACTIVE item's icon keeps its resting emphasis (that is state, not
+     motion) but must not JUMP 1.14 -> 1.22 on hover; pin it to the resting
+     value rather than none, so the current screen stays marked. */
+  .lp-nav.active:hover svg{transform:scale(1.14) !important}
+}
+
+/* --- 3.5 sidebar sliding indicator ---
+   The clearest mechanical opportunity in the UI, and it LEADS navigation:
+   --motion-snap (110ms) vs the screen's --motion-seat (140ms), so the rail
+   arrives at its detent before the screen finishes seating.
+
+   Rebuilt to animate transform ONLY. It used to transition `height` as well
+   (via --ind-h); height is not a compositable property, and it was a no-op in
+   practice because every nav button is a single line of identical height. The
+   rail is now a fixed 36px base scaled on Y by --ind-s (= active button height
+   / 36) with transform-origin at the top, so translateY is unscaled. scaleY is
+   acceptable HERE specifically and nowhere else: a 3px flat bar has no border
+   to resample, so there is no 2px edge to soften. translateY + scaleY are both
+   on the Y axis, so the one-axis rule holds. LP.motion.indicator() sets
+   --ind-y / --ind-s. */
+.lp-nav-list{position:relative}
+.lp-nav-ind{position:absolute;left:0;top:0;width:3px;height:36px;
+  background:var(--blue);border-radius:0 3px 3px 0;pointer-events:none;opacity:0;
+  transform-origin:0 0;
+  transform:translateY(var(--ind-y,0px)) scaleY(var(--ind-s,1));
+  transition:transform var(--motion-snap) var(--motion-spring),
+             opacity var(--motion-fast) var(--motion-ease-soft)}
+.lp-nav-ind.on{opacity:1}
+
+/* --- 3.6 progress and processing stage --- */
+/* .lp-fill retuned in place above (search "Progress fills animate"). */
+.lp-stage{transition:background-color var(--motion-normal) var(--motion-ease),
+                     border-color var(--motion-normal) var(--motion-ease),
+                     opacity var(--motion-normal) var(--motion-ease)}
+
+/* --- 3.7 semantic state transitions --- */
+.lp-state{transition:background-color var(--motion-normal) var(--motion-ease),
+                     border-color var(--motion-normal) var(--motion-ease),
+                     color var(--motion-normal) var(--motion-ease),
+                     opacity var(--motion-normal) var(--motion-ease)}
+.lp-state[data-state="success"],.lp-state[data-state="complete"]{border-color:var(--green);background-color:var(--green-soft)}
+.lp-state[data-state="failed"]{border-color:var(--red);background-color:var(--red-soft)}
+.lp-state[data-state="paused"],.lp-state[data-state="interrupted"]{border-color:var(--yellow);background-color:var(--yellow-soft)}
+.lp-state[data-state="running"]{border-color:var(--orange)}
+
+/* --- 3.8 overlays: modal, tooltip, notification --- */
+/* The scrim is the ONE sanctioned opacity-from-0: it is not an object with
+   mass, it is the room dimming, and a backdrop that appeared already 70%
+   opaque would itself be the flash. Curve moved off --motion-ease
+   (front-loaded, now banned on opacity) onto --motion-ease-soft. */
+@keyframes lpscrim{from{opacity:0}}
+.lp-scrim{animation:lpscrim var(--motion-fast) var(--motion-ease-soft) both}
+
+/* Modal panel. Was translateY(8px) scale(.985) -- the scale() is GONE: the
+   panel is a 2px-bordered slab and scaling resampled that border to a
+   fractional pixel. Now one axis, transform on --motion-spring, with opacity
+   as high-floor support only, split so each property carries its own curve. */
+.lp-pop{animation:lpsupport var(--motion-seat) var(--motion-ease-soft) both,
+                  lpseat var(--motion-seat) var(--motion-spring) both}
+
+/* Tooltip (timeline scrub preview). Shortest, smallest travel in the system --
+   it tracks the cursor, so it must arrive effectively instantly. */
+.lp-tip{animation:lpsupport var(--motion-fast) var(--motion-ease-soft) both,
+                  lpseat-sm var(--motion-fast) var(--motion-spring) both}
+
+/* MUST STAY OPACITY-ONLY -- do not add a transform keyframe here. The
+   singleton toast's inline cssText carries its own transform
+   (translateX(-50%), for centering), so any keyframe that touches transform
+   tweens from the keyframe's `from` value to that cascaded transform as an
+   implicit `to`, yanking the toast off-center on every show. This bug has
+   already been hit once. A toast that slides is decoration; a toast that
+   settles into legibility is information. */
+.lp-toast{animation:lpsupport var(--motion-seat) var(--motion-ease-soft) both}
+
+/* --- 3.9 completion panel reveal ---
+   The app's one genuine "big moment", and the most expressive thing in it.
+   Previously this reused lprise, which cut its travel to 4px while keeping
+   220ms -- 4px over 220ms is the definition of floaty. Rebuilt as a real
+   mechanical assembly: the panel DROPS 14px on one axis and stops hard
+   (--motion-slow, the longest move allowed anywhere), then its children seat
+   in sequence at --motion-snap. The parent's spring is ~99% resolved by
+   ~155ms, so the first child starting at 160ms never stacks its travel on top
+   of a still-moving parent.
+   Transform only, no opacity, no scale, no overshoot -- the expressiveness is
+   in the distance and the sequence, not in a curve trick. */
+.lp-reveal{animation:lpdrop var(--motion-slow) var(--motion-spring) both}
+.lp-reveal>*{animation:lpseat var(--motion-snap) var(--motion-spring) backwards}
+.lp-reveal>*:nth-child(1){animation-delay:160ms}
+.lp-reveal>*:nth-child(2){animation-delay:200ms}
+.lp-reveal>*:nth-child(3){animation-delay:240ms}
+.lp-reveal>*:nth-child(n+4){animation-delay:280ms}
+
+/* --- 3.10 queue reorder (FLIP) ---
+   .lp-flip REMOVED 2026-07-27, together with LP.motion.flip() in app.js. It
+   had no caller and could never gain one as written: renderQueue() replaces
+   the list via wholesale innerHTML, so old and new rows are never the same DOM
+   nodes and FLIP has no delta to measure. Dead CSS is a defect. */
+
+/* --- 3.11 loading / skeleton ---
+   .lp-skel / .lp-data-in removed (2026-07-26): applied nowhere in index.html
+   or app.js -- no async render slow enough to warrant a skeleton was found,
+   and the app has no dropdown menus. Dead CSS is a liability; re-add if a
+   genuine use appears. */
+
+/* --- 3.12 exits ---
+   Exits are the only place opacity may go to 0 and the only place a single
+   keyframe may carry both opacity and transform: an element that is leaving
+   has no settle to express, and --motion-ease-in (front-loaded the other way)
+   is correct for both properties at once. All exits are --motion-fast: a
+   dismissal should never make the user wait. */
+@keyframes lpfadeout{to{opacity:0;transform:translateY(4px)}}
+@keyframes lppopout{to{opacity:0;transform:translateY(6px)}}
+.lp-out{animation:lpfadeout var(--motion-fast) var(--motion-ease-in) both;pointer-events:none}
+/* #focus-pill EXIT must be opacity-only, same hazard as its entrance and as the
+   toast (§4.7): lpfadeout defines only a `to`, so its implicit `from` is the
+   element's cascaded transform -- the inline translateX(-50%) centering -- and
+   it then animates AWAY from centre while fading. Scoped by id+class so every
+   other .lp-out user keeps the shared exit. */
+@keyframes lpfadeout-o{to{opacity:0}}
+#focus-pill.lp-out{animation:lpfadeout-o var(--motion-fast) var(--motion-ease-in) both}
+
+.lp-scrim.out{animation:lpscrim var(--motion-fast) var(--motion-ease-in) reverse both}
+/* Own exit keyframe rather than reversing the entrance: the entrance is now
+   two stacked animations with different curves, which cannot be reversed as a
+   single unit, and its opacity floor is .7 -- reversing it would leave the
+   panel 70% visible at removal. */
+.lp-pop.out{animation:lppopout var(--motion-fast) var(--motion-ease-in) both}
+
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{
     animation-duration:.001ms !important;
@@ -265,4 +715,65 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   .lp-stagger>*{animation:none !important}
   [data-focus="true"] .lp-main{animation:none !important;transform:none !important}
   .lp-chrome,.lp-main{transition:none !important}
+
+  /* --- MOTION SYSTEM reduced-motion overrides (2026-07-26; updated for the
+     2026-07-27 mechanical rebuild) -------------------------------------------
+     The blanket .001ms rule above already neutralizes duration, but a fill-mode
+     "both"/"backwards" animation can still leave its FROM state painted for a
+     tick; kill the animation outright so no from-transform / from-opacity can
+     ever stick. This list must name EVERY class in the motion block that
+     declares an `animation`. After the rebuild that is: the three entrances,
+     the screen rule, the four overlay classes, and the reveal pair -- the
+     view-transition selectors are gone with the layer itself.
+     opacity/background-color/border-color feedback stays -- that is
+     information, not decoration -- clamped to --motion-fast rather than left
+     at .001ms so it is still perceivable, not merely present. */
+  .lp-anim-in,.lp-anim-in-fast,.lp-anim-fade,
+  main [data-screen]:not([hidden]),
+  .lp-scrim,.lp-pop,.lp-tip,.lp-toast,
+  .lp-reveal,.lp-reveal>*{
+    animation:none !important;
+  }
+  /* animation:none alone is sufficient and is deliberately ALL that is done
+     here: with no animation there is no fill-mode state to paint, so every one
+     of these elements sits at its natural transform and opacity. Do NOT add
+     `transform:none !important` to this list -- .lp-toast carries an inline
+     transform:translateX(-50%) for centering, and an !important override would
+     shove it off-centre for exactly the users who asked for no motion. */
+  .lp-lift,.lp-card,.lp-press,.lp-press-sm{transform:none !important}
+  /* pre-existing gap flagged in the pre-release review: only :active was
+     covered for this group, so the 1px hover lift still moved under reduce. */
+  .lp-hit:hover{transform:none !important}
+  .lp-press:hover:not(:disabled),.lp-press:active:not(:disabled),
+  .lp-press-sm:hover:not(:disabled),.lp-press-sm:active:not(:disabled){
+    box-shadow:var(--shadow-hard) !important;transform:none !important}
+  .lp-press-sm:hover:not(:disabled),.lp-press-sm:active:not(:disabled){
+    box-shadow:var(--shadow-hard-sm) !important}
+  /* .lp-fill's transform is a functional progress value (scaleX), not
+     decoration -- do not force it to none, just drop it from the
+     transitioning properties below so it jumps instead of animating. */
+  /* .lp-nav-ind gets transition:none rather than a duration clamp so the rail
+     JUMPS to the active item instead of crawling at .001ms (which is
+     technically "off" but still paints an intermediate frame on some
+     compositors). Its transform is now the whole rule -- translateY + scaleY --
+     and must NOT be forced to none, or the rail would sit at the top of the
+     sidebar permanently instead of marking the active screen. */
+  .lp-nav-ind{transition:none !important}
+  /* .lp-flip entry removed with the class (2026-07-27). */
+  .lp-state,.lp-stage,.lp-fill{
+    transition-duration:var(--motion-fast) !important;
+    transition-property:opacity,background-color,border-color,color !important;
+  }
+
+  /* --- wave 2 reduced-motion overrides ---------------------------------
+     .lp-out must not strand an element visible-but-dead: the blanket
+     animation-duration:.001ms above already collapses it near-instantly,
+     but force animation:none so no to{opacity:0} frame can hang, and force
+     opacity:0 directly so the element is inert even before Agent JS's
+     timeout fallback removes it. .lp-nav/.lp-tab/.lp-opt/.lp-theme-btn need
+     no entry here: the blanket transition-duration rule already clamps
+     their new color transitions to .001ms, which satisfies "keep color
+     feedback, clamp to fast" close enough that a redundant fast-duration
+     line would just restate the blanket rule. */
+  .lp-out,.lp-scrim.out,.lp-pop.out{animation:none !important;opacity:0 !important}
 }

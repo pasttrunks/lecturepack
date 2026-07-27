@@ -42,6 +42,70 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### BUG-22 — `#focus-pill` slid in off-centre; its own inline centering fought the entrance keyframe   ✅ FIXED (verified in real Qt)
+- **Area:** `app/ui/app.js::setFocus`, `app/ui/app.css` `.lp-anim-in-fast` / `.lp-out`.
+- **Found:** independent pre-release review, 2026-07-27. Not user-reported.
+- **Root cause:** THE SAME DEFECT CLASS ALREADY FIXED FOR THE TOAST (handoff §4.7), missed on
+  this element. `#focus-pill` carries an inline `transform:translateX(-50%)` for horizontal
+  centering. `setFocus(true)` applied `.lp-anim-in-fast` → `animation:lpseat-sm … both`, and
+  `lpseat-sm{from{transform:translateY(3px)}}` declares only a `from`. With fill-mode `both`
+  the `from` **replaces** the inline centering, so the pill rendered half its own width
+  off-centre and slid sideways into place. The exit had the mirror bug: `.lp-out`'s
+  `lpfadeout{to{…transform:translateY(4px)}}` declares only a `to`, so its implicit `from`
+  was the inline centering — the pill drifted sideways while fading out.
+- **Fix:** entrance switched to `.lp-anim-fade` (opacity-only, `lpsupport`); exit given an
+  id-scoped opacity-only keyframe `lpfadeout-o` via `#focus-pill.lp-out`, so every other
+  `.lp-out` user keeps the shared exit.
+- **Verified:** in real Qt via CDP — entrance animation is `lpsupport`, and the computed
+  transform is `matrix(1,0,0,1,-94.37,0)` **identical** mid-entrance and settled, i.e.
+  centering never breaks. Exit resolves to `lpfadeout-o`.
+- **Lesson (a repeat, so it is now a rule):** ANY element carrying an inline `transform` is
+  incompatible with a keyframe that touches `transform` and declares only one endpoint — the
+  missing endpoint silently resolves to the element's cascaded transform. Before applying a
+  transform animation to an element, grep its markup for an inline `transform`. Fixing one
+  instance (the toast) did not fix the class; there was a second one for a whole session.
+- **Files:** `app/ui/app.js`, `app/ui/app.css`.
+
+### BUG-21 — `LP.motion.close()`'s 300ms fallback timer could hide a just-REOPENED overlay   ✅ FIXED (verified in real Qt)
+- **Area:** `app/ui/app.js::LP.motion.close`.
+- **Found:** independent pre-release review, 2026-07-27.
+- **Root cause:** `close()` armed `setTimeout(finish, 300)` as a safety net so a modal can
+  never fail to close, and never cancelled it. Its `finished` guard is a **per-invocation**
+  closure flag, so it cannot see a different invocation. Reopening a persistent element
+  (`#focus-pill`, `#onb-overlay`, `#whatsnew-overlay`) inside that window let the PREVIOUS
+  close's timer fire and run *its* `done()` — e.g. `hidden = true` on an element the user had
+  just reopened, with no user action, up to 300ms later. Worse in the interrupted case:
+  removing the class mid-animation generally does not fire `animationend`, so the stale
+  timeout was the only thing that ever resolved it.
+- **Fix:** keep the timer id and `clearTimeout` in `finish()`, plus a supersede check — a
+  reopen removes the close class, so `!el.classList.contains(cls)` means "superseded", and
+  `finish()` returns without calling `done()`.
+- **Verified:** in real Qt — closed then reopened focus mode within 50ms, waited 500ms
+  (outliving the 300ms timer): `#focus-pill.hidden === false`, focus state still `true`.
+- **Lesson:** a "can never fail" fallback timer is itself state. If the element it acts on can
+  be re-shown before it fires, it needs both a cancel and a still-relevant check; a
+  per-invocation guard flag provably cannot catch a stale sibling invocation.
+- **Files:** `app/ui/app.js`.
+
+### BUG-20 — reduced-motion gap: the ACTIVE nav icon still jumped scale on hover   ✅ FIXED (verified in real Qt)
+- **Area:** `app/ui/app.css` `@media (prefers-reduced-motion: reduce)`.
+- **Found:** independent pre-release review, 2026-07-27.
+- **Root cause:** the new nav-icon rules cover four states, but the reduce block neutralised
+  only the `:not(.active)` pair. `.lp-nav.active:hover svg{transform:scale(1.22)}` was
+  unneutralised, so the icon of the screen you are currently on still jumped 1.14 → 1.22 on
+  hover under `prefers-reduced-motion: reduce` (instantly, since the transition was zeroed —
+  but a visible jump nonetheless).
+- **Fix:** pin `.lp-nav.active:hover svg` to the resting `scale(1.14)` under reduce, rather
+  than `transform:none` — the active item must keep its resting emphasis, because that is
+  STATE, not motion. Also closed a pre-existing sibling gap the same review flagged:
+  `.lp-hit:hover`'s 1px lift had no reduce override (only `:active` did).
+- **Verified:** via CDP `Emulation.setEmulatedMedia` — `matchMedia(...).matches === true`, and
+  the active icon measures `scale(1.14)` both at rest and hovered.
+- **Lesson:** when a rule set covers N states, the reduce block must cover N, not the obvious
+  subset. `:not(.active)` selectors are the easy half to remember and the active/current
+  variant is the easy half to forget.
+- **Files:** `app/ui/app.css`.
+
 ### BUG-19 — `ReferenceError: reflectEngine is not defined` on every `settings_changed`   ✅ FIXED (verified in real Qt WebEngine; uncommitted, `feat/cuda-engine`)
 - **Area:** `app/ui/app.js` — `wire()` / `wireBridge()` scope boundary.
 - **Found:** 2026-07-26, as a side effect of Qt CDP verification during the UI/motion pass —

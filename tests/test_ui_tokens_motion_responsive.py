@@ -241,9 +241,18 @@ def test_custom_easing_not_browser_ease():
 
 
 def test_no_bare_browser_ease_remains_in_transitions():
-    """Every transition uses the shared curve, so the whole UI decelerates alike."""
+    """Every transition uses a shared token curve, so the whole UI decelerates alike.
+
+    Strips EVERY var() reference rather than an allow-list of two token names.
+    The old form listed `var(--motion-ease)` and `var(--motion-ease-in)`
+    explicitly, so the moment a legitimately-named token containing "ease"
+    (`--motion-ease-soft`) was first used in a `transition:` rather than only in
+    an `animation:`, this failed on correct code. Stripping all var() keeps the
+    real intent -- catching a BARE browser keyword like `ease` / `ease-in-out`
+    written as a literal -- and cannot false-positive on future token names.
+    """
     for decl in re.findall(r"transition:[^;}\"]+", CSS):
-        cleaned = decl.replace("var(--motion-ease-in)", "").replace("var(--motion-ease)", "")
+        cleaned = re.sub(r"var\([^)]*\)", "", decl)
         assert not re.search(r"\bease\b", cleaned), f"bare ease in: {decl[:70]}"
 
 

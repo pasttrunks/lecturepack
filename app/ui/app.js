@@ -183,6 +183,85 @@
     byJob: {}
   };
 
+  /* ======================= motion module (LP.motion) =======================
+     Small, self-contained motion helpers. See scratchpad MOTION_CONTRACT.md.
+     Every entry point is null-safe: missing elements or a reduced-motion OS
+     setting degrade to the plain, instant behavior with no thrown errors. */
+  var _rmMql = (function () {
+    try { return window.matchMedia('(prefers-reduced-motion: reduce)'); }
+    catch (e) { return null; }
+  })();
+  LP.motion = {
+    reduced: function () {
+      return !!(_rmMql && _rmMql.matches);
+    },
+    // Navigation wrapper. Signature unchanged: nav(fn) runs fn once.
+    //
+    // The document.startViewTransition() path was REMOVED 2026-07-27. It is now
+    // a synchronous call, deliberately:
+    //   - No element ever set `view-transition-name`, so there were never any
+    //     shared-element transitions to gain; the layer was root-only.
+    //   - The UA's default root transition IS a full-page crossfade, which was
+    //     precisely the page-level flash being removed (it stacked a 0 -> 1
+    //     opacity ramp on top of the screen rule's own ramp).
+    //   - Its callback fires ASYNCHRONOUSLY, which is what made indicator()
+    //     measure the previously-active nav button.
+    // Kept as a wrapper rather than inlined so setScreen() and any future
+    // caller keep one place to hook screen-change motion.
+    nav: function (fn) {
+      fn();
+    },
+    // Positions the sidebar rail. Sets --ind-y (travel) and --ind-s (scale),
+    // both consumed by a single transform in .lp-nav-ind -- it used to set
+    // --ind-h and transition `height`, which is not compositable and was a
+    // no-op anyway because every nav button is one line of identical height.
+    // The rail's CSS base height is 36px; --ind-s scales that on Y only.
+    indicator: function () {
+      var ind = document.querySelector('.lp-nav-ind');
+      var active = document.querySelector('.lp-nav-list .lp-nav.active');
+      if (!ind || !active) return;
+      var h = active.offsetHeight || 36;
+      ind.style.setProperty('--ind-y', active.offsetTop + 'px');
+      ind.style.setProperty('--ind-s', (h / 36).toFixed(4));
+      ind.classList.add('on');
+    },
+    // Reusable exit-motion close. `cls` defaults to 'out' (scrim/pop overlays);
+    // pass 'lp-out' for the focus pill or any other single-element exit.
+    // Reduced motion / missing element -> done() fires immediately. Guards
+    // against double-invocation so `done` (typically a remove/hide) never
+    // runs twice, and falls back to `done`/`el.remove()` if anything throws.
+    close: function (el, done, cls) {
+      cls = cls || 'out';
+      if (!done) done = function () { if (el) el.remove(); };
+      if (LP.motion.reduced() || !el) { done(); return; }
+      var finished = false, timer = null;
+      function finish() {
+        if (finished) return;
+        finished = true;
+        if (timer) clearTimeout(timer);
+        // The 300ms fallback is never cancelled by a REOPEN, only by this
+        // guard. Reopening a persistent element (#focus-pill, #onb-overlay,
+        // #whatsnew-overlay) within that window used to let the previous
+        // close's timer fire and run ITS done() -- e.g. `hidden = true` on an
+        // element the user had just reopened, with no user action, up to 300ms
+        // later. `finished` cannot catch that: it is per-invocation, and the
+        // stale call is a DIFFERENT invocation with its own flag.
+        // A reopen removes the close class, so its absence means "superseded".
+        if (el && el.classList && !el.classList.contains(cls)) return;
+        done();
+      }
+      try {
+        el.classList.add(cls);
+        var pop = el.querySelector && el.querySelector('.lp-pop');
+        if (pop) pop.classList.add(cls);
+        el.addEventListener('animationend', finish, { once: true });
+        timer = setTimeout(finish, 300);
+      } catch (e) {
+        finish();
+      }
+    }
+  };
+
   /* ================= workspace ownership (job-scoped state) =================
      The workspace screens (Process/Review/Transcript/Study/Exports) used to
      read one global scratchpad that was seeded with demo content, overwritten
@@ -320,15 +399,23 @@
   /* ---- lightweight modal + toast (no markup needed) ---- */
   function lpModal(opts) {
     var ov = document.createElement('div');
-    ov.className = 'lp-modal-ov';
-    ov.style.cssText = 'position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);animation:lpin .15s ease';
+    ov.className = 'lp-modal-ov lp-scrim';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)';
     var box = document.createElement('div');
+    box.className = 'lp-pop';
     box.style.cssText = 'background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);padding:22px 24px;max-width:430px;width:90%';
     box.innerHTML = '<div style="font:700 17px \'Space Grotesk\';margin-bottom:10px">' + esc(opts.title) + '</div>' +
       '<div style="font-size:14px;line-height:1.55;margin-bottom:18px">' + (opts.bodyHtml || '') + '</div>';
     var row = document.createElement('div');
     row.style.cssText = 'display:flex;justify-content:flex-end;gap:10px';
-    function close() { ov.remove(); document.removeEventListener('keydown', onKey); }
+    var closed = false;
+    function close() {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener('keydown', onKey);
+      try { LP.motion.close(ov, function () { ov.remove(); }); }
+      catch (e) { try { ov.remove(); } catch (e2) {} }
+    }
     (opts.actions || []).forEach(function (a) {
       var b = document.createElement('button');
       b.textContent = a.label;
@@ -352,8 +439,8 @@
   /* Progress fills: drive them with transform:scaleX() rather than width, so a
      per-frame progress tick stays on the compositor instead of forcing layout +
      paint. The element must carry .lp-fill and width:100%; pct is 0-100.
-     One-shot bars (what's-new, CUDA pack, endpoint test) still animate width --
-     they run once, so the layout cost is irrelevant there. */
+     One bar still animates width: #whatsnew-progress-bar -- it runs once, so the
+     layout cost is irrelevant there. */
   function setFill(el, pct) {
     if (typeof el === 'string') el = $(el);
     if (!el) return;
@@ -361,15 +448,24 @@
     el.style.transform = 'scaleX(' + (p / 100) + ')';
   }
 
+  // `.lp-toast`'s CSS entrance is opacity-only (reuses `lpsupport`), so it cannot
+  // conflict with this singleton's inline `transform:translateX(-50%)`
+  // centering. Re-trigger the entrance on every show by toggling the class
+  // off/on around a reflow; skipped entirely under reduced motion.
   var _toastT = null;
   function toast(msg) {
     var t = $('lp-toast');
     if (!t) {
-      t = document.createElement('div'); t.id = 'lp-toast';
+      t = document.createElement('div'); t.id = 'lp-toast'; t.className = 'lp-toast';
       t.style.cssText = 'position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:130;background:var(--ink);color:var(--bg);font:600 13px \'Space Grotesk\';padding:10px 18px;border-radius:10px;box-shadow:var(--shadow-hi);opacity:0;transition:opacity .2s';
       document.body.appendChild(t);
     }
     t.textContent = msg; t.style.opacity = '1';
+    if (!LP.motion.reduced()) {
+      t.classList.remove('lp-toast');
+      void t.offsetWidth;
+      t.classList.add('lp-toast');
+    }
     if (_toastT) clearTimeout(_toastT);
     _toastT = setTimeout(function () { t.style.opacity = '0'; }, 2600);
   }
@@ -405,6 +501,22 @@
     queued: { label: 'Queued', bg: 'var(--sunk)', fg: 'var(--muted)', dot: 'var(--muted)' },
     scheduled: { label: 'Scheduled', bg: 'var(--sunk)', fg: 'var(--muted)', dot: 'var(--muted)' }
   };
+  // Maps the app's own status vocabularies onto the seven lp-state values
+  // (idle|running|paused|success|failed|interrupted|complete). Purely a
+  // lookup for motion/color feedback -- never consulted for app logic.
+  var JOB_STATE_MAP = {
+    running: 'running', done: 'complete', interrupted: 'interrupted',
+    failed: 'failed', paused: 'paused', queued: 'idle', scheduled: 'idle'
+  };
+  // Best-effort: sets data-state on the nearest ancestor (or self) carrying
+  // class lp-state. No-ops silently if that class isn't present -- the
+  // markup owner may not have landed it yet, or may never for this element.
+  function _applyLpState(el, mapped) {
+    if (!el || !mapped) return;
+    var host = el.classList && el.classList.contains('lp-state')
+      ? el : (el.closest ? el.closest('.lp-state') : null);
+    if (host) host.dataset.state = mapped;
+  }
   function _jobActBtn(act, id, label, primary) {
     var s = primary
       ? 'background:var(--secondary-surface);border:1.5px solid var(--secondary-border);color:var(--secondary-text)'
@@ -566,7 +678,7 @@
   function _jobCardHtml(j) {
     var b = JOB_BADGES[j.status] || JOB_BADGES.done;
     var dot = '<span style="width:6px;height:6px;border-radius:50%;background:' + b.dot + (b.blink ? ';animation:lpblink 1s infinite' : '') + '"></span>';
-    var badge = '<span style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:' + b.bg + ';color:' + b.fg + ';border-radius:6px;padding:3px 8px">' + dot + b.label + '</span>';
+    var badge = '<span class="lp-state" data-state="' + (JOB_STATE_MAP[j.status] || 'idle') + '" style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:' + b.bg + ';color:' + b.fg + ';border-radius:6px;padding:3px 8px">' + dot + b.label + '</span>';
     var menu = j.id ? '<div style="position:absolute;top:9px;left:9px;display:flex;gap:6px">' +
       _jobBtn('group', j.id, TAG_SVG, 'Set group') + _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
     var body;
@@ -782,7 +894,7 @@
           (disabled ? ' disabled style="opacity:.4;' : ' style="') +
           'font:600 11px \'Space Grotesk\';border-radius:7px;padding:6px 10px;cursor:pointer;background:var(--panel);border:1.5px solid var(--border);color:var(--ink)">' + label + '</button>';
       };
-      return '<div style="display:flex;align-items:center;gap:12px;background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      return '<div class="lp-anim-in" style="display:flex;align-items:center;gap:12px;background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px">' +
         '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted);min-width:20px">' + (i + 1) + '</span>' +
         '<span style="flex:1;font-weight:600;font-size:13.5px">' + esc(_jobName(row.id)) + '</span>' +
         '<div style="display:flex;gap:6px">' +
@@ -832,6 +944,11 @@
     $('jobs-count').textContent = LP.data.jobs.length;
   }
 
+  // renderPipeline is called every tick, so skip the rebuild (and the motion
+  // it destroys) when nothing about the stage list actually changed. Compare
+  // directly against the container's live DOM rather than a cached variable --
+  // the DOM is the source of truth and cannot go stale if the container is
+  // ever mutated or recreated elsewhere.
   function renderPipeline() {
     var p = LP.data.pipeline;
     $('proc-status-title').textContent = p.title;
@@ -844,18 +961,23 @@
     var hasJob = !!(p.title && p.stages && p.stages.length);
     $('proc-source-name').textContent = hasJob ? p.title : 'No lecture loaded';
     $('proc-source-meta').textContent = hasJob ? (p.meta || '') : '';
-    $('pipeline-stages').innerHTML = p.stages.map(function (st) {
+    var stagesEl = $('pipeline-stages');
+    var stageHtml = p.stages.map(function (st) {
+      // Contract data-state values: idle|running|paused|success|failed|interrupted|complete
+      var ds = st.state === 'done' ? 'complete' : st.state === 'active' ? 'running' :
+        st.state === 'error' ? 'failed' : 'idle';
       if (st.state === 'done') {
-        return '<div style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;background:var(--green-fill);border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--green-soft);overflow:hidden"><div style="width:100%;height:100%;background:var(--green)"></div></div></div>';
+        return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;background:var(--green-fill);border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--green-soft);overflow:hidden"><div style="width:100%;height:100%;background:var(--green)"></div></div></div>';
       }
       if (st.state === 'active') {
         var c = st.color === 'blue' ? 'var(--blue)' : 'var(--orange)';
         var pctColor = st.color === 'blue' ? ';color:var(--blue-ink)' : '';
         var blink = st.color === 'blue' ? '1.3s' : '1s';
-        return '<div style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid ' + c + ';border-radius:50%;flex:none;animation:lpblink ' + blink + ' infinite"></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk);overflow:hidden"><div style="width:' + (st.pct || 0) + '%;height:100%;background:' + c + ';background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.32) 6px,rgba(255,255,255,.32) 13px);animation:lpbar 1s linear infinite"></div></div><span style="width:38px;text-align:right;font:700 11px \'JetBrains Mono\'' + pctColor + '">' + (st.pct || 0) + '%</span></div>';
+        return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid ' + c + ';border-radius:50%;flex:none;animation:lpblink ' + blink + ' infinite"></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk);overflow:hidden"><div style="width:' + (st.pct || 0) + '%;height:100%;background:' + c + ';background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.32) 6px,rgba(255,255,255,.32) 13px);animation:lpbar 1s linear infinite"></div></div><span style="width:38px;text-align:right;font:700 11px \'JetBrains Mono\'' + pctColor + '">' + (st.pct || 0) + '%</span></div>';
       }
-      return '<div style="display:flex;align-items:center;gap:13px;opacity:.45"><span style="width:120px;flex:none;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid var(--muted);border-radius:50%;flex:none"></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk)"></div></div>';
+      return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px;opacity:.45"><span style="width:120px;flex:none;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid var(--muted);border-radius:50%;flex:none"></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk)"></div></div>';
     }).join('');
+    if (stagesEl.innerHTML !== stageHtml) { stagesEl.innerHTML = stageHtml; }
     var logEl = $('proc-log');
     var stick = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8;
     logEl.innerHTML = p.log.map(function (l) {
@@ -1496,36 +1618,44 @@
   var CRUMBS = { home: 'Home', process: 'Process', review: 'Review', transcript: 'Transcript', study: 'Study', exports: 'Exports', settings: 'Settings' };
 
   function setScreen(name) {
-    LP.state.screen = name;
-    if (typeof hideScrub === 'function') hideScrub();
-    Array.prototype.forEach.call(document.querySelectorAll('main [data-screen]'), function (sec) {
-      var show = sec.dataset.screen === name;
-      if (show === !sec.hidden) return;
-      sec.hidden = !show;
-      if (show) { // retrigger entrance animation
-        sec.style.animation = 'none'; void sec.offsetWidth; sec.style.animation = '';
+    LP.motion.nav(function () {
+      LP.state.screen = name;
+      if (typeof hideScrub === 'function') hideScrub();
+      Array.prototype.forEach.call(document.querySelectorAll('main [data-screen]'), function (sec) {
+        var show = sec.dataset.screen === name;
+        if (show === !sec.hidden) return;
+        sec.hidden = !show;
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.lp-nav'), function (b) {
+        b.classList.toggle('active', b.dataset.nav === name);
+      });
+      // MUST stay inside this callback, immediately after the .active toggle
+      // above — it measures the active button, so it has to run after the class
+      // moves. It was previously broken by LP.motion.nav() wrapping this in
+      // document.startViewTransition(), whose callback fires ASYNCHRONOUSLY: an
+      // indicator() call placed after nav() ran BEFORE the toggle and measured
+      // the PREVIOUS button, so the rail trailed one navigation behind. nav()
+      // is synchronous now (the View Transition layer was removed 2026-07-27),
+      // but do not move this line out — ordering, not the API, is the contract.
+      LP.motion.indicator();
+      $('crumb').textContent = CRUMBS[name] || name;
+      // The preview may have been laid out while Review was hidden (0x0) — refit
+      // now that it's visible so the slide fills the canvas.
+      if (name === 'review') {
+        requestAnimationFrame(function () { previewCtl.refit(); });
+      }
+      if ((name === 'study' || name === 'settings') && lpBridge.connected()) {
+        lpBridge.call('smart_study_status');
+      }
+      if (name === 'settings' && lpBridge.connected()) {
+        lpBridge.call('get_updater_state').then(function (json) {
+          if (!json) return;
+          try { renderUpdaterState(JSON.parse(json)); } catch (e) {}
+        });
+        lpBridge.call('cuda_pack_status');
+        lpBridge.call('get_notification_prefs');
       }
     });
-    Array.prototype.forEach.call(document.querySelectorAll('.lp-nav'), function (b) {
-      b.classList.toggle('active', b.dataset.nav === name);
-    });
-    $('crumb').textContent = CRUMBS[name] || name;
-    // The preview may have been laid out while Review was hidden (0x0) — refit
-    // now that it's visible so the slide fills the canvas.
-    if (name === 'review') {
-      requestAnimationFrame(function () { previewCtl.refit(); });
-    }
-    if ((name === 'study' || name === 'settings') && lpBridge.connected()) {
-      lpBridge.call('smart_study_status');
-    }
-    if (name === 'settings' && lpBridge.connected()) {
-      lpBridge.call('get_updater_state').then(function (json) {
-        if (!json) return;
-        try { renderUpdaterState(JSON.parse(json)); } catch (e) {}
-      });
-      lpBridge.call('cuda_pack_status');
-      lpBridge.call('get_notification_prefs');
-    }
   }
 
   function setTheme(theme) {
@@ -1543,12 +1673,44 @@
   function setFocus(on) {
     LP.state.focus = on;
     $('app').dataset.focus = on ? 'true' : 'false';
-    $('focus-pill').hidden = !on;
+    var pill = $('focus-pill');
+    if (!pill) return;
+    if (on) {
+      pill.classList.remove('lp-out');
+      pill.hidden = false;
+      if (!LP.motion.reduced()) {
+        // OPACITY-ONLY entrance, for the same reason as the toast (§4.7): this
+        // pill carries an inline `transform:translateX(-50%)` for horizontal
+        // centering. A transform keyframe with only a `from` state (lpseat-sm)
+        // takes the element's cascaded transform as its implicit `to`, and with
+        // fill-mode `both` the `from` REPLACES the inline centering -- so the
+        // pill started half its own width off-centre and slid sideways into
+        // place. `.lp-anim-fade` touches opacity only and cannot conflict with
+        // any transform the element carries.
+        pill.classList.remove('lp-anim-fade');
+        void pill.offsetWidth; // force reflow so the entrance re-triggers
+        pill.classList.add('lp-anim-fade');
+      }
+    } else {
+      try { LP.motion.close(pill, function () { pill.hidden = true; }, 'lp-out'); }
+      catch (e) { pill.hidden = true; }
+    }
   }
 
   function setOnb(state) { // null | 'drop' | 'detected'
     LP.state.onb = state;
-    $('onb-overlay').hidden = state === null;
+    var ov = $('onb-overlay');
+    if (state === null) {
+      if (ov) {
+        try { LP.motion.close(ov, function () { ov.hidden = true; }); }
+        catch (e) { ov.hidden = true; }
+      }
+    } else if (ov) {
+      ov.classList.remove('out');
+      var ovPop = ov.querySelector && ov.querySelector('.lp-pop');
+      if (ovPop) ovPop.classList.remove('out');
+      ov.hidden = false;
+    }
     $('onb-drop').hidden = state !== 'drop';
     $('onb-detected').hidden = state !== 'detected';
     if (state !== null) focusFirst($('onb-overlay'));
@@ -1633,6 +1795,15 @@
     $('pane-quiz').hidden = tab !== 'quiz';
     $('pane-flash').hidden = tab !== 'flash';
     $('pane-notes').hidden = tab !== 'notes';
+    if (!LP.motion.reduced()) {
+      var shownId = { chat: 'pane-chat', quiz: 'pane-quiz', flash: 'pane-flash', notes: 'pane-notes' }[tab];
+      var shown = shownId && $(shownId);
+      if (shown) {
+        shown.classList.remove('lp-anim-fade');
+        void shown.offsetWidth; // force reflow so the class re-triggers every switch
+        shown.classList.add('lp-anim-fade');
+      }
+    }
     if (tab === 'quiz') renderQuiz();
     if (tab === 'flash') renderCard();
   }
@@ -1675,7 +1846,7 @@
         var on = p.key === chosen;
         var pad = small ? '7px 11px' : '9px 13px';
         var css = 'flex:1;min-width:120px;text-align:left;font:600 12px \'Space Grotesk\';padding:' + pad + ';border-radius:9px;cursor:pointer;border:2px solid '
-          + (on ? 'var(--orange)' : 'var(--line)') + ';background:' + (on ? 'var(--orange-soft)' : 'var(--panel)') + ';color:' + (on ? 'var(--orange-ink)' : 'var(--ink)');
+          + (on ? 'var(--orange)' : 'transparent') + ';background:' + (on ? 'var(--orange-soft)' : 'var(--panel)') + ';color:' + (on ? 'var(--orange-ink)' : 'var(--ink)');
         var rec = p.recommended ? ' <span style="font:600 9px \'JetBrains Mono\';color:var(--orange-ink)">· RECOMMENDED</span>' : '';
         return '<button class="lp-hit" data-ss-preset="' + p.key + '" style="' + css + '">'
           + esc(p.label) + rec
@@ -1722,7 +1893,7 @@
     prog.hidden = !(st === 'downloading' || st === 'testing');
     if (st === 'downloading' || st === 'testing') {
       var pct = (typeof d.percent === 'number') ? d.percent : null;
-      $('ss-bar').style.width = (pct != null ? pct : (st === 'testing' ? 100 : 3)) + '%';
+      setFill('ss-bar', pct != null ? pct : (st === 'testing' ? 100 : 3));
       $('ss-status').textContent = d.message || (st === 'testing' ? 'Testing…' : 'Downloading…');
       $('ss-pct').textContent = pct != null ? Math.round(pct) + '%' : '';
     }
@@ -1948,6 +2119,32 @@
       b.addEventListener('click', function () { setScreen(b.dataset.nav); });
     });
 
+    // The sidebar lecture chip used to be inert text that just said "No lecture
+    // loaded" -- a dead end exactly when the user has nothing and most needs a
+    // way forward. It is now a button whose destination depends on state:
+    //   lecture loaded -> jump to Review, its workspace (the thing the chip names)
+    //   nothing loaded -> go Home and draw the eye to the import card, so the
+    //                     empty state points at its own cure in one click.
+    // Deliberately does NOT auto-open the native file dialog: this chip is easy
+    // to click while exploring, and a surprise OS dialog is a worse outcome than
+    // one extra intentional click.
+    var sideBtn = $('side-job-btn');
+    if (sideBtn) sideBtn.addEventListener('click', function () {
+      if (LP.state.jobId) { setScreen('review'); return; }
+      setScreen('home');
+      var browse = $('btn-browse');
+      if (!browse) return;
+      var card = browse.closest('.lp-card') || browse.parentElement;
+      if (card) {
+        // re-trigger the shared entrance so the card announces itself; reuses
+        // the MOTION SYSTEM v2 class rather than inventing a highlight effect.
+        card.classList.remove('lp-anim-in');
+        void card.offsetWidth;                 // force reflow so it replays
+        card.classList.add('lp-anim-in');
+      }
+      if (!LP.motion.reduced()) browse.focus({ preventScroll: true });
+    });
+
     // header
     $('btn-theme').addEventListener('click', function () { setTheme(LP.state.theme === 'light' ? 'dark' : 'light'); });
     $('btn-focus').addEventListener('click', function () { setFocus(!LP.state.focus); });
@@ -2004,7 +2201,7 @@
         var on = b.dataset.tbk === bk;
         b.style.background = on ? 'var(--secondary-surface)' : 'var(--panel)';
         b.style.color = on ? 'var(--secondary-text)' : 'var(--ink)';
-        b.style.borderColor = on ? 'var(--secondary-border)' : 'var(--line)';
+        b.style.borderColor = on ? 'var(--secondary-border)' : 'transparent';
       });
     }
     LP.ui = { reflectEngine: reflectEngine, reflectBackend: reflectBackend };
@@ -2189,7 +2386,7 @@
           var on = o === el;
           o.style.cssText = on
             ? 'flex:1;text-align:center;font:700 12px \'Space Grotesk\';padding:9px 0;border:2px solid var(--orange);border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);cursor:pointer'
-            : 'flex:1;text-align:center;font:500 12px \'Space Grotesk\';padding:9px 0;border:2px solid var(--line);border-radius:9px;color:var(--muted);cursor:pointer';
+            : 'flex:1;text-align:center;font:500 12px \'Space Grotesk\';padding:9px 0;border:2px solid transparent;border-radius:9px;color:var(--muted);cursor:pointer';
         });
         LP.state.onbMode = el.dataset.onbMode;
       });
@@ -2453,15 +2650,18 @@
       if (st === 'pause_requested') {
         if (title) title.textContent = 'Finishing current step…';
         if (pause) { pause.disabled = true; pause.textContent = 'Pausing…'; }
+        _applyLpState(title || dot, 'running');
       } else if (st === 'paused') {
         if (title) title.textContent = 'Paused';
         if (dot) dot.style.animation = 'none';
         if (pause) { pause.hidden = true; pause.disabled = false; pause.textContent = 'Pause'; }
         if (resume) resume.hidden = false;
+        _applyLpState(title || dot, 'paused');
       } else if (st === 'resumed') {
         if (dot) dot.style.animation = 'lpblink 1s infinite';
         if (pause) pause.hidden = false;
         if (resume) resume.hidden = true;
+        _applyLpState(title || dot, 'running');
       }
     });
     lpBridge.on('job_completed', function (json) {
@@ -2476,6 +2676,7 @@
       var pause = $('btn-pause-job'), resume = $('btn-resume-job');
       if (pause) pause.hidden = true;
       if (resume) resume.hidden = true;
+      _applyLpState(panel, 'complete');
     });
     lpBridge.on('notification_prefs', function (json) {
       var prefs; try { prefs = JSON.parse(json); } catch (e) { return; }
@@ -2708,7 +2909,7 @@
       $('btn-cuda-pack-install').disabled = busy;
       var note = $('cuda-pack-note');
       if (st === 'downloading') {
-        $('cuda-pack-bar').style.width = (d.percent || 0) + '%';
+        setFill('cuda-pack-bar', d.percent || 0);
         $('cuda-pack-label').textContent = 'Downloading… ' + (typeof d.percent === 'number' ? Math.round(d.percent) + '%' : '');
         note.textContent = '';
       } else if (busy) {
@@ -2877,6 +3078,7 @@
     setStudyTab('chat');
     wire();
     wireBridge();
+    window.addEventListener('resize', function () { LP.motion.indicator(); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
