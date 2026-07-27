@@ -27,7 +27,41 @@ from __future__ import annotations
 import os
 import re
 import threading
+import uuid
 from urllib.parse import quote, unquote
+
+# Poster/thumb generation is reachable from MORE THAN ONE AssetResolver: main.py
+# owns one (wired to jobs_changed -> prewarm_posters) and the engine adapter
+# kicks one on import. Each instance's own _pending set only dedups calls on
+# THAT instance, so the same destination could be generated twice at once. This
+# module-level guard is shared by every instance in the process.
+_INFLIGHT: set[str] = set()
+_INFLIGHT_LOCK = threading.Lock()
+
+
+def _claim(dst: str) -> bool:
+    """True if this caller now owns generating *dst*; False if someone else does."""
+    with _INFLIGHT_LOCK:
+        if dst in _INFLIGHT:
+            return False
+        _INFLIGHT.add(dst)
+        return True
+
+
+def _release(dst: str) -> None:
+    with _INFLIGHT_LOCK:
+        _INFLIGHT.discard(dst)
+
+
+def _tmp_for(dst: str) -> str:
+    """A UNIQUE temp path beside *dst*.
+
+    These were deterministic (dst + '.tmp'), so two concurrent generators wrote
+    the same temp file and could tear it -- one truncating while the other was
+    mid-write, then both os.replace()ing. Unique names make each write private,
+    so the replace is atomic and the loser is simply discarded.
+    """
+    return f"{dst}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}{os.path.splitext(dst)[1]}"
 
 SCHEME = "lpasset"
 SCHEME_BYTES = b"lpasset"
@@ -363,10 +397,36 @@ class AssetResolver:
         return scheduled
 
     def make_poster_now(self, job_id: str) -> tuple[str, bytes] | None:
-        """Synchronous generate+return — for tests/prewarming, not the handler."""
+        """Synchronous generate+return — for tests/prewarming, not the handler.
+
+        Guarded by the module-level in-flight set, not just this instance's
+        _pending: more than one AssetResolver exists in the process (main.py owns
+        one for prewarming, the engine adapter kicks one on import), and running
+        two ffmpeg extractions over the same multi-hundred-MB video at once is
+        pure waste during processing. If another caller already owns this
+        destination we return whatever is on disk rather than racing it.
+        """
         dst = self.poster_path(job_id)
         if dst is None:
             return None
+        if not _claim(dst):
+            return self._read_poster(dst)
+        try:
+            return self._make_poster_locked(job_id, dst)
+        finally:
+            _release(dst)
+
+    def _read_poster(self, dst: str) -> tuple[str, bytes] | None:
+        _, mime, _ = _thumb_format()
+        try:
+            if os.path.isfile(dst):
+                with open(dst, "rb") as fh:
+                    return mime, fh.read()
+        except OSError:
+            pass
+        return None
+
+    def _make_poster_locked(self, job_id: str, dst: str) -> tuple[str, bytes] | None:
         _, mime, _ = _thumb_format()
         frame = self._existing_frame(job_id)
         data = None
@@ -409,7 +469,7 @@ def _make_thumb(src: str, dst: str, max_px: int = THUMB_MAX) -> bytes | None:
     fmt, _, _ = _thumb_format()
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        tmp = dst + ".tmp"
+        tmp = _tmp_for(dst)
         if not scaled.save(tmp, fmt, THUMB_QUALITY):
             return None
         os.replace(tmp, dst)
@@ -449,7 +509,7 @@ def _extract_poster(video: str, dst: str, ffmpeg_exe: str) -> bool:
     if not ffmpeg_exe or not os.path.isfile(ffmpeg_exe) or not os.path.isfile(video):
         return False
     seek = _probe_duration(video, ffmpeg_exe) * POSTER_SEEK_FRACTION
-    tmp = dst + ".tmp" + os.path.splitext(dst)[1]
+    tmp = _tmp_for(dst)
     try:
         import subprocess
         os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -480,7 +540,7 @@ def _extract_poster(video: str, dst: str, ffmpeg_exe: str) -> bool:
 
 
 def _extract_poster_at_start(video: str, dst: str, ffmpeg_exe: str) -> bool:
-    tmp = dst + ".tmp0" + os.path.splitext(dst)[1]
+    tmp = _tmp_for(dst)
     try:
         import subprocess
         cmd = [ffmpeg_exe, "-y", "-hide_banner", "-loglevel", "error",

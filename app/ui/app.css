@@ -531,6 +531,15 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
    border is transparent now and materialises as a pitch-black edge on hover.
    Signal-coloured borders (orange-ink, teal, red, green) are NOT touched --
    those are the button's identity, not a pale outline. */
+/* .lp-seg -- tiny segmented control inside an overflow:hidden pill (Grid/List).
+   Outset shadows are pointless here (the parent clips them) and would collide
+   with the neighbouring segment anyway, so the press reads as an INSET. */
+.lp-seg{font:500 11px 'JetBrains Mono';padding:5px 9px;border:none;background:transparent;
+  color:var(--muted);cursor:pointer}
+.lp-seg.active{background:var(--secondary-surface);color:var(--secondary-text)}
+.lp-seg:hover:not(.active){background:var(--panel2);color:var(--ink)}
+.lp-seg:active{box-shadow:var(--btn-edge-press)}
+
 .lp-tab{border-color:transparent}
 .lp-theme-btn{border-color:transparent}
 .lp-tab:not(.active):hover{border-color:var(--border);background:var(--panel2);

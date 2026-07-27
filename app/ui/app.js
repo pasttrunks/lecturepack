@@ -66,6 +66,8 @@
         settings: { count: 10, difficulty: 'Basic', style: 'Term → definition', scope: 'Entire lecture' }
       },
       viewingSlide: 2,
+      slidesView: 'grid',   // grid = visual tiles, list = compact rows
+
       updateInfo: null,
       smartStudy: null,   // last smart_study payload
       ssPreset: null,     // user-chosen preset (defaults to recommendation)
@@ -949,6 +951,24 @@
   // directly against the container's live DOM rather than a cached variable --
   // the DOM is the source of truth and cannot go stale if the container is
   // ever mutated or recreated elsewhere.
+  /* Coalesce pipeline re-renders to one per animation frame.
+     `log_line` fires per backend log line, and during transcription / slide
+     detection that is a fast stream. Each event used to call renderPipeline()
+     directly, re-rendering the whole panel INCLUDING all 500 buffered log
+     lines, so the main thread saturated rebuilding DOM and the window stopped
+     accepting clicks mid-job (reported as "stuck for a while, can't click any
+     buttons" around 42-50%). The 500-line cap bounded memory, not work: the
+     cost was one full render PER LINE, not per frame.
+     Batching keeps the same visible output -- a frame is the fastest anything
+     can be seen -- while collapsing N renders per frame into one. */
+  var _pipeRaf = 0;
+  function schedulePipelineRender() {
+    if (_pipeRaf) return;
+    _pipeRaf = (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(function () {
+      _pipeRaf = 0;
+      renderPipeline();
+    });
+  }
   function renderPipeline() {
     var p = LP.data.pipeline;
     $('proc-status-title').textContent = p.title;
@@ -1137,9 +1157,50 @@
     return { show: show, refit: refit };
   })();
 
+  /* Slide review has two genuinely different jobs, so it gets two layouts.
+     GRID = image tiles, for scanning a deck fast and spotting the slide you
+     want. LIST = compact rows with timecode + status, for working through
+     judgements precisely. Before this the Grid/List control was inert markup
+     (two <span>s, no handler anywhere) while the only layout that existed was
+     the row one -- so it also mislabelled itself as "Grid". */
+  /* Grid tiles animate their entrance ONLY when the user enters grid view, not
+     on every render. renderSlides() rebuilds innerHTML on every slide click,
+     Next/Prev, and now every Keep/Reject (which auto-advances), so an
+     unconditional .lp-anim-in made the whole grid re-play its 140ms slide-up on
+     every single interaction -- a full-grid flash per judgement click. The list
+     branch never carried the class, which is why only grid regressed. */
+  var _gridEntrance = true;   // true so the first paint still animates
   function renderSlides() {
     var v = LP.state.viewingSlide;
     var list = $('slide-list');
+    var grid = LP.state.slidesView === 'grid';
+    // the container is a flex column for list, an auto-fill grid for tiles
+    list.style.display = grid ? 'grid' : 'flex';
+    list.style.gridTemplateColumns = grid ? 'repeat(auto-fill,minmax(104px,1fr))' : '';
+    list.style.alignContent = grid ? 'start' : '';
+    list.style.gap = grid ? '8px' : '9px';
+    if (grid) {
+      var entrance = _gridEntrance ? ' lp-anim-in' : '';
+      _gridEntrance = false;
+      list.innerHTML = LP.data.slides.map(function (s, i) {
+        var viewing = i === v, bd, tint = 'var(--panel)', label, labelColor;
+        if (viewing) { bd = 'var(--orange)'; tint = 'var(--orange-soft)'; label = s.sel ? 'viewing · sel' : 'viewing'; labelColor = 'var(--orange-ink)'; }
+        else if (s.sel) { bd = 'var(--blue)'; tint = 'var(--blue-tint)'; label = 'selected'; labelColor = 'var(--blue-ink)'; }
+        else if (s.state === 'rejected') { bd = 'var(--red)'; tint = 'var(--red-soft)'; label = 'rejected'; labelColor = 'var(--red)'; }
+        else { bd = 'var(--border)'; label = 'accepted'; labelColor = 'var(--blue-ink)'; }
+        var img = slideImg(s.thumb || s.img, 'width:100%;height:100%;object-fit:cover;display:block', 18, labelColor);
+        return '<div class="lp-hit' + entrance + '" data-slide="' + i + '" style="display:flex;flex-direction:column;gap:5px;' +
+          'background:' + tint + ';border:2px solid ' + bd + ';border-radius:10px;padding:5px;cursor:pointer">' +
+          '<div style="aspect-ratio:16/10;overflow:hidden;background:var(--sunk);border-radius:6px;display:flex;' +
+          'align-items:center;justify-content:center">' + img + '</div>' +
+          '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:4px">' +
+          '<span style="font:700 11px \'JetBrains Mono\'">' + esc(s.time) + '</span>' +
+          '<span style="font:700 8.5px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</span>' +
+          '</div></div>';
+      }).join('');
+      finishSlides(v);
+      return;
+    }
     list.innerHTML = LP.data.slides.map(function (s, i) {
       var viewing = i === v;
       var wrap, thumbBd = 'var(--line)', icon = 'var(--muted)', label, labelColor;
@@ -1163,6 +1224,10 @@
         '<div style="width:60px;height:38px;flex:none;overflow:hidden;background:var(--sunk);border:1.5px solid ' + thumbBd + ';border-radius:6px;display:flex;align-items:center;justify-content:center">' + thumbImg + '</div>' +
         '<div><div style="font:700 13px \'JetBrains Mono\'">' + esc(s.time) + '</div><div style="font:700 10px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</div></div></div>';
     }).join('');
+    finishSlides(v);
+  }
+
+  function finishSlides(v) {
     var selCount = LP.data.slides.filter(function (s) { return s.sel; }).length;
     $('slides-sel').textContent = '· ' + selCount + ' sel';
     var cur = LP.data.slides[v];
@@ -2167,7 +2232,7 @@
         var on = engine === k;
         el.style.background = on ? 'var(--secondary-surface)' : 'transparent';
         el.style.color = on ? 'var(--secondary-text)' : 'var(--muted)';
-        el.style.border = '1.5px solid ' + (on ? 'var(--secondary-border)' : 'var(--line)');
+        el.style.border = '1.5px solid ' + (on ? 'var(--secondary-border)' : 'transparent');
         el.style.fontWeight = on ? '700' : '500';
         el.style.cursor = 'pointer';
       });
@@ -2440,6 +2505,18 @@
       var item = e.target.closest('[data-slide]');
       if (item) { LP.state.viewingSlide = +item.dataset.slide; renderSlides(); }
     });
+    // Grid / List view toggle. Was inert markup with no handler at all.
+    Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (b) {
+      b.addEventListener('click', function () {
+        if (LP.state.slidesView === b.dataset.view) return;
+        LP.state.slidesView = b.dataset.view;
+        if (LP.state.slidesView === 'grid') _gridEntrance = true;
+        Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (o) {
+          o.classList.toggle('active', o.dataset.view === LP.state.slidesView);
+        });
+        renderSlides();
+      });
+    });
     $('btn-prev-slide').addEventListener('click', function () {
       LP.state.viewingSlide = (LP.state.viewingSlide + LP.data.slides.length - 1) % LP.data.slides.length;
       renderSlides();
@@ -2452,12 +2529,26 @@
       var s = LP.data.slides[LP.state.viewingSlide];
       s.state = 'accepted';
       lpBridge.call('set_slide_state', LP.state.viewingSlide, 'accepted');
+      // Advance after judging: the user is working THROUGH the deck, so keeping
+      // or rejecting is implicitly "done with this one". Wraps like the next
+      // button. Guarded so a 1-slide deck (or an empty one) cannot divide by
+      // zero or bounce the view.
+      if (LP.data.slides.length > 1) {
+        LP.state.viewingSlide = (LP.state.viewingSlide + 1) % LP.data.slides.length;
+      }
       renderSlides();
     });
     $('btn-reject').addEventListener('click', function () {
       var s = LP.data.slides[LP.state.viewingSlide];
       s.state = 'rejected'; s.sel = false;
       lpBridge.call('set_slide_state', LP.state.viewingSlide, 'rejected');
+      // Advance after judging: the user is working THROUGH the deck, so keeping
+      // or rejecting is implicitly "done with this one". Wraps like the next
+      // button. Guarded so a 1-slide deck (or an empty one) cannot divide by
+      // zero or bounce the view.
+      if (LP.data.slides.length > 1) {
+        LP.state.viewingSlide = (LP.state.viewingSlide + 1) % LP.data.slides.length;
+      }
       renderSlides();
     });
     $('btn-save-corrections').addEventListener('click', function () {
@@ -2788,7 +2879,7 @@
       if (!LP.state.jobId) return;      // no lecture owns this log yet
       LP.data.pipeline.log.push(JSON.parse(json));
       if (LP.data.pipeline.log.length > 500) LP.data.pipeline.log.shift();
-      renderPipeline();
+      schedulePipelineRender();   // was renderPipeline() per line -- see the comment there
     });
     lpBridge.on('status_changed', function (json) {
       var s = JSON.parse(json);

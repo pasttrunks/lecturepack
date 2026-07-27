@@ -4,7 +4,7 @@
 ; version in via /DAppVersion=x.y.z so this stays in sync with version.py.
 
 #ifndef AppVersion
-  #define AppVersion "0.9.0-beta.4"
+  #define AppVersion "0.9.0-beta.5"
 #endif
 
 #define AppName "LecturePack"

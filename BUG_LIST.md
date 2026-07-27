@@ -42,6 +42,67 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### BUG-25 — two `AssetResolver` instances could tear the same poster file   ✅ FIXED (unit-verified)
+- **Area:** `app/desktop/assets.py`, `app/desktop/engine_adapter.py::_kick_poster`.
+- **Found:** second independent pre-release review, 2026-07-27, on the same-session change
+  that added instant poster generation on import.
+- **Root cause:** `_kick_poster` constructed a NEW `AssetResolver` per import and called
+  `make_poster_now` on a raw thread, bypassing that class's dedup (`self._pending` +
+  `self._lock`). But `main.py:100` already owns a SECOND resolver wired to `jobs_changed` →
+  `prewarm_posters`. The `_pending` guard is **per-instance**, so it cannot see the other
+  resolver. Both computed the same destination via the pure `poster_path()`, and all three
+  write sites used a **deterministic** temp name (`dst + ".tmp"`), so two concurrent
+  generators wrote the same temp file — one could truncate while the other was mid-write,
+  then both `os.replace()` it. Reachable in practice: `Job.__init__` writes `manifest.json`
+  synchronously, so a freshly imported job is picked up by the very next `jobs_changed` for
+  ANY unrelated reason (deleting/grouping another job, pause/resume, startup reconcile) while
+  the import thread is still extracting.
+- **Fix:** (a) `_tmp_for(dst)` gives every write a unique temp path (pid + uuid + extension),
+  so each write is private and the `os.replace` stays atomic — the loser is simply discarded;
+  (b) a **module-level** `_INFLIGHT` set + lock, shared by every resolver in the process, so a
+  second caller returns the on-disk poster via `_read_poster` instead of launching a second
+  ffmpeg over a multi-hundred-MB video mid-processing. `make_poster_now` claims/releases in a
+  `try/finally`.
+- **Verified:** unit level — `_tmp_for` returns distinct paths preserving the extension;
+  `_claim` is exclusive and re-claimable after `_release`; `make_poster_now` releases in a
+  `finally`. Not observed live (the owner had a real 63-minute lecture processing and a
+  relaunch would have destroyed that run).
+- **Lesson:** a per-instance dedup guard is not a dedup guard if the class is instantiated in
+  more than one place. Before trusting `self._pending`-style state, grep for every
+  construction site. And any "write temp then rename" needs a UNIQUE temp name — a
+  deterministic one turns two safe writers into one torn file.
+- **Files:** `app/desktop/assets.py`, `app/desktop/engine_adapter.py`.
+
+### BUG-24 — new slide GRID replayed its entrance animation on every interaction   ✅ FIXED
+- **Area:** `app/ui/app.js::renderSlides` (grid branch).
+- **Found:** second independent pre-release review, 2026-07-27.
+- **Root cause:** grid tiles were emitted with an unconditional `class="lp-hit lp-anim-in"`,
+  and `renderSlides()` rebuilds `innerHTML` wholesale on every slide click, Next/Prev, view
+  toggle — and, after the same session's Keep/Reject auto-advance, on every judgement click.
+  So the entire grid re-played its 140ms slide-up entrance on every single interaction. The
+  pre-existing list branch never carried the class, which is why only the new grid regressed.
+- **Fix:** a `_gridEntrance` flag, armed on first paint and when the user switches INTO grid
+  view, consumed once per render. Tiles animate on view entry only.
+- **Lesson:** an entrance class baked into markup that is re-rendered wholesale becomes a
+  per-render animation, not an entrance. Entrance state belongs outside the render output.
+- **Files:** `app/ui/app.js`.
+
+### BUG-23 — live-log stream saturated the main thread; window stopped accepting clicks   ✅ FIXED
+- **Area:** `app/ui/app.js` `log_line` handler / `renderPipeline`.
+- **Found:** owner, while processing a real 63-minute lecture, 2026-07-27 ("it just kind of
+  stuck for a while, you can't click any buttons", around 42-50%).
+- **Root cause:** the log buffer was capped at 500 lines, which bounded MEMORY but not WORK:
+  every `log_line` event called `renderPipeline()`, re-rendering the whole panel including all
+  500 buffered lines. During transcription and slide detection the backend streams log lines
+  rapidly, so the cost was one full DOM rebuild PER LINE and the UI thread starved.
+- **Fix:** `schedulePipelineRender()` coalesces to one render per `requestAnimationFrame`.
+  Visible output is identical (a frame is the fastest anything can be seen) while N renders per
+  frame collapse to one. `pipeline_changed` still renders directly, so title/meta/stages are
+  never starved if a log frame is delayed.
+- **Lesson:** capping a buffer bounds memory, not render cost. If a handler fires per streamed
+  item, the render must be coalesced per frame, not per item.
+- **Files:** `app/ui/app.js`.
+
 ### BUG-22 — `#focus-pill` slid in off-centre; its own inline centering fought the entrance keyframe   ✅ FIXED (verified in real Qt)
 - **Area:** `app/ui/app.js::setFocus`, `app/ui/app.css` `.lp-anim-in-fast` / `.lp-out`.
 - **Found:** independent pre-release review, 2026-07-27. Not user-reported.

@@ -24,12 +24,13 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import uuid
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QFileDialog
 
-from .assets import asset_url, thumb_url
+from .assets import AssetResolver, asset_url, thumb_url
 from .paths import data_dir
 from .win_integration import WindowsIntegration
 
@@ -1332,11 +1333,30 @@ class LecturePackAdapter(EngineAdapter):
         data = json.dumps(payload)
         QTimer.singleShot(0, self.backend, lambda: signal.emit(data))
 
+    def _kick_poster(self, job) -> None:
+        """Generate the job-card poster the instant a file is imported.
+
+        Posters were generated LAZILY -- only when the UI first requested one --
+        so a freshly dropped/browsed file showed a placeholder icon for the first
+        seconds, which is the least polished moment in the app. ffmpeg pulls a
+        frame in well under a second, so do it immediately on a daemon thread and
+        let the card's existing retry-with-backoff pick it up. Never block or
+        fail an import for a cosmetic thumbnail.
+        """
+        try:
+            res = AssetResolver(self.config.data_dir,
+                                ffmpeg_exe=self.config.get("ffmpeg_exe", None))
+            threading.Thread(target=res.make_poster_now, args=(job.job_id,),
+                             daemon=True, name="lp-import-poster").start()
+        except Exception:
+            pass
+
     def import_video(self, path: str):
         if not os.path.exists(path):
             return
         try:
             job = Job(self.config.data_dir, video_path=path)
+            self._kick_poster(job)
             self.controller.set_job(job)
             self._pending_job = job
             self._set_active_job(job)
@@ -1465,7 +1485,22 @@ class LecturePackAdapter(EngineAdapter):
             active = next((s for s in self._stages if s["state"] == "active"), None)
             title = f"{active['label']}…" if active else "Processing…"
         if meta is None:
-            meta = f"elapsed {_fmt_mmss(elapsed)} · {overall}%"
+            # ETA rather than bare elapsed: "01:57 elapsed" tells the user
+            # nothing actionable, while "~4:10 left" lets them decide whether to
+            # go do something else. "overall" counts whole stages only, so it
+            # steps coarsely; the estimate uses a finer fraction that folds in
+            # the ACTIVE stage's own pct, otherwise the ETA would sit frozen for
+            # a whole stage and then lurch.
+            frac = done / total
+            act = next((x for x in self._stages if x["state"] == "active"), None)
+            if act is not None and isinstance(act.get("pct"), (int, float)):
+                frac += (max(0.0, min(100.0, float(act["pct"]))) / 100.0) / total
+            if elapsed > 5 and frac > 0.02:
+                remaining = elapsed * (1.0 - frac) / frac
+                meta = f"~{_fmt_mmss(remaining)} left · {overall}%"
+            else:
+                # too early to be honest about it
+                meta = f"estimating… · {overall}%"
         stages = [{"label": s["label"], "state": s["state"],
                    **({"pct": s["pct"], "color": s["color"]}
                       if s["state"] == "active" else {})}
