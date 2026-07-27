@@ -42,6 +42,85 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### BUG-19 — `ReferenceError: reflectEngine is not defined` on every `settings_changed`   ✅ FIXED (verified in real Qt WebEngine; uncommitted, `feat/cuda-engine`)
+- **Area:** `app/ui/app.js` — `wire()` / `wireBridge()` scope boundary.
+- **Found:** 2026-07-26, as a side effect of Qt CDP verification during the UI/motion pass —
+  **not** the bug that pass was looking for. Confirmed present in `HEAD`, so it predates
+  that work. Flagged in `docs/HANDOFF-2026-07-26-2330-UIUX.md` §7 as a one-line note;
+  investigated properly 2026-07-27 and turned out to be larger than the note implied.
+- **Root cause:** `app/ui/app.js` is a single top-level IIFE containing two **sibling**
+  functions — `wire()` (line 2109) and `wireBridge()` (line 2607); neither is nested in the
+  other. `reflectEngine` and `reflectBackend` are function declarations **local to `wire()`**
+  (2131, 2166), but the `settings_changed` handler is registered **inside `wireBridge()`**.
+  `wire()` is not on that handler's scope chain, so the name was genuinely unbound →
+  `ReferenceError`. Not a typo and not a missing guard — a scope error.
+- **Wider than first reported (three things the handoff note missed):**
+  1. **`reflectBackend` was broken identically**, but masked by
+     `typeof reflectBackend === 'function'` — a guard that is *always false* here, so it
+     silently no-op'd instead of throwing. Two sites: the `groq_status` handler (2851) and
+     `settings_changed`. Net effect: the transcription-backend segmented control never
+     reflected state pushed from Python; only a manual click updated it.
+  2. **The throw killed the rest of the handler.** `bridge.js` `fire()` catches per-listener,
+     so *other* listeners survived — but every statement after the throw point was dead on
+     each full settings push: `transcription_backend`, `ollama_model` name/select,
+     `actual_backend` → `#status-right`, `export_dir`, `update_status`.
+  3. **It fired on every emit, not intermittently.** `app/desktop/engine_adapter.py`
+     `_settings_payload()` always includes `"engine"` (defaults to `"auto"`, always truthy).
+     Partial payloads with no `engine` key were the only ones surviving intact.
+- **Fix:** exposed both `wire()`-local helpers on the pre-existing `LP` namespace as
+  `LP.ui` — one new line at `app.js:2174`, immediately after `reflectBackend`'s closing brace
+  — and routed all three `wireBridge()` call sites (2851, 2963, 2964) through `LP.ui` with an
+  `&& LP.ui` guard. Ordering is safe: `boot()` calls `wire()` before `wireBridge()`, both long
+  before any bridge signal arrives. The two in-scope callers inside `wire()` (2146, 2177) were
+  left resolving lexically and untouched.
+- **Expected behaviour change — NOT a regression.** Statements after the old throw point now
+  execute. **Corrected scope after runtime measurement** — the first pass over-claimed "five
+  dead statements". Checking `engine_adapter._settings_payload()` (line 972) against runtime
+  behaviour, the full payload contains only `version, model_path, endpoint, engine,
+  ollama_model, transcription_backend, export_dir`. So:
+  - **Genuinely restored:** `transcription_backend` (the `#tbk-seg` segmented control) and
+    `export_dir`. Plus `ollama_model` *when non-empty* — it defaults to `""`, which the
+    `if (s.ollama_model)` guard skips, so on a fresh config it still writes nothing.
+  - **Never actually blocked:** `actual_backend` (`#status-right`) and `update_status`. These
+    are **not in the full payload at all**; they arrive on *partial* payloads (lines 1530,
+    2861) which carry no `engine` key and therefore never hit the throw. Confirmed at runtime:
+    after blanking them and firing a real full `settings_changed`, they correctly stayed
+    blank while `export_dir` and the backend selector repainted.
+- **Runtime verification (2026-07-27), real Qt WebEngine, not a browser stand-in:**
+  `QtWebEngine/6.11.1 Chrome/140.0.0.0`, disposable `LECTUREPACK_DATA_DIR`, driven over CDP
+  with a **stdlib-only raw-websocket client** (`websockets`/`websocket-client` are still not
+  installed in the venv and `pip install` is off-limits).
+  - Gated on `typeof LP.ui.reflectEngine === 'function'` before measuring, to prove the fixed
+    `app.js` was actually loaded and not served from QtWebEngine's aggressive cache.
+  - Blanked `#export-dir` etc. to `@@BLANKED@@` and scrambled the selector backgrounds to
+    magenta, then fired a **real** `settings_changed` by clicking `#compute-cuda` (its own
+    listener → `set_setting` → Python full payload). `export_dir` repopulated to the real
+    path and both the compute and backend selectors repainted — if the `ReferenceError` still
+    fired, they would have stayed blank/magenta.
+  - **6 real round-trips: zero exceptions, zero console errors.** This result is meaningful
+    because a **control test** first injected a deliberate uncaught error and a
+    `console.error` and confirmed the CDP listener caught both — an unvalidated "0 errors"
+    would have been unfalsifiable (an early attempt did report "0 events", which turned out
+    to be an attach-before-`boot()` artifact, not a clean run).
+  - **Counter-test:** bare `reflectEngine('cpu')` from an outer closure *still* throws
+    `ReferenceError` — proving the `LP.ui` indirection is what fixed it, and independently
+    re-confirming the scope diagnosis at runtime rather than only by reading.
+  - Real data dir `C:\Users\marsh\LecturePackData` `LastWriteTime` byte-identical before and
+    after (`2026-07-25T02:32:31.0839078-04:00`); all writes landed in the disposable dir.
+- **Known follow-on, deliberately not fixed here:** `COMPUTE_IDS` is `{cpu, cuda, vulkan}`
+  but the persisted engine default is `"auto"`. Now that `reflectEngine('auto')` actually
+  runs, it matches no key and clears the highlight on all three compute buttons — Settings
+  shows *no* engine selected on a fresh config instead of throwing. A design decision
+  (should `auto` highlight something?), tracked by a `TODO` at the call site and deferred to
+  its own PR rather than folded into a scope fix.
+- **Lesson:** a `typeof x === 'function'` guard around a same-file helper **hides a scope bug
+  as dead code**. `reflectEngine` threw loudly and got noticed; `reflectBackend` had the
+  identical defect, was guarded, and sat silently broken for far longer. When one symbol in a
+  block turns out to be cross-scope, audit **every** symbol that block references for
+  reachability — and treat such a guard as a smell, not as safety.
+- **Files:** `app/ui/app.js`.
+- **Refs:** `docs/HANDOFF-2026-07-26-2330-UIUX.md` §7, §8 item 3.
+
 ### BUG-11 - Tray notifications and taskbar progress silently dead   FIXED (verified)
 - **Area:** desktop shell (`app/desktop/main.py::MainWindow.__init__`)
 - **Found:** beta.4 pre-release review (independent agent), 2026-07-25. Not user-reported

@@ -2007,6 +2007,7 @@
         b.style.borderColor = on ? 'var(--secondary-border)' : 'var(--line)';
       });
     }
+    LP.ui = { reflectEngine: reflectEngine, reflectBackend: reflectBackend };
     $('tbk-seg').addEventListener('click', function (e) {
       var b = e.target.closest('[data-tbk]'); if (!b) return;
       reflectBackend(b.dataset.tbk);
@@ -2679,7 +2680,7 @@
     lpBridge.on('groq_status', function (json) {
       var d = JSON.parse(json), el = $('groq-status');
       if (el) { el.textContent = d.message || ''; el.style.color = d.has_key ? 'var(--secondary-text)' : 'var(--muted)'; }
-      if (d.backend && typeof reflectBackend === 'function') reflectBackend(d.backend);
+      if (d.backend && LP.ui) LP.ui.reflectBackend(d.backend);
     });
     lpBridge.on('vulkan_status', function (json) {
       var d = JSON.parse(json), el = $('vulkan-status');
@@ -2791,8 +2792,10 @@
         var ep = $('ai-endpoint-url');
         if (ep && document.activeElement !== ep) ep.value = s.endpoint;
       }
-      if (s.engine) reflectEngine(s.engine);
-      if (s.transcription_backend && typeof reflectBackend === 'function') reflectBackend(s.transcription_backend);
+      // TODO: COMPUTE_IDS has no "auto" key — design decision needed for
+      // default engine highlight. Leave as-is for now (no button highlighted).
+      if (s.engine && LP.ui) LP.ui.reflectEngine(s.engine);
+      if (s.transcription_backend && LP.ui) LP.ui.reflectBackend(s.transcription_backend);
       if (s.ollama_model) {
         $('ai-model-name').textContent = s.ollama_model;
         var msel = $('ai-model-select');
