@@ -57,7 +57,7 @@ coverage:
     requirement: REPR-09
     verification:
       - kind: unit
-        ref: tests/test_runtime_bootstrap.py#test_default_bootstrap_uses_the_canonical_active_generation_resolver
+        ref: tests/test_runtime_generation.py#test_normal_bootstrap_uses_active_generation_and_repair_forces_full_admission
         status: pass
     human_judgment: false
 duration: 28min
