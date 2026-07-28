@@ -81,8 +81,6 @@ class Backend(QObject):
     post_completion = Signal(str)
     # Runtime admission evidence is a dedicated transport boundary.  It is not
     # ordinary status text and a fallback never implies a second ready event.
-    runtime_health = Signal(str)
-    runtime_fallback = Signal(str)
 
     def __init__(self, window):
         super().__init__()
@@ -121,7 +119,10 @@ class Backend(QObject):
         self._adapter.on_ui_ready()
         self._updater.startup_check()
         if self.runtime_health_result.fallback_notice:
-            self.runtime_fallback.emit(json.dumps(dict(self.runtime_health_result.fallback_notice)))
+            self.diagnostics.emit(json.dumps({
+                "type": "runtime_fallback",
+                "fallback": dict(self.runtime_health_result.fallback_notice),
+            }))
 
     @Slot(result=str)
     def get_bootstrap(self) -> str:

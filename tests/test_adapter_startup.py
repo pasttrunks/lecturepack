@@ -135,8 +135,10 @@ def test_optional_fallback_is_post_health_and_distinct_from_ready(qapp, monkeypa
 
     backend = bridge.Backend(None)
     notices = []
-    backend.runtime_fallback.connect(notices.append)
+    backend.diagnostics.connect(notices.append)
     backend.ui_ready()
 
     assert events == ["assess", "adapter", "ready"]
-    assert [__import__("json").loads(item) for item in notices] == [fallback]
+    assert [__import__("json").loads(item) for item in notices] == [
+        {"type": "runtime_fallback", "fallback": fallback}
+    ]
