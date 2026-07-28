@@ -20,7 +20,7 @@ class RuntimeRepairWorker(QThread):
 
     def run(self):
         try:
-            result = self._service.confirm_repair(self._operation_id) if self._confirm else self._service.begin_repair_offer(self._operation_id)
+            result = self._service.perform_repair(self._operation_id) if self._confirm else self._service.begin_repair_offer(self._operation_id)
             if not self._cancelled:
                 payload = {"operation_id": result.operation_id, "kind": "confirmed" if self._confirm else "metadata_ready"}
                 if not self._confirm:

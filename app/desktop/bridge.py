@@ -205,13 +205,18 @@ class Backend(QObject):
 
     def _make_runtime_repair_service(self):
         from lecturepack.services.runtime_repair import RuntimeRepairService
+        from lecturepack.infrastructure.runtime_generation import RuntimeGenerationStore
         from urllib.request import urlopen
         class _Transport:
             def get(self, url):
                 with urlopen(url, timeout=30) as response:
                     return response.read()
         evidence = {name: item.get("reason", name) for name, item in self.runtime_health_result.components.items() if not item.get("healthy")}
-        return RuntimeRepairService(version.__version__, _Transport(), admission_evidence=evidence)
+        def assess(root):
+            return RuntimeBootstrapService(self._runtime_config, runtime_root=root).assess(trigger="repair")
+        return RuntimeRepairService(version.__version__, _Transport(), admission_evidence=evidence,
+                                    generation_store=RuntimeGenerationStore(self._runtime_config.resolve_data_dir()),
+                                    bootstrap_assessor=assess)
 
     def log_asset_error(self, tag: str, text: str, level: str = "error"):
         """Diagnostics hook for the asset resolver (see main.py). Surfaces a
