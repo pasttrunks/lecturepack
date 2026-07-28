@@ -32,17 +32,21 @@ class WhisperPathStaging:
     """Copy native CLI inputs to a disposable ASCII directory and publish outputs."""
 
     def __init__(self, model_path: str | Path, audio_path: str | Path,
-                 output_prefix: str | Path):
+                 output_prefix: str | Path, vad_model_path: str | Path | None = None):
         self.model_path = Path(model_path)
         self.audio_path = Path(audio_path)
         self.output_prefix = Path(output_prefix)
+        self.vad_model_path = Path(vad_model_path) if vad_model_path else None
         self.root: Path | None = None
         self.staged_model: Path | None = None
         self.staged_audio: Path | None = None
         self.staged_output_prefix: Path | None = None
+        self.staged_vad_model: Path | None = None
 
     def prepare(self) -> tuple[str, str, str]:
-        for source in (self.model_path, self.audio_path):
+        for source in (self.model_path, self.audio_path, self.vad_model_path):
+            if source is None:
+                continue
             if not source.is_file():
                 raise FileNotFoundError(source)
         self.root = Path(tempfile.mkdtemp(prefix="lpws-", dir=_staging_parent()))
@@ -52,12 +56,16 @@ class WhisperPathStaging:
         outputs.mkdir(mode=0o700)
         self.staged_model = self._copy_input(self.model_path, inputs / "model.bin")
         self.staged_audio = self._copy_input(self.audio_path, inputs / "audio.wav")
+        if self.vad_model_path is not None:
+            self.staged_vad_model = self._copy_input(self.vad_model_path, inputs / "vad-model.bin")
         self.staged_output_prefix = outputs / "transcript"
         argv_paths = (str(self.staged_model), str(self.staged_audio), str(self.staged_output_prefix))
+        if self.staged_vad_model is not None:
+            argv_paths += (str(self.staged_vad_model),)
         if not all(_is_ascii_path(Path(value)) for value in argv_paths):
             self.cleanup()
             raise RuntimeError("whisper staging generated a non-ASCII argv path")
-        return argv_paths
+        return argv_paths[:3]
 
     @staticmethod
     def _copy_input(source: Path, destination: Path) -> Path:

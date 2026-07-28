@@ -155,14 +155,21 @@ class WhisperWrapper(QObject):
 
         # Detect supported flags
         supported_flags = self.get_supported_flags()
+        vad_model_path = ""
+        if vad_settings and vad_settings.get("enabled"):
+            candidate = vad_settings.get("model_path", "")
+            if candidate and os.path.exists(candidate) and ("--vad-model" in supported_flags or "-vm" in supported_flags):
+                vad_model_path = candidate
 
         if self.whisper_exe_path.lower().endswith(".py"):
             # Project-owned test fixtures are Python scripts, not whisper.cpp.
             staged_model, staged_audio, staged_output = model_path, audio_path, output_prefix
+            staged_vad_model = vad_model_path
         else:
             try:
-                self._path_staging = WhisperPathStaging(model_path, audio_path, output_prefix)
+                self._path_staging = WhisperPathStaging(model_path, audio_path, output_prefix, vad_model_path=vad_model_path or None)
                 staged_model, staged_audio, staged_output = self._path_staging.prepare()
+                staged_vad_model = str(self._path_staging.staged_vad_model) if self._path_staging.staged_vad_model else ""
             except Exception as exc:
                 self._path_staging = None
                 self.finished.emit(False, f"Unable to prepare Whisper staging: {exc}")
@@ -195,14 +202,13 @@ class WhisperWrapper(QObject):
 
         # VAD Settings
         if vad_settings and vad_settings.get("enabled"):
-            v_model = vad_settings.get("model_path", "")
-            if v_model and os.path.exists(v_model):
+            if staged_vad_model:
                 if "--vad" in supported_flags:
                     whisper_args.append("--vad")
                 if "--vad-model" in supported_flags:
-                    whisper_args.extend(["--vad-model", v_model])
+                    whisper_args.extend(["--vad-model", staged_vad_model])
                 elif "-vm" in supported_flags:
-                    whisper_args.extend(["-vm", v_model])
+                    whisper_args.extend(["-vm", staged_vad_model])
                 
                 # Advanced VAD options if supported
                 v_threshold = vad_settings.get("threshold", 0.50)

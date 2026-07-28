@@ -1,6 +1,7 @@
 import os
 import shutil
 import json
+from pathlib import Path
 import pytest
 from unittest.mock import patch, MagicMock
 from PySide6.QtWidgets import QMessageBox
@@ -77,7 +78,10 @@ def test_whisper_arg_construction(tmp_path, qtbot):
         # Check VAD args
         assert "--vad" in args
         assert "--vad-model" in args
-        assert str(tmp_path / "vad_model.bin") in args
+        staged_vad = args[args.index("--vad-model") + 1]
+        assert staged_vad.isascii()
+        assert staged_vad != str(tmp_path / "vad_model.bin")
+        assert Path(staged_vad).read_bytes() == (tmp_path / "vad_model.bin").read_bytes()
         assert "--vad-threshold" in args
         assert "0.45" in args
         assert "--vad-min-speech-duration-ms" in args
