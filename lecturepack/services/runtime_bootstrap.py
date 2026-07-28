@@ -62,7 +62,14 @@ class RuntimeBootstrapService:
 
         mode = "full" if full else "light"
         if full:
-            full_evidence = self.full_validator(paths)
+            try:
+                full_evidence = self.full_validator(paths)
+            except Exception as error:
+                evidence = {
+                    name: {**item, "healthy": False, "reason": f"full validation failed: {error}"}
+                    for name, item in evidence.items()
+                }
+                return RuntimeBootstrapResult("SETUP_REQUIRED", mode, evidence)
             evidence = {
                 name: {
                     **evidence[name],

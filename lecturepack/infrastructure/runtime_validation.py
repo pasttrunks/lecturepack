@@ -28,7 +28,11 @@ class RuntimeValidator:
     def run(self, program: str, args: Sequence[str]) -> SmokeEvidence:
         argv = [str(program), *(str(arg) for arg in args)]
         started = time.monotonic()
-        process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        try:
+            process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except OSError as error:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            return SmokeEvidence(argv, None, "", str(error), duration_ms, "launch failed", False)
         try:
             stdout, stderr = process.communicate(timeout=self.timeout_ms / 1000)
             code = process.returncode
