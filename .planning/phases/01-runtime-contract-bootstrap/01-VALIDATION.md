@@ -1,10 +1,13 @@
 ---
 phase: 1
 slug: runtime-contract-bootstrap
-status: draft
+status: validated
 nyquist_compliant: false
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-07-27
+validated: 2026-07-28
+automated_coverage: 8/9
+manual_deferred: 1
 ---
 
 # Phase 1 — Validation Strategy
@@ -19,7 +22,7 @@ created: 2026-07-27
 | **Config file** | `pytest.ini`, `tests/conftest.py` |
 | **Quick run command** | `pytest tests/test_runtime_inventory.py tests/test_runtime_bootstrap.py tests/test_runtime_packaged_smoke.py tests/test_adapter_startup.py tests/test_beta3_packaging.py tests/test_cuda_engine.py -q` |
 | **Full suite command** | `pytest` |
-| **Estimated runtime** | Calibrate during Wave 0 and record actual output; no guessed completion claim |
+| **Measured runtime** | Focused bootstrap: `18 passed in 1.25s`; final full suite: `743 passed in 187.42s` |
 
 ## Sampling Rate
 
@@ -32,15 +35,15 @@ created: 2026-07-27
 
 | Requirement | Expected behavior | Test type | Automated command | File exists | Status |
 |-------------|-------------------|-----------|-------------------|-------------|--------|
-| RUNT-01 | Fresh disposable profile resolves the exact bundled CPU set | unit/integration | `pytest tests/test_runtime_inventory.py -q` | ❌ Wave 0 | ⬜ pending |
-| RUNT-02 | Startup, package checks, diagnostics, and later repair consume one inventory | unit/static | `pytest tests/test_runtime_inventory.py tests/test_beta3_packaging.py -q` | ◐ extend | ⬜ pending |
-| RUNT-03 | No partial/stale facts persist; complete healthy facts persist atomically | unit | `pytest tests/test_runtime_bootstrap.py -q` | ❌ Wave 0 | ⬜ pending |
-| RUNT-04 | Light/full policy covers the exact real CLI/model/WAV smoke, success, nonzero, hang, timeout, and identity changes | unit/packaged process fixture | `pytest tests/test_runtime_bootstrap.py tests/test_runtime_packaged_smoke.py -q` | ❌ Wave 0 | ⬜ pending |
-| RUNT-05 | No controller/readiness/probe behavior occurs before `HEALTHY`; exactly one transition follows | controller integration | `pytest tests/test_adapter_startup.py tests/test_runtime_bootstrap.py -q` | ◐ extend | ⬜ pending |
-| RUNT-06 | Upgrade selects base.en and preserves alternative models | migration unit | `pytest tests/test_runtime_bootstrap.py -q` | ❌ Wave 0 | ⬜ pending |
-| RUNT-07 | Healthy optional selection remains after CPU admission | unit | `pytest tests/test_cuda_engine.py -q` | ✅ extend | ⬜ pending |
-| RUNT-08 | Broken optional selection yields CPU plus structured notice and no hard gate/network | unit/controller | `pytest tests/test_cuda_engine.py tests/test_runtime_bootstrap.py -q` | ◐ extend | ⬜ pending |
-| RUNT-09 | ADR contains every mandatory trust/release field and selected verifier vectors pass | static test + human approval | `pytest tests/test_signing_adr_contract.py -q` | ❌ Wave 0 | ⬜ pending |
+| RUNT-01 | Fresh disposable profile resolves the exact bundled CPU set | unit/integration | `pytest tests/test_runtime_inventory.py tests/test_runtime_packaged_smoke.py -q` | ✅ | ✅ covered |
+| RUNT-02 | Startup, package checks, diagnostics, and later repair consume one inventory | unit/static + deferred integration | `pytest tests/test_runtime_inventory.py tests/test_beta3_packaging.py tests/test_runtime_diagnostics.py -q` | ✅ current consumers | ◐ repair consumer deferred to Phase 2 |
+| RUNT-03 | No partial/stale facts persist; complete healthy facts persist atomically | unit | `pytest tests/test_runtime_bootstrap.py -q` | ✅ | ✅ covered |
+| RUNT-04 | Light/full policy covers real CLI/model/WAV smoke, failures, timeouts, identity, update/repair, and light payload loss | unit/packaged process fixture | `pytest tests/test_runtime_bootstrap.py tests/test_runtime_packaged_smoke.py -q` | ✅ | ✅ covered |
+| RUNT-05 | No controller/readiness/probe behavior occurs before `HEALTHY`; exactly one transition follows | controller integration | `pytest tests/test_adapter_startup.py tests/test_runtime_bootstrap.py -q` | ✅ | ✅ covered |
+| RUNT-06 | Upgrade selects base.en and preserves alternative models | migration unit | `pytest tests/test_runtime_bootstrap.py -q` | ✅ | ✅ covered |
+| RUNT-07 | Healthy optional selection remains after CPU admission | unit | `pytest tests/test_cuda_engine.py tests/test_runtime_bootstrap.py -q` | ✅ | ✅ covered |
+| RUNT-08 | Broken optional selection yields CPU plus structured notice and no hard gate/network | unit/controller | `pytest tests/test_cuda_engine.py tests/test_runtime_bootstrap.py -q` | ✅ | ✅ covered |
+| RUNT-09 | ADR contains every mandatory trust/release field and selected verifier vectors pass | static test + approved human decision | `pytest tests/test_signing_adr_contract.py -q` | ✅ | ✅ covered |
 
 ## Required Fault Matrix
 
@@ -53,30 +56,43 @@ created: 2026-07-27
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_runtime_inventory.py` — canonical entry/path/identity/package-consumer matrix.
-- [ ] `tests/test_runtime_bootstrap.py` — persistence, light/full policy, runner evidence, ordering, migration, and fallback notice.
-- [ ] `app/packaging/assets/runtime-smoke.wav` — project-owned deterministic 1.000 s, 16 kHz, mono signed 16-bit little-endian PCM tone, hashed in canonical inventory and packaged as `smoke/runtime-smoke.wav`.
-- [ ] `tests/test_runtime_packaged_smoke.py` — exact real packaged CLI/model/WAV execution and evidence assertions under a disposable Unicode/space path; missing package fixture blocks rather than skips Phase 1 evidence.
-- [ ] `tests/fixtures/mock_runtime_hang.py` — deterministic no-output hang for the timeout branch.
-- [ ] `tests/test_signing_adr_contract.py` — required ADR fields and known-good/altered-byte verifier vectors after approval.
-- [ ] Packaged disposable subprocess harness/fixture — real CPU payload proof without owner/developer data.
+- [x] `tests/test_runtime_inventory.py` — canonical entry/path/identity/package-consumer matrix.
+- [x] `tests/test_runtime_bootstrap.py` — persistence, light/full policy, runner evidence, ordering, migration, fallback notice, explicit update/repair, and light payload loss.
+- [x] `app/packaging/assets/runtime-smoke.wav` — project-owned deterministic 1.000 s, 16 kHz, mono signed 16-bit little-endian PCM tone, hashed in canonical inventory and packaged as `smoke/runtime-smoke.wav`.
+- [x] `tests/test_runtime_packaged_smoke.py` — exact real packaged CLI/model/WAV execution and evidence assertions under a disposable Unicode/space path; missing package fixture blocks rather than skips Phase 1 evidence.
+- [x] `tests/fixtures/mock_runtime_hang.py` — deterministic no-output hang for the timeout branch.
+- [x] `tests/test_signing_adr_contract.py` — required ADR fields and known-good/altered-byte verifier vectors after approval.
+- [x] Packaged disposable subprocess harness/fixture — real CPU payload proof without owner/developer data.
 
 ## Manual-Only Verifications
 
 | Behavior | Requirement | Why manual | Test instructions |
 |----------|-------------|------------|-------------------|
-| Signing/verifier ADR approval | RUNT-09 | Dependency, key custody, and release ownership require an explicit owner decision | Review the ADR fields, verifier choice/version, canonical bytes, key lifecycle, PyInstaller proof, and release roles; record approval before Phase 2. |
+| Real repair consumer uses the canonical inventory | RUNT-02 | Repair implementation is deliberately a Phase 2 deliverable under AD-19; Phase 1 has no real repair consumer to invoke | In Phase 2, run the real repair admission/activation boundary and prove it consumes the canonical inventory without redefining component membership. |
 | Minimum-CPU timeout calibration | RUNT-04 | Hardware timing cannot be inferred from unit mocks | Run the bounded real model smoke on the minimum supported CPU, record duration and selected timeout budget, then encode the approved bound in tests/config. |
 
 ## Validation Sign-Off
 
-- [ ] Every implementation task has an automated verification command or an explicit Wave 0 dependency.
-- [ ] No three consecutive tasks lack automated feedback.
-- [ ] Wave 0 covers every missing test/harness reference.
-- [ ] No watch-mode flags are used.
-- [ ] Targeted and full pytest outputs are preserved verbatim.
-- [ ] Real packaged/bootstrap smoke evidence is preserved; mocks are not claimed as integration proof.
-- [ ] RUNT-09 ADR is approved and its verifier contract is testable.
-- [ ] `nyquist_compliant: true` and `wave_0_complete: true` are set only after the evidence exists.
+- [x] Every Phase 1 implementation task has an automated verification command or an explicit manual/deferred boundary.
+- [x] No three consecutive tasks lack automated feedback.
+- [x] Wave 0 test and harness references now exist.
+- [x] No watch-mode flags are used.
+- [x] Targeted and full pytest outputs are preserved in summaries, review, verification, and this audit.
+- [x] Real packaged/bootstrap smoke evidence is preserved; mocks are not claimed as integration proof.
+- [x] RUNT-09 ADR is approved and its verifier contract is testable.
+- [x] `wave_0_complete: true` is backed by executed evidence; `nyquist_compliant` remains false because the user deferred the real RUNT-02 repair-consumer test to Phase 2.
 
-**Approval:** pending
+**Approval:** validated (partial) 2026-07-28
+
+## Validation Audit 2026-07-28
+
+| Metric | Count |
+|---|---:|
+| Requirements covered automatically | 8 |
+| Automated gaps found | 2 |
+| Automated gaps resolved | 2 |
+| Manual/deferred requirement checks | 1 |
+
+The Nyquist audit identified explicit update/repair full-validation and light-path payload-loss branches in RUNT-04. The user chose to add both now; they pass in `tests/test_runtime_bootstrap.py`. The user chose to defer the real RUNT-02 repair-consumer integration check to Phase 2 because Phase 1 intentionally defines the trust and admission contract but does not implement repair.
+
+Final evidence after the added tests: `18 passed in 1.25s` focused and `743 passed in 187.42s` full-suite, with the verified real packaged fixture enabled.
