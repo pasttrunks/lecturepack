@@ -103,6 +103,35 @@ class ConfigManager:
         self.settings[key] = value
         self.save()
 
+    def persist_runtime_health(self, runtime_health, *, bundled_model):
+        """Atomically persist a complete, validated runtime-health snapshot.
+
+        The beta-6 migration is deliberately guarded by an explicit marker so
+        later manual model choices are never overwritten on subsequent starts.
+        """
+        if not isinstance(runtime_health, dict) or not runtime_health.get("components"):
+            raise ValueError("runtime health must contain complete component facts")
+
+        migration_versions = self.settings.get("migration_versions")
+        if not isinstance(migration_versions, dict):
+            migration_versions = {}
+
+        if migration_versions.get("runtime_contract") != 1:
+            previous_model = self.settings.get("whisper_model", "")
+            if previous_model and previous_model != bundled_model:
+                known_models = self.settings.get("known_whisper_models")
+                if not isinstance(known_models, list):
+                    known_models = []
+                if previous_model not in known_models:
+                    known_models.append(previous_model)
+                self.settings["known_whisper_models"] = known_models
+            self.settings["whisper_model"] = bundled_model
+            migration_versions["runtime_contract"] = 1
+
+        self.settings["migration_versions"] = migration_versions
+        self.settings["runtime_health"] = runtime_health
+        self.save()
+
     def resolve_data_dir(self):
         # The env override outranks a persisted ``data_directory`` so a config
         # copied from a real profile cannot pull a test run back onto real jobs.

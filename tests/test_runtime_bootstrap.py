@@ -12,6 +12,8 @@ def test_bootstrap_persists_complete_facts_and_migrates_once(tmp_path):
 
     cfg = ConfigManager(str(tmp_path))
     cfg.settings.update({"engine": "cuda", "whisper_model": "D:/models/old.bin"})
+    (tmp_path / "ffmpeg.exe").write_bytes(b"x")
+    (tmp_path / "base.bin").write_bytes(b"x")
     calls = []
 
     service = RuntimeBootstrapService(
@@ -43,6 +45,7 @@ def test_bootstrap_never_persists_healthy_facts_on_validation_failure(tmp_path):
     from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
 
     cfg = ConfigManager(str(tmp_path))
+    (tmp_path / "ffmpeg.exe").write_bytes(b"x")
     service = RuntimeBootstrapService(
         cfg, runtime_root=tmp_path,
         inventory_resolver=lambda root: {"bin/ffmpeg.exe": tmp_path / "ffmpeg.exe"},
@@ -63,6 +66,7 @@ def test_optional_preference_is_resolved_only_after_cpu_admission(tmp_path):
 
     cfg = ConfigManager(str(tmp_path))
     cfg.settings["engine"] = "cuda"
+    (tmp_path / "ffmpeg.exe").write_bytes(b"x")
     order = []
     service = RuntimeBootstrapService(
         cfg, runtime_root=tmp_path,
