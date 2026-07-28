@@ -57,10 +57,14 @@ def test_whisper_arg_construction(tmp_path, qtbot):
         # Touch vad model
         (tmp_path / "vad_model.bin").touch()
         
+        audio_path = tmp_path / "audio.wav"
+        model_path = tmp_path / "whisper_model.bin"
+        audio_path.write_bytes(b"audio")
+        model_path.write_bytes(b"model")
         wrapper.start_transcription(
-            audio_path="audio.wav",
-            model_path="whisper_model.bin",
-            output_prefix="raw",
+            audio_path=str(audio_path),
+            model_path=str(model_path),
+            output_prefix=str(tmp_path / "raw"),
             glossary=glossary,
             threads=6,
             vad_settings=vad_settings
@@ -88,6 +92,7 @@ def test_whisper_arg_construction(tmp_path, qtbot):
         assert "--prompt" in args
         assert "--carry-initial-prompt" in args
         assert "CS 101, Algorithms, and AINewlines" in args
+        wrapper._cleanup_staging()
 
 # 2. Test dynamic whisper flags detection ignores unsupported flags
 def test_whisper_ignores_unsupported_flags(tmp_path, qtbot):
@@ -111,10 +116,14 @@ def test_whisper_ignores_unsupported_flags(tmp_path, qtbot):
             "model_path": str(tmp_path / "vad_model.bin")
         }
         
+        audio_path = tmp_path / "audio.wav"
+        model_path = tmp_path / "whisper_model.bin"
+        audio_path.write_bytes(b"audio")
+        model_path.write_bytes(b"model")
         wrapper.start_transcription(
-            audio_path="audio.wav",
-            model_path="whisper_model.bin",
-            output_prefix="raw",
+            audio_path=str(audio_path),
+            model_path=str(model_path),
+            output_prefix=str(tmp_path / "raw"),
             glossary="Algorithms",
             threads=8,
             vad_settings=vad_settings
@@ -131,6 +140,7 @@ def test_whisper_ignores_unsupported_flags(tmp_path, qtbot):
         assert "--threads" not in args
         # But it must use -oj instead of --output-json-full
         assert "-oj" in args
+        wrapper._cleanup_staging()
 
 # 3. Test corrected transcript persistence, raw transcript remains unchanged, and export overrides
 def test_corrected_transcript_persistence(tmp_path):

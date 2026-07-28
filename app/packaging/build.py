@@ -18,14 +18,78 @@ release workflow installs it via Chocolatey.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+REPO_DIR = Path(__file__).resolve().parents[2]
+if str(REPO_DIR) not in sys.path:
+    sys.path.insert(0, str(REPO_DIR))
+
+from lecturepack.infrastructure.runtime_inventory import (
+    RuntimeInventoryError,
+    canonical_inventory,
+    inventory_for_root,
+    resolve_inventory,
+)
+from lecturepack.infrastructure.runtime_validation import RuntimeValidator, SmokeEvidence
+from lecturepack.infrastructure.whisper_path_staging import WhisperPathStaging
+
 APP_DIR = Path(__file__).resolve().parent.parent
 PKG_DIR = APP_DIR / "packaging"
+
+
+def required_runtime_payload(
+    runtime_root: Path, cpu_dll_names: tuple[str, ...] | list[str] = (),
+) -> dict[str, Path]:
+    """Map every canonical package entry to its destination below ``runtime_root``."""
+    root = Path(runtime_root)
+    return {entry: root / entry for entry in canonical_inventory(cpu_dll_names)}
+
+
+def run_disposable_runtime_smoke(
+    runtime_root: Path | None = None, timeout_ms: int = 30_000,
+) -> SmokeEvidence:
+    """Run the real bundled CLI under a bounded, argument-array-only smoke test."""
+    if runtime_root is None:
+        configured = os.environ.get("LECTUREPACK_ONEDIR_FIXTURE", "").strip()
+        if not configured:
+            raise AssertionError("clean onedir fixture is required for packaged smoke")
+        runtime_root = Path(configured)
+    root = Path(runtime_root)
+    if not root.is_dir():
+        raise AssertionError(f"clean onedir fixture is required but missing: {root}")
+    try:
+        required = resolve_inventory(root)
+    except RuntimeInventoryError as exc:
+        raise AssertionError(f"clean onedir fixture is invalid: {exc}") from exc
+
+    validator = RuntimeValidator(timeout_ms=timeout_ms)
+    for tool in (required["bin/ffmpeg.exe"], required["bin/ffprobe.exe"]):
+        evidence = validator.run(str(tool), ["-version"])
+        if not evidence.ok:
+            raise AssertionError(f"{tool.name} smoke failed: {evidence}")
+    with_staging = WhisperPathStaging(
+        required["models/ggml-base.en.bin"], required["smoke/runtime-smoke.wav"],
+        root / "smoke-output" / "transcript")
+    staged_model, staged_wav, staged_prefix = with_staging.prepare()
+    try:
+        evidence = validator.run(
+            str(required["bin/whisper-cli.exe"]),
+            ["-m", staged_model, "-f", staged_wav, "-t", "1", "-nt"],
+        )
+    finally:
+        with_staging.cleanup()
+    if not evidence.ok:
+        raise AssertionError(f"whisper packaged smoke failed: {evidence}")
+    if not all(argument.isascii() for argument in evidence.argv[2:6]):
+        raise AssertionError("whisper smoke native argv must use ASCII staging paths")
+    if staged_prefix and Path(f"{staged_prefix}.txt").exists():
+        raise AssertionError("whisper smoke must not create a transcript artifact")
+    return evidence
 
 
 def read_version() -> str:
@@ -129,19 +193,12 @@ def check_clean_state(dist_app: Path) -> list:
         if name.endswith(".json") and not under_internal:
             violations.append(f"unexpected json bundled: {rel}")
 
-    # Required engine payload must be present AND non-empty.
-    required = [
-        "LecturePack.exe",
-        "bin/ffmpeg.exe", "bin/ffprobe.exe", "bin/whisper-cli.exe",
-        "bin/whisper.dll", "bin/ggml.dll", "bin/ggml-base.dll",
-        "models/ggml-base.en.bin",
-    ]
-    for r in required:
-        p = dist_app / r
-        if not p.is_file() or p.stat().st_size == 0:
-            violations.append(f"missing/empty required payload: {r}")
-    if not list((dist_app / "bin").glob("ggml-cpu-*.dll")):
-        violations.append("missing CPU backend DLLs: bin/ggml-cpu-*.dll")
+    if not (dist_app / "LecturePack.exe").is_file() or (dist_app / "LecturePack.exe").stat().st_size == 0:
+        violations.append("missing/empty required payload: LecturePack.exe")
+    try:
+        resolve_inventory(dist_app, inventory_for_root(dist_app))
+    except RuntimeInventoryError as exc:
+        violations.append(str(exc))
 
     return violations
 
@@ -164,10 +221,6 @@ def bundle_engine() -> None:
     """
     repo = APP_DIR.parent
     dist_app = APP_DIR / "dist" / "LecturePack"
-    dst_bin = dist_app / "bin"
-    dst_models = dist_app / "models"
-    dst_bin.mkdir(parents=True, exist_ok=True)
-    dst_models.mkdir(parents=True, exist_ok=True)
 
     def _copy(src: Path, dst: Path):
         if not src.exists() or src.stat().st_size == 0:
@@ -176,27 +229,27 @@ def bundle_engine() -> None:
         if not dst.exists() or dst.stat().st_size == 0:
             sys.exit(f"engine bundle FAILED — copy produced empty {dst}")
 
-    # FFmpeg / FFprobe
-    for name in ("ffmpeg.exe", "ffprobe.exe"):
-        _copy(repo / "bin" / name, dst_bin / name)
-
-    # whisper.cpp CPU: the CLI + only the DLLs it needs (skip the other tools:
-    # parakeet/wchess/server/stream/tests/SDL2).
     rel = repo / "bin" / "Release"
-    wanted = ["whisper-cli.exe", "whisper.dll", "ggml.dll", "ggml-base.dll"]
-    wanted += sorted(p.name for p in rel.glob("ggml-cpu-*.dll"))
-    for name in wanted:
-        _copy(rel / name, dst_bin / name)
-
-    # Core model — base.en (the "works immediately" default).
-    _copy(repo / "models" / "ggml-base.en.bin", dst_models / "ggml-base.en.bin")
+    cpu_dll_names = tuple(sorted(path.name for path in rel.glob("ggml-cpu-*.dll")))
+    source_payload: dict[str, Path] = {}
+    for entry in canonical_inventory(cpu_dll_names):
+        if entry in {"bin/ffmpeg.exe", "bin/ffprobe.exe"}:
+            source_payload[entry] = repo / entry
+        elif entry.startswith("bin/"):
+            source_payload[entry] = rel / Path(entry).name
+        elif entry == "models/ggml-base.en.bin":
+            source_payload[entry] = repo / entry
+        else:
+            source_payload[entry] = PKG_DIR / "assets" / Path(entry).name
+    for entry, destination in required_runtime_payload(dist_app, cpu_dll_names).items():
+        _copy(source_payload[entry], destination)
 
     # App icon — copied next to the EXE so main.py can load it at runtime.
     ico_src = APP_DIR / "packaging" / "lecturepack.ico"
     if ico_src.exists():
         shutil.copy2(ico_src, dist_app / "lecturepack.ico")
 
-    print(f"Bundled core engine: ffmpeg + {len(wanted)} whisper files + ggml-base.en.bin")
+    print(f"Bundled canonical CPU runtime: {len(source_payload)} payload files")
 
 
 def make_portable_zip(version: str) -> Path:

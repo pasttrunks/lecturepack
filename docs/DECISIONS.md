@@ -4,6 +4,42 @@ Record of major technical decisions. Newest entries at the top.
 
 ---
 
+## AD-18: ASCII Staging Boundary for whisper.cpp v1.9.1 Native Arguments (Phase 1)
+
+**Date:** 2026-07-28
+**Status:** Accepted by explicit Phase 1 continuation approval
+
+**Context:** The pinned whisper.cpp v1.9.1 CPU binary loaded successfully from a
+copied Unicode-and-space onedir, but crashed after receiving Unicode model/WAV
+paths through its native CLI boundary. Replacing the binary, changing its
+version, or weakening Unicode installation and user-data support is outside
+this phase and was not authorized.
+
+**Decision:** Keep all application-facing installation, model, audio, data, and
+final transcript paths Unicode-capable. Immediately before invoking the native
+whisper.cpp executable, copy only the model and WAV to a private,
+application-controlled ASCII-only staging directory with collision-safe names.
+Pass the staged model, WAV, and output-prefix paths with a QProcess argument
+array; never construct a shell command. On successful completion, atomically
+publish the staged transcript artifacts to the requested Unicode destination.
+Remove the staging directory after success, nonzero exit, timeout, cancellation,
+or preparation exception. The disposable packaged smoke uses the same staging
+boundary while retaining the executable and DLLs in the copied Unicode onedir.
+
+**Alternatives considered:**
+- Passing Unicode paths directly to v1.9.1: rejected because the real disposable
+  smoke reproduced a native crash after CPU DLL loading.
+- Replacing or rebuilding whisper.cpp: rejected because this Phase 1 approval
+  expressly pins v1.9.1 and does not authorize a payload change.
+- Restricting user or installation paths to ASCII: rejected because it violates
+  the product's Windows path-safety requirement.
+
+**Rationale:** This is the smallest application-controlled compatibility boundary:
+it preserves end-to-end Unicode support and source bytes while isolating a known
+native argv limitation to the only paths whisper.cpp must consume.
+
+---
+
 ## AD-17: "Premium Glassmorphic Dark" UI Overhaul (Phase 2, v1.4)
 
 **Date:** 2026-07-19

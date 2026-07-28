@@ -3,6 +3,7 @@ import re
 import sys
 from PySide6.QtCore import QProcess, QObject, Signal
 from lecturepack.infrastructure.process_tree import terminate_qprocess_tree
+from lecturepack.infrastructure.whisper_path_staging import WhisperPathStaging
 
 # whisper.cpp prints each decoded segment to stdout in real time:
 #   [00:00:12.340 --> 00:00:18.720]   And so the theorem follows...
@@ -98,6 +99,7 @@ class WhisperWrapper(QObject):
         self._backend_probe_buffer = ""
         self.last_cancel_report = None
         self._segment_parser = LiveSegmentParser()
+        self._path_staging = None
 
     def get_supported_flags(self):
         """Supported CLI options for the CURRENT executable. Uses the async
@@ -154,11 +156,23 @@ class WhisperWrapper(QObject):
         # Detect supported flags
         supported_flags = self.get_supported_flags()
 
+        if self.whisper_exe_path.lower().endswith(".py"):
+            # Project-owned test fixtures are Python scripts, not whisper.cpp.
+            staged_model, staged_audio, staged_output = model_path, audio_path, output_prefix
+        else:
+            try:
+                self._path_staging = WhisperPathStaging(model_path, audio_path, output_prefix)
+                staged_model, staged_audio, staged_output = self._path_staging.prepare()
+            except Exception as exc:
+                self._path_staging = None
+                self.finished.emit(False, f"Unable to prepare Whisper staging: {exc}")
+                return
+
         # Build argument list
         whisper_args = [
-            "-m", model_path,
-            "-f", audio_path,
-            "-of", output_prefix
+            "-m", staged_model,
+            "-f", staged_audio,
+            "-of", staged_output
         ]
 
         # Use full JSON output if supported, otherwise standard JSON
@@ -247,6 +261,17 @@ class WhisperWrapper(QObject):
         """Stop only the exact process tree started for transcription."""
         if self.process and self.process.state() == QProcess.ProcessState.Running:
             self.last_cancel_report = terminate_qprocess_tree(self.process)
+        self._cleanup_staging()
+
+    def _cleanup_staging(self, publish=False):
+        if self._path_staging is None:
+            return
+        try:
+            if publish:
+                self._path_staging.publish_outputs()
+        finally:
+            self._path_staging.cleanup()
+            self._path_staging = None
 
     def _handle_ready_read(self):
         raw = bytes(self.process.readAllStandardOutput().data())
@@ -284,6 +309,8 @@ class WhisperWrapper(QObject):
         for segment in self._segment_parser.flush():
             self.segment_ready.emit(segment)
         if exit_status == QProcess.ExitStatus.NormalExit and exit_code == 0:
+            self._cleanup_staging(publish=True)
             self.finished.emit(True, "")
         else:
+            self._cleanup_staging()
             self.finished.emit(False, f"whisper-cli exited with status {exit_status} and code {exit_code}")

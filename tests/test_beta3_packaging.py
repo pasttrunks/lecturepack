@@ -21,12 +21,13 @@ def _make_clean_dist(root: Path) -> Path:
     app = root / "LecturePack"
     (app / "bin").mkdir(parents=True)
     (app / "models").mkdir(parents=True)
+    (app / "smoke").mkdir(parents=True)
     (app / "_internal" / "PySide6" / "qml").mkdir(parents=True)
     for rel in ["LecturePack.exe",
                 "bin/ffmpeg.exe", "bin/ffprobe.exe", "bin/whisper-cli.exe",
                 "bin/whisper.dll", "bin/ggml.dll", "bin/ggml-base.dll",
                 "bin/ggml-cpu-haswell.dll",
-                "models/ggml-base.en.bin"]:
+                "models/ggml-base.en.bin", "smoke/runtime-smoke.wav"]:
         (app / rel).write_bytes(b"x")
     # Qt's own JSON asset — must be allowed.
     (app / "_internal" / "PySide6" / "qml" / "propertyGroups.json").write_text("{}")
