@@ -60,6 +60,29 @@ def test_bootstrap_never_persists_healthy_facts_on_validation_failure(tmp_path):
     assert cfg.get("migration_versions", {}).get("runtime_contract") is None
 
 
+def test_incomplete_full_validation_cannot_become_healthy_state(tmp_path):
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    cfg = ConfigManager(str(tmp_path))
+    (tmp_path / "ffmpeg.exe").write_bytes(b"x")
+    (tmp_path / "ffprobe.exe").write_bytes(b"x")
+    service = RuntimeBootstrapService(
+        cfg, runtime_root=tmp_path,
+        inventory_resolver=lambda root: {
+            "bin/ffmpeg.exe": tmp_path / "ffmpeg.exe",
+            "bin/ffprobe.exe": tmp_path / "ffprobe.exe",
+        },
+        identity_provider=lambda root: "payload-v1",
+        full_validator=lambda components: {"bin/ffmpeg.exe": {"healthy": True}},
+    )
+
+    result = service.assess()
+
+    assert result.state == "SETUP_REQUIRED"
+    assert cfg.get("runtime_health") is None
+
+
 def test_optional_preference_is_resolved_only_after_cpu_admission(tmp_path):
     from lecturepack.infrastructure.config_manager import ConfigManager
     from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
@@ -82,6 +105,48 @@ def test_optional_preference_is_resolved_only_after_cpu_admission(tmp_path):
     assert order == ["cpu", "optional"]
     assert result.fallback_notice == {"requested": "cuda", "resolved": "whispercpp-cpu", "reason": "CUDA driver missing"}
     assert cfg.get("engine") == "cpu"
+    assert service.assess().fallback_notice is None
+
+
+def test_healthy_custom_optional_preference_survives_cpu_admission(tmp_path):
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    cfg = ConfigManager(str(tmp_path))
+    cfg.settings["engine"] = "custom-engine"
+    (tmp_path / "ffmpeg.exe").write_bytes(b"x")
+    service = RuntimeBootstrapService(
+        cfg, runtime_root=tmp_path,
+        inventory_resolver=lambda root: {"bin/ffmpeg.exe": tmp_path / "ffmpeg.exe"},
+        identity_provider=lambda root: "payload-v1",
+        full_validator=lambda components: {"bin/ffmpeg.exe": {"healthy": True}},
+        optional_resolver=lambda requested: (requested, "explicitly selected"),
+    )
+
+    result = service.assess()
+
+    assert result.state == "HEALTHY"
+    assert result.fallback_notice is None
+    assert cfg.get("engine") == "custom-engine"
+
+
+def test_optional_resolution_is_not_probed_when_cpu_admission_fails(tmp_path):
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    cfg = ConfigManager(str(tmp_path))
+    probed = []
+    service = RuntimeBootstrapService(
+        cfg, runtime_root=tmp_path,
+        inventory_resolver=lambda root: {"bin/missing.exe": tmp_path / "missing.exe"},
+        identity_provider=lambda root: "payload-v1",
+        optional_resolver=lambda requested: probed.append(requested) or ("whispercpp-cpu", "unavailable"),
+    )
+
+    result = service.assess()
+
+    assert result.state == "SETUP_REQUIRED"
+    assert probed == []
 
 
 def test_runner_captures_success_evidence_with_argument_array(tmp_path):
