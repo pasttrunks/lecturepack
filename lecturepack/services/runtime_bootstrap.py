@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from lecturepack.infrastructure.runtime_inventory import inventory_for_root, payload_identity, resolve_inventory
+from lecturepack.infrastructure.runtime_generation import resolve_active_runtime_root
 from lecturepack.infrastructure.runtime_validation import RuntimeValidator
 from lecturepack.infrastructure.whisper_path_staging import WhisperPathStaging
 
@@ -43,7 +44,15 @@ class RuntimeBootstrapService:
         optional_resolver: Callable[[str], tuple[str, str]] | None = None,
     ):
         self.config = config_manager
-        self.runtime_root = Path(runtime_root or config_manager.resource_dir)
+        self._root_resolution_error = ""
+        if runtime_root is None:
+            resolution = resolve_active_runtime_root(config_manager)
+            self.runtime_root = resolution.root
+            self._root_resolution_error = resolution.reason if not resolution.ok else ""
+        else:
+            # Explicit roots are a test/packaging seam; normal startup always
+            # reaches this service through the one canonical active resolver.
+            self.runtime_root = Path(runtime_root)
         self.inventory_resolver = inventory_resolver or resolve_inventory
         self.identity_provider = identity_provider or payload_identity
         self.full_validator = full_validator or self._validate_full
@@ -51,6 +60,11 @@ class RuntimeBootstrapService:
 
     def assess(self, *, trigger: str = "startup") -> RuntimeBootstrapResult:
         """Assess the canonical CPU payload and persist only complete facts."""
+        if self.runtime_root is None:
+            return RuntimeBootstrapResult(
+                "SETUP_REQUIRED", "light",
+                {"active_runtime": {"healthy": False, "reason": self._root_resolution_error or "runtime root unavailable"}},
+            )
         try:
             paths = dict(self.inventory_resolver(self.runtime_root))
             identity = self.identity_provider(self.runtime_root)
