@@ -1,19 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: milestone
-current_phase: 1
-current_phase_name: Packaging & Release
-status: executing
-stopped_at: Phase 1 gap-closure plans created
-last_updated: "2026-07-18T20:03:30.885Z"
-last_activity: 2026-07-18
-last_activity_desc: Phase 1 gap-closure planning completed
+milestone: v0.9.0-beta.6
+milestone_name: Clean-Machine Reliability and Onboarding
+status: planning
+last_updated: "2026-07-28T02:39:55.315Z"
+last_activity: 2026-07-27
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 6
-  completed_plans: 3
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -27,12 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 ## Current Position
 
-Phase: 1 (Packaging & Release) — EXECUTING
-Plan: 3 of 6
-Status: Ready to execute gap-closure plans
-Last activity: 2026-07-18 — Phase 1 gap-closure planning completed
-
-Progress: [█████░░░░░] 50%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-07-27 — Milestone v0.9.0-beta.6 started
 
 ## Performance Metrics
 

@@ -1,198 +1,111 @@
-# REQUIREMENTS.md — LecturePack
+# Requirements: LecturePack v0.9.0-beta.6
 
-Extracted from: intel/requirements.md, intel/decisions.md, intel/constraints.md, docs/PRODUCT_SPEC.md, docs/ARCHITECTURE.md, codebase/CONCERNS.md
+**Defined:** 2026-07-27
+**Core Value:** Convert lecture videos into complete, reviewable, portable study packs entirely on-device, with no accounts, telemetry, or cloud dependency by default.
+**Baseline:** `v0.9.0-beta.5` at commit `459faf5`
 
----
+## Beta 6 Requirements
 
-## Functional Requirements
+### Runtime Contract and Bootstrap
 
-### REQ-core-conversion
+- [ ] **RUNT-01**: A fresh portable profile discovers the packaged FFmpeg, ffprobe, CPU Whisper CLI/DLL set, and `ggml-base.en.bin` without manual Settings configuration.
+- [ ] **RUNT-02**: LecturePack validates one canonical required-runtime inventory shared by startup, packaging, repair, diagnostics, and tests.
+- [ ] **RUNT-03**: LecturePack persists required-runtime paths only after the complete required set passes validation.
+- [ ] **RUNT-04**: Every launch performs lightweight identity/readability checks; first launch, update, repair, or payload-identity change triggers bounded executable, DLL, and model smoke checks.
+- [ ] **RUNT-05**: No normal adapter readiness, job activation, navigation, optional-engine probe, or demo start occurs before required-runtime health reaches `HEALTHY`.
+- [ ] **RUNT-06**: Upgrade to beta 6 selects bundled `ggml-base.en.bin` as the default model while leaving other installed models available for later manual selection.
+- [ ] **RUNT-07**: A healthy saved optional CUDA/custom engine remains selected while bundled CPU stays validated as the recovery path.
+- [ ] **RUNT-08**: A missing or broken optional engine falls back visibly to bundled CPU without blocking entry when the required CPU runtime is healthy.
+- [ ] **RUNT-09**: Phase 1 records an approved ADR for the signed-manifest verifier, algorithm/encoding, key custody and rotation, canonical manifest bytes/schema, exact-version asset contract, and PyInstaller validation; signed repair implementation cannot start until it is approved.
 
-- **Source:** docs/PRODUCT_SPEC.md §1
-- **Description:** Lecture Pack converts locally stored university lecture videos into study materials: timestamped transcript, slides PDF, individual slide images, combined study pack, review interface, and optional local AI study notes.
-- **Acceptance:** All core processing runs locally without paid APIs, subscriptions, cloud processing, accounts, telemetry, or usage limits. Local LLM is optional.
-- **Scope:** Core product purpose
-- **Phase:** 1 (verified, not built)
+### Setup Gate and Secure Repair
 
-### REQ-privacy-safety
+- [ ] **REPR-01**: Any missing, unreadable, corrupt, or unusable required-runtime component blocks entry to the normal application behind a non-dismissible setup gate.
+- [ ] **REPR-02**: The setup gate identifies failed required components in plain language and offers Repair all, Retry, Open diagnostics, and Exit actions.
+- [ ] **REPR-03**: Repair starts only after explicit user confirmation showing the exact LecturePack version, official source, affected components, and download size.
+- [ ] **REPR-04**: Repair downloads only the exact running version's asset from the official LecturePack GitHub release and makes no telemetry or unrelated network requests.
+- [ ] **REPR-05**: LecturePack verifies the project signature on the exact-version manifest before trusting it, then verifies the SHA-256 and inventory of every staged payload file.
+- [ ] **REPR-06**: Repair rejects invalid signatures, wrong app/schema versions, missing/extra archive members, unsafe paths, hash mismatches, and mixed-release components without activating staged content.
+- [ ] **REPR-07**: Repair installs a complete verified runtime generation into an app-managed writable location and atomically activates it without modifying the immutable portable bundle in place.
+- [ ] **REPR-08**: Any download, validation, permission, cancellation, or activation failure retains or restores the previous runtime generation and leaves actionable diagnostics.
+- [ ] **REPR-09**: Successful repair performs full revalidation and enters LecturePack automatically without requiring restart.
+- [ ] **REPR-10**: Offline or unavailable repair offers Retry, Open diagnostics, and Exit; beta 6 does not offer manual per-file selection or offline repair-package import.
 
-- **Source:** docs/PRODUCT_SPEC.md §4
-- **Description:** P1: No telemetry/analytics. P2: No network except first-run model downloads and localhost LM Studio/Ollama. P3: Never upload videos/audio/transcripts/slides. P4: Never access university portals or store credentials. P5: Never modify/delete original video. P6: Never execute transcript content as commands. P7: All external process paths safely escaped.
-- **Acceptance:** All seven privacy rules verified by automated and manual tests.
-- **Scope:** Privacy, safety, data protection
-- **Phase:** 1 (verified, not built)
+### Empty Launch and Job Ownership
 
-### REQ-transcription
+- [ ] **HOME-01**: A healthy startup opens Home with no active lecture and never automatically opens the latest completed job.
+- [ ] **HOME-02**: Existing jobs remain visible in the library and become active only after an explicit user action.
+- [ ] **HOME-03**: Packaged, design-time, synthetic-demo, or temporary data never appears as a permanent normal library job.
 
-- **Source:** docs/PRODUCT_SPEC.md §8
-- **Description:** Inspect source via ffprobe, extract 16 kHz mono WAV, run whisper.cpp outside UI process, capture progress/logs, export timestamped JSON/SRT/TXT, preserve raw output, allow separate edited transcript, stop cleanly on cancel, resume without repeating audio extraction, report CPU/Vulkan backend, support configurable glossary, never silently correct names/numbers.
-- **Acceptance:** All 12 transcription requirements verified per TEST_PLAN.md Section 3.3.
-- **Scope:** Transcription pipeline
-- **Phase:** 1 (verified, not built)
+### Guided Demo
 
-### REQ-slide-extraction
+- [ ] **DEMO-01**: First successful startup presents Start guided demo and Skip for now without starting the tour automatically.
+- [ ] **DEMO-02**: The guided demo uses user-controlled Next and Back steps with arrows, circles, and spotlights anchored to the real interface.
+- [ ] **DEMO-03**: A persistent, obvious Exit demo action is available throughout the tour.
+- [ ] **DEMO-04**: The tour teaches only the main workflow and core product value with concise explanations, and it can be replayed from Settings.
+- [ ] **DEMO-05**: Beta 6 bundles an original, rights-clear 45–90 second synthetic lecture with simple slides and narration and no university, student, or third-party copyrighted content.
+- [ ] **DEMO-06**: The demo runs the real offline pipeline through import, processing, transcript/slide review, study-pack generation, and export-location explanation.
+- [ ] **DEMO-07**: Demo processing uses a dedicated session-scoped workspace and configuration that cannot write normal library/job/profile state.
+- [ ] **DEMO-08**: Demo success, exit, cancellation, failure, and crash cleanup are idempotent, sentinel-scoped, cancel child work safely, and sweep abandoned demo data on next launch.
 
-- **Source:** docs/PRODUCT_SPEC.md §9
-- **Description:** Deterministic CV pipeline (no LLM). Three-stage cascade: dHash fast screen, SSIM confirmation, histogram+pixel diff tiebreaker. Preprocessing (crop, mask, downscale, grayscale, blur, temporal median filter). Stability detection. Change type classification. Sequential and global deduplication. Full metadata recording.
-- **Acceptance:** All slide detection assertions per TEST_PLAN.md Section 3.4 met.
-- **Scope:** Slide detection
-- **Phase:** 1 (verified, not built)
+### Visual Artifact Reliability
 
-### REQ-alignment
+- [ ] **VIS-01**: Beta 6 preserves beta 5's animation language, timing, transitions, hard dark shadows, and pressed/embedded button effect.
+- [ ] **VIS-02**: Theme changes apply atomically without unintended luminance flashes or independent per-element color-transition artifacts.
+- [ ] **VIS-03**: Backend state updates and option clicks do not replay screen entrance animations or create unintended repaint/layout artifacts.
+- [ ] **VIS-04**: Long local-model names remain within their container using ellipsis, with the full value available on hover and keyboard focus.
+- [ ] **VIS-05**: Gate, tour, theme, resize, and navigation states have no unintended flicker, overflow, layout jump, focus trap, or WebEngine console error at supported window sizes/DPI.
 
-- **Source:** docs/PRODUCT_SPEC.md §10
-- **Description:** Deterministic timestamp overlap alignment. Each slide has display interval, each segment has time range. Segment assigned to slide with greatest temporal overlap. Boundary: assign to earlier slide. Every slide gets ≥1 segment; every segment maps to exactly 1 slide.
-- **Acceptance:** Alignment assertions per TEST_PLAN.md Section 3.5 met.
-- **Scope:** Transcript-to-slide alignment
-- **Phase:** 1 (verified, not built)
+### Packaged and Physical Release Evidence
 
-### REQ-export-formats
+- [ ] **REL-01**: The package build validates the canonical required inventory, signed release manifest contract, expected asset identity, and absence of bundled user/job/demo state.
+- [ ] **REL-02**: A disposable-profile packaged subprocess smoke executes real packaged FFmpeg, ffprobe, Whisper CLI/DLLs, and a bounded model-load/transcription input with captured command, exit code, duration, stdout, and stderr.
+- [ ] **REL-03**: A fresh packaged GUI profile persists validated runtime state, enters empty Home when healthy, and does not depend on developer paths, Python, Node, or PATH-installed tools.
+- [ ] **REL-04**: With networking denied, the packaged app completes the bundled demo's real import-to-export workflow and makes no unauthorized network request.
+- [ ] **REL-05**: Disposable package copies separately remove or corrupt every required executable, DLL, and model and prove hard gating, signed/hash-verified one-click repair, rollback, revalidation, and normal entry.
+- [ ] **REL-06**: Release tests pass from non-admin portable folders, paths with spaces and non-ASCII characters, non-ASCII user/profile paths, and a separate writable data directory.
+- [ ] **REL-07**: Before publication, signed evidence exists for CPU-only, NVIDIA, and AMD/Intel Windows machines using fresh and upgraded profiles; any missing required target blocks release.
+- [ ] **REL-08**: Every implementation phase reports actual targeted and full `pytest` output without deleting, weakening, or substituting mock-only evidence for packaged/physical integration proof.
+- [ ] **REL-09**: Beta-5 visual comparison evidence confirms intentional styling/motion is preserved while the reported flicker, repaint, overflow, and layout artifacts are removed.
 
-- **Source:** docs/PRODUCT_SPEC.md §11
-- **Description:** Export formats: Slides PDF (img2pdf), Slides folder, Transcript TXT, Transcript SRT, Transcript JSON, HTML study pack (Jinja2, base64, offline), PDF study pack (ReportLab).
-- **Acceptance:** All export assertions per TEST_PLAN.md Section 3.6 met.
-- **Scope:** Export pipeline
-- **Phase:** 1 (verified, not built)
+## Future Requirements
 
-### REQ-job-lifecycle
+### Repair and Onboarding Extensions
 
-- **Source:** docs/PRODUCT_SPEC.md §5
-- **Description:** Support canceling and safely resuming a job. Per-stage state tracking. Crash recovery via atomic writes. Resume skips completed stages. Original video never copied into job directory.
-- **Acceptance:** Job lifecycle assertions per TEST_PLAN.md Section 3.7 met.
-- **Scope:** Job management, persistence
-- **Phase:** 1 (verified, not built)
+- **FUTR-01**: User can import a verified offline runtime repair package.
+- **FUTR-02**: User can select and repair individual required components.
+- **FUTR-03**: User can choose alternate guided-tour depths or tutorial modes.
+- **FUTR-04**: LecturePack supports a dedicated reduced-motion preference.
 
-### REQ-study-workspace
+## Out of Scope
 
-- **Source:** docs/ARCHITECTURE.md v1.2 Study workspace, AD-11
-- **Description:** Default landing page for completed jobs with three-column layout, deterministic overview derived from working transcript/aligned.json/candidates, bookmarks, notes, resume position. User-authored state in atomic study.json (schema 1). Exports include user annotations with proper escaping.
-- **Acceptance:** Study workspace tests pass; old jobs load without study.json gracefully.
-- **Scope:** v1.2 Study workspace
-- **Phase:** 1 (verified, not built)
-
-### REQ-provider-neutral-transcription
-
-- **Source:** AD-12, docs/ARCHITECTURE.md v1.2
-- **Description:** Service-layer TranscriptionBackend QObject contract with capabilities, request, result, progress, cancellation, structured error data. BackendRegistry resolves provider-level choices and fails closed to Private Local. Local cache fingerprints byte-identical to v1.1 for local.
-- **Acceptance:** Backend contract tests pass; unknown selection fails to Private Local.
-- **Scope:** v1.2 transcription architecture
-- **Phase:** 1 (verified, not built)
-
-### REQ-groq-transcription
-
-- **Source:** AD-13, docs/ARCHITECTURE.md v1.2
-- **Description:** Two provider adapters: groq-fast (whisper-large-v3-turbo) and groq-accurate (whisper-large-v3). Windows Credential Manager for API key. Per-job consent required. 23 MiB upload ceiling. FLAC audio only. Chunked upload with overlap de-duplication, retry, caching. Fallback to Private Local on failure. Preserves valid prior transcript.
-- **Acceptance:** Contract/fake-server tests pass. Live validation deferred (no API key).
-- **Scope:** v1.2 online transcription
-- **Phase:** 1 (verified, not built)
-
-### REQ-stability
-
-- **Source:** AD-10, docs/ARCHITECTURE.md v1.2
-- **Description:** Non-blocking UI shutdown: detach Context Repair workers immediately on close. Route app close through JobController.cancel(). PID-scoped process-tree termination via taskkill /PID /T /F. Persist runtime backend_used in state.json.
-- **Acceptance:** Stability tests pass; close latency <50ms; owned PIDs terminated, unrelated processes survive.
-- **Scope:** v1.2 process lifecycle
-- **Phase:** 1 (verified, not built)
-
-### REQ-architecture-layers
-
-- **Source:** docs/ARCHITECTURE.md §1
-- **Description:** Four-layer architecture enforced: UI (PySide6), Controller (JobController), Service (transcription, slide detection, export, alignment, LLM, study), Infrastructure (FFmpeg/whisper wrappers, CV engine, file I/O, config, secrets). Each layer calls only the layer directly below. UI never calls infrastructure directly. Services never reference UI widgets.
-- **Acceptance:** The strict adjacent-layer rule remains the target. Phase 1
-  release validation compares exact current violation identities with the
-  committed `25e9dd1` baseline and permits no new violation; it discloses the 47
-  existing violations across 62 cross-layer edges and makes no strict-conformance
-  claim. Phase 2 owns eliminating that baseline debt and must reach zero
-  violations.
-
-- **Scope:** System architecture
-- **Phase:** 1 (no-regression release gate), 2 (strict-conformance remediation)
-
-### REQ-test-framework
-
-- **Source:** docs/TEST_PLAN.md, .planning/codebase/TESTING.md
-- **Description:** pytest with pytest-qt. Synthetic test fixtures via generate_test_video.py. Mock executable shims for ffmpeg/ffprobe/whisper. Nine assertion categories. Integration tests through real JobController with mock executables. UI tests via pytest-qt with pixel-level assertions.
-- **Acceptance:** Full test suite passes; all patterns from TESTING.md followed.
-- **Scope:** Testing infrastructure
-- **Phase:** 1
-
----
-
-## Release/Packaging Requirements (NEW for v1.2)
-
-### REQ-version-bump
-
-- **Source:** codebase/CONCERNS.md (tech debt)
-- **Description:** Update version strings from stale 1.1.0 to 1.2.0 consistently across: lecturepack/__init__.py (__version__), lecturepack/constants.py (APP_VERSION), build_release.py (VERSION), and LecturePack.spec header. Consider single-source-of-truth via __init__.__version__.
-- **Acceptance:** All version reporting locations show 1.2.0; new jobs created with v1.2 carry correct manifest version.
-- **Scope:** Packaging, version management
-- **Phase:** 1
-
-### REQ-packaging-spec-audit
-
-- **Source:** codebase/CONCERNS.md (tech debt), docs/DECISIONS.md AD-8
-- **Description:** Audit and update LecturePack.spec hiddenimports against the current module tree. All v1.2 modules (transcription_backends, groq_transcription, study_service, ai_repair_service, transcript_store, secret_store, process_tree, video_reader, ollama_client, transcription_engines, whisper_detector, study_page, slide_grid, context_repair_panel, crop_selector) must be present. Remove or fix optimize=1 which strips assert statements used by selftest.
-- **Acceptance:** PyInstaller build succeeds; packaged EXE passes --selftest with no import errors.
-- **Scope:** PyInstaller packaging, build system
-- **Phase:** 1
-
-### REQ-packaged-build
-
-- **Source:** AD-8, docs/WINDOWS_PORTABLE_INSTALL.md
-- **Description:** Produce a self-contained onedir Windows package via build_release.py. Package must include LecturePack.exe, _internal/, bundled whisper-cli (CPU and Vulkan builds), ffmpeg/ffprobe, and documentation. Models NOT bundled (user-supplied). SHA256SUMS.txt and BUILD_MANIFEST.json generated.
-- **Acceptance:** Portable ZIP builds; extracted EXE initializes; --selftest passes; no SmartScreen-related fatal errors.
-- **Scope:** Release build
-- **Phase:** 1
-
-### REQ-test-suite-pass
-
-- **Source:** AGENTS.md, intel/constraints.md (test-execution-rules)
-- **Description:** Full pytest suite passes with 0 failures, 0 errors, 0 warnings that indicate regressions. Test count reconciled (address drift between 149 collected and 151 recorded). Actual pytest output recorded.
-- **Acceptance:** `python -m pytest -v` produces clean pass output with documented test count.
-- **Scope:** Quality gate
-- **Phase:** 1
-
-### REQ-self-test
-
-- **Source:** docs/ARCHITECTURE.md §selftest, lecturepack/app.py
-- **Description:** Application headless self-test (LecturePack.exe --selftest or python -m lecturepack --selftest) completes successfully: offscreen Qt, temp data dir, import-all, MainWindow construction, exit 0.
-- **Acceptance:** Self-test prints PASS and exits 0 with no import, QThread, or QSS errors.
-- **Scope:** Quality gate
-- **Phase:** 1
-
----
-
-## Test Coverage Requirements (NEW for v1.2)
-
-### REQ-test-reconciliation
-
-- **Source:** codebase/CONCERNS.md (test count drift)
-- **Description:** Identify and reconcile the discrepancy between 149 collected test functions and the 151 recorded in the latest handoff. Determine which tests were removed, renamed, or never existed. Document the actual test count.
-- **Acceptance:** Actual test count documented; discrepancy explained or resolved.
-- **Phase:** 1
-
----
+| Feature | Reason |
+|---------|--------|
+| New transcription providers, accounts, telemetry, or analytics | Not part of clean-machine reliability; conflicts with local-first boundaries. |
+| Visual redesign or reduced animation language | Beta 5 appearance and intentional motion are locked for preservation. |
+| Silent/background repair or update checks | Repair requires explicit user consent and exact-version provenance. |
+| Manual required-runtime path browsing in the portable release | Normal users must not configure bundled core dependencies manually. |
+| Permanent demo job or fake persisted lecture | Demo state must remain isolated from source-derived and user-authored data. |
+| Unrelated architecture debt and detector refactors | Separate work; beta 6 changes only dependencies needed by its acceptance criteria. |
 
 ## Traceability
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| REQ-core-conversion | Phase 1 | Complete |
-| REQ-privacy-safety | Phase 1 | Complete |
-| REQ-transcription | Phase 1 | Complete |
-| REQ-slide-extraction | Phase 1 | Complete |
-| REQ-alignment | Phase 1 | Complete |
-| REQ-export-formats | Phase 1 | Complete |
-| REQ-job-lifecycle | Phase 1 | Complete |
-| REQ-study-workspace | Phase 1 | Complete |
-| REQ-provider-neutral-transcription | Phase 1 | Complete |
-| REQ-groq-transcription | Phase 1 | Complete |
-| REQ-stability | Phase 1 | Complete |
-| REQ-architecture-layers | Phase 1 / Phase 2 | Phase 1 no-regression gate Complete; Phase 2 strict-conformance debt open |
-| REQ-test-framework | Phase 1 | Complete |
-| REQ-version-bump | Phase 1 | Complete |
-| REQ-packaging-spec-audit | Phase 1 | Complete |
-| REQ-packaged-build | Phase 1 | Complete |
-| REQ-test-suite-pass | Phase 1 | Complete |
-| REQ-self-test | Phase 1 | Complete |
-| REQ-test-reconciliation | Phase 1 | Complete |
+Roadmap creation will map every beta-6 requirement to exactly one approval-gated phase.
+
+| Requirement group | Phase | Status |
+|-------------------|-------|--------|
+| RUNT-01..09 | Pending roadmap | Pending |
+| REPR-01..10 | Pending roadmap | Pending |
+| HOME-01..03 | Pending roadmap | Pending |
+| DEMO-01..08 | Pending roadmap | Pending |
+| VIS-01..05 | Pending roadmap | Pending |
+| REL-01..09 | Pending roadmap | Pending |
+
+**Coverage:**
+- Beta-6 requirements: 44 total
+- Mapped to phases: 0 pending roadmap approval
+- Unmapped: 44 pending roadmap approval
+
+---
+*Requirements defined: 2026-07-27*
+*Last updated: 2026-07-27 after milestone discussion and research*
