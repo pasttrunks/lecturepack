@@ -114,6 +114,8 @@ status: complete
 
 **Audit correction commit:** `bb986c1`.
 
+**Final re-audit correction:** `ce5f3d9` makes the shared runtime-gate reducer execute offer/confirm/cancel/offline/failure/diagnostics/back/admitted/retry transitions in Node coverage, uses assertive admitted announcements, and restores the captured pre-gate focus after healthy entry.
+
 ## Known Stubs
 
 None.
@@ -132,6 +134,7 @@ The desktop repair protocol now has its gated UI consumer. Plan 02-05 can gather
 - Task commits `88dba0f`, `11e0094`, and `97f5aca` exist in git history.
 - Focused verification passed: `3 passed` for the setup-gate suite and `23 passed` for the bridge signal regression.
 - Audit-focused verification passed: `56 passed` across setup-gate, bridge, responsive/motion, and theme suites.
+- Final reducer sequence passed: `gate → confirm → repairing → cancel → gate → offline → failed → diagnostics/back → ready`, including stale/duplicate-terminal suppression and retry-pending state.
 - Full verification reached `790 passed, 1 failed`; the sole failure is the documented unset `LECTUREPACK_ONEDIR_FIXTURE` prerequisite.
 
 ---
