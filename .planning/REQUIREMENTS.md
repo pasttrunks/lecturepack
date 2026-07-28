@@ -10,12 +10,12 @@
 
 - [x] **RUNT-01**: A fresh portable profile discovers the packaged FFmpeg, ffprobe, CPU Whisper CLI/DLL set, and `ggml-base.en.bin` without manual Settings configuration.
 - [x] **RUNT-02**: LecturePack validates one canonical required-runtime inventory shared by startup, packaging, repair, diagnostics, and tests.
-- [ ] **RUNT-03**: LecturePack persists required-runtime paths only after the complete required set passes validation.
+- [x] **RUNT-03**: LecturePack persists required-runtime paths only after the complete required set passes validation.
 - [x] **RUNT-04**: Every launch performs lightweight identity/readability checks; first launch, update, repair, or payload-identity change triggers bounded executable, DLL, and model smoke checks.
 - [ ] **RUNT-05**: No normal adapter readiness, job activation, navigation, optional-engine probe, or demo start occurs before required-runtime health reaches `HEALTHY`.
-- [ ] **RUNT-06**: Upgrade to beta 6 selects bundled `ggml-base.en.bin` as the default model while leaving other installed models available for later manual selection.
-- [ ] **RUNT-07**: A healthy saved optional CUDA/custom engine remains selected while bundled CPU stays validated as the recovery path.
-- [ ] **RUNT-08**: A missing or broken optional engine falls back visibly to bundled CPU without blocking entry when the required CPU runtime is healthy.
+- [x] **RUNT-06**: Upgrade to beta 6 selects bundled `ggml-base.en.bin` as the default model while leaving other installed models available for later manual selection.
+- [x] **RUNT-07**: A healthy saved optional CUDA/custom engine remains selected while bundled CPU stays validated as the recovery path.
+- [x] **RUNT-08**: A missing or broken optional engine falls back visibly to bundled CPU without blocking entry when the required CPU runtime is healthy.
 - [ ] **RUNT-09**: Phase 1 records an approved ADR for the signed-manifest verifier, algorithm/encoding, key custody and rotation, canonical manifest bytes/schema, exact-version asset contract, and PyInstaller validation; signed repair implementation cannot start until it is approved.
 
 ### Setup Gate and Secure Repair
@@ -96,12 +96,12 @@ Every beta-6 requirement maps to exactly one approval-gated roadmap phase.
 |-------------|-------|--------|
 | RUNT-01 | Phase 1 — Runtime Contract & Bootstrap | Complete |
 | RUNT-02 | Phase 1 — Runtime Contract & Bootstrap | Complete |
-| RUNT-03 | Phase 1 — Runtime Contract & Bootstrap | Pending |
+| RUNT-03 | Phase 1 — Runtime Contract & Bootstrap | Complete |
 | RUNT-04 | Phase 1 — Runtime Contract & Bootstrap | Complete |
 | RUNT-05 | Phase 1 — Runtime Contract & Bootstrap | Pending |
-| RUNT-06 | Phase 1 — Runtime Contract & Bootstrap | Pending |
-| RUNT-07 | Phase 1 — Runtime Contract & Bootstrap | Pending |
-| RUNT-08 | Phase 1 — Runtime Contract & Bootstrap | Pending |
+| RUNT-06 | Phase 1 — Runtime Contract & Bootstrap | Complete |
+| RUNT-07 | Phase 1 — Runtime Contract & Bootstrap | Complete |
+| RUNT-08 | Phase 1 — Runtime Contract & Bootstrap | Complete |
 | RUNT-09 | Phase 1 — Runtime Contract & Bootstrap | Pending — ADR approval gates Phase 2 |
 | REPR-01 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
 | REPR-02 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
