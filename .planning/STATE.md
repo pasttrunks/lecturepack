@@ -5,16 +5,16 @@ milestone_name: Clean-Machine Reliability and Onboarding
 current_phase: 1
 current_phase_name: Runtime Contract & Bootstrap
 status: executing
-stopped_at: Completed 01-06-PLAN.md
-last_updated: "2026-07-28T15:08:56.980Z"
+stopped_at: Completed 01-07-PLAN.md
+last_updated: "2026-07-28T15:27:29.876Z"
 last_activity: 2026-07-28
 last_activity_desc: Phase 1 execution started
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 7
-  completed_plans: 6
-  percent: 0
+  completed_plans: 7
+  percent: 20
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-27)
 ## Current Position
 
 Phase: 1 (Runtime Contract & Bootstrap) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-07-28 — Phase 1 execution started
 
-Progress: [█████████░] 86%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [█████████░] 86%
 | Phase 01-runtime-contract-bootstrap P03 | 40m | 3 tasks | 7 files |
 | Phase 01-runtime-contract-bootstrap P05 | 28m | 2 tasks | 6 files |
 | Phase 01-runtime-contract-bootstrap P06 | 16m | 2 tasks | 7 files |
+| Phase 01-runtime-contract-bootstrap P07 | 25m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,8 @@ Progress: [█████████░] 86%
 - [Phase ?]: Failed runtime launch or validator exceptions are untrusted evidence and cannot persist health or resolve optional engines.
 - [Phase 01-runtime-contract-bootstrap]: Full CPU admission requires a bounded staged canonical model-and-WAV transcription before persistence. — Readable inventory bytes are not usability evidence.
 - [Phase 01-runtime-contract-bootstrap]: Optional VAD models use the same private ASCII native staging boundary as model and WAV inputs. — No Unicode source path may reach whisper.cpp.
+- [Phase ?]: SETUP_REQUIRED bridge operations use the existing diagnostics transport and one JSON-safe payload before collaborator access.
+- [Phase ?]: Bootstrap admission fields are derived from the runtime diagnostics controller without a second inventory projection.
 
 ### Pending Todos
 
@@ -98,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-28T15:08:56.969Z
-Stopped at: Completed 01-06-PLAN.md
+Last session: 2026-07-28T15:27:29.866Z
+Stopped at: Completed 01-07-PLAN.md
 Resume file: None

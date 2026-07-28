@@ -29,7 +29,7 @@ Beta 6 makes the portable app dependable on clean Windows machines: establish a 
   4. A healthy saved optional engine remains selected; if it is unavailable, users enter with the validated bundled CPU path and see a clear fallback notice.
   5. An explicitly approved ADR defines the signed-manifest verifier, trust/key lifecycle, canonical manifest/versioned asset contract, and PyInstaller validation required before repair implementation.
 
-**Plans**: 6/7 plans executed
+**Plans**: 7/7 plans executed
 
 - [x] 01-01-PLAN.md
 - [x] 01-02-PLAN.md
@@ -37,7 +37,7 @@ Beta 6 makes the portable app dependable on clean Windows machines: establish a 
 - [x] 01-04-PLAN.md
 - [x] 01-05-PLAN.md
 - [x] 01-06-PLAN.md
-- [ ] 01-07-PLAN.md
+- [x] 01-07-PLAN.md
 
 **Wave 0**
 
@@ -174,7 +174,7 @@ Canonical references: `.planning/MILESTONE-CONTEXT.md`, `.planning/research/SUMM
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Runtime Contract & Bootstrap | 6/7 | In Progress|  |
+| 1. Runtime Contract & Bootstrap | 7/7 | In Progress|  |
 | 2. Hard Setup & Signed Repair | 0/TBD | Blocked — Phase 1 ADR approval | - |
 | 3. Empty Launch & Guided Demo | 0/TBD | Not started | - |
 | 4. Visual Artifact Reliability | 0/TBD | Not started | - |
