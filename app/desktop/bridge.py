@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
+import re
 import subprocess
 
 from PySide6.QtCore import QObject, QSettings, Signal, Slot
+from PySide6.QtGui import QGuiApplication
 
 from . import version
 from .engine_adapter import make_adapter
@@ -119,6 +122,7 @@ class Backend(QObject):
         self._runtime_repair = None
         self._repair_confirmed = False
         self._repair_terminal_seen = False
+        self._last_repair_diagnostics = "[]"
         if self.runtime_health_result.state == "HEALTHY":
             self._adapter = make_adapter(
                 self,
@@ -159,17 +163,24 @@ class Backend(QObject):
         kind = payload.get("kind")
         if self._repair_terminal_seen:
             return
+        if self._runtime_repair is not None:
+            self._last_repair_diagnostics = self._runtime_repair.diagnostic_report()
         if kind == "metadata_ready":
             self._repair_offer_id = payload["operation_id"]
             self._repair_worker = None
         if kind in {"failed", "cancelled", "admitted"}:
             if kind == "admitted":
-                self.runtime_health_result = RuntimeBootstrapService(self._runtime_config).assess(trigger="repair")
-                self._runtime_diagnostics = RuntimeDiagnosticsController(RuntimeDiagnosticsService(self._runtime_config, self.runtime_health_result))
-                if self.runtime_health_result.state == "HEALTHY" and self._adapter is None:
+                # The service's final result was produced by the exact canonical
+                # repair assessment inside RuntimeGenerationStore's rollback
+                # callback.  Do not issue a second, unrollbackable assessment.
+                result = self._runtime_repair.admission_result if self._runtime_repair is not None else None
+                if result is not None and result.state == "HEALTHY":
+                    self.runtime_health_result = result
+                    self._runtime_diagnostics = RuntimeDiagnosticsController(RuntimeDiagnosticsService(self._runtime_config, result))
+                if result is not None and result.state == "HEALTHY" and self._adapter is None:
                     self._adapter = make_adapter(self, runtime_health_result=self.runtime_health_result, runtime_diagnostics_controller=self._runtime_diagnostics)
                     self._updater = Updater(self)
-                elif self.runtime_health_result.state != "HEALTHY":
+                else:
                     payload = {"operation_id": self._repair_offer_id, "kind": "failed", "detail": "repaired runtime did not pass admission"}
             self._repair_terminal_seen = True
             self._repair_offer_id = None
@@ -227,6 +238,35 @@ class Backend(QObject):
         self.runtime_health_result = RuntimeBootstrapService(self._runtime_config).assess(trigger="repair")
         self._runtime_diagnostics = RuntimeDiagnosticsController(RuntimeDiagnosticsService(self._runtime_config, self.runtime_health_result))
         return self.get_bootstrap()
+
+    def _runtime_repair_report(self) -> str:
+        """Return the service-owned, redacted repair report and nothing else."""
+        if self._runtime_repair is not None:
+            self._last_repair_diagnostics = self._runtime_repair.diagnostic_report()
+        return self._last_repair_diagnostics
+
+    @Slot(result=str)
+    def copy_runtime_repair_diagnostics(self) -> str:
+        """Copy only sanitized repair events while the setup gate is active."""
+        report = self._runtime_repair_report()
+        QGuiApplication.clipboard().setText(report)
+        return json.dumps({"type": "runtime_repair_diagnostics_copied"})
+
+    @Slot(str, result=str)
+    def save_runtime_repair_diagnostics(self, file_name: str) -> str:
+        """Save a sanitized report below app data; reject traversal/user paths."""
+        if not isinstance(file_name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,119}\.txt", file_name):
+            return json.dumps({"type": "invalid_runtime_repair_diagnostics_path"})
+        root = (Path(self._runtime_config.resolve_data_dir()) / "runtime-repair-diagnostics").resolve()
+        destination = (root / file_name).resolve()
+        if root not in destination.parents:
+            return json.dumps({"type": "invalid_runtime_repair_diagnostics_path"})
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            destination.write_text(self._runtime_repair_report(), encoding="utf-8", newline="\n")
+        except OSError:
+            return json.dumps({"type": "runtime_repair_diagnostics_save_failed"})
+        return json.dumps({"type": "runtime_repair_diagnostics_saved", "path": str(destination)})
 
     def _make_runtime_repair_service(self):
         from lecturepack.services.runtime_repair import RuntimeRepairService

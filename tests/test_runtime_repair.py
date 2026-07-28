@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
+import stat
 import zipfile
 
 import pytest
@@ -285,13 +286,223 @@ def test_bridge_accepts_one_admitted_event_then_constructs_collaborators_once(qa
     monkeypatch.setattr(bridge, "Updater", lambda *args, **kwargs: constructions.append("updater") or object())
     backend = bridge.Backend(None)
     backend._repair_offer_id = "bridge-op"
+    backend._runtime_repair = type("Repair", (), {
+        "admission_result": Result("HEALTHY"), "diagnostic_report": lambda self: "[]",
+    })()
     forwarded = []
     backend.repair_event.connect(forwarded.append)
 
     backend._on_repair_event({"operation_id": "bridge-op", "kind": "admitted"})
     backend._on_repair_event({"operation_id": "bridge-op", "kind": "admitted"})
 
-    assert assessments == [{}, {"trigger": "repair"}]
+    assert assessments == [{}]
     assert constructions == ["adapter", "updater"]
     assert [__import__("json").loads(item)["kind"] for item in forwarded] == ["admitted"]
     assert backend._repair_offer_id is None
+
+
+def test_cancel_at_streaming_extraction_and_activation_boundaries_preserves_selection(tmp_path, monkeypatch):
+    """Every cancellation boundary leaves the same previous pointer selected."""
+    import lecturepack.services.runtime_repair as repair_module
+    from lecturepack.infrastructure.runtime_inventory import canonical_inventory
+
+    version, manifest, values, urls = _repair_release()
+    for boundary in ("stream", "extract", "activate"):
+        service = _service(tmp_path / boundary, values.copy(), manifest)
+        source, previous_paths = tmp_path / boundary / "old", {}
+        for entry in canonical_inventory(("ggml-cpu-avx2.dll",)):
+            path = source / entry
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"previous" + entry.encode())
+            previous_paths[entry] = path
+        previous = service._generation_store.publish_from_directory(previous_paths, admit=lambda root: True)
+        service.begin_repair_offer(boundary)
+        if boundary == "stream":
+            class Streaming(_Transport):
+                def stream_get(self, url):
+                    body = self.get(url)
+                    yield body[:1]
+                    service.cancel(boundary)
+                    yield body[1:]
+            service.transport = Streaming(values)
+        elif boundary == "extract":
+            original = repair_module.safe_extract_verified_archive
+            def cancel_after_extract(*args, **kwargs):
+                result = original(*args, **kwargs)
+                service.cancel(boundary)
+                return result
+            monkeypatch.setattr(repair_module, "safe_extract_verified_archive", cancel_after_extract)
+        else:
+            original = service._generation_store.publish_from_directory
+            def cancel_at_activation(*args, **kwargs):
+                service.cancel(boundary)
+                return original(*args, **kwargs)
+            service._generation_store.publish_from_directory = cancel_at_activation
+        with pytest.raises(Exception) as error:
+            service.perform_repair(boundary)
+        assert error.value.code == "cancelled"
+        assert service._generation_store.read_active().generation_id == previous.generation_id
+        assert [event.kind for event in service.events].count("cancelled") == 1
+        monkeypatch.undo()
+
+
+@pytest.mark.parametrize("kind", ("symlink", "duplicate", "cross_component", "archive_limit"))
+def test_archive_fault_matrix_rejects_special_duplicate_cross_component_and_size_bounds(tmp_path, monkeypatch, kind):
+    import lecturepack.services.runtime_repair as repair_module
+    version, manifest, values, urls = _repair_release()
+    first = manifest.archives[0]
+    if kind == "symlink":
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            info = zipfile.ZipInfo("bin/ffmpeg.exe")
+            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(info, b"target")
+            archive.writestr("bin/ffprobe.exe", b"probe")
+        body = buffer.getvalue()
+    elif kind == "duplicate":
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("bin/ffmpeg.exe", b"one")
+            archive.writestr("bin/ffmpeg.exe", b"two")
+            archive.writestr("bin/ffprobe.exe", b"probe")
+        body = buffer.getvalue()
+    else:
+        body = _zip_bytes({"models/ggml-base.en.bin": b"wrong component"}) if kind == "cross_component" else values[urls[first.file_name]]
+        if kind == "archive_limit":
+            monkeypatch.setattr(repair_module, "_MAX_ARCHIVE_BYTES", 1)
+    values[urls[first.file_name]] = body
+    assets = (_Asset(first.component, first.file_name, sha256(body).hexdigest(), len(body)), *manifest.archives[1:])
+    service = _service(tmp_path, values, _Manifest(assets))
+    service.begin_repair_offer(kind)
+    with pytest.raises(Exception):
+        service.perform_repair(kind)
+    assert [event.kind for event in service.events].count("failed") == 1
+
+
+def test_bridge_repair_diagnostics_are_redacted_copyable_and_confined(qapp, tmp_path, monkeypatch):
+    import json
+    import sys
+    app_dir = str(Path(__file__).parents[1] / "app")
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+    from desktop import bridge
+
+    class Result:
+        state, components, fallback_notice = "SETUP_REQUIRED", {}, None
+    class Bootstrap:
+        def __init__(self, config): pass
+        def assess(self, **kwargs): return Result()
+    class Config:
+        def resolve_data_dir(self): return str(tmp_path / "profile")
+    class Diagnostics:
+        def runtime_health_snapshot(self): return {"admission_state": "SETUP_REQUIRED", "components": {}}
+    monkeypatch.setattr(bridge, "ConfigManager", Config)
+    monkeypatch.setattr(bridge, "RuntimeBootstrapService", Bootstrap)
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsService", lambda *args: object())
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsController", lambda *args: Diagnostics())
+    backend = bridge.Backend(None)
+    service = _service(tmp_path, {}, _Manifest(()))
+    service._emit("diagnostic", "failed", "Authorization: private-token password=hunter2")
+    backend._runtime_repair = service
+
+    assert json.loads(backend.copy_runtime_repair_diagnostics())["type"] == "runtime_repair_diagnostics_copied"
+    copied = bridge.QGuiApplication.clipboard().text()
+    assert "private-token" not in copied and "hunter2" not in copied and "[redacted]" in copied
+    saved = json.loads(backend.save_runtime_repair_diagnostics("repair.txt"))
+    assert Path(saved["path"]).read_text(encoding="utf-8") == copied
+    assert json.loads(backend.save_runtime_repair_diagnostics("../escape.txt"))["type"] == "invalid_runtime_repair_diagnostics_path"
+
+
+def test_canonical_store_admission_failure_restores_pointer_and_bridge_never_constructs(tmp_path, qapp, monkeypatch):
+    """The bridge consumes the service's rollback-capable canonical result only."""
+    import sys
+    app_dir = str(Path(__file__).parents[1] / "app")
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+    from desktop import bridge
+    from lecturepack.infrastructure.runtime_inventory import canonical_inventory
+
+    version, manifest, values, urls = _repair_release()
+    results = iter(("HEALTHY", "SETUP_REQUIRED"))
+    service = _service(tmp_path, values, manifest, assessor=lambda root: type("Result", (), {"state": next(results)})())
+    source, payload = tmp_path / "previous", {}
+    for entry in canonical_inventory(("ggml-cpu-avx2.dll",)):
+        path = source / entry
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"before" + entry.encode())
+        payload[entry] = path
+    previous = service._generation_store.publish_from_directory(payload, admit=lambda root: True)
+    service.begin_repair_offer("canonical-failure")
+    with pytest.raises(Exception):
+        service.perform_repair("canonical-failure")
+    assert service._generation_store.read_active().generation_id == previous.generation_id
+
+    constructed = []
+    class Initial:
+        state, components, fallback_notice = "SETUP_REQUIRED", {}, None
+    class Bootstrap:
+        def __init__(self, config): pass
+        def assess(self, **kwargs): return Initial()
+    class Diagnostics:
+        def runtime_health_snapshot(self): return {"admission_state": "SETUP_REQUIRED", "components": {}}
+    monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
+    monkeypatch.setattr(bridge, "RuntimeBootstrapService", Bootstrap)
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsService", lambda *args: object())
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsController", lambda *args: Diagnostics())
+    monkeypatch.setattr(bridge, "make_adapter", lambda *args, **kwargs: constructed.append("adapter"))
+    monkeypatch.setattr(bridge, "Updater", lambda *args, **kwargs: constructed.append("updater"))
+    backend = bridge.Backend(None)
+    backend._repair_offer_id, backend._runtime_repair = "canonical-failure", service
+    terminal = []
+    backend.repair_event.connect(terminal.append)
+    backend._on_repair_event(service.events[-1].payload())
+    backend._on_repair_event({"operation_id": "canonical-failure", "kind": "admitted"})
+    assert constructed == []
+    assert [__import__("json").loads(event)["kind"] for event in terminal] == ["failed"]
+
+
+def test_bridge_rejects_concurrent_start_and_ignores_repeat_cancel_and_out_of_order_terminal(qapp, monkeypatch):
+    import json
+    import sys
+    app_dir = str(Path(__file__).parents[1] / "app")
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+    from desktop import bridge
+
+    class Result:
+        state, components, fallback_notice = "SETUP_REQUIRED", {}, None
+    class Bootstrap:
+        def __init__(self, config): pass
+        def assess(self, **kwargs): return Result()
+    class Diagnostics:
+        def runtime_health_snapshot(self): return {"admission_state": "SETUP_REQUIRED", "components": {}}
+    class Service:
+        events = []
+        admission_result = None
+        def cancel(self, operation_id):
+            self.events.extend([])
+        def diagnostic_report(self): return "[]"
+    class Worker:
+        def __init__(self, service, operation_id, **kwargs): self.service, self.operation_id = service, operation_id
+        class _Signal:
+            def connect(self, callback): self.callback = callback
+        repair_event = _Signal()
+        def start(self): pass
+        def cancel(self): self.service.cancel(self.operation_id)
+    monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
+    monkeypatch.setattr(bridge, "RuntimeBootstrapService", Bootstrap)
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsService", lambda *args: object())
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsController", lambda *args: Diagnostics())
+    monkeypatch.setattr(bridge, "RuntimeRepairWorker", Worker)
+    monkeypatch.setattr(bridge.Backend, "_make_runtime_repair_service", lambda self: Service())
+    backend = bridge.Backend(None)
+    assert json.loads(backend.start_runtime_repair("op"))["operation_id"] == "op"
+    assert json.loads(backend.start_runtime_repair("other"))["type"] == "repair_in_progress"
+    forwarded = []
+    backend.repair_event.connect(forwarded.append)
+    backend.cancel_runtime_repair("op")
+    backend.cancel_runtime_repair("op")
+    backend._on_repair_event({"operation_id": "wrong", "kind": "failed"})
+    backend._on_repair_event({"operation_id": "op", "kind": "cancelled"})
+    backend._on_repair_event({"operation_id": "op", "kind": "cancelled"})
+    assert [json.loads(item)["kind"] for item in forwarded] == ["cancelled"]

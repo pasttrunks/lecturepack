@@ -72,7 +72,8 @@ _FIXED_MEMBERS = {
 
 def _redact(value: object) -> str:
     text = str(value)
-    text = re.sub(r"(?i)(authorization|token|password|secret)=[^\s&]+", r"\1=[redacted]", text)
+    text = re.sub(r"(?im)^\s*(authorization|token|password|secret|api[_-]?key)\s*:\s*.*$", r"\1: [redacted]", text)
+    text = re.sub(r"(?i)(authorization|token|password|secret|api[_-]?key)\s*[=:]\s*[^\s&,]+", r"\1=[redacted]", text)
     return text[:1000]
 
 
@@ -110,6 +111,22 @@ class RuntimeRepairService:
         self.events: list[RepairEvent] = []
         self._cancelled: set[str] = set()
         self._terminal: set[str] = set()
+        self._admission_result = None
+
+    @property
+    def admission_result(self):
+        """The final store-callback admission result, never a later recheck."""
+        return self._admission_result
+
+    def diagnostic_report(self) -> str:
+        """Return only already-redacted operation facts for copy/save diagnostics."""
+        report = [
+            {"operation_id": event.operation_id, "kind": event.kind, "classification": event.classification,
+             "detail": _redact(event.detail)}
+            for event in self.events
+        ]
+        import json
+        return json.dumps(report, ensure_ascii=False, sort_keys=True)
 
     def _emit(self, operation_id: str, kind: str, detail: str = "", classification: str = "") -> RepairEvent | None:
         """Emit one ordered terminal outcome while keeping every field JSON-safe."""
@@ -321,7 +338,8 @@ class RuntimeRepairService:
             def admit(root: Path) -> bool:
                 # This callback executes both staged and post-pointer canonical repair admission
                 # while RuntimeGenerationStore still owns rollback of the prior active pointer.
-                return self._bootstrap_assessor(root).state == "HEALTHY"
+                self._admission_result = self._bootstrap_assessor(root)
+                return self._admission_result.state == "HEALTHY"
 
             self._generation_store.publish_from_directory(
                 source_paths, admit=admit, cancellation_requested=lambda: operation_id in self._cancelled,
