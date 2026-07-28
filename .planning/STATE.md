@@ -5,15 +5,15 @@ milestone_name: Clean-Machine Reliability and Onboarding
 current_phase: 1
 current_phase_name: Runtime Contract & Bootstrap
 status: executing
-stopped_at: Phase 1 planned and approved; implementation not started.
-last_updated: "2026-07-28T03:48:21.214Z"
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-07-28T04:22:49.291Z"
 last_activity: 2026-07-27
-last_activity_desc: Phase 1 planning complete; 4 plans approved.
+last_activity_desc: Phase 1 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -28,12 +28,12 @@ See: `.planning/PROJECT.md` (updated 2026-07-27)
 
 ## Current Position
 
-Phase: 1 of 5 (Runtime Contract & Bootstrap)
-Plan: 0 of 4
+Phase: 1 (Runtime Contract & Bootstrap) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-07-27 — Phase 1 planning complete; 4 plans approved.
+Last activity: 2026-07-27 — Phase 1 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 25%
 
 ## Performance Metrics
 
@@ -48,6 +48,11 @@ Progress: [░░░░░░░░░░] 0%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1–5 | 0 | — | — |
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01-runtime-contract-bootstrap P01 | 49min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -57,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 - Phase 1 must produce an explicitly approved verifier/signing ADR covering trust, release assets, and PyInstaller validation.
 - Phase 2 signed-repair implementation is blocked until that ADR is approved; it must not weaken the signed-manifest requirement.
 - Startup admission precedes normal UI/job behavior; demo data remains isolated from normal library and profile state.
+- [Phase ?]: AD-18: keep Unicode paths end-to-end while staging only whisper.cpp v1.9.1 native CLI arguments under private ASCII paths.
 
 ### Pending Todos
 
@@ -66,6 +72,7 @@ None yet.
 
 - Phase 1 verifier/signing ADR has no approved dependency or operational signing contract yet; Phase 2 cannot begin until approval.
 - Release proof requires physical CPU-only, NVIDIA, and AMD/Intel Windows machines plus fresh/upgraded and hostile-path evidence.
+- 01-01 Task 2 blocking real packaged smoke: supplied prebuilt whisper-cli.exe exits 3221226505 under the required Unicode/space disposable runtime path after CPU backend load and model load start. No mock/skip substitute is permitted; payload or rebuild decision required.
 
 ## Deferred Items
 
@@ -77,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-28T03:48:21.199Z
-Stopped at: Phase 1 planned and approved; implementation not started.
-Resume file: .planning/phases/01-runtime-contract-bootstrap/01-01-PLAN.md
+Last session: 2026-07-28T04:22:49.279Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None
