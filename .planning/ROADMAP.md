@@ -80,10 +80,10 @@ Canonical references: `.planning/PROJECT.md`, `.planning/MILESTONE-CONTEXT.md`, 
   4. Tampered, mixed-release, incomplete, unsafe, cancelled, or failed repairs never activate partial content; users retain or restore the prior runtime and receive actionable diagnostics.
   5. A successful repair atomically activates a complete writable runtime generation, fully revalidates it, and enters LecturePack automatically; unavailable network offers only Retry, diagnostics, or Exit.
 
-**Plans**: 1/5 plans executed
+**Plans**: 2/5 plans executed
 
 - [x] 02-01-PLAN.md
-- [ ] 02-02-PLAN.md
+- [x] 02-02-PLAN.md
 - [ ] 02-03-PLAN.md
 - [ ] 02-04-PLAN.md
 - [ ] 02-05-PLAN.md
@@ -181,7 +181,7 @@ Canonical references: `.planning/MILESTONE-CONTEXT.md`, `.planning/research/SUMM
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Runtime Contract & Bootstrap | 7/7 | Complete    | 2026-07-28 |
-| 2. Hard Setup & Signed Repair | 1/5 | In Progress|  |
+| 2. Hard Setup & Signed Repair | 2/5 | In Progress|  |
 | 3. Empty Launch & Guided Demo | 0/TBD | Not started | - |
 | 4. Visual Artifact Reliability | 0/TBD | Not started | - |
 | 5. Packaged & Physical Release Gate | 0/TBD | Not started | - |
