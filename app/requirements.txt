@@ -14,3 +14,4 @@ imagehash>=4.3.0
 img2pdf>=0.5.0
 ReportLab>=4.0.0
 Jinja2>=3.1.0
+cryptography==49.0.0  # Approved AD-19 Ed25519 verifier; Windows x64 wheel hash recorded in AD-19.

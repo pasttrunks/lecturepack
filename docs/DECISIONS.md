@@ -525,8 +525,11 @@ Expose a single simple sensitivity control ("Conservative", "Balanced", "Detaile
 ## AD-19: Signed Repair Manifest Verifier and Release Authority (Phase 1)
 
 **Date:** 2026-07-28  
-**Status:** Pending named-human approval  
-**Decision owner:** Named human approver (pending)
+**Status:** Approved  
+**Approval date:** 2026-07-28  
+**Approver:** pasttrunks (self-approval; accepted lack of separation of duties)  
+**Decision, signing, release, key-custody, backup, rotation, revocation, and
+incident-communication owner:** pasttrunks
 
 **Context:** Phase 2 may repair a required runtime only after it can authenticate
 an exact, versioned repair release. D-10 requires a documented verifier,
@@ -536,41 +539,44 @@ selecting, importing, emulating, or installing a verifier before named-human
 approval. The Phase 1 ASCII-staging boundary in AD-18 remains independent of
 this release-authentication decision.
 
-**Pending approval record:** Each item below remains deliberately unresolved.
-The values in parentheses are technical recommendations only, not selections.
+**Approved technical contract:**
 
-| Required field | Pending approval value / proposed technical default |
+| Required field | Approved value |
 |---|---|
-| verifier library and exact version | PENDING (propose `cryptography==49.0.0`; no dependency is added in Phase 1) |
-| algorithm | PENDING (propose Ed25519 detached signatures over canonical manifest bytes) |
-| signature encoding | PENDING (propose standard Base64 of the 64-byte detached signature) |
-| public-key encoding | PENDING (propose standard Base64 of the 32-byte Ed25519 raw public key) |
-| canonical manifest schema and bytes | PENDING (propose schema version 1 JSON: `schema_version`, `app_version`, `assets`; recursively sorted object keys; compact separators `,` and `:`; UTF-8 without BOM; no trailing newline; sign exactly those emitted bytes) |
-| exact app-version release asset naming | PENDING (propose `LecturePack-{app_version}-runtime-manifest.json`, `LecturePack-{app_version}-runtime-manifest.sig`, and `LecturePack-{app_version}-runtime-{asset_name}`) |
-| embedded public-key format and location | PENDING (propose Base64 raw key in a code-owned `lecturepack/resources/release_public_key.txt`, collected into the PyInstaller onedir distribution) |
-| signing owner | PENDING named person or role |
-| release owner | PENDING named person or role |
-| approver | PENDING named person |
-| key custodian | PENDING named person or role |
-| backup authority and storage | PENDING named authority and approved storage location |
-| rotation cadence and trigger | PENDING (propose annual rotation and immediate rotation after suspected compromise, custodian change, or signing-system loss) |
-| revocation authority and mechanism | PENDING named authority and approved signed revocation / key-rollover mechanism |
-| incident communication authority and path | PENDING named authority and approved user/release communication path |
-| PyInstaller collection and frozen onedir proof | PENDING (propose explicit data collection plus a clean-machine frozen-onedir test that reads the embedded key and rejects a changed manifest byte) |
-| retained evidence | PENDING (propose immutable release tag, manifest bytes, signature, signer identity, approval record, asset SHA-256 list, PyInstaller build log, and clean-machine proof) |
+| verifier library and exact version | `cryptography==49.0.0`; verify the official Windows x64 wheel SHA-256 is `e5dfc1e64de5677cec922ffa8da89c546d0415bf6efdf081842e5d44c84e1f0e` before install/use |
+| algorithm | pure Ed25519 detached signature over the exact canonical manifest bytes; no prehash, no alternate algorithm fallback, and no parse/reserialize before signature verification |
+| public-key encoding | exactly 32 raw octets represented as exactly 64 lowercase ASCII hex characters, no BOM/newline; the future trust root is a compiled-in constant in `lecturepack/infrastructure/release_trust.py`, not a loose resource; rotation requires an app release |
+| signature asset encoding | exactly 64 raw binary bytes; no Base64/PEM/DER/JSON wrapper |
+| signing key ID | first 16 lowercase hex chars of SHA-256(raw 32-byte public key) |
+| manifest schema v1 | fields are `schema_version`, `app_version`, `signing_key_id`, `assets`; each asset has `component`, `file_name`, `sha256`, `size_bytes` |
+| canonical manifest bytes | Recursively sorted keys, compact separators, UTF-8 without BOM/trailing newline; assets sorted by component then file_name; duplicates/unknown fields rejected. Verify exact downloaded bytes before parsing. |
+| exact GitHub origin | `https://github.com/pasttrunks/lecturepack/releases/download/v{app_version}/` |
+| exact release assets | `LecturePack-{app_version}-RuntimeManifest-v1.json`; `LecturePack-{app_version}-RuntimeManifest-v1.json.sig`; `LecturePack-{app_version}-Runtime-ffmpeg.zip`; `LecturePack-{app_version}-Runtime-whisper-cpu.zip`; `LecturePack-{app_version}-Runtime-model-base-en.zip`; `LecturePack-{app_version}-Runtime-smoke-fixture.zip` |
+| signing workflow secret | repository-wide GitHub Actions secret `LECTUREPACK_RELEASE_ED25519_PRIVATE_KEY_HEX`, exactly 64 lowercase hex chars for the 32-byte private seed; accepted risk: no environment scoping, so any authorized repository workflow could potentially access it |
+| workflow triggers | manual `workflow_dispatch` against an existing `v{app_version}` tag and automatic `v*` tag push; both verify tag, commit, and canonical application version agree before signing |
+| signing and release owner | pasttrunks |
+| approver | pasttrunks self-approval; accepted lack of separation of duties |
+| key custodian and backup authority | pasttrunks only; backup storage is Bitwarden secure attachment/item named `LecturePack Release Signing Key Backup` |
+| rotation | trigger-only, no annual cadence; triggers are suspected compromise, maintainer-access loss, key loss, or signing-workflow compromise |
+| revocation authority and mechanism | pasttrunks; disable/delete repository secret; cancel signing workflows; remove affected manifests/runtime assets from official releases; GitHub Security Advisory + emergency release notes; generate new key; ship new app with replacement compiled public key; repair unavailable for revoked versions |
+| incident communication | pasttrunks; private path: GitHub private vulnerability reporting; public path: GitHub Security Advisory plus emergency release notes |
+| frozen proof | build clean PyInstaller onedir from hash-locked dependency; dedicated frozen verifier self-test must load compiled key, accept known-good vector, reject one altered manifest byte; retain executable hash, wheel hash, build log, raw self-test output |
+| evidence retention | GitHub Actions artifact ONLY, at maximum retention GitHub permits for the repository; accepted artifact-expiry limitation; no release SigningEvidence.zip and no repository SIGNING.md index |
 
-**Decision:** No verifier is selected and no verifier dependency is authorized by
-this pending ADR. Phase 2 repair/download/signature implementation remains
-closed until a named human supplies exact approved values and accountable
-owners for every field above, and the post-approval concrete-vector contract
-passes. The pending-state test intentionally verifies this closed gate.
+**Phase 2 gate:** Phase 2 gate opens contractually only after approved tests pass:
+the real known-good vector and altered-byte rejection vector must pass, alongside
+the complete ADR contract test. This approval authorizes adding
+`cryptography==49.0.0` to the two approved requirements files and executing
+those vectors, but does not authorize Phase 2 repair implementation, downloads,
+a production verifier module, signing workflow, compiled trust module, or frozen
+self-test before the later repair phase.
 
 **Alternatives considered:**
-- Windows CNG/native bindings: pending a separate approved, supportable Ed25519
-  verifier contract; not selected.
-- An external PowerShell or `certutil` verification process: rejected as a
-  proposed default because an in-process deterministic verifier avoids
-  shell/availability variability; no alternative is selected here.
+- Windows CNG/native bindings: rejected because a supportable Ed25519 verifier
+  contract, key import behavior, and cross-version testing would become project-owned
+  security surface.
+- An external PowerShell or `certutil` verification process: rejected because an
+  in-process deterministic verifier avoids shell and availability variability.
 - SHA-256 and transport TLS alone: rejected because they do not establish a
   release-signing authority or authenticate a changed manifest.
 
