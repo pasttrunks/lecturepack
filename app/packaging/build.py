@@ -18,11 +18,14 @@ release workflow installs it via Chocolatey.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.util
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_DIR = Path(__file__).resolve().parents[2]
@@ -104,6 +107,146 @@ def run_disposable_runtime_smoke(
     if not all(argument.isascii() for argument in evidence.argv[2:6]):
         raise AssertionError("whisper smoke native argv must use ASCII staging paths")
     return evidence
+
+
+def run_disposable_packaged_repair_proof(
+    fixture_root: Path, timeout_ms: int = 30_000,
+) -> dict[str, object]:
+    """Exercise signed repair against a copied current-code onedir only.
+
+    The caller must supply an actual PyInstaller onedir.  The package is copied
+    below a hostile Unicode-and-space path before its canonical inventory is
+    published, deliberately damaged, repaired from exact signed fixture URLs,
+    and re-admitted.  No source runtime file is modified.
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.infrastructure.release_trust import ReleaseTrustVerifier, official_release_urls
+    from lecturepack.infrastructure.runtime_generation import RuntimeGenerationStore
+    from lecturepack.infrastructure.runtime_inventory import resolve_inventory
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+    from lecturepack.services.runtime_repair import RuntimeRepairService
+
+    source = Path(fixture_root).resolve()
+    executable = source / "LecturePack.exe"
+    if not executable.is_file():
+        raise AssertionError(f"clean onedir fixture is required but missing executable: {executable}")
+    resolve_inventory(source)
+    version = read_version()
+    builder_path = REPO_DIR / "scripts" / "build_signed_runtime_release.py"
+    spec = importlib.util.spec_from_file_location("build_signed_runtime_release", builder_path)
+    if spec is None or spec.loader is None:
+        raise AssertionError("signed runtime release builder is unavailable")
+    release_builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(release_builder)
+
+    class FixtureTransport:
+        def __init__(self, values: dict[str, bytes]) -> None:
+            self.values = values
+            self.requests: list[str] = []
+
+        def get(self, url: str) -> bytes:
+            self.requests.append(url)
+            return self.values[url]
+
+    with tempfile.TemporaryDirectory(prefix="LecturePack packaged proof ") as temporary:
+        workspace = Path(temporary)
+        installed = workspace / "installed 漢 runtime"
+        shutil.copytree(source, installed)
+        profile = workspace / "writable data profile"
+        config = ConfigManager(str(profile))
+        config.resource_dir = str(installed)
+        store = RuntimeGenerationStore(config.resolve_data_dir())
+
+        def assess(root: Path):
+            return RuntimeBootstrapService(config, runtime_root=root).assess(trigger="repair")
+
+        payload = resolve_inventory(installed)
+        previous = store.publish_from_directory(payload, admit=lambda root: assess(root).state == "HEALTHY")
+        damaged = previous.root / "bin" / "ffmpeg.exe"
+        damaged.write_bytes(b"damaged packaged component")
+        damaged_admission = RuntimeBootstrapService(config).assess()
+        if damaged_admission.state != "SETUP_REQUIRED":
+            raise AssertionError("damaged active package did not require setup")
+
+        release_directory = workspace / "signed release assets"
+        private_key = Ed25519PrivateKey.generate()
+        release_builder.build_signed_runtime_release(
+            app_version=version,
+            runtime_root=installed,
+            output_directory=release_directory,
+            private_key_hex=private_key.private_bytes_raw().hex(),
+        )
+        urls = official_release_urls(version)
+        values = {url: (release_directory / name).read_bytes() for name, url in urls.items()}
+        verifier = ReleaseTrustVerifier(version, private_key.public_key().public_bytes_raw().hex())
+        repair = RuntimeRepairService(
+            version,
+            FixtureTransport(values),
+            verifier=verifier,
+            admission_evidence={"bin/ffmpeg.exe": "Media tools"},
+            generation_store=store,
+            bootstrap_assessor=assess,
+        )
+        repair.begin_repair_offer("repair-current-onedir")
+        repair.perform_repair("repair-current-onedir")
+        repaired = store.read_active()
+        if repaired is None:
+            raise AssertionError("signed repair did not select an active generation")
+        evidence = run_disposable_runtime_smoke(repaired.root, timeout_ms=timeout_ms)
+        admission = RuntimeBootstrapService(config).assess()
+
+        broken_values = dict(values)
+        archive_url = next(url for url in urls.values() if url.endswith("Runtime-ffmpeg.zip"))
+        broken_values[archive_url] = broken_values[archive_url][:-1] + b"!"
+        rollback = RuntimeRepairService(
+            version,
+            FixtureTransport(broken_values),
+            verifier=verifier,
+            admission_evidence={"bin/ffmpeg.exe": "Media tools"},
+            generation_store=store,
+            bootstrap_assessor=assess,
+        )
+        rollback.begin_repair_offer("rollback")
+        try:
+            rollback.perform_repair("rollback")
+        except Exception:
+            pass
+        rollback_active = store.read_active()
+
+        cancelled = RuntimeRepairService(
+            version,
+            FixtureTransport(values),
+            verifier=verifier,
+            admission_evidence={"bin/ffmpeg.exe": "Media tools"},
+            generation_store=store,
+            bootstrap_assessor=assess,
+        )
+        cancelled.begin_repair_offer("cancel")
+        cancelled.cancel("cancel")
+        try:
+            cancelled.perform_repair("cancel")
+        except Exception:
+            pass
+        cancelled_active = store.read_active()
+
+        return {
+            "fixture_executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+            "previous_generation": previous.generation_id,
+            "repaired_active_generation": repaired.generation_id,
+            "admission_state": admission.state,
+            "damaged_admission_state": damaged_admission.state,
+            "rollback_generation": rollback_active.generation_id if rollback_active else None,
+            "cancel_generation": cancelled_active.generation_id if cancelled_active else None,
+            "smoke_evidence": {
+                "argv": evidence.argv,
+                "exit_code": evidence.exit_code,
+                "duration_ms": evidence.duration_ms,
+                "stdout": evidence.stdout,
+                "stderr": evidence.stderr,
+            },
+        }
 
 
 def read_version() -> str:
