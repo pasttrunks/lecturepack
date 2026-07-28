@@ -66,11 +66,11 @@ Only these existing sizes and weights may be used for new gate UI.
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Metadata / technical label | 12px | 500 | 1.5 |
-| Body / action label | 14px | 600 | 1.5 |
+| Body / action label | 14px | 700 | 1.5 |
 | State heading | 20px | 700 | 1.2 |
 | Overlay title / compact progress number | 16px | 700 | 1.2 |
 
-Use `JetBrains Mono` at 12px/500 for upper-case or tabular operational metadata only; use `Space Grotesk` for all friendly prose and action labels. Live percentage, byte count, and elapsed values use tabular numerals (`.lp-num`). Do not add a fifth type scale or weights other than 500/700.
+Use `JetBrains Mono` at 12px/500 for upper-case or tabular operational metadata only; use `Space Grotesk` at 700 for all friendly prose, headings, and action labels. Live percentage, byte count, and elapsed values use tabular numerals (`.lp-num`). New gate UI uses exactly these two weights, 500 and 700; this preserves beta-5's weight contrast without changing product-wide typography.
 
 ---
 
@@ -92,7 +92,7 @@ Accent reserved for: the two consented repair CTAs, current progress/milestone i
 ## Layout and Responsive Contract
 
 - The root is `position: fixed; inset: 0`, above all normal UI, with the beta-5 dark scrim (`rgba(8,10,14,.62)`). The underlying app remains visually recognizable but is inert and cannot scroll, receive a pointer event, or receive keyboard shortcuts.
-- The panel is centered at 560px ideal width, `max-width: 100%`, with a 2px border, 18px radius, `var(--shadow-hi)`, and `overflow: hidden`. Use the existing 15px/20px panel header and 20px/22px body rhythm. The panel must never exceed the visible viewport: its body gets `overflow-y:auto` and a max height derived from viewport minus scrim padding.
+- The panel is centered at 560px ideal width, `max-width: 100%`, with a 2px border, 18px radius, `var(--shadow-hi)`, and `overflow: hidden`. Reuse beta-5 overlay and component spacing unmodified wherever an existing construction applies. For genuinely new gate-only gaps, use only the declared 4/8/16/24/32/48/64px tokens. The panel must never exceed the visible viewport: its body gets `overflow-y:auto` and a max height derived from viewport minus scrim padding.
 - Header: LecturePack mark, **Runtime setup**, and an always-visible **Exit** button. Exit is a normal secondary button, not an X icon, and stays available in every state including progress. Do not display a dismiss icon.
 - Affected components render as a short vertical collection. Each row uses a stable friendly label (for example **Media tools**, **Speech model**), optional concise impact sentence, and no raw paths, filenames, hashes, or stack traces. Preserve canonical component order from the backend snapshot.
 - At widths below 820px, retain the full-viewport overlay, reduce scrim/panel side padding to 16px, make action groups wrap into one full-width primary action followed by secondary actions, and keep the footer/action area reachable by scrolling the panel body. At any size, controls retain 44px minimum hit area and text wraps rather than clipping.
@@ -115,6 +115,18 @@ Client state is a single reducer value: `gate | diagnostics | confirm | repairin
 | `ready` | Success mark, **You're ready**, one sentence that LecturePack will open automatically | After 800ms (or immediately under reduced motion), dismiss only after `admitted`; restore normal app focus and allow startup continuation. No button is required or displayed. |
 
 Backend event mapping: `started` → `repairing`; `progress` → friendly stage/optional percentage; `retrying` → `repairing`; `cancel_requested` → cancelling substate; `cancelled` → `gate`; `failed` → `failed` unless classified offline; `activated` remains `repairing`; `admitted` → `ready`. Pointer activation is an atomic safe boundary: the UI may show cancellation pending but must not promise cancellation until the matching `cancelled` event arrives.
+
+### Focal Point by Primary State
+
+| State | Focal point |
+|---|---|
+| `gate` | **Repair all** is the single orange focal action beneath the concise setup explanation. |
+| `confirm` | **Confirm & repair** is the single orange focal action after the repair summary and trust facts. |
+| `repairing` | The labelled progress bar and current friendly phase are focal; **Cancel repair** remains secondary. |
+| `offline` | **Retry connection** is the single orange focal action beneath the fixed offline explanation. |
+| `failed` | **Try again** is the single orange focal action beneath the sanitized reason. |
+| `diagnostics` | The friendly summary and collapsed **Technical details** disclosure are focal; copy/save remain secondary. |
+| `ready` | The success mark and **You're ready** status are focal; no action competes with automatic continuation. |
 
 ---
 
@@ -170,6 +182,7 @@ Backend event mapping: `started` → `repairing`; `progress` → friendly stage/
 - The setup gate is non-dismissible: no click-through, scrim close, Escape close, normal navigation shortcut, focus-mode shortcut, theme toggle, browser default tab escape, or background scrolling. Add it to `topOverlay()` before existing overlays so it owns focus whenever visible.
 - On opening any state, call the existing `focusFirst()`; initial targets are Repair all (`gate`), Confirm & repair (`confirm`), Cancel repair (`repairing`), Retry connection (`offline`), Try again (`failed`), diagnostics heading/back (`diagnostics`), and the ready status (`ready`, `tabindex="-1"`). Use the existing `trapFocus()` for Tab/Shift+Tab.
 - Escape is ignored for all gate states. Enter/Space activate only the focused visible control. Do not bind Enter to Confirm & repair unless that button is focused. Prevent repeated submit/cancel actions while the corresponding bridge call is pending.
+- Preserve the approved visible labels. Where a concise single-word visible control could be ambiguous outside its immediate context, add a contextual `aria-label` and matching `title` without changing its text: for example, `Exit` → “Exit LecturePack”, `Retry` → “Retry runtime assessment”, `Back` → “Back to runtime setup”, and `Copy details`/`Save report` → “Copy runtime repair details”/“Save runtime repair report”.
 - Use `aria-live="assertive"` for state-changing failure/offline/admitted announcements and `aria-live="polite"` for ordinary progress/retry changes. Keep action labels visible; do not rely only on color, icons, animation, or hover tooltips.
 - Mark normal app content inert while the gate is visible (native `inert` where supported, otherwise a tested pointer-event/focus guard) and restore its prior state only after the ready dismissal or application exit. Underlying controls must not be discoverable by a screen reader while the modal is active.
 - Respect beta-5's existing global `prefers-reduced-motion: reduce` rules and `LP.motion.reduced()`: no custom animation, no progress shimmer, no delayed panel movement, no `LP.motion.close` delay for success. Preserve instant color/border/shadow state feedback and show static progress/ready states.
