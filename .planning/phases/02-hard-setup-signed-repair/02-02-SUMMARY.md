@@ -20,7 +20,6 @@ key-files:
     - tests/test_runtime_generation.py
   modified:
     - lecturepack/services/runtime_bootstrap.py
-    - tests/test_runtime_bootstrap.py
 key-decisions:
   - "Only an absent active pointer permits immutable-bundle fallback; malformed pointers and journals are setup-required."
   - "A generation is fully admitted before activation and re-admitted after the atomic pointer boundary, restoring the prior pointer on failure."
@@ -75,7 +74,7 @@ status: complete
 - **Duration:** 28 min
 - **Completed:** 2026-07-28
 - **Tasks:** 2/2
-- **Files modified:** 4
+- **Files modified:** 3
 
 ## Accomplishments
 
@@ -94,7 +93,6 @@ status: complete
 - `lecturepack/infrastructure/runtime_generation.py` — transactional writable generation store, resolver, journal, and strict archive extraction.
 - `lecturepack/services/runtime_bootstrap.py` — canonical runtime-root resolution before admission.
 - `tests/test_runtime_generation.py` — generation transaction and archive safety contracts.
-- `tests/test_runtime_bootstrap.py` — active-generation bootstrap integration contract.
 
 ## Decisions Made
 
@@ -103,7 +101,14 @@ status: complete
 
 ## Deviations from Plan
 
-None - plan executed exactly as written.
+### Scope Corrections
+
+**1. Restored an out-of-scope test file and relocated its coverage**
+- **Found during:** Wave 1 scope acceptance
+- **Issue:** `tests/test_runtime_bootstrap.py` was not in this plan's permitted file list.
+- **Fix:** Restored it to the pre-plan content and moved the canonical active-generation bootstrap assertion into the permitted `tests/test_runtime_generation.py`.
+- **Files modified:** `tests/test_runtime_bootstrap.py`, `tests/test_runtime_generation.py`, this summary
+- **Committed in:** `12d47b7` (scope correction)
 
 ## Issues Encountered
 
@@ -124,9 +129,9 @@ The repair service can now build on a fail-closed writable-generation activation
 
 ## Self-Check: PASSED
 
-- `lecturepack/infrastructure/runtime_generation.py` exists.
+- `lecturepack/infrastructure/runtime_generation.py` exists and `tests/test_runtime_bootstrap.py` matches expected base `3a08c53`.
 - Task commits `723578f` and `10ca862` exist in git history.
-- Focused verification: `python -m pytest tests/test_runtime_generation.py tests/test_runtime_bootstrap.py tests/test_runtime_diagnostics.py -q` — **29 passed in 2.01s**.
+- Focused verification: `python -m pytest tests/test_runtime_generation.py tests/test_runtime_bootstrap.py tests/test_runtime_diagnostics.py -q` — **29 passed in 2.11s**.
 - Full verification: `python -m pytest -q` — **766 passed, 1 failed** solely because the explicit packaged-fixture environment variable is unset.
 
 ---
