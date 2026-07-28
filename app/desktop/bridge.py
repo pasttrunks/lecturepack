@@ -20,6 +20,7 @@ from . import version
 from .engine_adapter import make_adapter
 from .paths import data_dir
 from .updater import Updater
+from .repair_worker import RuntimeRepairWorker
 from lecturepack.controllers.runtime_diagnostics_controller import RuntimeDiagnosticsController
 from lecturepack.infrastructure.config_manager import ConfigManager
 from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
@@ -98,6 +99,7 @@ class Backend(QObject):
     diagnostics = Signal(str)
     job_completed = Signal(str)
     post_completion = Signal(str)
+    repair_event = Signal(str)
     # Runtime admission evidence is a dedicated transport boundary.  It is not
     # ordinary status text and a fallback never implies a second ready event.
 
@@ -112,6 +114,9 @@ class Backend(QObject):
         )
         self._adapter = None
         self._updater = None
+        self._repair_worker = None
+        self._repair_offer_id = None
+        self._runtime_repair = None
         if self.runtime_health_result.state == "HEALTHY":
             self._adapter = make_adapter(
                 self,
@@ -144,6 +149,69 @@ class Backend(QObject):
             return json.dumps(payload)
         self.diagnostics.emit(json.dumps(payload))
         return None
+
+    def _on_repair_event(self, payload):
+        """Forward only the active repair operation and clear terminal workers."""
+        if payload.get("operation_id") != self._repair_offer_id:
+            return
+        kind = payload.get("kind")
+        if kind == "metadata_ready":
+            self._repair_offer_id = payload["operation_id"]
+            self._repair_worker = None
+        if kind in {"failed", "cancelled", "admitted"}:
+            self._repair_offer_id = None
+            self._repair_worker = None
+        self.repair_event.emit(json.dumps(payload))
+
+    def _start_repair_worker(self, worker):
+        if self._repair_worker is not None:
+            return json.dumps({"type": "repair_in_progress"})
+        self._repair_worker = worker
+        worker.repair_event.connect(self._on_repair_event)
+        worker.start()
+        return json.dumps({"operation_id": self._repair_offer_id})
+
+    @Slot(str, result=str)
+    def start_runtime_repair(self, operation_id: str) -> str:
+        """Start metadata-only offer acquisition while setup is required."""
+        if self.runtime_health_result.state == "HEALTHY":
+            return json.dumps({"type": "repair_not_required"})
+        if not operation_id:
+            return json.dumps({"type": "invalid_repair_operation"})
+        self._repair_offer_id = operation_id
+        self._runtime_repair = self._make_runtime_repair_service()
+        return self._start_repair_worker(RuntimeRepairWorker(self._runtime_repair, operation_id, parent=self))
+
+    @Slot(str, result=str)
+    def confirm_runtime_repair(self, operation_id: str) -> str:
+        if operation_id != self._repair_offer_id:
+            return json.dumps({"type": "invalid_repair_offer"})
+        if self._runtime_repair is None:
+            return json.dumps({"type": "invalid_repair_offer"})
+        return self._start_repair_worker(RuntimeRepairWorker(self._runtime_repair, operation_id, confirm=True, parent=self))
+
+    @Slot(str)
+    def cancel_runtime_repair(self, operation_id: str):
+        if operation_id == self._repair_offer_id and self._repair_worker is not None:
+            self._repair_worker.cancel()
+            self._repair_offer_id = None
+            self._runtime_repair = None
+
+    @Slot(result=str)
+    def retry_runtime_assessment(self) -> str:
+        self.runtime_health_result = RuntimeBootstrapService(self._runtime_config).assess(trigger="repair")
+        self._runtime_diagnostics = RuntimeDiagnosticsController(RuntimeDiagnosticsService(self._runtime_config, self.runtime_health_result))
+        return self.get_bootstrap()
+
+    def _make_runtime_repair_service(self):
+        from lecturepack.services.runtime_repair import RuntimeRepairService
+        from urllib.request import urlopen
+        class _Transport:
+            def get(self, url):
+                with urlopen(url, timeout=30) as response:
+                    return response.read()
+        evidence = {name: item.get("reason", name) for name, item in self.runtime_health_result.components.items() if not item.get("healthy")}
+        return RuntimeRepairService(version.__version__, _Transport(), admission_evidence=evidence)
 
     def log_asset_error(self, tag: str, text: str, level: str = "error"):
         """Diagnostics hook for the asset resolver (see main.py). Surfaces a
