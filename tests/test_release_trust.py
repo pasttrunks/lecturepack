@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import hashlib
+import importlib.util
 from pathlib import Path
+import zipfile
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -136,3 +138,76 @@ def test_unsigned_64_total_overflow_fails_closed() -> None:
     verifier, raw_manifest, signature = _signed_variant(set_max_sizes)
     with pytest.raises(ReleaseTrustError):
         verifier.verify_manifest(raw_manifest, signature)
+
+
+def _release_builder_module():
+    """Load the release-only builder without making it an application import."""
+    path = Path(__file__).parents[1] / "scripts" / "build_signed_runtime_release.py"
+    spec = importlib.util.spec_from_file_location("build_signed_runtime_release", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_release_builder_emits_only_the_exact_signed_six_asset_layout(tmp_path) -> None:
+    """A local ephemeral signer proves the builder's exact-byte trust contract."""
+    from lecturepack.infrastructure.runtime_inventory import canonical_inventory
+
+    runtime_root = tmp_path / "canonical runtime"
+    for entry in canonical_inventory(("ggml-cpu-test.dll",)):
+        path = runtime_root / entry
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(entry.encode("utf-8"))
+    private_key = Ed25519PrivateKey.generate()
+    output = tmp_path / "signed output"
+
+    result = _release_builder_module().build_signed_runtime_release(
+        app_version=APP_VERSION,
+        runtime_root=runtime_root,
+        output_directory=output,
+        private_key_hex=private_key.private_bytes_raw().hex(),
+        cpu_dll_names=("ggml-cpu-test.dll",),
+    )
+
+    expected = {
+        f"LecturePack-{APP_VERSION}-RuntimeManifest-v1.json",
+        f"LecturePack-{APP_VERSION}-RuntimeManifest-v1.json.sig",
+        *EXPECTED_ARCHIVES,
+    }
+    assert {path.name for path in output.iterdir()} == expected
+    public_key = private_key.public_key().public_bytes_raw().hex()
+    manifest = ReleaseTrustVerifier(APP_VERSION, public_key).verify_manifest(
+        (output / f"LecturePack-{APP_VERSION}-RuntimeManifest-v1.json").read_bytes(),
+        (output / f"LecturePack-{APP_VERSION}-RuntimeManifest-v1.json.sig").read_bytes(),
+    )
+    assert {asset.file_name for asset in manifest.archives} == EXPECTED_ARCHIVES
+    assert result["manifest_sha256"] == hashlib.sha256(manifest.raw_bytes).hexdigest()
+    for asset in manifest.archives:
+        with zipfile.ZipFile(output / asset.file_name) as archive:
+            assert archive.namelist() == list(result["archive_members"][asset.component])
+
+
+@pytest.mark.parametrize("wrong", ("0.9.0-beta.5", "v0.9.0-beta.6", "0.9.0 beta.6"))
+def test_release_builder_rejects_noncanonical_app_version(tmp_path, wrong: str) -> None:
+    private_key = Ed25519PrivateKey.generate()
+    with pytest.raises(ValueError, match="application version"):
+        _release_builder_module().build_signed_runtime_release(
+            app_version=wrong,
+            runtime_root=tmp_path,
+            output_directory=tmp_path / "out",
+            private_key_hex=private_key.private_bytes_raw().hex(),
+        )
+
+
+def test_release_workflow_binds_both_triggers_to_the_peeled_tag_before_signing() -> None:
+    workflow = (Path(__file__).parents[1] / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    assert "push:" in workflow and "v*" in workflow and "workflow_dispatch:" in workflow
+    assert 'refs/tags/v${APP_VERSION}^{commit}' in workflow
+    assert "git rev-parse HEAD" in workflow
+    assert "FULL_OBJECT_ID" in workflow
+    assert "LECTUREPACK_RELEASE_ED25519_PRIVATE_KEY_HEX" in workflow
+    assert "cryptography==49.0.0" in workflow
+    assert "e5dfc1e64de5677cec922ffa8da89c546d0415bf6efdf081842e5d44c84e1f0e" in workflow
+    assert "softprops/action-gh-release" in workflow
+    assert "LecturePack-*-" not in workflow
