@@ -56,6 +56,8 @@ def test_adapter_and_bridge_transport_the_controller_snapshot_without_inventory_
 
     class _Result:
         state = "HEALTHY"
+        validation_mode = "full"
+        components = {}
         fallback_notice = None
 
     monkeypatch.setattr(bridge, "ConfigManager", lambda: object())

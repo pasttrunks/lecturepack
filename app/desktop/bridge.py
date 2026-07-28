@@ -20,8 +20,10 @@ from . import version
 from .engine_adapter import make_adapter
 from .paths import data_dir
 from .updater import Updater
+from lecturepack.controllers.runtime_diagnostics_controller import RuntimeDiagnosticsController
 from lecturepack.infrastructure.config_manager import ConfigManager
 from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+from lecturepack.services.runtime_diagnostics import RuntimeDiagnosticsService
 
 
 class Backend(QObject):
@@ -88,10 +90,17 @@ class Backend(QObject):
         self._settings = QSettings(version.ORG_NAME, version.APP_NAME)
         self._runtime_config = ConfigManager()
         self.runtime_health_result = RuntimeBootstrapService(self._runtime_config).assess()
+        self._runtime_diagnostics = RuntimeDiagnosticsController(
+            RuntimeDiagnosticsService(self._runtime_config, self.runtime_health_result)
+        )
         self._adapter = None
         self._updater = None
         if self.runtime_health_result.state == "HEALTHY":
-            self._adapter = make_adapter(self, runtime_health_result=self.runtime_health_result)
+            self._adapter = make_adapter(
+                self,
+                runtime_health_result=self.runtime_health_result,
+                runtime_diagnostics_controller=self._runtime_diagnostics,
+            )
             self._updater = Updater(self)
 
     def log_asset_error(self, tag: str, text: str, level: str = "error"):
@@ -122,6 +131,11 @@ class Backend(QObject):
                 "version": version.__version__,
             }
         )
+
+    @Slot(result=str)
+    def get_runtime_health_snapshot(self) -> str:
+        """Return the controller-owned canonical runtime-health JSON payload."""
+        return json.dumps(self._runtime_diagnostics.runtime_health_snapshot())
 
     # ------------------------------------------------------------- settings
 

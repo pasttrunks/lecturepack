@@ -56,12 +56,19 @@ class EngineAdapter(QObject):
     """Interface the desktop shell expects. All signal emission goes through
     self.backend (a Backend instance); payloads are JSON strings."""
 
-    def __init__(self, backend, *, runtime_health_result=None):
+    def __init__(self, backend, *, runtime_health_result=None, runtime_diagnostics_controller=None):
         super().__init__()
         self.backend = backend
         # Admission belongs to Backend.  Adapters only retain the immutable
         # result; they never validate, probe, or construct diagnostics here.
         self.runtime_health_result = runtime_health_result
+        self._runtime_diagnostics_controller = runtime_diagnostics_controller
+
+    def runtime_health_snapshot(self) -> dict:
+        """Expose the controller-owned runtime evidence without validation."""
+        if self._runtime_diagnostics_controller is None:
+            return {}
+        return self._runtime_diagnostics_controller.runtime_health_snapshot()
 
     # -- lifecycle -----------------------------------------------------------
     def on_ui_ready(self):
@@ -694,8 +701,12 @@ def _normalize_flashcards(cards, count: int) -> list[dict]:
 class LecturePackAdapter(EngineAdapter):
     """Drives the real LecturePack engine behind the web UI."""
 
-    def __init__(self, backend, *, runtime_health_result=None):
-        super().__init__(backend, runtime_health_result=runtime_health_result)
+    def __init__(self, backend, *, runtime_health_result=None, runtime_diagnostics_controller=None):
+        super().__init__(
+            backend,
+            runtime_health_result=runtime_health_result,
+            runtime_diagnostics_controller=runtime_diagnostics_controller,
+        )
         self.config = ConfigManager()
         self.controller = JobController(self.config)
         # Per-launch session id: stamps ownership on active jobs so startup
@@ -2936,10 +2947,14 @@ class LecturePackAdapter(EngineAdapter):
             return False
 
 
-def make_adapter(backend, *, runtime_health_result=None) -> EngineAdapter:
+def make_adapter(backend, *, runtime_health_result=None, runtime_diagnostics_controller=None) -> EngineAdapter:
     """Return the real engine adapter, falling back to the demo on import error."""
     try:
-        return LecturePackAdapter(backend, runtime_health_result=runtime_health_result)
+        return LecturePackAdapter(
+            backend,
+            runtime_health_result=runtime_health_result,
+            runtime_diagnostics_controller=runtime_diagnostics_controller,
+        )
     except Exception as exc:  # pragma: no cover - defensive boot guard
         import traceback
         traceback.print_exc()
