@@ -5,15 +5,15 @@ milestone_name: Clean-Machine Reliability and Onboarding
 current_phase: 2
 current_phase_name: Hard Setup & Signed Repair
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-07-28T18:58:50.060Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-07-28T19:44:51.194Z"
 last_activity: 2026-07-28
 last_activity_desc: Phase 2 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 12
-  completed_plans: 9
+  completed_plans: 11
   percent: 20
 ---
 
@@ -29,7 +29,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-28)
 ## Current Position
 
 Phase: 2 (Hard Setup & Signed Repair) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-07-28 — Phase 2 execution started
 
@@ -61,6 +61,7 @@ Milestone progress: [██░░░░░░░░] 20%
 | Phase 01-runtime-contract-bootstrap P07 | 25m | 2 tasks | 3 files |
 | Phase 02-hard-setup-signed-repair P01 | 24m | 3 tasks | 7 files |
 | Phase 02-hard-setup-signed-repair P02 | 28m | 2 tasks | 4 files |
+| Phase 02-hard-setup-signed-repair P04 | 6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,8 @@ Milestone progress: [██░░░░░░░░] 20%
 - [Phase 02-hard-setup-signed-repair]: Repair confirmation derives metadata-only data from verified manifest records and admission evidence. — No archive acquisition occurs before explicit confirmation.
 - [Phase ?]: Only an absent active pointer permits immutable-bundle fallback; malformed pointers and journals are setup-required.
 - [Phase ?]: A generation is fully admitted before activation and re-admitted after the atomic pointer boundary, restoring the prior pointer on failure.
+- [Phase ?]: The UI formats only the backend-authenticated four-archive byte total and never estimates download size.
+- [Phase ?]: Normal UI bridge activity begins only after the canonical bootstrap result is not SETUP_REQUIRED.
 
 ### Pending Todos
 
@@ -107,6 +110,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-28T18:58:50.047Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-07-28T19:44:51.181Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
