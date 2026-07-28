@@ -1803,7 +1803,7 @@
   // Highest-z-index open overlay, or null when none is open.
   function topOverlay() {
     var open = [];
-    ['onb-overlay', 'whatsnew-overlay'].forEach(function (id) {
+    ['runtime-setup-overlay', 'onb-overlay', 'whatsnew-overlay'].forEach(function (id) {
       var el = $(id);
       if (el && !el.hidden) open.push(el);
     });
@@ -1830,6 +1830,192 @@
     if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
   }
+
+  /* ================= runtime setup gate =================
+     The desktop bridge is the trust boundary.  This controller only renders
+     its canonical admission/repair events; it never infers health or sizes. */
+  var RuntimeSetupGate = (function () {
+    var STATES = ['gate', 'diagnostics', 'confirm', 'repairing', 'offline', 'failed', 'ready'];
+    var state = 'gate', returnState = 'gate', activeOperation = null, terminal = false;
+    var offer = null, snapshot = null, retryPending = false, cancelPending = false, restoreInert = [];
+
+    function overlay() { return $('runtime-setup-overlay'); }
+    function isOpen() { var el = overlay(); return !!(el && !el.hidden); }
+    function operationId() {
+      if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+      return 'runtime-repair-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+    }
+    function text(id, value) { var el = $(id); if (el) el.textContent = value == null ? '' : String(value); }
+    function announce(id, value) { text(id, value); }
+    function componentRows() {
+      if (!snapshot) return [];
+      var list = snapshot.failed_components || snapshot.components || snapshot.affected_components || [];
+      return Array.isArray(list) ? list : [];
+    }
+    function friendlyComponent(row) {
+      if (typeof row === 'string') return row;
+      return row && (row.friendly_name || row.label || row.component || row.name) || 'Runtime component';
+    }
+    function setUnderlyingInert(open) {
+      var root = $('app'); if (!root) return;
+      var children = root.children;
+      if (open) {
+        restoreInert = [];
+        Array.prototype.forEach.call(children, function (child) {
+          if (child === overlay()) return;
+          restoreInert.push({ el: child, inert: child.inert, aria: child.getAttribute('aria-hidden'), pointer: child.style.pointerEvents });
+          try { child.inert = true; } catch (e) {}
+          child.setAttribute('aria-hidden', 'true'); child.style.pointerEvents = 'none';
+        });
+        document.documentElement.style.overflow = 'hidden';
+      } else {
+        restoreInert.forEach(function (saved) {
+          try { saved.el.inert = saved.inert; } catch (e) {}
+          if (saved.aria === null) saved.el.removeAttribute('aria-hidden'); else saved.el.setAttribute('aria-hidden', saved.aria);
+          saved.el.style.pointerEvents = saved.pointer;
+        });
+        restoreInert = []; document.documentElement.style.overflow = '';
+      }
+    }
+    function renderComponents() {
+      var host = $('runtime-components'), empty = $('runtime-components-empty');
+      if (!host || !empty) return;
+      host.textContent = '';
+      var rows = componentRows(); empty.hidden = !!rows.length;
+      rows.forEach(function (row) {
+        var label = friendlyComponent(row), line = document.createElement('div');
+        line.style.cssText = 'background:var(--panel2);border:2px solid var(--line);border-radius:9px;padding:8px 10px;min-width:0';
+        line.textContent = label; line.title = label; line.setAttribute('aria-label', label); host.appendChild(line);
+      });
+    }
+    function renderOffer() {
+      var enabled = validOffer(offer);
+      text('runtime-offer-source', enabled ? offer.source : '');
+      text('runtime-offer-version', enabled ? offer.app_version : '');
+      text('runtime-offer-components', enabled ? offer.affected_components : '');
+      text('runtime-offer-size', enabled ? offer.download_size_label : '');
+      text('runtime-offer-technical', enabled ? offer.technical_details || '' : '');
+      $('btn-runtime-confirm').disabled = !enabled;
+    }
+    function validOffer(value) {
+      return !!(value && typeof value.operation_id === 'string' && value.operation_id === activeOperation &&
+        typeof value.app_version === 'string' && typeof value.source === 'string' &&
+        typeof value.affected_components === 'string' && typeof value.download_size_bytes === 'number' &&
+        Number.isSafeInteger(value.download_size_bytes) && value.download_size_bytes >= 0 &&
+        typeof value.download_size_label === 'string');
+    }
+    function formatOfferSize(bytes) {
+      // This is the checked four-archive total supplied by the authenticated
+      // offer. Formatting it here never estimates or recomputes the total.
+      return Number(bytes).toLocaleString('en-US') + ' bytes';
+    }
+    function show(next) {
+      if (STATES.indexOf(next) < 0) return;
+      state = next; var el = overlay(); if (!el) return;
+      el.hidden = false; el.classList.remove('out'); setUnderlyingInert(true);
+      Array.prototype.forEach.call(el.querySelectorAll('[data-runtime-state]'), function (panel) { panel.hidden = panel.dataset.runtimeState !== state; });
+      renderComponents(); renderOffer();
+      if (state === 'diagnostics') { var heading = $('runtime-diagnostics-heading'); if (heading) heading.focus(); }
+      else if (state === 'ready') { var ready = $('runtime-ready-heading'); if (ready) ready.focus(); }
+      else focusFirst(el);
+    }
+    function closeReady() {
+      var el = overlay(); if (!el || state !== 'ready') return;
+      setUnderlyingInert(false); el.hidden = true; activeOperation = null; offer = null;
+    }
+    function admit(bootstrap) {
+      snapshot = bootstrap && bootstrap.setup_required || bootstrap || snapshot;
+      if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') { show('gate'); return; }
+      if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && activeOperation && !terminal) {
+        terminal = true; announce('runtime-live-assertive', "You're ready"); show('ready');
+        if (LP.motion.reduced()) closeReady(); else setTimeout(closeReady, 800);
+      }
+    }
+    function beginOffer() {
+      if (retryPending || activeOperation) return;
+      activeOperation = operationId(); terminal = false; offer = null;
+      $('btn-runtime-repair').disabled = true; announce('runtime-live-polite', 'Checking runtime…');
+      lpBridge.beginRuntimeRepairOffer(activeOperation).then(function () {});
+    }
+    function confirm() {
+      if (!validOffer(offer) || terminal || state !== 'confirm') return;
+      show('repairing'); text('runtime-progress-text', 'Downloading'); lpBridge.confirmRuntimeRepair(activeOperation);
+    }
+    function retryAssessment() {
+      if (retryPending) return;
+      retryPending = true; $('btn-runtime-retry').disabled = true; announce('runtime-live-polite', 'Checking runtime…');
+      lpBridge.retryRuntimeAssessment().then(function (json) {
+        retryPending = false; $('btn-runtime-retry').disabled = false;
+        try { admit(JSON.parse(json)); } catch (e) { show('gate'); }
+      });
+    }
+    function beginNewRepair() { activeOperation = null; offer = null; terminal = false; cancelPending = false; show('repairing'); activeOperation = operationId(); lpBridge.beginRuntimeRepairOffer(activeOperation); }
+    function cancel() {
+      if (!activeOperation || cancelPending) return;
+      cancelPending = true; $('btn-runtime-cancel').disabled = true; text('btn-runtime-cancel', 'Cancelling safely…');
+      lpBridge.cancelRuntimeRepair(activeOperation);
+    }
+    function diagnostics(invoker) {
+      returnState = state === 'diagnostics' ? returnState : state;
+      if (invoker) RuntimeSetupGate._diagnosticsInvoker = invoker;
+      text('runtime-diagnostics-summary', 'Review the runtime repair details below.');
+      text('runtime-diagnostics-report', snapshot && (snapshot.diagnostics || snapshot.summary) || 'No additional diagnostics are available.');
+      show('diagnostics');
+    }
+    function back() {
+      show(returnState || 'gate');
+      if (RuntimeSetupGate._diagnosticsInvoker) RuntimeSetupGate._diagnosticsInvoker.focus();
+    }
+    function event(payload) {
+      var d = typeof payload === 'string' ? (function () { try { return JSON.parse(payload); } catch (e) { return null; } })() : payload;
+      if (!d || d.operation_id !== activeOperation || terminal) return;
+      var kind = d.kind;
+      if (kind === 'metadata_ready') {
+        var o = d.offer || d;
+        offer = { operation_id: d.operation_id, app_version: o.app_version, source: o.source || o.official_source,
+          affected_components: Array.isArray(o.affected_components) ? o.affected_components.join(', ') : o.affected_components,
+          download_size_bytes: o.download_size_bytes,
+          download_size_label: typeof o.download_size_bytes === 'number' && Number.isSafeInteger(o.download_size_bytes) && o.download_size_bytes >= 0 ? formatOfferSize(o.download_size_bytes) : '',
+          technical_details: o.technical_details || '' };
+        if (!validOffer(offer)) { terminal = true; show('failed'); return; }
+        $('btn-runtime-repair').disabled = false; show('confirm'); return;
+      }
+      if (kind === 'started') { show('repairing'); return; }
+      if (kind === 'progress') {
+        var percent = typeof d.percent === 'number' ? Math.max(0, Math.min(100, d.percent)) : null;
+        var phase = d.phase === 'verifying' ? 'Verifying' : d.phase === 'installing' ? 'Installing safely' : d.phase === 'admitting' ? 'Almost there' : 'Downloading';
+        text('runtime-progress-text', phase); announce('runtime-live-polite', phase);
+        var bar = $('runtime-setup-progress'), fill = bar && bar.querySelector('.lp-fill');
+        if (fill && percent !== null) { fill.style.transform = 'scaleX(' + (percent / 100) + ')'; bar.setAttribute('aria-valuenow', String(Math.round(percent))); }
+        return;
+      }
+      if (kind === 'retrying') { text('runtime-progress-text', 'Connection interrupted — retrying…'); return; }
+      if (kind === 'cancel_requested') { cancelPending = true; $('btn-runtime-cancel').disabled = true; text('btn-runtime-cancel', 'Finishing a safe step…'); return; }
+      if (kind === 'activated') { text('runtime-progress-text', 'Almost there'); return; }
+      if (kind === 'admitted') { terminal = true; announce('runtime-live-assertive', "You're ready"); show('ready'); if (LP.motion.reduced()) closeReady(); else setTimeout(closeReady, 800); return; }
+      if (kind === 'cancelled') { terminal = true; activeOperation = null; offer = null; cancelPending = false; show('gate'); return; }
+      if (kind === 'offline') { terminal = true; show('offline'); return; }
+      if (kind === 'failed') { terminal = true; text('runtime-failure-reason', "We couldn't verify the repair download. Your previous runtime is still in place."); show('failed'); }
+    }
+    function wire() {
+      $('btn-runtime-repair').addEventListener('click', beginOffer);
+      $('btn-runtime-confirm').addEventListener('click', confirm);
+      $('btn-runtime-back').addEventListener('click', function () { if (activeOperation) lpBridge.cancelRuntimeRepair(activeOperation); activeOperation = null; offer = null; show('gate'); });
+      $('btn-runtime-retry').addEventListener('click', retryAssessment);
+      $('btn-runtime-offline-retry').addEventListener('click', beginNewRepair);
+      $('btn-runtime-failed-retry').addEventListener('click', beginNewRepair);
+      $('btn-runtime-cancel').addEventListener('click', cancel);
+      $('btn-runtime-exit').addEventListener('click', function () { lpBridge.call('exit_application'); window.close(); });
+      Array.prototype.forEach.call(document.querySelectorAll('[data-runtime-diagnostics]'), function (button) { button.addEventListener('click', function () { diagnostics(button); }); });
+      $('btn-runtime-diagnostics-back').addEventListener('click', back);
+      $('btn-runtime-copy').addEventListener('click', function () { lpBridge.copyRuntimeRepairDiagnostics().then(function () { announce('runtime-live-polite', 'Details copied.'); }); });
+      $('btn-runtime-save').addEventListener('click', function () { lpBridge.saveRuntimeRepairDiagnostics('runtime-repair-report.txt').then(function () { announce('runtime-live-polite', 'Report saved.'); }); });
+      document.addEventListener('keydown', function (e) { if (!isOpen()) return; if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); return; } if (e.key === 'Tab') { trapFocus(overlay(), e); e.stopImmediatePropagation(); return; } e.stopImmediatePropagation(); }, true);
+      document.addEventListener('wheel', function (e) { if (isOpen() && !overlay().contains(e.target)) { e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true, passive: false });
+      document.addEventListener('pointerdown', function (e) { if (isOpen() && !overlay().contains(e.target)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+    }
+    return { admit: admit, event: event, wire: wire, isOpen: isOpen, state: function () { return state; }, _diagnosticsInvoker: null };
+  })();
 
   /* Clears the design-time placeholder chrome shipped in index.html so a fresh
      profile never shows a fake in-progress job (BUG-04). */
@@ -2734,6 +2920,7 @@
   /* ======================= backend hookup ======================= */
 
   function wireBridge() {
+    lpBridge.on('repair_event', function (json) { RuntimeSetupGate.event(json); });
     lpBridge.on('queue_changed', function (json) {
       try { LP.data.queue = JSON.parse(json); } catch (e) { return; }
       renderQueue();
@@ -3120,20 +3307,24 @@
     });
 
     lpBridge.ready(function (backend) {
-      if (backend && backend.list_ollama_models) lpBridge.call('list_ollama_models');
-      // Ask whether link import exists in this build; the button stays hidden
-      // until the backend says yes.
-      if (backend && backend.media_link_support) lpBridge.call('media_link_support');
+      function startNormalBridgeActivity() {
+        if (backend && backend.list_ollama_models) lpBridge.call('list_ollama_models');
+        // Ask whether link import exists in this build; the button stays hidden
+        // until the backend says yes.
+        if (backend && backend.media_link_support) lpBridge.call('media_link_support');
+      }
       if (backend && backend.get_bootstrap) {
         lpBridge.call('get_bootstrap').then(function (json) {
-          if (!json) return;
+          if (!json) { startNormalBridgeActivity(); return; }
           try {
             var b = JSON.parse(json);
             if (b.theme) setTheme(b.theme);
             if (b.version) { LP.data.version = b.version; $('app-version').textContent = b.version; }
+            RuntimeSetupGate.admit(b);
+            if (b.runtime_health_state !== 'SETUP_REQUIRED') startNormalBridgeActivity();
           } catch (e) { console.error('bootstrap parse', e); }
         });
-      }
+      } else startNormalBridgeActivity();
     });
   }
 
@@ -3173,6 +3364,7 @@
     setTheme('dark');           // dark by default (design decision)
     setStudyTab('chat');
     wire();
+    RuntimeSetupGate.wire();
     wireBridge();
     window.addEventListener('resize', function () { LP.motion.indicator(); });
   }
