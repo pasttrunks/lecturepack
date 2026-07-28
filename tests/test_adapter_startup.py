@@ -10,6 +10,24 @@ import sys
 
 import pytest
 
+
+class _BootstrapResult:
+    def __init__(self, state, fallback_notice=None):
+        self.state = state
+        self.validation_mode = "full"
+        self.components = {"bin/ffmpeg.exe": {"healthy": state == "HEALTHY"}}
+        self.fallback_notice = fallback_notice
+
+
+class _BootstrapService:
+    def __init__(self, result, events):
+        self.result = result
+        self.events = events
+
+    def assess(self):
+        self.events.append("assess")
+        return self.result
+
 APP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
@@ -64,3 +82,61 @@ def test_adapter_never_targets_real_data_dir(qapp, _temp_data_dir):
     adapter = ea.LecturePackAdapter(_FakeBackend())
     real = os.path.expanduser(os.path.join("~", "LecturePackData"))
     assert os.path.abspath(adapter.config.data_dir) != os.path.abspath(real)
+
+
+def test_backend_admits_adapter_once_only_after_healthy_assessment(qapp, monkeypatch):
+    from desktop import bridge
+
+    events = []
+    adapter = object()
+    monkeypatch.setattr(bridge, "ConfigManager", lambda: events.append("config") or object())
+    monkeypatch.setattr(bridge, "RuntimeBootstrapService", lambda config: _BootstrapService(_BootstrapResult("HEALTHY"), events))
+    monkeypatch.setattr(bridge, "make_adapter", lambda backend: events.append("adapter") or adapter)
+    monkeypatch.setattr(bridge, "Updater", lambda backend: object())
+
+    backend = bridge.Backend(None)
+
+    assert backend._adapter is adapter
+    assert backend.runtime_health_result.state == "HEALTHY"
+    assert events == ["config", "assess", "adapter"]
+
+
+def test_backend_blocks_normal_adapter_and_ready_event_until_healthy(qapp, monkeypatch):
+    from desktop import bridge
+
+    events = []
+    monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
+    monkeypatch.setattr(bridge, "RuntimeBootstrapService", lambda config: _BootstrapService(_BootstrapResult("SETUP_REQUIRED"), events))
+    monkeypatch.setattr(bridge, "make_adapter", lambda backend: events.append("adapter"))
+    monkeypatch.setattr(bridge, "Updater", lambda backend: object())
+
+    backend = bridge.Backend(None)
+    backend.ui_ready()
+
+    assert backend._adapter is None
+    assert events == ["assess"]
+    assert backend.runtime_health_result.state == "SETUP_REQUIRED"
+
+
+def test_optional_fallback_is_post_health_and_distinct_from_ready(qapp, monkeypatch):
+    from desktop import bridge
+
+    events = []
+    fallback = {"requested": "cuda", "resolved": "whispercpp-cpu", "reason": "driver missing"}
+
+    class _Adapter:
+        def on_ui_ready(self):
+            events.append("ready")
+
+    monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
+    monkeypatch.setattr(bridge, "RuntimeBootstrapService", lambda config: _BootstrapService(_BootstrapResult("HEALTHY", fallback), events))
+    monkeypatch.setattr(bridge, "make_adapter", lambda backend: events.append("adapter") or _Adapter())
+    monkeypatch.setattr(bridge, "Updater", lambda backend: object())
+
+    backend = bridge.Backend(None)
+    notices = []
+    backend.runtime_fallback.connect(notices.append)
+    backend.ui_ready()
+
+    assert events == ["assess", "adapter", "ready"]
+    assert [__import__("json").loads(item) for item in notices] == [fallback]
