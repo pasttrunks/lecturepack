@@ -13,6 +13,7 @@ import re
 import shutil
 import stat
 import tempfile
+from threading import RLock
 import zipfile
 from typing import Callable, Iterable, Mapping
 from urllib.error import URLError
@@ -112,6 +113,8 @@ class RuntimeRepairService:
         self._cancelled: set[str] = set()
         self._terminal: set[str] = set()
         self._admission_result = None
+        self._event_lock = RLock()
+        self._event_sinks: dict[str, Callable[[dict[str, str]], None]] = {}
 
     @property
     def admission_result(self):
@@ -120,24 +123,45 @@ class RuntimeRepairService:
 
     def diagnostic_report(self) -> str:
         """Return only already-redacted operation facts for copy/save diagnostics."""
+        with self._event_lock:
+            events = tuple(self.events)
         report = [
             {"operation_id": event.operation_id, "kind": event.kind, "classification": event.classification,
              "detail": _redact(event.detail)}
-            for event in self.events
+            for event in events
         ]
         import json
         return json.dumps(report, ensure_ascii=False, sort_keys=True)
 
+    def set_event_sink(self, operation_id: str, sink: Callable[[dict[str, str]], None] | None) -> None:
+        """Bind one worker-owned live event callback for an operation safely."""
+        with self._event_lock:
+            if sink is None:
+                self._event_sinks.pop(operation_id, None)
+            else:
+                self._event_sinks[operation_id] = sink
+
+    def active_offer(self, operation_id: str) -> RepairOperation | None:
+        """Expose the authenticated confirmation fields to the desktop boundary."""
+        with self._event_lock:
+            return self._offers.get(operation_id)
+
     def _emit(self, operation_id: str, kind: str, detail: str = "", classification: str = "") -> RepairEvent | None:
         """Emit one ordered terminal outcome while keeping every field JSON-safe."""
-        if operation_id in self._terminal:
-            return None
-        event = RepairEvent(str(operation_id), str(kind), _redact(detail), str(classification))
-        self.events.append(event)
-        if kind in _TERMINAL_EVENTS:
-            self._terminal.add(operation_id)
-            self._offers.pop(operation_id, None)
-            self._manifests.pop(operation_id, None)
+        with self._event_lock:
+            if operation_id in self._terminal:
+                return None
+            event = RepairEvent(str(operation_id), str(kind), _redact(detail), str(classification))
+            self.events.append(event)
+            if kind in _TERMINAL_EVENTS:
+                self._terminal.add(operation_id)
+                self._offers.pop(operation_id, None)
+                self._manifests.pop(operation_id, None)
+            sink = self._event_sinks.get(operation_id)
+            if sink is not None:
+                # The signal call is non-blocking; retaining the operation lock
+                # here serializes callbacks from worker and cancel threads.
+                sink(event.payload())
         return event
 
     def _cancel_boundary(self, operation_id: str) -> None:

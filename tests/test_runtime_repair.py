@@ -6,6 +6,8 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 import stat
+from threading import Event
+import time
 import zipfile
 
 import pytest
@@ -506,3 +508,56 @@ def test_bridge_rejects_concurrent_start_and_ignores_repeat_cancel_and_out_of_or
     backend._on_repair_event({"operation_id": "op", "kind": "cancelled"})
     backend._on_repair_event({"operation_id": "op", "kind": "cancelled"})
     assert [json.loads(item)["kind"] for item in forwarded] == ["cancelled"]
+
+
+def test_worker_streams_started_and_progress_before_blocked_transport_completes(qapp, tmp_path):
+    """The UI receives live operation events; completion never flushes a buffer."""
+    import sys
+    app_dir = str(Path(__file__).parents[1] / "app")
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+    from PySide6.QtCore import QCoreApplication
+    from desktop.repair_worker import RuntimeRepairWorker
+
+    version, manifest, values, urls = _repair_release()
+    metadata_entered, metadata_release = Event(), Event()
+    payload_entered, payload_release = Event(), Event()
+    manifest_url = next(url for url in urls.values() if url.endswith("Manifest-v1.json"))
+
+    class BlockingTransport(_Transport):
+        def get(self, url):
+            if url == manifest_url and not metadata_release.is_set():
+                metadata_entered.set()
+                assert metadata_release.wait(2)
+            return super().get(url)
+        def stream_get(self, url):
+            payload_entered.set()
+            assert payload_release.wait(2)
+            yield self.get(url)
+
+    service = _service(tmp_path, values, manifest, transport=BlockingTransport(values))
+    seen = []
+    offer_worker = RuntimeRepairWorker(service, "live")
+    offer_worker.repair_event.connect(lambda payload: seen.append(dict(payload)))
+    offer_worker.start()
+    assert metadata_entered.wait(1)
+    QCoreApplication.processEvents()
+    assert [payload["kind"] for payload in seen] == ["started"]
+    metadata_release.set()
+    assert offer_worker.wait(2_000)
+    QCoreApplication.processEvents()
+    assert [payload["kind"] for payload in seen] == ["started", "metadata_ready"]
+
+    repair_worker = RuntimeRepairWorker(service, "live", confirm=True)
+    repair_worker.repair_event.connect(lambda payload: seen.append(dict(payload)))
+    repair_worker.start()
+    assert payload_entered.wait(1)
+    QCoreApplication.processEvents()
+    assert [payload["kind"] for payload in seen] == ["started", "metadata_ready", "progress"]
+    payload_release.set()
+    assert repair_worker.wait(2_000)
+    for _ in range(10):
+        QCoreApplication.processEvents()
+        time.sleep(.01)
+    terminals = [payload for payload in seen if payload["kind"] in {"failed", "cancelled", "admitted"}]
+    assert [payload["kind"] for payload in terminals] == ["admitted"]
