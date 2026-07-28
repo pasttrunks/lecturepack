@@ -1,63 +1,32 @@
-# Phase 1 Handoff — Packaging & Release
+# Phase 1 Handoff — Runtime Contract & Bootstrap
 
-**Updated:** 2026-07-18
-**Branch:** `v1.2-hybrid-study`
-**Status:** All three Phase 1 plans are complete; independent verification found two release-integrity gaps, so Phase 1 remains pending.
+**Updated:** 2026-07-28  
+**Branch:** `codex/beta6-reliability-plan`  
+**Status:** Complete pending phase approval; Phase 2 repair implementation remains unstarted.
 
-## Authorized Scope
+## Completed work
 
-Phase 1 packages, tests, validates, and publishes LecturePack v1.2.0. Phase 2 reliability work, live Groq validation, new dependencies, real user data/media, and original-video changes remain out of scope.
+- The canonical CPU inventory, bounded validator, disposable onedir smoke, and v1.9.1 ASCII-only `WhisperPathStaging` boundary are complete. Unicode source and destination paths remain supported outside the native CLI argv boundary.
+- `RuntimeBootstrapService` persists only complete validated CPU evidence, performs the one-time base-English migration, and resolves optional engines only after CPU admission.
+- `Backend` now assesses runtime health before it constructs an `EngineAdapter`, controller, job behavior, navigation behavior, or optional probe. `SETUP_REQUIRED` retains a stable no-adapter state for the Phase 2 setup gate.
+- A healthy admission creates the adapter once. `ui_ready()` produces the one normal ready path only after that admission; a broken optional preference is sent afterwards as `diagnostics` payload `{ "type": "runtime_fallback", "fallback": { requested, resolved, reason } }`, separate from ordinary status and readiness.
+- `RuntimeDiagnosticsController` delegates to `RuntimeDiagnosticsService`, which reads the persisted canonical identity and immutable bootstrap evidence only. `Backend.get_runtime_health_snapshot()` serializes that controller result for QWebChannel; neither bridge nor adapter constructs a second required-runtime inventory.
+- AD-19 is approved. It locks `cryptography==49.0.0`, byte-exact detached Ed25519 manifest signatures, release asset naming, key lifecycle, and the future compiled trust-root/frozen-proof requirements.
 
-## Completed
+## Verification evidence
 
-- Plan 01-01 completed and summarized in `.planning/phases/01-packaging-release/01-01-SUMMARY.md`.
-- Release version metadata is canonicalized at 1.2.0 and the PyInstaller spec/module inventory is guarded by focused tests.
-- Plan 01-02 Tasks 1–2 completed: four alignment acceptance tests, clause-level traceability, and pytest collection reconciliation.
-- Plan 01-02 Task 3 completed under accepted AD-15: architecture release validation is an exact-identity no-regression gate against commit `25e9dd1`; strict conformance remains the Phase 2 target.
-- Plan 01-03 completed: the real 1.2.0 PyInstaller onedir and portable ZIP were built, inventoried, integrity-checked, and exercised from both onedir and a clean extraction path containing a space.
+- `pytest tests/test_adapter_startup.py tests/test_runtime_diagnostics.py tests/test_runtime_bootstrap.py tests/test_runtime_packaged_smoke.py -q` with `LECTUREPACK_ONEDIR_FIXTURE=C:\Users\marsh\Documents\LecturePack\app\dist\LecturePack` — **19 passed in 10.82s**.
+- `LECTUREPACK_ONEDIR_FIXTURE=C:\Users\marsh\Documents\LecturePack\app\dist\LecturePack; pytest -q` — **728 passed in 179.15s (0:02:59)**.
+- The same targeted command without `LECTUREPACK_ONEDIR_FIXTURE` intentionally failed one packaged-smoke test because the fixture is mandatory; no test was skipped or weakened.
+- Real packaged smoke evidence remains the Plan 01 proof: copied Unicode/space runtime, fresh `LECTUREPACK_DATA_DIR`, `bin/ffmpeg.exe -version`, `bin/ffprobe.exe -version`, then `bin/whisper-cli.exe -m <ASCII staged ggml-base.en.bin> -f <ASCII staged runtime-smoke.wav> -t 1 -nt`; exit 0 in 4328 ms with CPU backend, model, WAV-read, and processing evidence and no output transcript.
 
-## Current Evidence
+## Remaining work and blockers
 
-- Full suite: `158 passed in 113.56s`, exit 0.
-- Current focused packaging suite: `7 passed in 0.97s`, exit 0.
-- Development self-test: exit 0, timeout false, `SELFTEST PASS: LecturePack v1.2.0`.
-- Privacy audit: PASS, zero violations.
-- Architecture audit: PASS for Phase 1 no-regression, exit 0; baseline/current 47 forbidden imports across 62 cross-layer edges, zero new, zero resolved, 47 deferred.
-- Strict architecture conformance: NO. The existing debt is disclosed and assigned to Phase 2.
-- Traceability: `CURRENT_RUN_STATUS: PASS`; source validation: `OVERALL_STATUS: PASS`.
-- Real release build: exit 0; `LecturePack-portable-1.2.0.zip` is 383,712,406 bytes.
-- ZIP SHA-256: `f5680469c55b4420249b1cfcd264f4161d049080f9e2cfd17d551f2620715f9e`, equal across independent computation, `SHA256SUMS.txt`, and `BUILD_MANIFEST.json`.
-- Onedir and ZIP runtime/document inventories: PASS; model/secret/config/job/transcript/slide/original-media exclusions: PASS.
-- Onedir frozen self-test: timeout false, exit 0, `SELFTEST PASS: LecturePack v1.2.0`.
-- Clean-extracted frozen self-test: timeout false, exit 0, `SELFTEST PASS: LecturePack v1.2.0`; validated extraction cleanup completed.
+- Phase 2 must implement the non-dismissible setup UI, explicit consent, signed exact-version acquisition, manifest/hash validation, transactional writable runtime generation, rollback, revalidation, and actionable diagnostics. None of that repair behavior is implemented here.
+- AD-19 approval satisfies the Phase 1 contract prerequisite, but Phase 2 remains blocked until its ADR post-checkpoint task passes the approved known-good and altered-byte signature vectors in the implementation context.
+- Before release, obtain physical CPU-only, NVIDIA, and AMD/Intel Windows evidence across fresh/upgraded profiles and hostile paths; frozen verifier proof and signing workflow remain Phase 2+ work.
+- No retained temporary smoke-copy paths were found in this worktree. The four disposable cleanup domains remain temporary-only and must stay clean if materialized: copied Unicode/space runtime, fresh `LECTUREPACK_DATA_DIR`, private ASCII staging workspace, and `smoke-output` output prefix.
 
-Evidence is under `docs/evidence/v1.2.0/release/`.
+## Scope and safety
 
-## Verification Result
-
-- Independent GSD verification: `gaps_found`, 40/47 must-haves verified.
-- The shipped v1.2 ZIP contains `README-FIRST.txt` labeled v0.2.0 and `RELEASE_NOTES.md` headed v1.1.0; `build_release.py` still carries a v0.2.1 tool label.
-- Direct `python build_release.py` does not enforce the one-off cleanup preflight, treats required missing runtime/document inputs as warnings, and omits the primary CPU Whisper runtime from per-binary checksum metadata.
-- Strict architecture debt remains explicitly deferred to Phase 2 and is not one of the actionable Phase 1 gaps.
-- Full structured evidence and required fixes are in `.planning/phases/01-packaging-release/01-VERIFICATION.md`.
-
-## Architecture Debt
-
-`docs/ARCHITECTURE.md` requires each layer to call only the layer directly below and forbids direct UI-to-infrastructure calls. The current code has controller-to-infrastructure and UI-to-service/infrastructure imports. Repair is a broad production refactor outside Phase 1's packaging scope.
-
-AD-15 preserves that rule while allowing Phase 1 packaging to proceed only when no exact violation identity is new relative to `25e9dd1`. Phase 2 owns closure of all 47 baseline violations. Do not describe the current tree as strictly conformant.
-
-## Commits
-
-- `6070968` — complete Plan 01-01 metadata.
-- `1859585` — alignment acceptance coverage.
-- `dc2a78d` — pytest collection reconciliation.
-- `25e9dd1` — durable blocking architecture-audit evidence.
-- `a41454a` — accepted architecture baseline and passing privacy/no-regression evidence.
-- `5c97724` — real portable build and complete inventory evidence.
-- `af20614` — retained initial pre-deletion release allowlist evidence.
-- `35cd04e` — checksum and two-path frozen self-test evidence.
-
-## Resume Point
-
-Gap-closure Plans 01-04 through 01-06 are created and independently plan-checked. Run `$gsd-execute-phase 1 --gaps-only`, then re-verify Phase 1. Do not begin Phase 2 or approve the portable release until both release-integrity gaps close. Keep the 47-item architecture baseline visible in release reporting; strict conformance is not claimed and remediation remains Phase 2 work. Security enforcement is enabled and still requires `$gsd-secure-phase 1` before phase advancement.
+No original lecture video, user job/profile data, immutable source payload, main worktree, UI/web asset, animation, theme, or repair/download flow was modified. The bridge fallback uses the existing diagnostics transport because the web bridge signal registry is intentionally outside this phase's permitted file list.
