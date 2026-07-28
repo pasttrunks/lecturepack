@@ -7,6 +7,7 @@ from typing import Any, Callable, Mapping
 
 from lecturepack.infrastructure.runtime_inventory import inventory_for_root, payload_identity, resolve_inventory
 from lecturepack.infrastructure.runtime_validation import RuntimeValidator
+from lecturepack.infrastructure.whisper_path_staging import WhisperPathStaging
 
 
 @dataclass(frozen=True)
@@ -97,18 +98,51 @@ class RuntimeBootstrapService:
 
     @staticmethod
     def _validate_full(paths: Mapping[str, Path]) -> Mapping[str, Mapping[str, Any]]:
-        """Run bounded local executable checks; model/DLL facts stay inventory-bound."""
+        """Prove canonical CPU usability with one bounded staged transcription."""
         validator = RuntimeValidator()
         results: dict[str, Mapping[str, Any]] = {}
+
+        def evidence(smoke, *, healthy: bool | None = None, reason: str | None = None) -> dict[str, Any]:
+            return {
+                "healthy": smoke.ok if healthy is None else healthy,
+                "reason": reason or smoke.reason,
+                "exit_code": smoke.exit_code,
+                "argv": list(smoke.argv),
+                "stdout": smoke.stdout,
+                "stderr": smoke.stderr,
+                "duration_ms": smoke.duration_ms,
+                "timed_out": smoke.timed_out,
+            }
+
         for name, path in paths.items():
             if name == "bin/ffmpeg.exe" or name == "bin/ffprobe.exe":
                 smoke = validator.run(str(path), ["-version"])
-                results[name] = {"healthy": smoke.ok, "reason": smoke.reason, "exit_code": smoke.exit_code}
-            elif name == "bin/whisper-cli.exe":
-                smoke = validator.run(str(path), ["--help"])
-                results[name] = {"healthy": smoke.ok, "reason": smoke.reason, "exit_code": smoke.exit_code}
-            else:
-                results[name] = {"healthy": True, "reason": "inventory readable"}
+                results[name] = evidence(smoke)
+
+        try:
+            staging = WhisperPathStaging(
+                paths["models/ggml-base.en.bin"],
+                paths["smoke/runtime-smoke.wav"],
+                paths["smoke/runtime-smoke.wav"].parent / "admission-output" / "transcript",
+            )
+            staged_model, staged_wav, _ = staging.prepare()
+            try:
+                whisper_smoke = validator.run(
+                    str(paths["bin/whisper-cli.exe"]),
+                    ["-m", staged_model, "-f", staged_wav, "-t", "1", "-nt"],
+                )
+            finally:
+                staging.cleanup()
+        except Exception as error:
+            # ``assess`` will reject this complete failed evidence; do not turn a
+            # readable model or WAV into a health claim when staging cannot run.
+            from lecturepack.infrastructure.runtime_validation import SmokeEvidence
+
+            whisper_smoke = SmokeEvidence([], None, "", str(error), 0, "admission preparation failed", False)
+
+        for name in paths:
+            if name not in results:
+                results[name] = evidence(whisper_smoke)
         return results
 
     def _resolve_optional(self, requested: str) -> tuple[str, str]:
