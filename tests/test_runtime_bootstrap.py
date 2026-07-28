@@ -8,6 +8,70 @@ import pytest
 from lecturepack.infrastructure.runtime_validation import RuntimeValidator
 
 
+def test_full_admission_rejects_nonempty_corrupt_model_with_real_smoke_evidence(tmp_path, monkeypatch):
+    """Readability alone must not admit a canonical model as healthy."""
+    from lecturepack.infrastructure.runtime_validation import SmokeEvidence
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+    import lecturepack.services.runtime_bootstrap as runtime_bootstrap
+
+    model = tmp_path / "models" / "ggml-base.en.bin"
+    smoke = tmp_path / "smoke" / "runtime-smoke.wav"
+    whisper = tmp_path / "bin" / "whisper-cli.exe"
+    for path, content in ((model, b"corrupt but nonempty"), (smoke, b"RIFFfakeWAVE"), (whisper, b"cli")):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+
+    captured = []
+
+    class RejectingValidator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self, program, args):
+            captured.append([program, *args])
+            return SmokeEvidence([program, *args], 2, "", "invalid model", 12, "nonzero exit", False)
+
+    monkeypatch.setattr(runtime_bootstrap, "RuntimeValidator", RejectingValidator)
+    evidence = RuntimeBootstrapService._validate_full({
+        "bin/whisper-cli.exe": whisper,
+        "models/ggml-base.en.bin": model,
+        "smoke/runtime-smoke.wav": smoke,
+    })
+
+    assert captured and captured[-1][1:] == ["-m", captured[-1][2], "-f", captured[-1][4], "-t", "1", "-nt"]
+    assert captured[-1][2].isascii() and captured[-1][4].isascii()
+    assert evidence["models/ggml-base.en.bin"]["healthy"] is False
+    assert evidence["smoke/runtime-smoke.wav"]["reason"] == "nonzero exit"
+    assert evidence["models/ggml-base.en.bin"]["argv"] == captured[-1]
+
+
+def test_full_admission_requires_complete_real_smoke_evidence(tmp_path):
+    """A validator that omits canonical evidence cannot authorize persistence."""
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    cfg = ConfigManager(str(tmp_path / "profile"))
+    model = tmp_path / "model.bin"
+    smoke = tmp_path / "smoke.wav"
+    model.write_bytes(b"model")
+    smoke.write_bytes(b"wav")
+    service = RuntimeBootstrapService(
+        cfg,
+        runtime_root=tmp_path,
+        inventory_resolver=lambda root: {
+            "models/ggml-base.en.bin": model,
+            "smoke/runtime-smoke.wav": smoke,
+        },
+        identity_provider=lambda root: "payload-v1",
+        full_validator=lambda paths: {"models/ggml-base.en.bin": {"healthy": True}},
+    )
+
+    result = service.assess()
+
+    assert result.state == "SETUP_REQUIRED"
+    assert cfg.get("runtime_health") is None
+
+
 def test_bootstrap_persists_complete_facts_and_migrates_once(tmp_path):
     from lecturepack.infrastructure.config_manager import ConfigManager
     from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService

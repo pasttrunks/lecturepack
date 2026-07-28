@@ -46,8 +46,17 @@ def test_real_packaged_smoke_uses_unicode_space_path_and_fresh_profile(monkeypat
         profile = Path(workspace) / "fresh profile"
         monkeypatch.setenv("LECTUREPACK_DATA_DIR", str(profile))
         evidence = build.run_disposable_runtime_smoke(copied, timeout_ms=30_000)
+        from lecturepack.infrastructure.config_manager import ConfigManager
+        from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+        admission = RuntimeBootstrapService(ConfigManager(str(profile)), runtime_root=copied).assess()
         assert not (copied / "smoke-output").exists()
     assert evidence.ok, evidence
+    assert admission.state == "HEALTHY"
+    for name in ("bin/whisper-cli.exe", "models/ggml-base.en.bin", "smoke/runtime-smoke.wav"):
+        component = admission.components[name]
+        assert component["healthy"] is True
+        assert set(("argv", "exit_code", "duration_ms", "stdout", "stderr", "reason")) <= component.keys()
     assert evidence.duration_ms < 30_000
     assert evidence.argv[1] == "-m"
     assert evidence.argv[3] == "-f"
