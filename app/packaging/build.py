@@ -75,20 +75,34 @@ def run_disposable_runtime_smoke(
     with_staging = WhisperPathStaging(
         required["models/ggml-base.en.bin"], required["smoke/runtime-smoke.wav"],
         root / "smoke-output" / "transcript")
-    staged_model, staged_wav, staged_prefix = with_staging.prepare()
+    staged_model, staged_wav, _ = with_staging.prepare()
+    unexpected_artifacts: list[str] = []
     try:
         evidence = validator.run(
             str(required["bin/whisper-cli.exe"]),
             ["-m", staged_model, "-f", staged_wav, "-t", "1", "-nt"],
         )
     finally:
+        # The smoke deliberately has no output-file argument.  Inspect the
+        # complete private staging tree before cleanup so a CLI default output
+        # beside the staged WAV cannot be hidden by the disposable directory.
+        if with_staging.root is not None:
+            expected_inputs = {Path(staged_model), Path(staged_wav)}
+            unexpected_artifacts = [
+                str(path.relative_to(with_staging.root))
+                for path in with_staging.root.rglob("*")
+                if path.is_file() and path not in expected_inputs
+            ]
         with_staging.cleanup()
+    if unexpected_artifacts:
+        raise AssertionError(
+            "whisper packaged smoke created unexpected output artifacts: "
+            f"{unexpected_artifacts}; evidence: {evidence}"
+        )
     if not evidence.ok:
         raise AssertionError(f"whisper packaged smoke failed: {evidence}")
     if not all(argument.isascii() for argument in evidence.argv[2:6]):
         raise AssertionError("whisper smoke native argv must use ASCII staging paths")
-    if staged_prefix and Path(f"{staged_prefix}.txt").exists():
-        raise AssertionError("whisper smoke must not create a transcript artifact")
     return evidence
 
 

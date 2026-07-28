@@ -10,6 +10,7 @@ import tempfile
 import pytest
 
 from app.packaging import build
+from lecturepack.infrastructure.runtime_validation import SmokeEvidence
 
 SMOKE_RELATIVE_PATH = Path("smoke") / "runtime-smoke.wav"
 
@@ -26,6 +27,40 @@ def test_real_packaged_smoke_requires_a_clean_onedir_fixture(monkeypatch, tmp_pa
     monkeypatch.setenv("LECTUREPACK_ONEDIR_FIXTURE", str(missing))
     with pytest.raises(AssertionError, match="clean onedir fixture"):
         build.run_disposable_runtime_smoke(timeout_ms=30_000)
+
+
+def test_packaged_smoke_rejects_default_whisper_output_and_cleans_staging(monkeypatch, tmp_path):
+    """A Whisper default output must remain visible long enough to fail smoke."""
+    root = tmp_path / "runtime"
+    for path in build.required_runtime_payload(root, cpu_dll_names=("ggml-cpu-test.dll",)).values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"runtime")
+
+    staging_instances = []
+    original_staging = build.WhisperPathStaging
+
+    class TrackingStaging(original_staging):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            staging_instances.append(self)
+
+    class DefaultOutputValidator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self, program, args):
+            if Path(program).name == "whisper-cli.exe":
+                Path(args[3]).with_suffix(".txt").write_text("unexpected transcript", encoding="utf-8")
+            return SmokeEvidence([program, *args], 0, "ok", "", 1, "success", False)
+
+    monkeypatch.setattr(build, "WhisperPathStaging", TrackingStaging)
+    monkeypatch.setattr(build, "RuntimeValidator", DefaultOutputValidator)
+
+    with pytest.raises(AssertionError, match=r"unexpected output artifacts: .*audio.txt"):
+        build.run_disposable_runtime_smoke(root)
+
+    assert len(staging_instances) == 1
+    assert staging_instances[0].root is None
 
 
 def test_real_packaged_smoke_uses_unicode_space_path_and_fresh_profile(monkeypatch):
