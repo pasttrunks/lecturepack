@@ -5,8 +5,8 @@ milestone_name: Clean-Machine Reliability and Onboarding
 current_phase: 2
 current_phase_name: Hard Setup & Signed Repair
 status: planning
-stopped_at: Completed 01-07-PLAN.md
-last_updated: "2026-07-28T16:49:25.280Z"
+stopped_at: Phase 2 context gathered
+last_updated: "2026-07-28T17:38:15.948Z"
 last_activity: 2026-07-28
 last_activity_desc: Phase 1 complete, transitioned to Phase 2
 progress:
@@ -101,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-28T16:49:25.280Z
-Stopped at: Phase 1 verified complete; Phase 2 ready for discussion/planning
-Resume file: None
+Last session: 2026-07-28T17:38:15.937Z
+Stopped at: Phase 2 context gathered
+Resume file: .planning/phases/02-hard-setup-signed-repair/02-CONTEXT.md
