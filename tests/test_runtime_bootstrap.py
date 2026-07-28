@@ -126,6 +126,40 @@ def test_bootstrap_never_persists_healthy_facts_on_validation_failure(tmp_path):
     assert cfg.get("migration_versions", {}).get("runtime_contract") is None
 
 
+def test_same_identity_failed_evidence_requires_full_validation_and_stays_unhealthy(tmp_path):
+    """A prior failed smoke cannot be upgraded by matching file presence alone."""
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    cfg = ConfigManager(str(tmp_path))
+    executable = tmp_path / "ffmpeg.exe"
+    executable.write_bytes(b"nonempty")
+    cfg.settings["runtime_health"] = {
+        "identity": "payload-v1",
+        "components": {
+            "bin/ffmpeg.exe": {"healthy": False, "reason": "prior smoke failed"},
+        },
+        "validation_mode": "full",
+    }
+    calls = []
+    service = RuntimeBootstrapService(
+        cfg,
+        runtime_root=tmp_path,
+        inventory_resolver=lambda root: {"bin/ffmpeg.exe": executable},
+        identity_provider=lambda root: "payload-v1",
+        full_validator=lambda components: calls.append(components) or {
+            "bin/ffmpeg.exe": {"healthy": False, "reason": "still failing"},
+        },
+    )
+
+    result = service.assess()
+
+    assert result.state == "SETUP_REQUIRED"
+    assert result.validation_mode == "full"
+    assert len(calls) == 1
+    assert cfg.get("runtime_health")["components"]["bin/ffmpeg.exe"]["healthy"] is False
+
+
 def test_incomplete_full_validation_cannot_become_healthy_state(tmp_path):
     from lecturepack.infrastructure.config_manager import ConfigManager
     from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService

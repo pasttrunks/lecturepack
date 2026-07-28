@@ -94,7 +94,15 @@ class RuntimeBootstrapService:
         if previous.get("identity") != identity:
             return True
         components = previous.get("components")
-        return not isinstance(components, dict) or set(components) != set(paths)
+        if not isinstance(components, dict) or set(components) != set(paths):
+            return True
+        # A matching payload identity proves only that the files are the same.
+        # Light validation is safe exclusively after a complete successful full
+        # admission; failed or partial evidence must be re-proven by the smoke.
+        return not all(
+            isinstance(component, Mapping) and component.get("healthy") is True
+            for component in components.values()
+        )
 
     @staticmethod
     def _validate_full(paths: Mapping[str, Path]) -> Mapping[str, Mapping[str, Any]]:
