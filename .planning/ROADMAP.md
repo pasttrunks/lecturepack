@@ -29,27 +29,39 @@ Beta 6 makes the portable app dependable on clean Windows machines: establish a 
   4. A healthy saved optional engine remains selected; if it is unavailable, users enter with the validated bundled CPU path and see a clear fallback notice.
   5. An explicitly approved ADR defines the signed-manifest verifier, trust/key lifecycle, canonical manifest/versioned asset contract, and PyInstaller validation required before repair implementation.
 
-**Plans**: 4/4 plans executed
+**Plans**: 4/7 plans executed; 3 verified gap-closure plans ready
 
 - [x] 01-01-PLAN.md
 - [x] 01-02-PLAN.md
 - [x] 01-03-PLAN.md
 - [x] 01-04-PLAN.md
+- [ ] 01-05-PLAN.md
+- [ ] 01-06-PLAN.md
+- [ ] 01-07-PLAN.md
 
 **Wave 0**
 
-- [ ] `01-01-PLAN.md` — Canonical inventory, Wave 0 validation seams, and a blocking disposable packaged-runtime smoke.
+- [x] `01-01-PLAN.md` — Canonical inventory, Wave 0 validation seams, and a blocking disposable packaged-runtime smoke.
 
 **Wave 1** *(blocked on Wave 0 completion)*
 
-- [ ] `01-02-PLAN.md` — Bootstrap persistence, one-time beta-5 migration, and optional-engine fallback.
-- [ ] `01-04-PLAN.md` — Approval-gated signing/verifier ADR, followed by contract-vector and full-suite evidence only after approval.
+- [x] `01-02-PLAN.md` — Bootstrap persistence, one-time beta-5 migration, and optional-engine fallback.
+- [x] `01-04-PLAN.md` — Approval-gated signing/verifier ADR, followed by contract-vector and full-suite evidence only after approval.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] `01-03-PLAN.md` — Active beta-5 desktop admission/status seam and the Phase 1 handoff.
+- [x] `01-03-PLAN.md` — Active beta-5 desktop admission/status seam and the Phase 1 handoff.
+- [ ] `01-05-PLAN.md` — Clean onedir directory creation plus fail-closed validator launch and bootstrap evidence.
 
-Cross-cutting constraints: preserve unrelated comments, docstrings, user data, and original lecture videos; do not implement Phase 2 repair or add an unapproved verifier dependency; run the targeted tests named by each task, the full suite at each plan gate, and the real packaged-runtime smoke where specified.
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] `01-06-PLAN.md` — Real staged model-and-WAV CPU admission, corrupt-model rejection, and Unicode-safe VAD staging.
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] `01-07-PLAN.md` — Stable setup-required bridge guards and an honest Phase 1 handoff.
+
+Cross-cutting constraints: preserve unrelated comments, docstrings, user data, original lecture videos, frontend/web assets, animations, shadows, transitions, motion, theme, and visual behavior; do not implement Phase 2 repair or add an unapproved verifier dependency; run the targeted tests named by each task, the full suite under a validated packaged fixture at each gap-plan gate, and the real packaged-runtime smoke where specified.
 
 Canonical references: `.planning/PROJECT.md`, `.planning/MILESTONE-CONTEXT.md`, `.planning/research/SUMMARY.md`, `docs/DECISIONS.md`.
 

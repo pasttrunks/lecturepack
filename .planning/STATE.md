@@ -4,17 +4,17 @@ milestone: v0.9.0-beta.6
 milestone_name: Clean-Machine Reliability and Onboarding
 current_phase: 1
 current_phase_name: Runtime Contract & Bootstrap
-status: verifying
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-07-28T12:32:23.600Z"
-last_activity: 2026-07-27
-last_activity_desc: Phase 1 execution started
+status: executing
+stopped_at: Gap-closure plans 01-05 through 01-07 verified; awaiting execution
+last_updated: "2026-07-28T13:18:34.424Z"
+last_activity: 2026-07-28
+last_activity_desc: Phase 1 gap-closure plans verified
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 4
+  completed_phases: 0
+  total_plans: 7
   completed_plans: 4
-  percent: 20
+  percent: 11
 ---
 
 # Project State
@@ -29,25 +29,25 @@ See: `.planning/PROJECT.md` (updated 2026-07-27)
 ## Current Position
 
 Phase: 1 (Runtime Contract & Bootstrap) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-07-27 — Phase 1 execution started
+Plan: 4 of 7
+Status: Ready to execute verified gap-closure plans 01-05 through 01-07
+Last activity: 2026-07-28 — Phase 1 gap-closure plans verified
 
-Progress: [██████████] 100%
+Progress: [██████░░░░] 57%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
-- Average duration: —
-- Total execution time: —
+- Total plans completed: 4
+- Average duration: 31m
+- Total execution time: 123m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1–5 | 0 | — | — |
+| 1 | 4/7 | 123m | 31m |
 **Per-Plan Metrics:**
 
 | Plan | Duration | Tasks | Files |
@@ -79,9 +79,9 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 1 verifier/signing ADR has no approved dependency or operational signing contract yet; Phase 2 cannot begin until approval.
-- Release proof requires physical CPU-only, NVIDIA, and AMD/Intel Windows machines plus fresh/upgraded and hostile-path evidence.
-- 01-01 Task 2 blocking real packaged smoke: supplied prebuilt whisper-cli.exe exits 3221226505 under the required Unicode/space disposable runtime path after CPU backend load and model load start. No mock/skip substitute is permitted; payload or rebuild decision required.
+- Phase 1 verification is `gaps_found`; plans 01-05 through 01-07 must pass before Phase 1 can close or Phase 2 can begin.
+- Gap closure must prove clean onedir directory creation, fail-closed validator launch behavior, real model-plus-WAV CPU admission, Unicode VAD staging, and safe setup-required bridge slots.
+- Release proof still requires physical CPU-only, NVIDIA, and AMD/Intel Windows machines plus fresh/upgraded and hostile-path evidence.
 
 ## Deferred Items
 
@@ -93,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-28T12:32:23.589Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-07-28T13:18:34.424Z
+Stopped at: Gap-closure plans 01-05 through 01-07 verified; awaiting execution
 Resume file: None
