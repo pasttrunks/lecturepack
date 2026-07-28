@@ -1875,7 +1875,10 @@
       var children = root.children;
       if (open) {
         if (inertCaptured) return;
-        priorFocus = document.activeElement;
+        var candidate = document.activeElement;
+        priorFocus = candidate && candidate !== document.body && candidate !== document.documentElement &&
+          candidate.closest && candidate.closest('#app') && !candidate.closest('#runtime-setup-overlay') &&
+          !candidate.closest('[aria-hidden="true"], [inert], [hidden]') ? candidate : null;
         restoreInert = [];
         Array.prototype.forEach.call(children, function (child) {
           if (child === overlay()) return;
