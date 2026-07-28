@@ -1834,27 +1834,76 @@
   /* ================= runtime setup gate =================
      The desktop bridge is the trust boundary.  This controller only renders
      its canonical admission/repair events; it never infers health or sizes. */
-  /* Pure event filter used by the DOM controller and executable Node tests. */
+  /* The one mutable lifecycle reducer used by the DOM controller and Node tests. */
   function RuntimeSetupGateModel() {
-    var state = 'gate', operation = null, terminal = false, offer = null, returnState = 'gate', cancelling = false, retryPending = false;
-    function valid(o) { return !!(o && o.operation_id === operation && o.app_version && o.source && o.affected_components && Number.isSafeInteger(o.download_size_bytes) && o.download_size_bytes >= 0); }
-    return { begin: function (id) { operation = id; terminal = false; offer = null; cancelling = false; state = 'gate'; },
-      accept: function (e) { return !!(e && e.operation_id === operation && !terminal); },
-      offer: function (o) { if (!this.accept(o)) return state; offer = o; state = valid(o) ? 'confirm' : 'failed'; terminal = state === 'failed'; return state; },
-      confirm: function () { if (state === 'confirm' && valid(offer)) state = 'repairing'; return state; },
-      diagnostics: function () { returnState = state; state = 'diagnostics'; return state; }, back: function () { state = returnState; return state; },
-      retry: function () { retryPending = true; return retryPending; }, event: function (e) { if (!this.accept(e)) return state; if (e.kind === 'cancel_requested') cancelling = true; else if (e.kind === 'cancelled') { terminal = true; state = 'gate'; } else if (e.kind === 'admitted') { terminal = true; state = 'ready'; } else if (e.kind === 'offline' || (e.kind === 'failed' && e.classification === 'offline')) { terminal = true; state = 'offline'; } else if (e.kind === 'failed') { terminal = true; state = 'failed'; } return state; },
-      finish: function () { terminal = true; }, reset: function () { operation = null; terminal = false; offer = null; state = 'gate'; }, snapshot: function () { return {state:state,activeOperation:operation,terminal:terminal,offer:offer,returnState:returnState,cancelling:cancelling,retryPending:retryPending}; } };
+    var state = 'gate', returnState = 'gate', retryPending = false, cancelPending = false;
+    var activeOperation = null, terminal = false, offer = null, bootstrapPending = true, healthy = false;
+    function valid(value) {
+      return !!(value && value.operation_id === activeOperation && value.app_version && value.source &&
+        value.affected_components && Number.isSafeInteger(value.download_size_bytes) && value.download_size_bytes >= 0);
+    }
+    function snapshot() {
+      return { state: state, returnState: returnState, retryPending: retryPending, cancelPending: cancelPending,
+        activeOperation: activeOperation, terminal: terminal, offer: offer, bootstrapPending: bootstrapPending, healthy: healthy };
+    }
+    function accept(event) { return !!(event && event.operation_id === activeOperation && !terminal); }
+    return {
+      /* retryState deliberately preserves repairing: a retry must not visually regress to gate. */
+      begin: function (id, retryState) {
+        activeOperation = id; terminal = false; offer = null; cancelPending = false; retryPending = false;
+        state = retryState === 'repairing' ? 'repairing' : 'gate'; return snapshot();
+      },
+      accept: accept,
+      offer: function (value) {
+        if (!accept(value)) return snapshot();
+        offer = value;
+        if (valid(value)) state = 'confirm'; else { state = 'failed'; terminal = true; }
+        return snapshot();
+      },
+      confirm: function () { if (state === 'confirm' && valid(offer)) state = 'repairing'; return snapshot(); },
+      diagnostics: function () { if (state !== 'diagnostics') { returnState = state; state = 'diagnostics'; } return snapshot(); },
+      back: function () { state = returnState || 'gate'; return snapshot(); },
+      retry: function () { if (!retryPending) retryPending = true; return snapshot(); },
+      retryResult: function (bootstrap) { retryPending = false; return this.bootstrap(bootstrap); },
+      requestCancel: function () { if (activeOperation && !terminal) cancelPending = true; return snapshot(); },
+      abandon: function () { if (activeOperation) terminal = true; offer = null; cancelPending = false; state = 'gate'; return snapshot(); },
+      bootstrap: function (bootstrap) {
+        bootstrapPending = false;
+        if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') {
+          healthy = false;
+          if (!activeOperation) { state = 'gate'; terminal = false; offer = null; cancelPending = false; }
+        } else if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY') {
+          healthy = true;
+          if (activeOperation && !terminal) this.event({ operation_id: activeOperation, kind: 'admitted' });
+        }
+        return snapshot();
+      },
+      event: function (event) {
+        if (!accept(event)) return snapshot();
+        if (event.kind === 'metadata_ready') return this.offer(event.offer || event);
+        if (event.kind === 'started') state = 'repairing';
+        else if (event.kind === 'cancel_requested') this.requestCancel();
+        else if (event.kind === 'cancelled') { terminal = true; state = 'gate'; }
+        else if (event.kind === 'admitted') { terminal = true; state = 'ready'; healthy = true; }
+        else if (event.kind === 'offline' || (event.kind === 'failed' && event.classification === 'offline')) { terminal = true; state = 'offline'; }
+        else if (event.kind === 'failed') { terminal = true; state = 'failed'; }
+        return snapshot();
+      },
+      reset: function () {
+        state = 'gate'; returnState = 'gate'; retryPending = false; cancelPending = false;
+        activeOperation = null; terminal = false; offer = null; healthy = false; return snapshot();
+      },
+      snapshot: snapshot
+    };
   }
   var RuntimeSetupGate = (function () {
     var STATES = ['gate', 'diagnostics', 'confirm', 'repairing', 'offline', 'failed', 'ready'];
-    var state = 'gate', returnState = 'gate', activeOperation = null, terminal = false;
-    var offer = null, snapshot = null, retryPending = false, cancelPending = false, restoreInert = [], inertCaptured = false, bootstrapPending = true, priorFocus = null;
+    var bootstrapSnapshot = null, restoreInert = [], inertCaptured = false, priorFocus = null;
     var eventModel = RuntimeSetupGateModel();
 
     function overlay() { return $('runtime-setup-overlay'); }
     function isOpen() { var el = overlay(); return !!(el && !el.hidden); }
-    function isBlocking() { return bootstrapPending || isOpen(); }
+    function isBlocking() { return eventModel.snapshot().bootstrapPending || isOpen(); }
     function operationId() {
       if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
       return 'runtime-repair-' + Date.now() + '-' + Math.random().toString(16).slice(2);
@@ -1862,8 +1911,8 @@
     function text(id, value) { var el = $(id); if (el) el.textContent = value == null ? '' : String(value); }
     function announce(id, value) { text(id, value); }
     function componentRows() {
-      if (!snapshot) return [];
-      var list = snapshot.failed_components || snapshot.components || snapshot.affected_components || [];
+      if (!bootstrapSnapshot) return [];
+      var list = bootstrapSnapshot.failed_components || bootstrapSnapshot.components || bootstrapSnapshot.affected_components || [];
       return Array.isArray(list) ? list : [];
     }
     function friendlyComponent(row) {
@@ -1876,9 +1925,7 @@
       if (open) {
         if (inertCaptured) return;
         var candidate = document.activeElement;
-        priorFocus = candidate && candidate !== document.body && candidate !== document.documentElement &&
-          candidate.closest && candidate.closest('#app') && !candidate.closest('#runtime-setup-overlay') &&
-          !candidate.closest('[aria-hidden="true"], [inert], [hidden]') ? candidate : null;
+        priorFocus = isNormalFocusable(candidate) ? candidate : null;
         restoreInert = [];
         Array.prototype.forEach.call(children, function (child) {
           if (child === overlay()) return;
@@ -1897,6 +1944,17 @@
         restoreInert = []; inertCaptured = false; document.documentElement.style.overflow = '';
       }
     }
+    function isNormalFocusable(candidate) {
+      if (!candidate || candidate === document.body || candidate === document.documentElement || candidate.disabled || candidate.tabIndex < 0 || !candidate.closest) return false;
+      if (!candidate.closest('#app') || candidate.closest('#runtime-setup-overlay') || candidate.closest('[aria-hidden="true"], [inert], [hidden]')) return false;
+      return candidate.matches('a[href], button, input, select, textarea, summary, [tabindex]');
+    }
+    function fallbackFocus() {
+      var home = document.querySelector('[data-nav="home"], [data-screen-nav="home"], #nav-home');
+      if (isNormalFocusable(home)) return home;
+      var main = document.querySelector('#app main, #main, [role="main"]');
+      return main && main.querySelector('a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])');
+    }
     function renderComponents() {
       var host = $('runtime-components'), empty = $('runtime-components-empty');
       if (!host || !empty) return;
@@ -1909,16 +1967,16 @@
       });
     }
     function renderOffer() {
-      var enabled = validOffer(offer);
-      text('runtime-offer-source', enabled ? offer.source : '');
-      text('runtime-offer-version', enabled ? offer.app_version : '');
-      text('runtime-offer-components', enabled ? offer.affected_components : '');
-      text('runtime-offer-size', enabled ? offer.download_size_label : '');
-      text('runtime-offer-technical', enabled ? offer.technical_details || '' : '');
+      var value = eventModel.snapshot().offer, enabled = validOffer(value);
+      text('runtime-offer-source', enabled ? value.source : '');
+      text('runtime-offer-version', enabled ? value.app_version : '');
+      text('runtime-offer-components', enabled ? value.affected_components : '');
+      text('runtime-offer-size', enabled ? value.download_size_label : '');
+      text('runtime-offer-technical', enabled ? value.technical_details || '' : '');
       $('btn-runtime-confirm').disabled = !enabled;
     }
     function validOffer(value) {
-      return !!(value && typeof value.operation_id === 'string' && value.operation_id === activeOperation &&
+      return !!(value && typeof value.operation_id === 'string' && value.operation_id === eventModel.snapshot().activeOperation &&
         typeof value.app_version === 'string' && typeof value.source === 'string' &&
         typeof value.affected_components === 'string' && typeof value.download_size_bytes === 'number' &&
         Number.isSafeInteger(value.download_size_bytes) && value.download_size_bytes >= 0 &&
@@ -1929,81 +1987,92 @@
       // offer. Formatting it here never estimates or recomputes the total.
       return Number(bytes).toLocaleString('en-US') + ' bytes';
     }
-    function show(next) {
+    function render() {
+      var view = eventModel.snapshot(), next = view.state;
       if (STATES.indexOf(next) < 0) return;
-      state = next; var el = overlay(); if (!el) return;
+      var el = overlay(); if (!el) return;
       el.hidden = false; el.classList.remove('out'); setUnderlyingInert(true);
-      Array.prototype.forEach.call(el.querySelectorAll('[data-runtime-state]'), function (panel) { panel.hidden = panel.dataset.runtimeState !== state; });
+      Array.prototype.forEach.call(el.querySelectorAll('[data-runtime-state]'), function (panel) { panel.hidden = panel.dataset.runtimeState !== next; });
       renderComponents(); renderOffer();
       var targets = { gate: 'btn-runtime-repair', confirm: 'btn-runtime-confirm', repairing: 'btn-runtime-cancel', offline: 'btn-runtime-offline-retry', failed: 'btn-runtime-failed-retry', diagnostics: 'runtime-diagnostics-heading', ready: 'runtime-ready-heading' };
-      var target = $(targets[state]); if (target) target.focus();
+      var target = $(targets[next]); if (target) target.focus();
     }
     function closeReady() {
-      var el = overlay(); if (!el || state !== 'ready') return;
-      setUnderlyingInert(false); el.hidden = true; activeOperation = null; offer = null; eventModel.reset();
-      var home = document.querySelector('[data-nav="home"], [data-screen-nav="home"], #nav-home');
-      if (priorFocus && priorFocus.isConnected && !priorFocus.closest('#runtime-setup-overlay')) priorFocus.focus();
-      else if (home) home.focus();
+      var el = overlay(); if (!el || eventModel.snapshot().state !== 'ready') return;
+      setUnderlyingInert(false); el.hidden = true; eventModel.reset();
+      var target = isNormalFocusable(priorFocus) ? priorFocus : fallbackFocus();
+      if (isNormalFocusable(target)) target.focus();
     }
     function admit(bootstrap) {
-      bootstrapPending = false; snapshot = bootstrap && bootstrap.setup_required || bootstrap || snapshot;
-      if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') { show('gate'); return; }
-      if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !activeOperation) { setUnderlyingInert(false); return; }
-      if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && activeOperation && !terminal) {
-        terminal = true; eventModel.finish(); announce('runtime-live-assertive', "You're ready"); show('ready');
-        if (LP.motion.reduced()) closeReady(); else setTimeout(closeReady, 800);
-      }
+      bootstrapSnapshot = bootstrap && bootstrap.setup_required || bootstrap || bootstrapSnapshot;
+      var before = eventModel.snapshot(), view = eventModel.bootstrap(bootstrap);
+      if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') { render(); return; }
+      if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !before.activeOperation) { setUnderlyingInert(false); return; }
+      if (view.state === 'ready') ready();
     }
     function beginOffer() {
-      if (retryPending || activeOperation) return;
-      activeOperation = operationId(); eventModel.begin(activeOperation); terminal = false; offer = null;
+      var previous = eventModel.snapshot(); if (previous.retryPending || (previous.activeOperation && !previous.terminal)) return;
+      var view = eventModel.begin(operationId());
       $('btn-runtime-repair').disabled = true; announce('runtime-live-polite', 'Checking runtime…');
-      lpBridge.beginRuntimeRepairOffer(activeOperation).then(function () {});
+      render(); lpBridge.beginRuntimeRepairOffer(view.activeOperation).then(function () {});
     }
     function confirm() {
-      if (!validOffer(offer) || terminal || eventModel.confirm() !== 'repairing') return;
-      show('repairing'); text('runtime-progress-text', 'Downloading'); lpBridge.confirmRuntimeRepair(activeOperation);
+      var before = eventModel.snapshot(); if (!validOffer(before.offer) || before.terminal) return;
+      var view = eventModel.confirm(); if (view.state !== 'repairing') return;
+      render(); text('runtime-progress-text', 'Downloading'); lpBridge.confirmRuntimeRepair(view.activeOperation);
     }
     function retryAssessment() {
-      if (retryPending) return;
-      retryPending = true; $('btn-runtime-retry').disabled = true; announce('runtime-live-polite', 'Checking runtime…');
+      if (eventModel.snapshot().retryPending) return;
+      eventModel.retry(); $('btn-runtime-retry').disabled = true; announce('runtime-live-polite', 'Checking runtime…');
       lpBridge.retryRuntimeAssessment().then(function (json) {
-        retryPending = false; $('btn-runtime-retry').disabled = false;
-        try { admit(JSON.parse(json)); } catch (e) { show('gate'); }
+        var bootstrap; try { bootstrap = JSON.parse(json); } catch (e) { bootstrap = null; }
+        bootstrapSnapshot = bootstrap && bootstrap.setup_required || bootstrap || bootstrapSnapshot;
+        var view = eventModel.retryResult(bootstrap); $('btn-runtime-retry').disabled = false;
+        if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !view.activeOperation) setUnderlyingInert(false); else render();
       });
     }
-    function beginNewRepair() { activeOperation = null; offer = null; terminal = false; cancelPending = false; show('repairing'); activeOperation = operationId(); eventModel.begin(activeOperation); lpBridge.beginRuntimeRepairOffer(activeOperation); }
+    function beginNewRepair() {
+      var view = eventModel.begin(operationId(), 'repairing');
+      render(); text('runtime-progress-text', 'Downloading'); lpBridge.beginRuntimeRepairOffer(view.activeOperation);
+    }
     function cancel() {
-      if (!activeOperation || cancelPending) return;
-      cancelPending = true; $('btn-runtime-cancel').disabled = true; text('btn-runtime-cancel', 'Cancelling safely…');
-      lpBridge.cancelRuntimeRepair(activeOperation);
+      var view = eventModel.snapshot(); if (!view.activeOperation || view.cancelPending || view.terminal) return;
+      view = eventModel.requestCancel(); $('btn-runtime-cancel').disabled = true; text('btn-runtime-cancel', 'Cancelling safely…');
+      lpBridge.cancelRuntimeRepair(view.activeOperation);
     }
     function diagnostics(invoker) {
-      returnState = state === 'diagnostics' ? returnState : state;
+      eventModel.diagnostics();
       if (invoker) RuntimeSetupGate._diagnosticsInvoker = invoker;
       text('runtime-diagnostics-summary', 'Review the runtime repair details below.');
-      text('runtime-diagnostics-report', snapshot && (snapshot.diagnostics || snapshot.summary) || 'No additional diagnostics are available.');
-      show('diagnostics');
+      text('runtime-diagnostics-report', bootstrapSnapshot && (bootstrapSnapshot.diagnostics || bootstrapSnapshot.summary) || 'No additional diagnostics are available.');
+      render();
     }
     function back() {
-      show(returnState || 'gate');
+      eventModel.back(); render();
       if (RuntimeSetupGate._diagnosticsInvoker) RuntimeSetupGate._diagnosticsInvoker.focus();
+    }
+    function ready() {
+      announce('runtime-live-assertive', "You're ready"); render();
+      if (LP.motion.reduced()) closeReady(); else setTimeout(closeReady, 800);
     }
     function event(payload) {
       var d = typeof payload === 'string' ? (function () { try { return JSON.parse(payload); } catch (e) { return null; } })() : payload;
-      if (!eventModel.accept(d) || terminal) return;
+      if (!eventModel.accept(d)) return;
       var kind = d.kind;
       if (kind === 'metadata_ready') {
         var o = d.offer || d;
-        offer = { operation_id: d.operation_id, app_version: o.app_version, source: o.source || o.official_source,
+        var normalizedOffer = { operation_id: d.operation_id, app_version: o.app_version, source: o.source || o.official_source,
           affected_components: Array.isArray(o.affected_components) ? o.affected_components.join(', ') : o.affected_components,
           download_size_bytes: o.download_size_bytes,
           download_size_label: typeof o.download_size_bytes === 'number' && Number.isSafeInteger(o.download_size_bytes) && o.download_size_bytes >= 0 ? formatOfferSize(o.download_size_bytes) : '',
           technical_details: o.technical_details || '' };
-        if (eventModel.offer({operation_id:d.operation_id,app_version:offer.app_version,source:offer.source,affected_components:offer.affected_components,download_size_bytes:offer.download_size_bytes}) !== 'confirm' || !validOffer(offer)) { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'Repair could not be completed.'); show('failed'); return; }
-        $('btn-runtime-repair').disabled = false; show('confirm'); return;
+        var offered = eventModel.event({ operation_id: d.operation_id, kind: 'metadata_ready', offer: normalizedOffer });
+        if (offered.state !== 'confirm' || !validOffer(offered.offer)) announce('runtime-live-assertive', 'Repair could not be completed.');
+        else $('btn-runtime-repair').disabled = false;
+        render(); return;
       }
-      if (kind === 'started') { show('repairing'); return; }
+      var view = eventModel.event(d);
+      if (kind === 'started') { render(); return; }
       if (kind === 'progress') {
         var percent = typeof d.percent === 'number' ? Math.max(0, Math.min(100, d.percent)) : null;
         var phase = d.phase === 'verifying' ? 'Verifying' : d.phase === 'installing' ? 'Installing safely' : d.phase === 'admitting' ? 'Almost there' : 'Downloading';
@@ -2013,18 +2082,17 @@
         return;
       }
       if (kind === 'retrying') { text('runtime-progress-text', 'Connection interrupted — retrying…'); return; }
-      if (kind === 'cancel_requested') { cancelPending = true; $('btn-runtime-cancel').disabled = true; text('btn-runtime-cancel', 'Finishing a safe step…'); return; }
+      if (kind === 'cancel_requested') { if (view.cancelPending) { $('btn-runtime-cancel').disabled = true; text('btn-runtime-cancel', 'Finishing a safe step…'); } return; }
       if (kind === 'activated') { text('runtime-progress-text', 'Almost there'); return; }
-      var reducedState = eventModel.event(d);
-      if (kind === 'admitted') { terminal = true; eventModel.finish(); announce('runtime-live-assertive', "You're ready"); show(reducedState); if (LP.motion.reduced()) closeReady(); else setTimeout(closeReady, 800); return; }
-      if (kind === 'cancelled') { terminal = true; eventModel.finish(); activeOperation = null; offer = null; cancelPending = false; show('gate'); return; }
-      if (kind === 'offline' || (kind === 'failed' && d.classification === 'offline')) { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'An internet connection is needed to repair LecturePack.'); show(reducedState); return; }
-      if (kind === 'failed') { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', "We couldn't verify the repair download. Your previous runtime is still in place."); show(reducedState); }
+      if (kind === 'admitted') { ready(); return; }
+      if (kind === 'cancelled') { render(); return; }
+      if (kind === 'offline' || (kind === 'failed' && d.classification === 'offline')) { announce('runtime-live-assertive', 'An internet connection is needed to repair LecturePack.'); render(); return; }
+      if (kind === 'failed') { announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', "We couldn't verify the repair download. Your previous runtime is still in place."); render(); }
     }
     function wire() {
       $('btn-runtime-repair').addEventListener('click', beginOffer);
       $('btn-runtime-confirm').addEventListener('click', confirm);
-      $('btn-runtime-back').addEventListener('click', function () { if (activeOperation) lpBridge.cancelRuntimeRepair(activeOperation); activeOperation = null; offer = null; show('gate'); });
+      $('btn-runtime-back').addEventListener('click', function () { var view = eventModel.snapshot(); if (view.activeOperation && !view.terminal) lpBridge.cancelRuntimeRepair(view.activeOperation); eventModel.abandon(); render(); });
       $('btn-runtime-retry').addEventListener('click', retryAssessment);
       $('btn-runtime-offline-retry').addEventListener('click', beginNewRepair);
       $('btn-runtime-failed-retry').addEventListener('click', beginNewRepair);
@@ -2039,7 +2107,7 @@
       document.addEventListener('wheel', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true, passive: false });
       document.addEventListener('pointerdown', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
     }
-    return { admit: admit, event: event, wire: wire, beginBootstrap: function () { setUnderlyingInert(true); }, isOpen: isOpen, state: function () { return state; }, _diagnosticsInvoker: null };
+    return { admit: admit, event: event, wire: wire, beginBootstrap: function () { setUnderlyingInert(true); }, isOpen: isOpen, state: function () { return eventModel.snapshot().state; }, _diagnosticsInvoker: null };
   })();
 
   /* Clears the design-time placeholder chrome shipped in index.html so a fresh

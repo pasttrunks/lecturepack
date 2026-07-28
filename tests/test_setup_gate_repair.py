@@ -71,23 +71,40 @@ def test_gate_uses_canonical_slots_and_authenticated_offer_fields() -> None:
         assert control in gate
 
 
-def test_executable_reducer_seam_filters_stale_and_terminal_events() -> None:
-    """Run the same event filter the browser gate calls, without a new JS dependency."""
+def test_executable_reducer_seam_covers_the_authoritative_gate_lifecycle() -> None:
+    """Execute the exact reducer the DOM controller renders from, without a JS dependency."""
     source = read_ui("app.js")
     model = source.split("function RuntimeSetupGateModel()", 1)[1].split("var RuntimeSetupGate", 1)[0]
     program = "function RuntimeSetupGateModel()" + model + "\n" + r'''
-      const gate = RuntimeSetupGateModel(), offer = {operation_id:'current',app_version:'v',source:'official',affected_components:'Media tools',download_size_bytes:4};
-      gate.begin('current'); if (gate.offer(offer) !== 'confirm') process.exit(1);
-      if (gate.confirm() !== 'repairing') process.exit(2);
-      gate.event({operation_id:'current',kind:'cancel_requested'}); if (!gate.snapshot().cancelling) process.exit(3);
-      if (gate.event({operation_id:'current',kind:'cancelled'}) !== 'gate') process.exit(4);
-      gate.begin('offline'); if (gate.event({operation_id:'offline',kind:'failed',classification:'offline'}) !== 'offline') process.exit(5);
-      gate.begin('failed'); if (gate.event({operation_id:'failed',kind:'failed'}) !== 'failed') process.exit(6);
-      gate.diagnostics(); if (gate.back() !== 'failed') process.exit(7);
-      gate.begin('ready'); if (gate.event({operation_id:'stale',kind:'admitted'}) !== 'gate') process.exit(8);
-      if (gate.event({operation_id:'ready',kind:'admitted'}) !== 'ready') process.exit(9);
-      if (gate.accept({operation_id:'ready',kind:'admitted'})) process.exit(10);
-      gate.begin('retry'); if (!gate.retry() || !gate.snapshot().retryPending) process.exit(11);
+      const gate = RuntimeSetupGateModel();
+      const fail = (n) => process.exit(n);
+      const state = () => gate.snapshot().state;
+      const offer = (id) => ({operation_id:id,app_version:'v',source:'official',affected_components:'Media tools',download_size_bytes:4});
+
+      gate.bootstrap({runtime_health_state:'SETUP_REQUIRED'}); if (state() !== 'gate' || gate.snapshot().bootstrapPending) fail(1);
+      gate.bootstrap({runtime_health_state:'HEALTHY'}); if (!gate.snapshot().healthy) fail(2);
+
+      gate.begin('confirm'); if (state() !== 'gate') fail(3);
+      gate.event({operation_id:'confirm',kind:'metadata_ready',offer:offer('confirm')}); if (state() !== 'confirm') fail(4);
+      gate.confirm(); if (state() !== 'repairing') fail(5);
+      gate.event({operation_id:'confirm',kind:'progress'}); gate.event({operation_id:'confirm',kind:'retrying'}); gate.event({operation_id:'confirm',kind:'activated'});
+      if (state() !== 'repairing') fail(6);
+      gate.event({operation_id:'confirm',kind:'cancel_requested'}); if (!gate.snapshot().cancelPending) fail(7);
+      gate.event({operation_id:'confirm',kind:'cancelled'}); if (state() !== 'gate' || !gate.snapshot().terminal) fail(8);
+
+      gate.begin('retry', 'repairing'); if (state() !== 'repairing') fail(9);
+      gate.retry(); if (!gate.snapshot().retryPending) fail(10);
+      gate.retryResult({runtime_health_state:'SETUP_REQUIRED'}); if (gate.snapshot().retryPending) fail(11);
+
+      gate.begin('offline'); gate.event({operation_id:'offline',kind:'failed',classification:'offline'}); if (state() !== 'offline') fail(12);
+      gate.begin('failed'); gate.event({operation_id:'failed',kind:'failed'}); if (state() !== 'failed') fail(13);
+      gate.diagnostics(); if (state() !== 'diagnostics') fail(14);
+      gate.back(); if (state() !== 'failed') fail(15);
+
+      gate.begin('ready'); gate.event({operation_id:'stale',kind:'admitted'}); if (state() !== 'gate') fail(16);
+      gate.event({operation_id:'ready',kind:'admitted'}); if (state() !== 'ready' || !gate.snapshot().terminal) fail(17);
+      gate.event({operation_id:'ready',kind:'failed'}); if (state() !== 'ready') fail(18);
+      if (gate.accept({operation_id:'ready',kind:'admitted'})) fail(19);
     '''
     result = subprocess.run(["node", "-e", program], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -98,6 +115,7 @@ def test_gate_audit_contract_covers_inert_focus_offline_and_diagnostics_feedback
     markup = read_ui("index.html")
 
     assert "if (inertCaptured) return" in app
+    assert "isNormalFocusable(candidate)" in app and "fallbackFocus" in app
     assert "classification === 'offline'" in app
     assert "Could not copy details." in app and "Could not save report." in app
     assert "bootstrapPending = true" in app and "beginBootstrap" in app
@@ -105,3 +123,19 @@ def test_gate_audit_contract_covers_inert_focus_offline_and_diagnostics_feedback
         assert target in app
     assert "overflow-wrap:anywhere" in app and "-webkit-line-clamp:2" in app
     assert 'aria-live="assertive"' in markup and 'aria-live="polite"' in markup
+
+
+def test_dom_controller_renders_the_same_model_that_node_executes() -> None:
+    app = read_ui("app.js")
+    controller = app.split("var RuntimeSetupGate =", 1)[1].split("/* Clears", 1)[0]
+
+    assert "var state =" not in controller
+    assert "var returnState =" not in controller
+    assert "var activeOperation =" not in controller
+    assert "var terminal =" not in controller
+    assert "var offer =" not in controller
+    assert "var retryPending =" not in controller
+    assert "var cancelPending =" not in controller
+    assert "eventModel.snapshot()" in controller
+    for transition in ("bootstrap(", "begin(", "confirm()", "diagnostics()", "back()", "retry()", "retryResult(", "requestCancel()", "event("):
+        assert transition in controller
