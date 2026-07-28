@@ -89,49 +89,6 @@ def test_full_admission_requires_complete_real_smoke_evidence(tmp_path):
     assert cfg.get("runtime_health") is None
 
 
-def test_default_bootstrap_uses_the_canonical_active_generation_resolver(tmp_path):
-    """Normal startup must admit the active writable generation, not the bundle."""
-    from lecturepack.infrastructure.runtime_generation import RuntimeGenerationStore
-    from lecturepack.infrastructure.runtime_inventory import canonical_inventory
-    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
-
-    bundle = tmp_path / "bundle"
-    source = tmp_path / "source"
-    for root, marker in ((bundle, b"bundle"), (source, b"generation")):
-        for entry in canonical_inventory(("ggml-cpu-test.dll",)):
-            path = root / entry
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(marker + entry.encode("ascii"))
-    profile = tmp_path / "profile"
-    active = RuntimeGenerationStore(profile).publish_from_directory(
-        {entry: source / entry for entry in canonical_inventory(("ggml-cpu-test.dll",))},
-        admit=lambda root: True,
-    )
-
-    class Config:
-        resource_dir = bundle
-
-        def resolve_data_dir(self):
-            return str(profile)
-
-        def get(self, key, default=None):
-            return default
-
-        def persist_runtime_health(self, *args, **kwargs):
-            pass
-
-    service = RuntimeBootstrapService(
-        Config(),
-        inventory_resolver=lambda root: {"bin/ffmpeg.exe": root / "bin" / "ffmpeg.exe"},
-        identity_provider=lambda root: root.name,
-        full_validator=lambda components: _complete_success_evidence(components),
-        optional_resolver=lambda requested: ("whispercpp-cpu", "available"),
-    )
-
-    assert service.runtime_root == active.root
-    assert service.assess(trigger="repair").state == "HEALTHY"
-
-
 def test_bootstrap_persists_complete_facts_and_migrates_once(tmp_path):
     from lecturepack.infrastructure.config_manager import ConfigManager
     from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService

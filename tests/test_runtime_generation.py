@@ -134,3 +134,46 @@ def test_interrupted_journal_or_pointer_never_falls_back_to_bundle(tmp_path: Pat
     assert resolved.ok is False
     assert resolved.root is None
     assert "journal" in resolved.reason.lower()
+
+
+def test_normal_bootstrap_uses_active_generation_and_repair_forces_full_admission(tmp_path: Path) -> None:
+    """The canonical resolver is the only normal bootstrap root source."""
+    from lecturepack.infrastructure.runtime_generation import RuntimeGenerationStore
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    bundle = tmp_path / "bundle"
+    source = tmp_path / "source"
+    _payload(bundle, marker=b"bundle-")
+    source_paths = _payload(source, marker=b"generation-")
+    profile = tmp_path / "profile"
+    active = RuntimeGenerationStore(profile).publish_from_directory(source_paths, admit=lambda root: True)
+    full_calls: list[Path] = []
+
+    class Config:
+        resource_dir = bundle
+
+        def resolve_data_dir(self):
+            return str(profile)
+
+        def get(self, key, default=None):
+            return default
+
+        def persist_runtime_health(self, *args, **kwargs):
+            pass
+
+    service = RuntimeBootstrapService(
+        Config(),
+        inventory_resolver=lambda root: {"bin/ffmpeg.exe": root / "bin" / "ffmpeg.exe"},
+        identity_provider=lambda root: root.name,
+        full_validator=lambda components: full_calls.append(next(iter(components.values()))) or {
+            "bin/ffmpeg.exe": {
+                "healthy": True, "reason": "success", "exit_code": 0,
+                "argv": [], "stdout": "", "stderr": "", "duration_ms": 1, "timed_out": False,
+            },
+        },
+        optional_resolver=lambda requested: ("whispercpp-cpu", "available"),
+    )
+
+    assert service.runtime_root == active.root
+    assert service.assess(trigger="repair").state == "HEALTHY"
+    assert full_calls == [active.root / "bin" / "ffmpeg.exe"]
