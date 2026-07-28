@@ -42,3 +42,22 @@ def test_offer_authenticates_only_manifest_and_signature_before_confirmation():
     assert offer.download_size_bytes > 0
     with pytest.raises(Exception):
         service.confirm_repair("different-offer")
+
+
+def test_setup_bridge_rejects_stale_repair_confirmation(qapp, monkeypatch):
+    import sys
+    app_dir = str(Path(__file__).parents[1] / "app")
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+    from desktop import bridge
+
+    class Result:
+        state = "SETUP_REQUIRED"
+        components = {}
+        fallback_notice = None
+    class Bootstrap:
+        def __init__(self, config): pass
+        def assess(self, **kwargs): return Result()
+    monkeypatch.setattr(bridge, "RuntimeBootstrapService", Bootstrap)
+    backend = bridge.Backend(None)
+    assert backend.confirm_runtime_repair("stale") == '{"type": "invalid_repair_offer"}'
