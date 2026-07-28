@@ -152,7 +152,9 @@ lecturepack/
 └── controllers/desktop_startup.py            # state transition; invokes normal adapter only when healthy
 app/
 ├── desktop/main.py                           # composition; no early MainWindow/adapter readiness
-└── packaging/build.py                        # imports canonical inventory for build gate
+└── packaging/
+    ├── build.py                              # imports canonical inventory for build gate/copies smoke asset
+    └── assets/runtime-smoke.wav              # checked-in 1 s, 16 kHz mono PCM synthetic fixture
 docs/
 └── DECISIONS.md                              # approval-gated signed-manifest ADR
 ```
@@ -171,7 +173,9 @@ Exact names are discretionary; responsibilities are not. [VERIFIED: `01-CONTEXT.
 
 **What:** Maintain a versioned `runtime_health` config object containing inventory schema, app version/payload identity, resolved canonical relative paths, validation timestamp/mode, and per-component status/evidence. Build it in memory; write it atomically only after every required component passes the selected validation. On failure, preserve prior facts for diagnostics but treat them as unusable unless they pass current light validation. [VERIFIED: `01-CONTEXT.md` D-03–D04; `lecturepack/infrastructure/config_manager.py:65-88`]
 
-**Migration:** On beta-6 upgrade, set the default model path to the canonical bundled base-English model if the user has no explicit valid manual selection; preserve alternate installed model records for later reselection. The exact legacy-key distinction must be tested against representative beta-5 `config.json` fixtures before implementation because current settings contain only one `whisper_model` string. [VERIFIED: `01-CONTEXT.md` D-09; `lecturepack/infrastructure/config_manager.py:36-88`] 
+**One-time beta-5 → beta-6 migration:** Use a versioned config marker such as `migration_versions.runtime_contract = 1`, not an every-launch default assignment. When the marker is absent or below `1`, first retain the pre-migration `engine` and `whisper_model` values in memory, complete bundled CPU validation, and then perform one atomic config save containing the healthy runtime facts, canonical bundled paths, migrated values, and marker. Set `whisper_model` to `<runtime_root>/models/ggml-base.en.bin` exactly once. If the prior model is a different existing `.bin`, preserve its absolute path in a de-duplicated `known_whisper_models` list; do not move, rename, overwrite, or delete it. Also retain other files discoverable through `model_search_dirs()` so Settings can offer later manual reselection. On later launches, marker `1` suppresses the migration entirely: light/full health validation still runs, but a user's subsequent model choice is not reset to base.en. [VERIFIED: `01-CONTEXT.md` D-03, D-06, D-09; `lecturepack/infrastructure/config_manager.py:68-104` preserves unknown versioned keys and saves atomically; `lecturepack/infrastructure/transcription_engines.py:285-305` searches bundled, parent, data, and configured-model directories]
+
+For engine migration, normalize the saved alias first and validate it only after CPU admission. Leave `engine` byte-for-byte unchanged when an explicit optional CUDA/Vulkan/custom selection is healthy. If it is missing/broken, atomically set the active `engine` to CPU while preserving the rejected value and reason in structured fallback facts/notice; `auto` remains `auto`. Do not install/probe/download an optional engine to run this migration. If CPU validation fails, write neither the migration marker nor model/engine changes, so retry remains a complete transaction. [VERIFIED: `01-CONTEXT.md` D-03, D-07–D08; `lecturepack/infrastructure/transcription_engines.py:181-278`]
 
 ### Pattern 3: Admission coordinator has a hard, one-way readiness edge
 
@@ -186,8 +190,10 @@ Exact names are discretionary; responsibilities are not. [VERIFIED: `01-CONTEXT.
 ### Smoke specification
 
 - Light validation on every launch: resolve the canonical root, verify each exact entry is a non-empty regular readable file, recompute a deterministic identity from inventory schema + app/payload version + ordered `(relative_path, byte_size, SHA-256)`, and compare it with the persisted healthy snapshot. A missing, changed, unreadable, or out-of-root entry yields `SETUP_REQUIRED`. [VERIFIED: `01-CONTEXT.md` D-03–D04]
-- Full validation is mandatory when no healthy snapshot exists, when app/inventory identity differs, or when a Phase-2 repair records a new generation. It reruns light validation and starts `ffmpeg.exe -version`, `ffprobe.exe -version`, and the CPU `whisper-cli.exe` with canonical model plus a bundled non-user audio smoke input. Capture exact argument vector, start/end/elapsed, exit status, stdout, stderr, timeout/cancel reason, and component id. [VERIFIED: `01-CONTEXT.md` D-04, D-12; `.planning/MILESTONE-CONTEXT.md`]
-- Calibrate separate version and model-load budgets on the mandated minimum CPU; unit tests use short injected budgets and hanging mock binaries. Do not freeze unmeasured durations in this plan. [ASSUMED]
+- Full validation is mandatory when no healthy snapshot exists, when app/inventory identity differs, or when a Phase-2 repair records a new generation. It reruns light validation and starts `ffmpeg.exe -version`, `ffprobe.exe -version`, and the CPU `whisper-cli.exe` smoke below. Capture exact argument vector, start/end/elapsed, exit status, stdout, stderr, timeout/cancel reason, and component id. [VERIFIED: `01-CONTEXT.md` D-04, D-12; `.planning/MILESTONE-CONTEXT.md`]
+- **Exact packaged Whisper smoke:** check in a project-owned, non-speech synthetic fixture at `app/packaging/assets/runtime-smoke.wav`; package it as `<runtime_root>/smoke/runtime-smoke.wav` and include its exact byte size/SHA-256 in the canonical inventory. Its fixed format is RIFF/WAVE, signed 16-bit little-endian PCM (`pcm_s16le`), 16,000 Hz, mono, exactly 16,000 samples (1.000 s), generated from a deterministic non-silent tone and never derived from a lecture or user profile. Invoke with separated arguments: `<runtime_root>/bin/whisper-cli.exe -m <runtime_root>/models/ggml-base.en.bin -f <runtime_root>/smoke/runtime-smoke.wav -t 1 -nt`. Do not add `-of`, so bootstrap creates no transcript files. [VERIFIED: packaged CLI `--help` read-only probe on 2026-07-28 confirmed `-m`, `-f`, `-t`, and `-nt`; `app/packaging/build.py:183-192` confirms the packaged CLI/DLL/model layout]
+- **Success evidence:** require `QProcess.NormalExit`, exit code `0`, elapsed time below the 30,000 ms provisional model-smoke budget, and captured diagnostics showing (a) `load_backend: loaded CPU backend from` a canonical `<runtime_root>/bin/ggml-cpu-*.dll`, (b) `loading model from` the canonical `ggml-base.en.bin`, (c) a nonzero model-size/load record, and (d) `read_audio_data`/`main: processing` for the canonical smoke WAV. Those observations jointly execute the EXE, Windows loader-selected CPU DLL, model parser/allocation, WAV decoder, and inference path; an existence/hash check alone proves none of those runtime behaviors. Match stable prefixes/contained canonical paths, not hardware-specific DLL names or timings. [VERIFIED: read-only run of the existing protected `app/dist/LecturePack` payload on 2026-07-28 loaded packaged `ggml-cpu-haswell.dll`, loaded the 147.37 MB base model, decoded PCM WAV, exited `0`, and completed in 6,972 ms]
+- **Timeout/error evidence:** start a single-shot 30,000 ms timer with the Whisper `QProcess`; on expiry, record `state=TIMEOUT`, component id, exact program/argument vector, elapsed time, partial stdout/stderr, and process error/exit fields, then terminate only that process tree and keep admission non-healthy. Version probes use separate 5,000 ms budgets. Tests inject shorter budgets and the no-output hang fixture; the 30-second production budget must still be confirmed on the minimum i7-9700F before release. [VERIFIED: `01-CONTEXT.md` D-12–D13; measured packaged smoke above; ASSUMED only for final minimum-machine calibration]
 - Terminate only the smoke process tree on timeout; never direct a smoke command at user input, source video, job root, or original lecture. [VERIFIED: AGENTS.md safety; `docs/PRODUCT_SPEC.md` P5–P7]
 
 ### Anti-Patterns to Avoid
@@ -305,22 +311,19 @@ Use injected runners/fake QProcess in unit tests and the real packaged payload i
 
 | # | Claim | Section | Risk if Wrong |
 |---|---|---|---|
-| A1 | Separate calibrated time budgets will be needed for version and model smoke. | Smoke specification | False timeout / unacceptable startup delay; calibrate on target CPU. |
+| A1 | The measured 6,972 ms packaged model smoke supports a provisional 30,000 ms production budget, but final calibration still requires the minimum i7-9700F. | Smoke specification | False timeout / unacceptable startup delay; retain the release calibration gate. |
 | A2 | Base64url-no-padding, sorted-key compact UTF-8 JSON, and an expiry/replay policy are suitable ADR defaults. | ADR checkpoint | Signing/release tooling interoperability; user must approve exact form. |
 | A3 | PowerShell/`certutil` are poor fits for this app’s signed-manifest verifier. | ADR comparison | Could exclude a valid platform approach; it remains a rejected recommendation, not a fact. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **What exact binary/audio invocation proves CPU Whisper DLL plus model loading?**
-   - What we know: package contains CLI/model and mock fixtures exist; model smoke must not use a user lecture. [VERIFIED: `app/packaging/build.py:159-199`; `tests/fixtures/mock_whisper.py`]
-   - What's unclear: the exact whisper.cpp version flags and smallest bundled smoke WAV.
-   - Recommendation: create/record a project-owned tiny silence or spoken WAV and validate flags against the frozen CLI before freezing budgets.
-2. **How will beta-5 distinguish an explicit custom model choice from an old default?**
-   - What we know: current config stores one `whisper_model` string. [VERIFIED: `lecturepack/infrastructure/config_manager.py:36-88`]
-   - Recommendation: inspect real/synthetic beta-5 config fixtures and make migration behavior explicit before writing code.
-3. **Who owns signing keys and revocation communication?**
-   - What we know: RUNT-09 requires custody/rotation/revocation and release ownership. [VERIFIED: `01-CONTEXT.md` D-10]
-   - Recommendation: require human ADR approval; this is operational authority, not an implementation inference.
+1. **Resolved — exact binary/audio invocation proving CPU Whisper DLL plus model loading.**
+   - Add the checked-in deterministic fixture `app/packaging/assets/runtime-smoke.wav` and package it as `smoke/runtime-smoke.wav`: 1.000 s, 16 kHz, mono, signed 16-bit little-endian PCM, non-silent synthetic tone, canonical-inventory hashed, and never sourced from user content. Run `<runtime_root>/bin/whisper-cli.exe -m <runtime_root>/models/ggml-base.en.bin -f <runtime_root>/smoke/runtime-smoke.wav -t 1 -nt` with a 30,000 ms QProcess deadline and no output-file flag. [VERIFIED: packaged CLI `--help` and existing layout inspection on 2026-07-28; `app/packaging/build.py:183-192`]
+   - Success requires normal exit `0` plus captured stable-prefix evidence for a CPU backend DLL loaded from canonical `bin`, the canonical model load/model size, WAV read, and processing. Timeout/nonzero/process-error results record exact argv, elapsed, partial streams, status/reason, terminate only the smoke tree, and keep admission closed. A read-only analog run using the current protected packaged CLI/model and existing 16 kHz mono `pcm_s16le` `tests/fixtures/sapi_speech.wav` exited `0` in 6,972 ms and emitted all four evidence classes; the planning worktree itself has no checked-in WAV yet, so the new 1-second asset is an explicit Wave 0/package deliverable. [VERIFIED: local packaged probe and `ffprobe` inspection on 2026-07-28]
+2. **Resolved — one-time beta-5 → beta-6 migration semantics.**
+   - Gate migration with `migration_versions.runtime_contract = 1`. With no marker, preserve a healthy saved optional engine selection, set the canonical bundled base-English model as default exactly once, preserve a different existing prior model in `known_whisper_models`, and atomically write these values with healthy runtime facts and the marker. A broken optional engine becomes CPU with a structured fallback notice retaining requested engine/reason; CPU failure writes nothing. With marker `1`, never reset `whisper_model` or repeat fallback migration, so later manual model selection survives every launch. [VERIFIED: `01-CONTEXT.md` D-03, D-07–D09; `lecturepack/infrastructure/config_manager.py:68-104`; `lecturepack/infrastructure/transcription_engines.py:181-305`]
+3. **Resolved by mandatory human checkpoint — signing-key ownership and revocation communication.**
+   - RUNT-09 cannot be settled by code inference. The `docs/DECISIONS.md` ADR must name the verifier choice, signing/release owner, private-key custodian, backup/rotation/revocation authority, incident communication path, and approver; Phase 2 remains blocked until that named human approval is recorded. [VERIFIED: `01-CONTEXT.md` D-10–D11]
 
 ## Environment Availability
 
@@ -352,9 +355,9 @@ Use injected runners/fake QProcess in unit tests and the real packaged payload i
 | RUNT-01 | Fresh disposable profile resolves every exact bundled component | unit/integration | `pytest tests/test_runtime_inventory.py -q` | ❌ Wave 0 |
 | RUNT-02 | Same inventory drives package check, diagnostics, bootstrap | unit | `pytest tests/test_runtime_inventory.py -q` | ❌ Wave 0 |
 | RUNT-03 | No partial/stale facts persist; healthy facts atomically do | unit | `pytest tests/test_runtime_bootstrap.py -q` | ❌ Wave 0 |
-| RUNT-04 | light/full decision and smoke success/nonzero/hang evidence | unit + process fixture | `pytest tests/test_runtime_bootstrap.py -q` | ❌ Wave 0 |
+| RUNT-04 | light/full decision; exact real-CLI/model/WAV smoke plus success/nonzero/hang/timeout evidence | unit + packaged process fixture | `pytest tests/test_runtime_bootstrap.py tests/test_runtime_packaged_smoke.py -q` | ❌ Wave 0 |
 | RUNT-05 | no adapter/controller/readiness/probe before healthy; exactly one after | controller integration | `pytest tests/test_adapter_startup.py tests/test_runtime_bootstrap.py -q` | ◐ extend |
-| RUNT-06 | beta-5 model migration chooses base.en and preserves alternatives | migration unit | `pytest tests/test_runtime_bootstrap.py -q` | ❌ Wave 0 |
+| RUNT-06 | marker-v1 beta-5 migration selects base.en once, preserves prior/alternate models, and never resets later choice | migration unit | `pytest tests/test_runtime_bootstrap.py -q` | ❌ Wave 0 |
 | RUNT-07 | healthy optional selection remains selected after CPU admission | unit | `pytest tests/test_cuda_engine.py -q` | ✅ extend |
 | RUNT-08 | broken CUDA/Vulkan/custom resolves CPU + structured notice/no network | unit/controller | `pytest tests/test_cuda_engine.py tests/test_runtime_bootstrap.py -q` | ◐ extend |
 | RUNT-09 | ADR has all mandatory fields; known-good/bad verifier vectors once approved | documentation/static test + manual approval | `pytest tests/test_signing_adr_contract.py -q` | ❌ Wave 0; human checkpoint |
@@ -362,11 +365,11 @@ Use injected runners/fake QProcess in unit tests and the real packaged payload i
 ### Required test matrix
 
 - Inventory: missing, empty, unreadable, byte-corrupt each executable/model/DLL including every resolved `ggml-cpu-*.dll`; absolute/traversal/duplicate inventory entry; changed app version/identity. [VERIFIED: `tests/test_beta3_packaging.py:73-91`; `01-CONTEXT.md` D-02–D04]
-- Bootstrap: fresh, healthy light launch, stale saved paths, partial facts, identity-changed full smoke, update/repair-forced full smoke; persistence only after all checks pass. [VERIFIED: `01-CONTEXT.md` D-03–D04]
-- Smoke: ffmpeg/ffprobe success, nonzero, no output hang/timeout, Whisper DLL/model load success/failure; assert captured argument vector/exit/stdout/stderr/duration/reason. [VERIFIED: `01-CONTEXT.md` D-12–D13]
+- Bootstrap: fresh, healthy light launch, stale saved paths, partial facts, identity-changed full smoke, update/repair-forced full smoke; persistence only after all checks pass. Add beta-5 configs with no marker, healthy CUDA/Vulkan/custom, broken optional engine, alternate prior model, migration failure, marker `1` plus later user-selected model, and two consecutive launches; assert one atomic migration and no second-launch reset. [VERIFIED: `01-CONTEXT.md` D-03–D09]
+- Smoke: validate the exact packaged argument vector and `runtime-smoke.wav` inventory hash/format; cover ffmpeg/ffprobe success, nonzero, no-output hang/timeout, Whisper stable success prefixes, missing CPU DLL, bad model, unreadable WAV, nonzero, and timeout. Assert captured argv/exit/stdout/stderr/duration/reason and no `-of`/output artifact. [VERIFIED: `01-CONTEXT.md` D-12–D13; packaged read-only probe on 2026-07-28]
 - Ordering: fake slow/failed bootstrap verifies no `JobController`, `on_ui_ready`, job signal, Ollama probe, CUDA/Vulkan validation, or demo action prior to `HEALTHY`; success verifies exactly one normal-ready sequence. [VERIFIED: `app/desktop/engine_adapter.py:694-720,951-971`; `01-CONTEXT.md` D-05]
 - Optional engines: CPU only; valid saved CUDA/custom; missing CUDA driver/executable/DLL; Vulkan unavailable; preserve valid preference, CPU fallback notice, zero admission network calls. [VERIFIED: `lecturepack/infrastructure/transcription_engines.py:194-272`; `tests/test_cuda_engine.py`]
-- Packaged smoke (required completion evidence): copy a clean onedir fixture/path with spaces and non-ASCII characters, set a fresh `LECTUREPACK_DATA_DIR`, run real bundled CLIs and model smoke, and collect evidence. This remains a Phase-1 targeted/disposable proof, not Phase-5’s full physical matrix. [VERIFIED: `tests/test_data_dir_override.py:1-109`; `01-CONTEXT.md` D-13]
+- Packaged smoke (required completion evidence): copy a clean onedir fixture/path with spaces and non-ASCII characters, set a fresh `LECTUREPACK_DATA_DIR`, and execute the exact real CLI/model/`smoke/runtime-smoke.wav` argument vector. Require normal exit `0`, backend-DLL/model/WAV/processing markers, elapsed <30 s, no transcript artifact, and a persisted healthy identity; separately force timeout to prove the gate stays closed. This remains a Phase-1 targeted/disposable proof, not Phase-5’s full physical matrix. [VERIFIED: `tests/test_data_dir_override.py:1-109`; `01-CONTEXT.md` D-13]
 
 ### Sampling Rate
 
@@ -378,6 +381,8 @@ Use injected runners/fake QProcess in unit tests and the real packaged payload i
 
 - [ ] `tests/test_runtime_inventory.py` — canonical entry/path/identity/package-consumer fault matrix.
 - [ ] `tests/test_runtime_bootstrap.py` — persistence, light/full policy, runner evidence, ordering, migration, fallback notice.
+- [ ] `app/packaging/assets/runtime-smoke.wav` — checked-in, project-owned deterministic 1.000 s 16 kHz mono `pcm_s16le` tone; copied to `smoke/runtime-smoke.wav` and included in canonical inventory/package gate.
+- [ ] `tests/test_runtime_packaged_smoke.py` — exact real packaged CLI/model/WAV execution and evidence assertions under a disposable Unicode/space path.
 - [ ] `tests/fixtures/mock_runtime_hang.py` — deterministic no-output hang; do not use real binaries for timeout branch.
 - [ ] `tests/test_signing_adr_contract.py` — required ADR fields and known-good/altered-byte vector after approval.
 - [ ] Packaged disposable subprocess harness/fixture — no mocks as proof for the real CPU payload.

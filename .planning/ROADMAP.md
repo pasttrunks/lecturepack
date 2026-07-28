@@ -26,12 +26,19 @@ Beta 6 makes the portable app dependable on clean Windows machines: establish a 
   3. Users cannot reach normal navigation, job activation, optional-engine probing, or demo startup until runtime health is `HEALTHY`.
   4. A healthy saved optional engine remains selected; if it is unavailable, users enter with the validated bundled CPU path and see a clear fallback notice.
   5. An explicitly approved ADR defines the signed-manifest verifier, trust/key lifecycle, canonical manifest/versioned asset contract, and PyInstaller validation required before repair implementation.
-**Plans**: TBD
+**Plans**: 0/4 plans executed
 
-Likely plan slices:
-- [ ] 01-01: Canonical inventory, identity/validation policy, and disposable-profile test seams.
-- [ ] 01-02: Bootstrap/coordinator admission boundary, persistence, upgrade migration, and optional-engine fallback.
-- [ ] 01-03: Verifier and signing-contract ADR with approval/evidence gate.
+**Wave 0**
+- [ ] `01-01-PLAN.md` — Canonical inventory, Wave 0 validation seams, and a blocking disposable packaged-runtime smoke.
+
+**Wave 1** *(blocked on Wave 0 completion)*
+- [ ] `01-02-PLAN.md` — Bootstrap persistence, one-time beta-5 migration, and optional-engine fallback.
+- [ ] `01-04-PLAN.md` — Approval-gated signing/verifier ADR, followed by contract-vector and full-suite evidence only after approval.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] `01-03-PLAN.md` — Active beta-5 desktop admission/status seam and the Phase 1 handoff.
+
+Cross-cutting constraints: preserve unrelated comments, docstrings, user data, and original lecture videos; do not implement Phase 2 repair or add an unapproved verifier dependency; run the targeted tests named by each task, the full suite at each plan gate, and the real packaged-runtime smoke where specified.
 
 Canonical references: `.planning/PROJECT.md`, `.planning/MILESTONE-CONTEXT.md`, `.planning/research/SUMMARY.md`, `docs/DECISIONS.md`.
 
@@ -128,7 +135,7 @@ Canonical references: `.planning/MILESTONE-CONTEXT.md`, `.planning/research/SUMM
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Runtime Contract & Bootstrap | 0/TBD | Ready to plan | - |
+| 1. Runtime Contract & Bootstrap | 0/4 | Planned — approved; implementation not started | - |
 | 2. Hard Setup & Signed Repair | 0/TBD | Blocked — Phase 1 ADR approval | - |
 | 3. Empty Launch & Guided Demo | 0/TBD | Not started | - |
 | 4. Visual Artifact Reliability | 0/TBD | Not started | - |

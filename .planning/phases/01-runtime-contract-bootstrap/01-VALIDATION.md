@@ -17,7 +17,7 @@ created: 2026-07-27
 |----------|-------|
 | **Framework** | pytest + existing PySide6 `qapp` fixture |
 | **Config file** | `pytest.ini`, `tests/conftest.py` |
-| **Quick run command** | `pytest tests/test_runtime_inventory.py tests/test_runtime_bootstrap.py tests/test_adapter_startup.py tests/test_beta3_packaging.py tests/test_cuda_engine.py -q` |
+| **Quick run command** | `pytest tests/test_runtime_inventory.py tests/test_runtime_bootstrap.py tests/test_runtime_packaged_smoke.py tests/test_adapter_startup.py tests/test_beta3_packaging.py tests/test_cuda_engine.py -q` |
 | **Full suite command** | `pytest` |
 | **Estimated runtime** | Calibrate during Wave 0 and record actual output; no guessed completion claim |
 
@@ -35,7 +35,7 @@ created: 2026-07-27
 | RUNT-01 | Fresh disposable profile resolves the exact bundled CPU set | unit/integration | `pytest tests/test_runtime_inventory.py -q` | ❌ Wave 0 | ⬜ pending |
 | RUNT-02 | Startup, package checks, diagnostics, and later repair consume one inventory | unit/static | `pytest tests/test_runtime_inventory.py tests/test_beta3_packaging.py -q` | ◐ extend | ⬜ pending |
 | RUNT-03 | No partial/stale facts persist; complete healthy facts persist atomically | unit | `pytest tests/test_runtime_bootstrap.py -q` | ❌ Wave 0 | ⬜ pending |
-| RUNT-04 | Light/full policy covers success, nonzero, hang, timeout, and identity changes | unit/process fixture | `pytest tests/test_runtime_bootstrap.py -q` | ❌ Wave 0 | ⬜ pending |
+| RUNT-04 | Light/full policy covers the exact real CLI/model/WAV smoke, success, nonzero, hang, timeout, and identity changes | unit/packaged process fixture | `pytest tests/test_runtime_bootstrap.py tests/test_runtime_packaged_smoke.py -q` | ❌ Wave 0 | ⬜ pending |
 | RUNT-05 | No controller/readiness/probe behavior occurs before `HEALTHY`; exactly one transition follows | controller integration | `pytest tests/test_adapter_startup.py tests/test_runtime_bootstrap.py -q` | ◐ extend | ⬜ pending |
 | RUNT-06 | Upgrade selects base.en and preserves alternative models | migration unit | `pytest tests/test_runtime_bootstrap.py -q` | ❌ Wave 0 | ⬜ pending |
 | RUNT-07 | Healthy optional selection remains after CPU admission | unit | `pytest tests/test_cuda_engine.py -q` | ✅ extend | ⬜ pending |
@@ -45,8 +45,8 @@ created: 2026-07-27
 ## Required Fault Matrix
 
 - Inventory: missing, empty, unreadable, corrupt executable/model/DLL; every resolved `ggml-cpu-*.dll`; absolute/traversal/duplicate entry; changed version/identity.
-- Bootstrap: fresh, healthy light launch, stale saved paths, partial facts, identity-changed full smoke, update/repair-forced full smoke, persistence only after all checks pass.
-- Smoke: ffmpeg/ffprobe success, nonzero, no-output hang/timeout; Whisper DLL/model load success/failure; captured argument vector, exit code, stdout, stderr, duration, and reason.
+- Bootstrap: fresh, healthy light launch, stale saved paths, partial facts, identity-changed full smoke, update/repair-forced full smoke, persistence only after all checks pass; marker-v1 migration preserves healthy optional engine selection, records requested/reason on fallback, selects base.en once, retains alternative models, and never resets a later manual choice.
+- Smoke: package the project-owned 1.000 s, 16 kHz, mono `pcm_s16le` fixture from `app/packaging/assets/runtime-smoke.wav` to `smoke/runtime-smoke.wav`; invoke `bin/whisper-cli.exe -m models/ggml-base.en.bin -f smoke/runtime-smoke.wav -t 1 -nt` with a 30,000 ms deadline and no output-file flag. Cover ffmpeg/ffprobe success, nonzero, no-output hang/timeout; Whisper backend-DLL/model/WAV/processing evidence, missing DLL, bad model, unreadable WAV, nonzero, and timeout; capture argument vector, exit code, stdout, stderr, duration, and reason.
 - Ordering: slow/failed bootstrap proves no `JobController`, `on_ui_ready`, job signal, Ollama probe, CUDA/Vulkan validation, or demo action before `HEALTHY`; success proves exactly one normal-ready sequence.
 - Optional engines: CPU only, valid saved CUDA/custom, missing optional executable/DLL/driver, Vulkan unavailable; valid preference preserved, invalid preference visibly falls back, zero admission network calls.
 - Packaged smoke: onedir path with spaces/non-ASCII, fresh `LECTUREPACK_DATA_DIR`, real bundled CLIs and bounded model input, captured evidence; mocks cannot substitute for this proof.
@@ -55,6 +55,8 @@ created: 2026-07-27
 
 - [ ] `tests/test_runtime_inventory.py` — canonical entry/path/identity/package-consumer matrix.
 - [ ] `tests/test_runtime_bootstrap.py` — persistence, light/full policy, runner evidence, ordering, migration, and fallback notice.
+- [ ] `app/packaging/assets/runtime-smoke.wav` — project-owned deterministic 1.000 s, 16 kHz, mono signed 16-bit little-endian PCM tone, hashed in canonical inventory and packaged as `smoke/runtime-smoke.wav`.
+- [ ] `tests/test_runtime_packaged_smoke.py` — exact real packaged CLI/model/WAV execution and evidence assertions under a disposable Unicode/space path; missing package fixture blocks rather than skips Phase 1 evidence.
 - [ ] `tests/fixtures/mock_runtime_hang.py` — deterministic no-output hang for the timeout branch.
 - [ ] `tests/test_signing_adr_contract.py` — required ADR fields and known-good/altered-byte verifier vectors after approval.
 - [ ] Packaged disposable subprocess harness/fixture — real CPU payload proof without owner/developer data.
@@ -78,4 +80,3 @@ created: 2026-07-27
 - [ ] `nyquist_compliant: true` and `wave_0_complete: true` are set only after the evidence exists.
 
 **Approval:** pending
-
