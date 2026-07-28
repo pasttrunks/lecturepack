@@ -27,6 +27,11 @@ class RuntimeBootstrapService:
     driver or optional-DLL failures from becoming a startup dependency.
     """
 
+    _FULL_SUCCESS_EVIDENCE_FIELDS = frozenset({
+        "healthy", "reason", "exit_code", "argv", "stdout", "stderr",
+        "duration_ms", "timed_out",
+    })
+
     def __init__(
         self,
         config_manager,
@@ -100,7 +105,9 @@ class RuntimeBootstrapService:
         # Light validation is safe exclusively after a complete successful full
         # admission; failed or partial evidence must be re-proven by the smoke.
         return not all(
-            isinstance(component, Mapping) and component.get("healthy") is True
+            isinstance(component, Mapping)
+            and component.get("healthy") is True
+            and RuntimeBootstrapService._FULL_SUCCESS_EVIDENCE_FIELDS <= component.keys()
             for component in components.values()
         )
 

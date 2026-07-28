@@ -8,6 +8,23 @@ import pytest
 from lecturepack.infrastructure.runtime_validation import RuntimeValidator
 
 
+def _complete_success_evidence(components):
+    """Produce the persisted evidence shape required for light revalidation."""
+    return {
+        key: {
+            "healthy": True,
+            "reason": "success",
+            "exit_code": 0,
+            "argv": [key, "-version"],
+            "stdout": "",
+            "stderr": "",
+            "duration_ms": 1,
+            "timed_out": False,
+        }
+        for key in components
+    }
+
+
 def test_full_admission_rejects_nonempty_corrupt_model_with_real_smoke_evidence(tmp_path, monkeypatch):
     """Readability alone must not admit a canonical model as healthy."""
     from lecturepack.infrastructure.runtime_validation import SmokeEvidence
@@ -86,7 +103,7 @@ def test_bootstrap_persists_complete_facts_and_migrates_once(tmp_path):
         cfg,
         inventory_resolver=lambda root: {"bin/ffmpeg.exe": tmp_path / "ffmpeg.exe", "models/ggml-base.en.bin": tmp_path / "base.bin"},
         identity_provider=lambda root: "payload-v1",
-        full_validator=lambda components: calls.append(components) or {key: {"healthy": True} for key in components},
+        full_validator=lambda components: calls.append(components) or _complete_success_evidence(components),
         runtime_root=tmp_path,
     )
 
@@ -158,6 +175,38 @@ def test_same_identity_failed_evidence_requires_full_validation_and_stays_unheal
     assert result.validation_mode == "full"
     assert len(calls) == 1
     assert cfg.get("runtime_health")["components"]["bin/ffmpeg.exe"]["healthy"] is False
+
+
+def test_same_identity_healthy_only_evidence_requires_full_validation(tmp_path):
+    """Positive persisted booleans without smoke evidence cannot take the light path."""
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    cfg = ConfigManager(str(tmp_path))
+    executable = tmp_path / "ffmpeg.exe"
+    executable.write_bytes(b"nonempty")
+    cfg.settings["runtime_health"] = {
+        "identity": "payload-v1",
+        "components": {"bin/ffmpeg.exe": {"healthy": True}},
+        "validation_mode": "full",
+    }
+    calls = []
+    service = RuntimeBootstrapService(
+        cfg,
+        runtime_root=tmp_path,
+        inventory_resolver=lambda root: {"bin/ffmpeg.exe": executable},
+        identity_provider=lambda root: "payload-v1",
+        full_validator=lambda components: calls.append(components) or {
+            "bin/ffmpeg.exe": {"healthy": False, "reason": "smoke failed"},
+        },
+    )
+
+    result = service.assess()
+
+    assert result.state == "SETUP_REQUIRED"
+    assert result.validation_mode == "full"
+    assert len(calls) == 1
+    assert cfg.get("runtime_health")["components"]["bin/ffmpeg.exe"] == {"healthy": True}
 
 
 def test_incomplete_full_validation_cannot_become_healthy_state(tmp_path):
