@@ -76,14 +76,18 @@ def test_executable_reducer_seam_filters_stale_and_terminal_events() -> None:
     source = read_ui("app.js")
     model = source.split("function RuntimeSetupGateModel()", 1)[1].split("var RuntimeSetupGate", 1)[0]
     program = "function RuntimeSetupGateModel()" + model + "\n" + r'''
-      const gate = RuntimeSetupGateModel();
-      gate.begin('current');
-      if (!gate.accept({operation_id:'current'})) process.exit(1);
-      if (gate.accept({operation_id:'stale'})) process.exit(2);
-      gate.finish();
-      if (gate.accept({operation_id:'current'})) process.exit(3);
-      gate.reset();
-      if (gate.accept({operation_id:'current'})) process.exit(4);
+      const gate = RuntimeSetupGateModel(), offer = {operation_id:'current',app_version:'v',source:'official',affected_components:'Media tools',download_size_bytes:4};
+      gate.begin('current'); if (gate.offer(offer) !== 'confirm') process.exit(1);
+      if (gate.confirm() !== 'repairing') process.exit(2);
+      gate.event({operation_id:'current',kind:'cancel_requested'}); if (!gate.snapshot().cancelling) process.exit(3);
+      if (gate.event({operation_id:'current',kind:'cancelled'}) !== 'gate') process.exit(4);
+      gate.begin('offline'); if (gate.event({operation_id:'offline',kind:'failed',classification:'offline'}) !== 'offline') process.exit(5);
+      gate.begin('failed'); if (gate.event({operation_id:'failed',kind:'failed'}) !== 'failed') process.exit(6);
+      gate.diagnostics(); if (gate.back() !== 'failed') process.exit(7);
+      gate.begin('ready'); if (gate.event({operation_id:'stale',kind:'admitted'}) !== 'gate') process.exit(8);
+      if (gate.event({operation_id:'ready',kind:'admitted'}) !== 'ready') process.exit(9);
+      if (gate.accept({operation_id:'ready',kind:'admitted'})) process.exit(10);
+      gate.begin('retry'); if (!gate.retry() || !gate.snapshot().retryPending) process.exit(11);
     '''
     result = subprocess.run(["node", "-e", program], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr

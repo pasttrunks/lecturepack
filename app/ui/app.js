@@ -1836,15 +1836,20 @@
      its canonical admission/repair events; it never infers health or sizes. */
   /* Pure event filter used by the DOM controller and executable Node tests. */
   function RuntimeSetupGateModel() {
-    var operation = null, terminal = false;
-    return { begin: function (id) { operation = id; terminal = false; },
-      accept: function (event) { return !!(event && event.operation_id === operation && !terminal); },
-      finish: function () { terminal = true; }, reset: function () { operation = null; terminal = false; } };
+    var state = 'gate', operation = null, terminal = false, offer = null, returnState = 'gate', cancelling = false, retryPending = false;
+    function valid(o) { return !!(o && o.operation_id === operation && o.app_version && o.source && o.affected_components && Number.isSafeInteger(o.download_size_bytes) && o.download_size_bytes >= 0); }
+    return { begin: function (id) { operation = id; terminal = false; offer = null; cancelling = false; state = 'gate'; },
+      accept: function (e) { return !!(e && e.operation_id === operation && !terminal); },
+      offer: function (o) { if (!this.accept(o)) return state; offer = o; state = valid(o) ? 'confirm' : 'failed'; terminal = state === 'failed'; return state; },
+      confirm: function () { if (state === 'confirm' && valid(offer)) state = 'repairing'; return state; },
+      diagnostics: function () { returnState = state; state = 'diagnostics'; return state; }, back: function () { state = returnState; return state; },
+      retry: function () { retryPending = true; return retryPending; }, event: function (e) { if (!this.accept(e)) return state; if (e.kind === 'cancel_requested') cancelling = true; else if (e.kind === 'cancelled') { terminal = true; state = 'gate'; } else if (e.kind === 'admitted') { terminal = true; state = 'ready'; } else if (e.kind === 'offline' || (e.kind === 'failed' && e.classification === 'offline')) { terminal = true; state = 'offline'; } else if (e.kind === 'failed') { terminal = true; state = 'failed'; } return state; },
+      finish: function () { terminal = true; }, reset: function () { operation = null; terminal = false; offer = null; state = 'gate'; }, snapshot: function () { return {state:state,activeOperation:operation,terminal:terminal,offer:offer,returnState:returnState,cancelling:cancelling,retryPending:retryPending}; } };
   }
   var RuntimeSetupGate = (function () {
     var STATES = ['gate', 'diagnostics', 'confirm', 'repairing', 'offline', 'failed', 'ready'];
     var state = 'gate', returnState = 'gate', activeOperation = null, terminal = false;
-    var offer = null, snapshot = null, retryPending = false, cancelPending = false, restoreInert = [], inertCaptured = false, bootstrapPending = true;
+    var offer = null, snapshot = null, retryPending = false, cancelPending = false, restoreInert = [], inertCaptured = false, bootstrapPending = true, priorFocus = null;
     var eventModel = RuntimeSetupGateModel();
 
     function overlay() { return $('runtime-setup-overlay'); }
@@ -1870,6 +1875,7 @@
       var children = root.children;
       if (open) {
         if (inertCaptured) return;
+        priorFocus = document.activeElement;
         restoreInert = [];
         Array.prototype.forEach.call(children, function (child) {
           if (child === overlay()) return;
@@ -1932,13 +1938,16 @@
     function closeReady() {
       var el = overlay(); if (!el || state !== 'ready') return;
       setUnderlyingInert(false); el.hidden = true; activeOperation = null; offer = null; eventModel.reset();
+      var home = document.querySelector('[data-nav="home"], [data-screen-nav="home"], #nav-home');
+      if (priorFocus && priorFocus.isConnected && !priorFocus.closest('#runtime-setup-overlay')) priorFocus.focus();
+      else if (home) home.focus();
     }
     function admit(bootstrap) {
       bootstrapPending = false; snapshot = bootstrap && bootstrap.setup_required || bootstrap || snapshot;
       if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') { show('gate'); return; }
       if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !activeOperation) { setUnderlyingInert(false); return; }
       if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && activeOperation && !terminal) {
-        terminal = true; eventModel.finish(); announce('runtime-live-polite', "You're ready"); show('ready');
+        terminal = true; eventModel.finish(); announce('runtime-live-assertive', "You're ready"); show('ready');
         if (LP.motion.reduced()) closeReady(); else setTimeout(closeReady, 800);
       }
     }
@@ -1949,7 +1958,7 @@
       lpBridge.beginRuntimeRepairOffer(activeOperation).then(function () {});
     }
     function confirm() {
-      if (!validOffer(offer) || terminal || state !== 'confirm') return;
+      if (!validOffer(offer) || terminal || eventModel.confirm() !== 'repairing') return;
       show('repairing'); text('runtime-progress-text', 'Downloading'); lpBridge.confirmRuntimeRepair(activeOperation);
     }
     function retryAssessment() {
@@ -1988,7 +1997,7 @@
           download_size_bytes: o.download_size_bytes,
           download_size_label: typeof o.download_size_bytes === 'number' && Number.isSafeInteger(o.download_size_bytes) && o.download_size_bytes >= 0 ? formatOfferSize(o.download_size_bytes) : '',
           technical_details: o.technical_details || '' };
-        if (!validOffer(offer)) { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'Repair could not be completed.'); show('failed'); return; }
+        if (eventModel.offer({operation_id:d.operation_id,app_version:offer.app_version,source:offer.source,affected_components:offer.affected_components,download_size_bytes:offer.download_size_bytes}) !== 'confirm' || !validOffer(offer)) { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'Repair could not be completed.'); show('failed'); return; }
         $('btn-runtime-repair').disabled = false; show('confirm'); return;
       }
       if (kind === 'started') { show('repairing'); return; }
@@ -2003,10 +2012,11 @@
       if (kind === 'retrying') { text('runtime-progress-text', 'Connection interrupted — retrying…'); return; }
       if (kind === 'cancel_requested') { cancelPending = true; $('btn-runtime-cancel').disabled = true; text('btn-runtime-cancel', 'Finishing a safe step…'); return; }
       if (kind === 'activated') { text('runtime-progress-text', 'Almost there'); return; }
-      if (kind === 'admitted') { terminal = true; eventModel.finish(); announce('runtime-live-polite', "You're ready"); show('ready'); if (LP.motion.reduced()) closeReady(); else setTimeout(closeReady, 800); return; }
+      var reducedState = eventModel.event(d);
+      if (kind === 'admitted') { terminal = true; eventModel.finish(); announce('runtime-live-assertive', "You're ready"); show(reducedState); if (LP.motion.reduced()) closeReady(); else setTimeout(closeReady, 800); return; }
       if (kind === 'cancelled') { terminal = true; eventModel.finish(); activeOperation = null; offer = null; cancelPending = false; show('gate'); return; }
-      if (kind === 'offline' || (kind === 'failed' && d.classification === 'offline')) { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'An internet connection is needed to repair LecturePack.'); show('offline'); return; }
-      if (kind === 'failed') { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', "We couldn't verify the repair download. Your previous runtime is still in place."); show('failed'); }
+      if (kind === 'offline' || (kind === 'failed' && d.classification === 'offline')) { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'An internet connection is needed to repair LecturePack.'); show(reducedState); return; }
+      if (kind === 'failed') { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', "We couldn't verify the repair download. Your previous runtime is still in place."); show(reducedState); }
     }
     function wire() {
       $('btn-runtime-repair').addEventListener('click', beginOffer);
