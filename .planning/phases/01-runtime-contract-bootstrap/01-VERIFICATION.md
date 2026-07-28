@@ -1,6 +1,6 @@
 ---
 phase: 01-runtime-contract-bootstrap
-verified: 2026-07-28T15:51:29Z
+verified: 2026-07-28T16:05:00Z
 status: passed
 score: 9/9 must-haves verified
 behavior_unverified: 0
@@ -31,7 +31,7 @@ requirements:
 # Phase 1: Runtime Contract & Bootstrap Verification Report
 
 **Phase Goal:** A clean installation can deterministically establish and persist a healthy bundled CPU processing runtime before any normal application behavior begins.
-**Verified:** 2026-07-28T15:51:29Z
+**Verified:** 2026-07-28T16:05:00Z
 **Status:** passed
 **Re-verification:** Yes — after gap closure
 
@@ -42,9 +42,9 @@ requirements:
 | # | Truth | Status | Evidence |
 | --- | --- | --- | --- |
 | 1 | RUNT-01 — Fresh portable profile discovers and validates the complete packaged CPU runtime without Settings input. | ✓ VERIFIED | `bundle_engine()` creates each canonical destination parent before copying. `test_bundle_engine_creates_runtime_parents_in_a_fresh_onedir` proves a clean synthetic onedir passes `check_clean_state()`. Direct packaged smoke copied the supplied clean onedir to a Unicode-and-space path, used a fresh profile, and completed real CPU transcription. |
-| 2 | RUNT-02 — Startup, packaging, diagnostics, repair seams, and tests use one canonical required-runtime inventory. | ✓ VERIFIED | `runtime_inventory.py` supplies canonical/root-contained entries and payload identity; `build.py` and `RuntimeBootstrapService` consume it rather than recreating component membership. |
+| 2 | RUNT-02 — Startup, packaging, diagnostics, repair seams, and tests use one canonical required-runtime inventory. | ✓ VERIFIED | `runtime_inventory.py` supplies canonical/root-contained entries and payload identity; `build.py`, bootstrap, diagnostics, and their tests consume it rather than recreating component membership. The real repair-consumer integration is explicitly deferred to Phase 2 because Phase 1 intentionally has no repair consumer. |
 | 3 | RUNT-03 — Only complete validated facts persist as healthy runtime state. | ✓ VERIFIED | Full admission maps one complete smoke record (argv, exit, stdout/stderr, duration, timeout, reason) to all canonical CPU components. Corrupt-model and incomplete-evidence regressions retain `SETUP_REQUIRED` and do not persist health/migration state. |
-| 4 | RUNT-04 — Launch applies the appropriate light/full validation and fails safely. | ✓ VERIFIED | Matching identity plus complete successful full evidence is required for light validation; first/update/repair/identity/partial evidence requires full validation. `RuntimeValidator` converts `OSError` launch failures to failed evidence; bootstrap catches unexpected validator errors as `SETUP_REQUIRED`. Full validation invokes staged `whisper-cli -m model.bin -f audio.wav -t 1 -nt` with bounded evidence. |
+| 4 | RUNT-04 — Launch applies the appropriate light/full validation and fails safely. | ✓ VERIFIED | Matching identity plus complete successful full evidence is required for light validation; first/update/repair/identity/partial evidence requires full validation. New direct regressions prove update/repair force a failed full validation without overwriting a prior healthy record, and light validation fails closed if a previously healthy payload disappears. `RuntimeValidator` converts `OSError` launch failures to failed evidence; bootstrap catches unexpected validator errors as `SETUP_REQUIRED`. Full validation invokes staged `whisper-cli -m model.bin -f audio.wav -t 1 -nt` with bounded evidence. |
 | 5 | RUNT-05 — No normal adapter readiness, job action, optional probe, navigation, demo, or update behavior starts before HEALTHY. | ✓ VERIFIED | Bridge constructs adapter/updater only after `assess()` returns HEALTHY. Its guarded operation registry intercepts all exposed adapter/updater operations during `SETUP_REQUIRED`, producing the JSON-safe `setup_required` diagnostics payload before collaborator access. Qt slot dispatch is covered too. |
 | 6 | RUNT-06 — Base English becomes the beta-6 default once while later manual selections remain available. | ✓ VERIFIED | `ConfigManager.persist_runtime_health()` uses `migration_versions.runtime_contract == 1`, selects bundled base English only on the one-time migration, and retains a different existing/manual model thereafter. |
 | 7 | RUNT-07 — A healthy selected optional engine remains selected while bundled CPU remains the validated recovery path. | ✓ VERIFIED | CPU admission happens before optional resolution; `_resolve_post_health_optional()` changes selection only when the requested optional CUDA/Vulkan engine resolves to CPU. The healthy-custom preference regression passes. |
@@ -88,15 +88,15 @@ requirements:
 | --- | --- | --- | --- |
 | Former gap closures and AD-19 vectors | Selected 18 focused pytest cases across packaging, bootstrap, real packaged smoke, VAD staging, bridge dispatch, and signing ADR | `18 passed in 15.68s` | ✓ PASS |
 | Real disposable package runtime | `test_real_packaged_smoke_uses_unicode_space_path_and_fresh_profile` with supplied `LECTUREPACK_ONEDIR_FIXTURE` | Included above; runs real `whisper-cli` from a disposable Unicode-and-space copy with a fresh profile | ✓ PASS |
-| Final focused regression evidence | Runtime + packaged focused suite | Reported independent evidence: `19 passed in 15.95s` | ✓ PASS |
-| Final full-suite regression evidence | `pytest -q` | Reported independent evidence: `740 passed in 191.41s` | ✓ PASS |
+| Nyquist runtime-branch regression | `pytest -q tests/test_runtime_bootstrap.py` | Independent focused evidence: `18 passed in 1.25s`; verifier rerun: `18 passed in 0.52s` | ✓ PASS |
+| Final full-suite regression evidence | `pytest -q` with real packaged fixture | Reported independent evidence: `743 passed in 187.42s` | ✓ PASS |
 
 ### Requirements Coverage
 
 | Requirement | Source Plans | Description | Status | Evidence |
 | --- | --- | --- | --- | --- |
 | RUNT-01 | 01-01, 01-05, 01-06 | Fresh packaged CPU discovery/admission | ✓ SATISFIED | Fresh onedir parent-creation regression and real Unicode/space disposable smoke. |
-| RUNT-02 | 01-01, 01-03 | Shared canonical inventory | ✓ SATISFIED | Inventory feeds packaging, bootstrap, smoke, identity, and diagnostics. |
+| RUNT-02 | 01-01, 01-03 | Shared canonical inventory | ✓ SATISFIED | Inventory feeds packaging, bootstrap, smoke, identity, and diagnostics. The validation audit defers only the future real repair-consumer integration to Phase 2, where that consumer will exist. |
 | RUNT-03 | 01-02, 01-05, 01-06 | Persist only complete validated health | ✓ SATISFIED | Corrupt/incomplete/exception evidence stays setup-required without persistence. |
 | RUNT-04 | 01-01, 01-02, 01-05, 01-06 | Light/full checks and safe bounded failures | ✓ SATISFIED | Complete-evidence admission, staged transcription, OSError/timeout handling. |
 | RUNT-05 | 01-03, 01-07 | No normal behavior pre-health | ✓ SATISFIED | Healthy-only construction plus exhaustive guarded bridge/Qt dispatch tests. |
@@ -115,11 +115,18 @@ requirements:
 
 The Phase 1 gap-closure commit range (`dca41f5^..284b1c4`) contains no `app/ui/`, `lecturepack/ui/`, CSS, HTML, JavaScript, QSS, animation, motion, shadow, or theme asset change. The beta-5 visual contract was therefore not altered by this closure work.
 
+### Final Audit Trail
+
+- Commit `a226fdc` changes only `tests/test_runtime_bootstrap.py`; no implementation, UI, frontend, animation, shadow, motion, or theme asset changed.
+- The added regressions prove (1) `trigger="update"` and `trigger="repair"` force full validation and preserve an existing healthy record when validation fails, and (2) a missing formerly healthy required payload fails the light path without optional resolution or persistence.
+- `.planning/phases/01-runtime-contract-bootstrap/01-VALIDATION.md` remains deliberately **validated partial** (`8/9` automated): its one manual/deferred check is the real repair-consumer integration. This is a Phase 2 responsibility under the approved AD-19 boundary, not an unimplemented Phase 1 runtime behavior.
+- `.planning/phases/01-runtime-contract-bootstrap/01-SECURITY.md` records ASVS L1 verification of all 20 registered threats: `20/20` closed and `threats_open: 0`.
+
 ### Gaps Summary
 
-No Phase 1 gap remains. The Phase 1 contract deliberately does **not** implement signed repair, a production verifier/trust-root module, signing workflow, or frozen PyInstaller verifier proof. AD-19 defines and approves those requirements and makes the frozen verifier proof an explicit Phase 2 gate; this is an intentional, documented phase boundary rather than a missing Phase 1 deliverable.
+No Phase 1 gap remains. The Phase 1 contract deliberately does **not** implement signed repair, a real repair consumer, a production verifier/trust-root module, signing workflow, or frozen PyInstaller verifier proof. AD-19 defines and approves those requirements and makes the repair-consumer integration and frozen verifier proof explicit Phase 2 gates; this is an intentional, documented phase boundary rather than a missing Phase 1 deliverable.
 
 ---
 
-_Verified: 2026-07-28T15:51:29Z_
+_Verified: 2026-07-28T16:05:00Z_
 _Verifier: the agent (gsd-verifier)_
