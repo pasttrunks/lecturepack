@@ -159,6 +159,12 @@ class Backend(QObject):
             self._repair_offer_id = payload["operation_id"]
             self._repair_worker = None
         if kind in {"failed", "cancelled", "admitted"}:
+            if kind == "admitted":
+                self.runtime_health_result = RuntimeBootstrapService(self._runtime_config).assess(trigger="repair")
+                self._runtime_diagnostics = RuntimeDiagnosticsController(RuntimeDiagnosticsService(self._runtime_config, self.runtime_health_result))
+                if self.runtime_health_result.state == "HEALTHY" and self._adapter is None:
+                    self._adapter = make_adapter(self, runtime_health_result=self.runtime_health_result, runtime_diagnostics_controller=self._runtime_diagnostics)
+                    self._updater = Updater(self)
             self._repair_offer_id = None
             self._repair_worker = None
         self.repair_event.emit(json.dumps(payload))
@@ -178,6 +184,8 @@ class Backend(QObject):
             return json.dumps({"type": "repair_not_required"})
         if not operation_id:
             return json.dumps({"type": "invalid_repair_operation"})
+        if self._repair_worker is not None or self._repair_offer_id is not None:
+            return json.dumps({"type": "repair_in_progress", "operation_id": self._repair_offer_id})
         self._repair_offer_id = operation_id
         self._runtime_repair = self._make_runtime_repair_service()
         return self._start_repair_worker(RuntimeRepairWorker(self._runtime_repair, operation_id, parent=self))

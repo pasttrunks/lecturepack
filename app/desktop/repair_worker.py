@@ -19,13 +19,16 @@ class RuntimeRepairWorker(QThread):
         self._service.cancel(self._operation_id)
 
     def run(self):
+        start = len(self._service.events)
         try:
             result = self._service.perform_repair(self._operation_id) if self._confirm else self._service.begin_repair_offer(self._operation_id)
-            if not self._cancelled:
-                payload = {"operation_id": result.operation_id, "kind": "confirmed" if self._confirm else "metadata_ready"}
-                if not self._confirm:
-                    payload.update({"app_version": result.app_version, "official_source": result.official_source,
-                                    "affected_components": list(result.affected_components), "download_size_bytes": result.download_size_bytes})
-                self.repair_event.emit(payload)
+            for event in self._service.events[start:]:
+                self.repair_event.emit(event.payload())
+            if not self._confirm and not self._cancelled:
+                self.repair_event.emit({"operation_id": result.operation_id, "kind": "metadata_ready", "app_version": result.app_version, "official_source": result.official_source, "affected_components": list(result.affected_components), "download_size_bytes": result.download_size_bytes})
         except Exception as error:
-            self.repair_event.emit({"operation_id": self._operation_id, "kind": "failed", "detail": str(error)})
+            emitted = self._service.events[start:]
+            for event in emitted:
+                self.repair_event.emit(event.payload())
+            if not any(event.kind in {"failed", "cancelled"} for event in emitted):
+                self.repair_event.emit({"operation_id": self._operation_id, "kind": "failed", "detail": str(error)})

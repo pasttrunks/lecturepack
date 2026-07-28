@@ -118,6 +118,8 @@ class RuntimeRepairService:
         return offer
 
     def cancel(self, operation_id: str) -> None:
+        if operation_id in self._cancelled:
+            return
         self._offers.pop(operation_id, None)
         self._cancelled.add(operation_id)
         self._emit(operation_id, "cancel_requested")
@@ -173,9 +175,9 @@ class RuntimeRepairService:
             active = self._generation_store.publish_from_directory(source_paths, admit=admit,
                 cancellation_requested=lambda: operation_id in self._cancelled)
             self._emit(operation_id, "activated")
-            result = self._bootstrap_assessor(active.root)
-            if result.state != "HEALTHY":
-                raise RepairFailure("failed", "repaired runtime did not pass admission")
+            # The store's post-publication callback is canonical admission; a
+            # successful publish therefore already includes the rollback-safe
+            # post-activation check under its journal boundary.
             self._emit(operation_id, "admitted")
             return offer
         except GenerationCancelled as error:
