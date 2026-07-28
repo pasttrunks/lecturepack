@@ -20,6 +20,8 @@ from . import version
 from .engine_adapter import make_adapter
 from .paths import data_dir
 from .updater import Updater
+from lecturepack.infrastructure.config_manager import ConfigManager
+from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
 
 
 class Backend(QObject):
@@ -75,13 +77,22 @@ class Backend(QObject):
     diagnostics = Signal(str)
     job_completed = Signal(str)
     post_completion = Signal(str)
+    # Runtime admission evidence is a dedicated transport boundary.  It is not
+    # ordinary status text and a fallback never implies a second ready event.
+    runtime_health = Signal(str)
+    runtime_fallback = Signal(str)
 
     def __init__(self, window):
         super().__init__()
         self._window = window
         self._settings = QSettings(version.ORG_NAME, version.APP_NAME)
-        self._adapter = make_adapter(self)
-        self._updater = Updater(self)
+        self._runtime_config = ConfigManager()
+        self.runtime_health_result = RuntimeBootstrapService(self._runtime_config).assess()
+        self._adapter = None
+        self._updater = None
+        if self.runtime_health_result.state == "HEALTHY":
+            self._adapter = make_adapter(self, runtime_health_result=self.runtime_health_result)
+            self._updater = Updater(self)
 
     def log_asset_error(self, tag: str, text: str, level: str = "error"):
         """Diagnostics hook for the asset resolver (see main.py). Surfaces a
@@ -96,8 +107,12 @@ class Backend(QObject):
     @Slot()
     def ui_ready(self):
         """Called once by the UI after the QWebChannel handshake."""
+        if self._adapter is None:
+            return
         self._adapter.on_ui_ready()
         self._updater.startup_check()
+        if self.runtime_health_result.fallback_notice:
+            self.runtime_fallback.emit(json.dumps(dict(self.runtime_health_result.fallback_notice)))
 
     @Slot(result=str)
     def get_bootstrap(self) -> str:

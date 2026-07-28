@@ -91,7 +91,7 @@ def test_backend_admits_adapter_once_only_after_healthy_assessment(qapp, monkeyp
     adapter = object()
     monkeypatch.setattr(bridge, "ConfigManager", lambda: events.append("config") or object())
     monkeypatch.setattr(bridge, "RuntimeBootstrapService", lambda config: _BootstrapService(_BootstrapResult("HEALTHY"), events))
-    monkeypatch.setattr(bridge, "make_adapter", lambda backend: events.append("adapter") or adapter)
+    monkeypatch.setattr(bridge, "make_adapter", lambda backend, **kwargs: events.append("adapter") or adapter)
     monkeypatch.setattr(bridge, "Updater", lambda backend: object())
 
     backend = bridge.Backend(None)
@@ -107,7 +107,7 @@ def test_backend_blocks_normal_adapter_and_ready_event_until_healthy(qapp, monke
     events = []
     monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
     monkeypatch.setattr(bridge, "RuntimeBootstrapService", lambda config: _BootstrapService(_BootstrapResult("SETUP_REQUIRED"), events))
-    monkeypatch.setattr(bridge, "make_adapter", lambda backend: events.append("adapter"))
+    monkeypatch.setattr(bridge, "make_adapter", lambda backend, **kwargs: events.append("adapter"))
     monkeypatch.setattr(bridge, "Updater", lambda backend: object())
 
     backend = bridge.Backend(None)
@@ -130,8 +130,8 @@ def test_optional_fallback_is_post_health_and_distinct_from_ready(qapp, monkeypa
 
     monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
     monkeypatch.setattr(bridge, "RuntimeBootstrapService", lambda config: _BootstrapService(_BootstrapResult("HEALTHY", fallback), events))
-    monkeypatch.setattr(bridge, "make_adapter", lambda backend: events.append("adapter") or _Adapter())
-    monkeypatch.setattr(bridge, "Updater", lambda backend: object())
+    monkeypatch.setattr(bridge, "make_adapter", lambda backend, **kwargs: events.append("adapter") or _Adapter())
+    monkeypatch.setattr(bridge, "Updater", lambda backend: type("_Updater", (), {"startup_check": lambda self: None})())
 
     backend = bridge.Backend(None)
     notices = []
