@@ -2,33 +2,48 @@
 
 **Updated:** 2026-07-28  
 **Branch:** `codex/beta6-reliability-plan`  
-**Status:** Execution complete, but independent verification found Phase 1 gaps; Phase 2 repair implementation remains unstarted.
+**Status:** Automated gap-closure execution evidence is passing. Phase 1 remains in independent code-review and goal-verification status; it is not complete, and Phase 2 remains unstarted.
 
-## Completed work
+## Gap repairs completed in Plans 01-05 through 01-07
 
-- The canonical CPU inventory, bounded validator, disposable onedir smoke, and v1.9.1 ASCII-only `WhisperPathStaging` boundary are complete. Unicode source and destination paths remain supported outside the native CLI argv boundary.
-- `RuntimeBootstrapService` persists only complete validated CPU evidence, performs the one-time base-English migration, and resolves optional engines only after CPU admission.
-- `Backend` now assesses runtime health before it constructs an `EngineAdapter`, controller, job behavior, navigation behavior, or optional probe. `SETUP_REQUIRED` retains a stable no-adapter state for the Phase 2 setup gate.
-- A healthy admission creates the adapter once. `ui_ready()` produces the one normal ready path only after that admission; a broken optional preference is sent afterwards as `diagnostics` payload `{ "type": "runtime_fallback", "fallback": { requested, resolved, reason } }`, separate from ordinary status and readiness.
-- `RuntimeDiagnosticsController` delegates to `RuntimeDiagnosticsService`, which reads the persisted canonical identity and immutable bootstrap evidence only. `Backend.get_runtime_health_snapshot()` serializes that controller result for QWebChannel; neither bridge nor adapter constructs a second required-runtime inventory.
-- AD-19 is approved. It locks `cryptography==49.0.0`, byte-exact detached Ed25519 manifest signatures, release asset naming, key lifecycle, and the future compiled trust-root/frozen-proof requirements.
+- **01-05:** canonical package assembly now creates `bin`, `models`, and `smoke` parents from a fresh onedir tree; a blocked/corrupt executable launch becomes bounded failed evidence and `SETUP_REQUIRED`, never persisted healthy state.
+- **01-06:** full admission performs bounded staged CPU transcription of the canonical base-English model and smoke WAV. Corrupt model evidence is rejected, and optional VAD models are byte-verified and staged under the private ASCII native argv root.
+- **01-07:** every adapter- and updater-facing bridge action is centrally guarded while admission is `SETUP_REQUIRED`. It emits the existing `diagnostics` transport payload `{type: "setup_required", operation, runtime_health}` before collaborator access; `get_updater_state()` returns the same JSON-safe payload. `get_bootstrap()` now exposes `theme`, `version`, `runtime_health_state`, and `setup_required`, while `get_runtime_health_snapshot()` remains the controller-owned detailed projection.
 
-## Verification evidence
+No frontend/web asset, animation, transition, motion, theme/styling behavior, original lecture video, user data, setup/repair/consent flow, dependency, or network path was added or changed.
 
-- `pytest tests/test_adapter_startup.py tests/test_runtime_diagnostics.py tests/test_runtime_bootstrap.py tests/test_runtime_packaged_smoke.py -q` with `LECTUREPACK_ONEDIR_FIXTURE=C:\Users\marsh\Documents\LecturePack\app\dist\LecturePack` — **19 passed in 10.82s**.
-- `LECTUREPACK_ONEDIR_FIXTURE=C:\Users\marsh\Documents\LecturePack\app\dist\LecturePack; pytest -q` — **728 passed in 179.15s (0:02:59)**.
-- The same targeted command without `LECTUREPACK_ONEDIR_FIXTURE` intentionally failed one packaged-smoke test because the fixture is mandatory; no test was skipped or weakened.
-- Real packaged smoke evidence remains the Plan 01 proof: copied Unicode/space runtime, fresh `LECTUREPACK_DATA_DIR`, `bin/ffmpeg.exe -version`, `bin/ffprobe.exe -version`, then `bin/whisper-cli.exe -m <ASCII staged ggml-base.en.bin> -f <ASCII staged runtime-smoke.wav> -t 1 -nt`; exit 0 in 4328 ms with CPU backend, model, WAV-read, and processing evidence and no output transcript.
+## Actual verification evidence
 
-## Remaining work and blockers
+All packaged/full-suite commands used this supplied fixture environment value:
 
-- Phase 1 is not approved or complete. The advisory code review recorded four critical findings and one warning; the goal verifier returned `gaps_found` with 5/9 must-haves verified. Gap-closure planning is required before more implementation.
-- The blocking Phase 1 gaps are: create canonical runtime destination directories during clean packaging; perform bounded real model-plus-WAV CPU transcription during startup admission; convert executable launch failures into failed evidence and `SETUP_REQUIRED`; guard all adapter/updater bridge slots while admission is withheld; and stage optional VAD model paths at the ASCII-only native argv boundary.
-- Phase 2 must implement the non-dismissible setup UI, explicit consent, signed exact-version acquisition, manifest/hash validation, transactional writable runtime generation, rollback, revalidation, and actionable diagnostics. None of that repair behavior is implemented here.
-- AD-19 approval satisfies the Phase 1 contract prerequisite, but Phase 2 remains blocked until its ADR post-checkpoint task passes the approved known-good and altered-byte signature vectors in the implementation context.
-- Before release, obtain physical CPU-only, NVIDIA, and AMD/Intel Windows evidence across fresh/upgraded profiles and hostile paths; frozen verifier proof and signing workflow remain Phase 2+ work.
-- Four copied smoke-test directories remain under `%TEMP%` from pre-staging failure investigations. A scoped PowerShell cleanup was attempted after resolving the exact paths, but host policy rejected recursive deletion; they contain copies only, never original lecture videos or user data. The four disposable cleanup domains remain temporary-only: copied Unicode/space runtime, fresh `LECTUREPACK_DATA_DIR`, private ASCII staging workspace, and `smoke-output` output prefix.
+`LECTUREPACK_ONEDIR_FIXTURE=C:\Users\marsh\AppData\Local\Temp\LecturePack Phase1 Gap Fixture Corrected 20260728`
+
+It is a run-scoped copy of `C:\Users\marsh\Documents\LecturePack\app\dist\LecturePack`, augmented only with repository-approved `app\packaging\assets\runtime-smoke.wav` at `smoke\runtime-smoke.wav`. `check_clean_state()` passed before real smoke. The fixture was never modified; smoke copied it to a disposable Unicode/space path and used a fresh profile.
+
+- `pytest tests/test_adapter_startup.py tests/test_runtime_diagnostics.py -q` — **10 passed in 0.93s**.
+- `pytest tests/test_beta3_packaging.py tests/test_runtime_bootstrap.py tests/test_runtime_packaged_smoke.py tests/test_whisper_path_staging.py tests/test_adapter_startup.py tests/test_runtime_diagnostics.py -q` — **38 passed in 16.70s**.
+- Required fixture validation (`check_clean_state()`), then `pytest tests/test_runtime_packaged_smoke.py -q` — **3 passed in 15.67s**.
+- `pytest -q` under the same fixture — **737 passed in 183.49s (0:03:03)**.
+
+The table-driven bridge gate covers every current adapter/updater dereference: settings; model/engine controls; import, job, queue, review, study, and export actions; all update actions; and Qt `QMetaObject.invokeMethod` dispatch. Repeated calls retain `SETUP_REQUIRED`, do not construct collaborators, and do not write settings, navigate, process jobs, probe optional engines, start updater work, or emit ready/fallback semantics.
+
+## Real packaged smoke evidence from this run
+
+The disposable copied runtime invoked:
+
+`whisper-cli.exe -m C:\Users\marsh\AppData\Local\Temp\LecturePackWhisper\lpws-rnd1y9ss\inputs\model.bin -f C:\Users\marsh\AppData\Local\Temp\LecturePackWhisper\lpws-rnd1y9ss\inputs\audio.wav -t 1 -nt`
+
+It exited **0** in **4078 ms**, with reason `success`; stdout was `(electronic beeping)`. Stderr recorded the copied runtime's `ggml-cpu-haswell.dll` CPU backend, staged model load, staged WAV read, `n_threads = 1`, and processing of the one-second WAV. The executable path remained in the disposable copied runtime; model and audio argv paths were ASCII staged. This is real packaged evidence, not a mock.
+
+Fresh-tree assembly, corrupt-model rejection, blocked launch evidence, VAD staging, and bridge no-side-effect behavior are covered by the passing regression suites above. The earlier 01-05 and 01-06 summaries retain their exact respective historical test outputs and evidence.
+
+## Remaining blockers and out-of-scope work
+
+- Phase 1 must receive fresh independent code review and goal verification before it can be marked complete. The prior `01-REVIEW.md` / `01-VERIFICATION.md` findings describe the gaps that Plans 01-05 through 01-07 repaired; they have not themselves been reissued by an independent verifier in this execution.
+- Required pre-release evidence remains unrun: physical CPU-only, NVIDIA, and AMD/Intel Windows machines; fresh and upgraded profiles; hostile path coverage; frozen verifier/signing workflow proof.
+- Phase 2 remains out of scope and unstarted: non-dismissible setup UI, consent, signed exact-version acquisition, manifest/hash validation, transactional writable runtime generation, rollback, revalidation, and actionable repair diagnostics.
+- AD-19 remains approved and unchanged. Its future compiled trust-root and frozen proof requirements are not claimed as passed here.
 
 ## Scope and safety
 
-No original lecture video, user job/profile data, immutable source payload, main worktree, UI/web asset, animation, theme, or repair/download flow was modified. The bridge fallback uses the existing diagnostics transport because the web bridge signal registry is intentionally outside this phase's permitted file list.
+No original lecture video or user job/profile data was modified. The supplied fixture and all smoke runtime copies were read-only inputs; disposable copies and private staging directories were confined to `%TEMP%`. No university credentials, telemetry, analytics, or non-localhost network request was introduced.
