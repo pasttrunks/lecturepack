@@ -188,7 +188,7 @@ def test_release_builder_emits_only_the_exact_signed_six_asset_layout(tmp_path) 
             assert archive.namelist() == list(result["archive_members"][asset.component])
 
 
-@pytest.mark.parametrize("wrong", ("0.9.0-beta.5", "v0.9.0-beta.6", "0.9.0 beta.6"))
+@pytest.mark.parametrize("wrong", ("v0.9.0-beta.6", "0.9.0 beta.6", "0.9"))
 def test_release_builder_rejects_noncanonical_app_version(tmp_path, wrong: str) -> None:
     private_key = Ed25519PrivateKey.generate()
     with pytest.raises(ValueError, match="application version"):

@@ -1,88 +1,94 @@
-name: Release LecturePack
-
-# Manual (workflow_dispatch) build of the Windows installer + portable ZIP +
-# SHA256SUMS for a given tag. Releases are published from LOCALLY-verified
-# artifacts (build.py runs the release-asset gate) so the published checksums
-# always match the exact binaries that were verified — a tag push must not
-# trigger a second, non-reproducible rebuild that overwrites them. Trigger this
-# manually only when you want CI to (re)build artifacts for a tag.
+name: Release LecturePack runtime
 
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build (e.g. v0.9.0-beta.1)"
+        description: Existing exact v{app_version} tag to release
         required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  build-windows:
+  signed-runtime-release:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
-      - name: Verify tag matches version.py
+      - name: Bind selected tag to checked-out commit before signing
         shell: bash
         run: |
-          TAG="${{ inputs.tag }}"; TAG="${TAG#v}"
-          FILE=$(grep -oP '__version__\s*=\s*"\K[^"]+' app/desktop/version.py)
-          echo "tag=$TAG  version.py=$FILE"
-          if [ "$TAG" != "$FILE" ]; then
-            echo "::error::Tag $TAG does not match __version__ $FILE in app/desktop/version.py"
-            exit 1
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
           fi
+          case "$TAG" in v*) ;; *) echo "::error::Release tag must start with v"; exit 1;; esac
+          APP_VERSION="${TAG#v}"
+          [ -n "$APP_VERSION" ] || { echo "::error::Release tag has no version"; exit 1; }
+          TAG_COMMIT="$(git rev-parse "refs/tags/v${APP_VERSION}^{commit}" 2>/dev/null)" || { echo "::error::Missing or ambiguous release tag"; exit 1; }
+          HEAD_COMMIT="$(git rev-parse HEAD)" || exit 1
+          FULL_OBJECT_ID='^[0-9a-f]{40,64}$'
+          [[ "$TAG_COMMIT" =~ $FULL_OBJECT_ID && "$HEAD_COMMIT" =~ $FULL_OBJECT_ID ]] || { echo "::error::Tag and HEAD must resolve to full object IDs"; exit 1; }
+          [ "$TAG_COMMIT" = "$HEAD_COMMIT" ] || { echo "::error::Peeled tag commit does not equal checked-out HEAD"; exit 1; }
+          FILE_VERSION="$(python -c "import re; print(re.search(r'__version__\\s*=\\s*[\\\"\\\']([^\\\"\\\']+)', open('app/desktop/version.py', encoding='utf-8').read()).group(1))")"
+          [ "$APP_VERSION" = "$FILE_VERSION" ] || { echo "::error::Tag and application version disagree"; exit 1; }
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - name: Install dependencies
-        working-directory: app
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-build.txt
-
-      - name: Install Inno Setup
-        run: choco install innosetup --no-progress -y
-
-      - name: Build installer
-        working-directory: app
-        run: python packaging/build.py
-
-      - name: Extract changelog for this version
-        id: notes
+      - name: Install hash-verified signing dependency
         shell: bash
         run: |
-          TAG="${{ inputs.tag }}"; TAG="${TAG#v}"
-          NOTES_FILE="$RUNNER_TEMP/notes.md"
-          if [ -f CHANGELOG.md ]; then
-            # Pull the section between "## [<version>]" and the next "## " heading.
-            awk -v ver="$TAG" '
-              $0 ~ "^## \\[?" ver "\\]?" {grab=1; next}
-              grab && /^## / {exit}
-              grab {print}
-            ' CHANGELOG.md > "$NOTES_FILE"
-          fi
-          if [ ! -s "$NOTES_FILE" ]; then
-            echo "- Update to v$TAG" > "$NOTES_FILE"
-          fi
-          echo "path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
+          python -m pip install --upgrade pip
+          python -m pip download --no-deps --only-binary=:all: --dest wheelhouse cryptography==49.0.0
+          echo "e5dfc1e64de5677cec922ffa8da89c546d0415bf6efdf081842e5d44c84e1f0e  wheelhouse/cryptography-49.0.0-cp312-abi3-win_amd64.whl" | sha256sum -c -
+          python -m pip install --no-index --find-links wheelhouse cryptography==49.0.0
+          python -m pip install -r app/requirements.txt -r app/requirements-build.txt
 
-      - name: Publish release
+      - name: Build canonical disposable onedir
+        working-directory: app
+        run: python packaging/build.py --no-installer
+
+      - name: Produce exactly six signed runtime assets
+        shell: bash
+        env:
+          LECTUREPACK_RELEASE_ED25519_PRIVATE_KEY_HEX: ${{ secrets.LECTUREPACK_RELEASE_ED25519_PRIVATE_KEY_HEX }}
+        run: |
+          python scripts/build_signed_runtime_release.py --app-version "$APP_VERSION" --runtime-root app/dist/LecturePack --output-directory runtime-release-assets > runtime-release-audit.json
+          test "$(find runtime-release-assets -maxdepth 1 -type f | wc -l)" = 6
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from app.desktop.version import __version__
+          manifest = json.loads(next(Path('runtime-release-assets').glob('*RuntimeManifest-v1.json')).read_text(encoding='utf-8'))
+          assert manifest['app_version'] == __version__
+          PY
+
+      - name: Release exact signed assets
         uses: softprops/action-gh-release@v2
         with:
-          name: LecturePack ${{ inputs.tag }}
-          tag_name: ${{ inputs.tag }}
-          body_path: ${{ steps.notes.outputs.path }}
+          tag_name: v${{ env.APP_VERSION }}
           files: |
-            app/dist/installer/LecturePack-*-Setup.exe
-            app/dist/installer/LecturePack-*-Portable.zip
-            app/dist/installer/LecturePack-*-SHA256SUMS.txt
-          draft: false
-          # Tags carrying a pre-release suffix (e.g. -beta.1) publish as a
-          # GitHub pre-release so the stable auto-updater channel is unaffected.
-          prerelease: ${{ contains(inputs.tag, '-') }}
+            runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-RuntimeManifest-v1.json
+            runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-RuntimeManifest-v1.json.sig
+            runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-Runtime-ffmpeg.zip
+            runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-Runtime-whisper-cpu.zip
+            runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-Runtime-model-base-en.zip
+            runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-Runtime-smoke-fixture.zip
+
+      - name: Retain signing audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-release-audit-v${{ env.APP_VERSION }}
+          path: runtime-release-audit.json
+          retention-days: 90
