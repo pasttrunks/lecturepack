@@ -27,7 +27,7 @@ window.lpBridge = (function () {
     'queue_changed', 'pause_state', 'notification_prefs', 'notification_navigate',
     'diagnostics', 'job_completed', 'post_completion',
     'media_link_state', 'media_probe', 'media_progress', 'media_done',
-    'active_job', 'storage_changed'
+    'active_job', 'storage_changed', 'repair_event'
   ];
 
   function connectQt() {
@@ -75,6 +75,26 @@ window.lpBridge = (function () {
         args.push(function (result) { resolve(result); });
         backend[name].apply(backend, args);
       });
+    },
+    // Runtime repair is deliberately narrow: offer acquisition is metadata-only
+    // and archive work can begin only through the matching confirmation slot.
+    beginRuntimeRepairOffer: function (operationId) {
+      return this.call('start_runtime_repair', operationId);
+    },
+    confirmRuntimeRepair: function (operationId) {
+      return this.call('confirm_runtime_repair', operationId);
+    },
+    retryRuntimeAssessment: function () {
+      return this.call('retry_runtime_assessment');
+    },
+    cancelRuntimeRepair: function (operationId) {
+      return this.call('cancel_runtime_repair', operationId);
+    },
+    copyRuntimeRepairDiagnostics: function () {
+      return this.call('copy_runtime_repair_diagnostics');
+    },
+    saveRuntimeRepairDiagnostics: function (fileName) {
+      return this.call('save_runtime_repair_diagnostics', fileName);
     }
   };
 })();
