@@ -38,3 +38,21 @@ def test_staging_cleanup_is_safe_after_prepare_failure(tmp_path):
         staging.prepare()
     staging.cleanup()
     assert staging.root is None
+
+
+def test_staging_preserves_unicode_vad_input_at_an_ascii_native_path(tmp_path):
+    model = tmp_path / "模型.bin"
+    audio = tmp_path / "音声.wav"
+    vad = tmp_path / "語音 vad.bin"
+    for path, content in ((model, b"model"), (audio, b"audio"), (vad, b"vad bytes")):
+        path.write_bytes(content)
+
+    staging = WhisperPathStaging(model, audio, tmp_path / "結果" / "raw", vad_model_path=vad)
+    staged_model, staged_audio, staged_output = staging.prepare()
+
+    assert staging.staged_vad_model is not None
+    assert all(value.isascii() for value in (staged_model, staged_audio, staged_output, str(staging.staged_vad_model)))
+    assert _digest(vad) == _digest(staging.staged_vad_model)
+    root = staging.root
+    staging.cleanup()
+    assert root is not None and not root.exists()
