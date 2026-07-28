@@ -8,7 +8,7 @@ Beta 6 makes the portable app dependable on clean Windows machines: establish a 
 
 **Phase Numbering:** This is a new milestone; numbering resets to Phase 1.
 
-- [ ] **Phase 1: Runtime Contract & Bootstrap** - Establish deterministic CPU-runtime admission, healthy-startup boundaries, and the approved signing/verifier contract.
+- [x] **Phase 1: Runtime Contract & Bootstrap** - Establish deterministic CPU-runtime admission, healthy-startup boundaries, and the approved signing/verifier contract. (completed 2026-07-28)
 - [ ] **Phase 2: Hard Setup & Signed Repair** - Block unhealthy launches and recover with consented, exact-version, signed transactional repair.
 - [ ] **Phase 3: Empty Launch & Guided Demo** - Give users an empty owned Home and a replayable, real, isolated onboarding workflow.
 - [ ] **Phase 4: Visual Artifact Reliability** - Preserve beta-5 visual character while eliminating confirmed rendering and layout artifacts.
@@ -174,7 +174,7 @@ Canonical references: `.planning/MILESTONE-CONTEXT.md`, `.planning/research/SUMM
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Runtime Contract & Bootstrap | 7/7 | In Progress|  |
+| 1. Runtime Contract & Bootstrap | 7/7 | Complete    | 2026-07-28 |
 | 2. Hard Setup & Signed Repair | 0/TBD | Blocked — Phase 1 ADR approval | - |
 | 3. Empty Launch & Guided Demo | 0/TBD | Not started | - |
 | 4. Visual Artifact Reliability | 0/TBD | Not started | - |

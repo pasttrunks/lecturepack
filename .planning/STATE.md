@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.9.0-beta.6
 milestone_name: Clean-Machine Reliability and Onboarding
-current_phase: 1
-current_phase_name: Runtime Contract & Bootstrap
-status: executing
+current_phase: 2
+current_phase_name: Hard Setup & Signed Repair
+status: planning
 stopped_at: Completed 01-07-PLAN.md
-last_updated: "2026-07-28T15:27:29.876Z"
+last_updated: "2026-07-28T16:49:25.280Z"
 last_activity: 2026-07-28
-last_activity_desc: Phase 1 execution started
+last_activity_desc: Phase 1 complete, transitioned to Phase 2
 progress:
   total_phases: 5
   completed_phases: 1
@@ -28,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-27)
 
 ## Current Position
 
-Phase: 1 (Runtime Contract & Bootstrap) — EXECUTING
-Plan: 4 of 7
-Status: Ready to execute
-Last activity: 2026-07-28 — Phase 1 execution started
+Phase: 2 — Hard Setup & Signed Repair
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-28 — Phase 1 complete, transitioned to Phase 2
 
 Progress: [██████████] 100%
 
@@ -39,7 +39,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 4
+- Total plans completed: 7
 - Average duration: 31m
 - Total execution time: 123m
 
@@ -47,7 +47,7 @@ Progress: [██████████] 100%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1 | 4/7 | 123m | 31m |
+| 1 | 7 | - | - |
 **Per-Plan Metrics:**
 
 | Plan | Duration | Tasks | Files |
