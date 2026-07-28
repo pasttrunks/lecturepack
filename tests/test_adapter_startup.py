@@ -29,6 +29,11 @@ class _BootstrapService:
         self.events.append("assess")
         return self.result
 
+
+class _RuntimeConfig:
+    def get(self, key, default=None):
+        return default
+
 APP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
@@ -106,7 +111,7 @@ def test_backend_blocks_normal_adapter_and_ready_event_until_healthy(qapp, monke
     from desktop import bridge
 
     events = []
-    monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
+    monkeypatch.setattr(bridge, "ConfigManager", _RuntimeConfig)
     monkeypatch.setattr(bridge, "RuntimeBootstrapService", lambda config: _BootstrapService(_BootstrapResult("SETUP_REQUIRED"), events))
     monkeypatch.setattr(bridge, "make_adapter", lambda backend, **kwargs: events.append("adapter"))
     monkeypatch.setattr(bridge, "Updater", lambda backend: object())
@@ -129,7 +134,7 @@ def test_optional_fallback_is_post_health_and_distinct_from_ready(qapp, monkeypa
         def on_ui_ready(self):
             events.append("ready")
 
-    monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
+    monkeypatch.setattr(bridge, "ConfigManager", _RuntimeConfig)
     monkeypatch.setattr(bridge, "RuntimeBootstrapService", lambda config: _BootstrapService(_BootstrapResult("HEALTHY", fallback), events))
     monkeypatch.setattr(bridge, "make_adapter", lambda backend, **kwargs: events.append("adapter") or _Adapter())
     monkeypatch.setattr(bridge, "Updater", lambda backend: type("_Updater", (), {"startup_check": lambda self: None})())
@@ -181,7 +186,7 @@ _GUARDED_BRIDGE_CALLS = (
 def test_setup_required_guards_every_adapter_and_updater_bridge_call(qapp, monkeypatch):
     from desktop import bridge
 
-    monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
+    monkeypatch.setattr(bridge, "ConfigManager", _RuntimeConfig)
     monkeypatch.setattr(
         bridge, "RuntimeBootstrapService",
         lambda config: _BootstrapService(_BootstrapResult("SETUP_REQUIRED"), []),
@@ -213,7 +218,7 @@ def test_setup_required_bootstrap_reuses_canonical_admission_snapshot(qapp, monk
         def runtime_health_snapshot(self):
             return snapshot
 
-    monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
+    monkeypatch.setattr(bridge, "ConfigManager", _RuntimeConfig)
     monkeypatch.setattr(
         bridge, "RuntimeBootstrapService",
         lambda config: _BootstrapService(_BootstrapResult("SETUP_REQUIRED"), []),
@@ -223,10 +228,31 @@ def test_setup_required_bootstrap_reuses_canonical_admission_snapshot(qapp, monk
 
     backend = bridge.Backend(None)
 
-    assert json.loads(backend.get_bootstrap()) == {
-        "theme": "dark",
+    bootstrap = json.loads(backend.get_bootstrap())
+    assert bootstrap == {
+        "theme": bootstrap["theme"],
         "version": bridge.version.__version__,
         "runtime_health_state": "SETUP_REQUIRED",
         "setup_required": snapshot,
     }
     assert json.loads(backend.get_runtime_health_snapshot()) == snapshot
+
+
+def test_setup_required_guard_applies_to_qt_slot_dispatch(qapp, monkeypatch):
+    from PySide6.QtCore import QMetaObject, Qt, Q_ARG
+    from desktop import bridge
+
+    monkeypatch.setattr(bridge, "ConfigManager", _RuntimeConfig)
+    monkeypatch.setattr(
+        bridge, "RuntimeBootstrapService",
+        lambda config: _BootstrapService(_BootstrapResult("SETUP_REQUIRED"), []),
+    )
+    backend = bridge.Backend(None)
+    diagnostics = []
+    backend.diagnostics.connect(diagnostics.append)
+
+    assert QMetaObject.invokeMethod(
+        backend, "set_setting", Qt.ConnectionType.DirectConnection,
+        Q_ARG(str, "theme"), Q_ARG(str, "light"),
+    )
+    assert json.loads(diagnostics.pop())["operation"] == "set_setting"

@@ -27,6 +27,25 @@ from lecturepack.services.runtime_diagnostics import RuntimeDiagnosticsService
 
 
 class Backend(QObject):
+    _ADMISSION_GUARDED_OPERATIONS = frozenset({
+        "ui_ready", "set_setting", "browse_model", "test_endpoint", "validate_vulkan", "validate_cuda",
+        "cuda_pack_status", "install_cuda_pack", "cancel_cuda_pack", "set_groq_key", "remove_groq_key",
+        "test_groq_key", "list_ollama_models", "smart_study_status", "set_study_preset",
+        "install_smart_study", "cancel_smart_study", "launch_ollama_installer", "save_project",
+        "browse_video", "import_video", "notify_drag_over", "media_link_support", "probe_media_url",
+        "import_media_url", "cancel_media_url", "start_processing", "open_job", "delete_job",
+        "set_job_group", "delete_jobs", "set_jobs_group", "cancel_job", "pause_job", "resume_job",
+        "restart_job", "retry_stage", "enqueue_job", "reorder_queue", "run_now", "remove_from_queue",
+        "schedule_job", "unschedule_job", "get_notification_prefs", "set_notification_prefs",
+        "test_notification", "run_diagnostics", "open_job_folder", "get_post_completion", "set_slide_state",
+        "save_corrections", "repair_selection", "ask_ai", "generate_quiz", "cancel_quiz",
+        "save_quiz_session", "generate_flashcards", "cancel_flashcards", "save_flashcard_session",
+        "save_notes", "export_all", "export_one", "open_export_folder", "check_updates",
+        "get_updater_state", "start_update_download", "cancel_update_download", "install_downloaded_update",
+        "open_release_page", "set_update_channel", "set_auto_check", "skip_update_version",
+        "clear_skipped_version", "install_update", "whatsnew_seen",
+    })
+    _RETURNING_GUARDED_OPERATIONS = frozenset({"get_updater_state"})
     # ---- signals consumed by ui/app.js (names must match bridge.js SIGNALS) ----
     jobs_changed = Signal(str)
     # disk usage of the data dir; the sidebar storage widget stays hidden until
@@ -101,6 +120,31 @@ class Backend(QObject):
             )
             self._updater = Updater(self)
 
+    def __getattribute__(self, name):
+        """Keep every normal bridge operation unreachable until admission succeeds."""
+        guarded = object.__getattribute__(self, "_ADMISSION_GUARDED_OPERATIONS")
+        if name in guarded:
+            state = object.__getattribute__(self, "__dict__").get("runtime_health_result")
+            if state is not None and state.state != "HEALTHY":
+                return lambda *args, **kwargs: self._guard_admitted_operation(name)
+        return super().__getattribute__(name)
+
+    def _setup_required_payload(self, operation: str) -> dict:
+        """Return the one JSON-safe no-op shape for withheld collaborators."""
+        return {
+            "type": "setup_required",
+            "operation": operation,
+            "runtime_health": self._runtime_diagnostics.runtime_health_snapshot(),
+        }
+
+    def _guard_admitted_operation(self, operation: str):
+        """Emit or return setup-required evidence before any collaborator access."""
+        payload = self._setup_required_payload(operation)
+        if operation in self._RETURNING_GUARDED_OPERATIONS:
+            return json.dumps(payload)
+        self.diagnostics.emit(json.dumps(payload))
+        return None
+
     def log_asset_error(self, tag: str, text: str, level: str = "error"):
         """Diagnostics hook for the asset resolver (see main.py). Surfaces a
         missing/blocked slide asset in the UI log instead of failing silently."""
@@ -126,10 +170,13 @@ class Backend(QObject):
 
     @Slot(result=str)
     def get_bootstrap(self) -> str:
+        snapshot = self._runtime_diagnostics.runtime_health_snapshot()
         return json.dumps(
             {
                 "theme": self._settings.value("theme", "dark"),
                 "version": version.__version__,
+                "runtime_health_state": snapshot["admission_state"],
+                "setup_required": snapshot if snapshot["admission_state"] == "SETUP_REQUIRED" else None,
             }
         )
 
