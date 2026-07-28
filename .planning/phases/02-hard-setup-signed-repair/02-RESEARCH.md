@@ -31,7 +31,7 @@
 |---|---|---|
 | REPR-01 | Unhealthy required component hard-gates normal entry. | Reuse `RuntimeBootstrapService` result and guarded bridge; add overlay bootstrap consumer. |
 | REPR-02 | Plain-language gate actions and diagnostics. | Deterministic overlay state machine plus existing diagnostics snapshot. |
-| REPR-03 | Explicit consent shows version, source, contents, size. | Acquisition plan fetches signed manifest only after confirm; presentation data derives from fixed asset contract. |
+| REPR-03 | Explicit consent shows version, source, contents, size. | The user may acquire only the exact manifest and detached signature after **Repair all**, before consent; signature-verified manifest data supplies the exact component list and byte total. No ZIP payload request occurs before **Confirm & repair**. |
 | REPR-04 | Exact-version official GitHub only, no unrelated network. | Construct URLs from compiled version and fixed `github.com/pasttrunks/lecturepack/releases/download/v{version}/` base. |
 | REPR-05 | Verify signature then every payload hash/inventory. | Exact-byte verifier, strict schema, allow-listed archive inventories, streamed SHA-256. |
 | REPR-06 | Reject invalid/mixed/unsafe/incomplete content. | Fail-closed parser/extractor and no activation until complete generation validates. |
@@ -115,7 +115,7 @@ App start
   -> HEALTHY -> construct adapter + updater -> normal application
   -> SETUP_REQUIRED -> get_bootstrap() snapshot -> blocking web overlay
        -> Retry -> assess() again
-       -> Repair all -> confirmation -> Confirm & repair
+       -> Repair all -> manifest + signature metadata only -> verify -> confirmation -> Confirm & repair
           -> QThread repair coordinator
           -> exact fixed GitHub URLs -> manifest bytes + .sig
           -> verify raw signature BEFORE JSON parse
@@ -162,12 +162,16 @@ tests/
 **Why:** Python documents that untrusted ZIP extraction requires inspection; ZIP path helpers do not sanitize names for callers. Windows Unicode and space paths are safe when passed as `Path`/argument-list values, but archive names themselves must remain the strict forward-slash canonical inventory format. [CITED: https://docs.python.org/3.13/library/zipfile.html]
 
 ### Pattern 3: Generation transaction with durable recovery
-**What:** Use `<data-dir>/runtime/generations/<generation-id>/` for immutable complete staged generations and a small `active.json` pointer written atomically (`temp` in same directory, flush/fsync, `os.replace`). Retain `previous_generation` in a transaction journal until full revalidation succeeds. At startup, recover an interrupted journal by selecting the last known valid pointer/generation and deleting only its private incomplete staging directory. Do not mutate `resource_dir`, `sys._MEIPASS`, or portable bundle files. [VERIFIED: project constraints; PyInstaller runtime layout]
+**What:** Use `<data-dir>/runtime/generations/<generation-id>/` for immutable complete generations, `<data-dir>/runtime/active.json` as the sole active-generation pointer, and `<data-dir>/runtime/repair-journal.json` as the sole in-progress transaction record. A generation contains the canonical relative inventory exactly as defined below; it is never altered after its inventory/hash validation starts. Do not mutate `resource_dir`, `sys._MEIPASS`, or portable-bundle files. [VERIFIED: project constraints; `runtime_inventory.py`; AD-19]
 
-**Activation rule:** Verify the full staged generation first; atomically replace only pointer metadata, not a populated directory. If revalidation after activation fails, atomically restore the prior pointer and report recovery. A first-install failure has no prior generation and must leave the pointer absent, thus stays gated. [ASSUMED]
+`active.json` is canonical UTF-8 JSON with `schema_version: 1`, `generation_id`, `app_version`, and `payload_identity`; it contains no arbitrary path. The resolver derives the generation path from the ASCII UUID-like `generation_id`, rejects an invalid/missing/escaping target as `SETUP_REQUIRED`, and otherwise returns that generation root to *all* runtime consumers. An absent pointer is the only first-install condition and resolves to the immutable bundled root; Phase 2 never copies the bundle to seed a writable generation. [VERIFIED: `ConfigManager.resource_dir`; `RuntimeBootstrapService`; `runtime_inventory.py`]
+
+`repair-journal.json` is canonical UTF-8 JSON with `schema_version: 1`, `operation_id`, `state` (`staging`, `activating`, `revalidating`), `candidate_generation_id`, `previous_active` (the complete prior pointer object or `null`), and `app_version`. It is atomically written before work begins and retained until the candidate has passed `assess(trigger="repair")`. Write each JSON file to a unique sibling temporary file, flush and `os.fsync()` the file, then call `os.replace(temp, target)` without deleting `target` first; a bounded retry on `PermissionError` may retry the replace but must never fall back to delete-then-rename. [VERIFIED: `docs/ARCHITECTURE.md` atomic-write contract; `app/desktop/updater.py` same-directory replace pattern]
+
+**Activation and recovery rule:** Before activation, validate the candidate's complete inventory and signed archive-derived file set. Set journal state `activating`, then replace only `active.json` as one indivisible, non-cancellable boundary. Set journal state `revalidating`, run complete admission on the candidate, then delete the journal only after `HEALTHY`. A cancel before that boundary deletes only private staging and leaves the old pointer unchanged; a cancel received after activation finishes revalidation and reports its real terminal result rather than claiming cancellation. On startup: `staging` removes only its candidate staging tree; `activating`/`revalidating` requires a full candidate admission, commits if healthy, otherwise atomically restores `previous_active` (or removes the pointer if it was `null`) before removing the candidate. A first-install failure/cancel leaves `active.json` absent and the setup gate remains active. [VERIFIED: `RuntimeBootstrapService.assess(trigger="repair")`; `docs/ARCHITECTURE.md` recovery contract; CONTEXT.md D-21/D-22]
 
 ### Pattern 4: Explicit overlay reducer and safe cancellation boundaries
-**What:** Define client states `gate`, `diagnostics`, `confirm`, `repairing`, `offline`, `failed`, `ready`; server events `started`, `progress`, `retrying`, `cancel_requested`, `cancelled`, `failed`, `activated`, `admitted`. Permit cancellation only before activation; once the coordinator begins pointer replacement it finishes that small atomic operation, then returns `cancelled` if requested. The UI never infers success from percent/progress and never dismisses before `admitted`. [ASSUMED]
+**What:** Define client states `gate`, `diagnostics`, `confirm`, `repairing`, `offline`, `failed`, `ready`; server events `metadata_ready`, `started`, `progress`, `retrying`, `cancel_requested`, `cancelled`, `failed`, `activated`, `admitted`. The UI enters `confirm` only on `metadata_ready` for the active operation id, and it never infers success from percentage/progress or dismisses before `admitted`. Cancellation is accepted between acquisition, archive, extraction, and validation units; the `active.json` replace plus mandatory post-activation admission is the indivisible boundary described above. [VERIFIED: UI-SPEC progress/cancellation contract; CONTEXT.md D-06/D-12/D-22]
 
 ### Anti-Patterns to Avoid
 
@@ -192,7 +196,7 @@ tests/
 
 ### Pitfall 2: A cancel races activation
 **What goes wrong:** A cancel arriving during direct replacement can expose partial content or misreport success.  
-**How to avoid:** Check cancel before/after every network/extraction/validation unit and treat pointer replacement as an indivisible safe boundary with a durable prior pointer. [ASSUMED]
+**How to avoid:** Check cancel before/after every acquisition, archive, extraction, and validation unit. Treat `active.json` replacement followed by mandatory full admission as the indivisible boundary: after it starts, finish recovery/admission and report the actual terminal result; never overwrite a successful admission with a synthetic `cancelled` result. [VERIFIED: CONTEXT.md D-12/D-22; UI-SPEC progress/cancellation contract]
 
 ### Pitfall 3: Phase 1 still validates the bundle, not the active repaired generation
 **What goes wrong:** `RuntimeBootstrapService` defaults its root from `config.resource_dir`; a successful repair outside the bundle would not be consumed unless root resolution becomes active-generation aware.  
@@ -235,20 +239,46 @@ Source: [cryptography Ed25519 API](https://cryptography.io/_/downloads/en/49.0.0
 
 | # | Claim | Section | Risk if Wrong |
 |---|---|---|---|
-| A1 | `active.json` pointer replacement plus journal is the preferred Windows crash-recovery layout. | Architecture Pattern 3 | Planner must validate Windows rename/locking behavior with disposable package tests. |
-| A2 | A redirect-aware strict transport can reliably enforce final official GitHub origin with stdlib `urllib`. | Pitfall 4 | Must be proven with transport tests before network implementation. |
-| A3 | The explicit UI reducer states/events are sufficient without a more formal persisted state machine. | Architecture Pattern 4 | UI may mishandle late/stale events unless tokenized operation IDs are added. |
+| A1 | A redirect-aware strict transport can reliably enforce final official GitHub origin with stdlib `urllib`. | Pitfall 4 | Must be proven with transport tests before network implementation. |
 
-## Open Questions
+## Resolved Planning Decisions
 
-1. **Archive member-to-component mapping is not yet specified by AD-19.**
-   - What we know: fixed archives and canonical runtime inventory are locked.
-   - What's unclear: exact member names for each ZIP, whether the smoke fixture is installed or validation-only, and download-size source when GitHub omits Content-Length.
-   - Recommendation: first implementation plan creates/test-locks a release-layout table and manifest fixture before production download code.
-2. **Active generation resolver integration.**
-   - What we know: Phase 1 bootstrap defaults to `resource_dir`.
-   - What's unclear: exact chosen config/journal schema and whether an existing bundle can seed a first writable generation.
-   - Recommendation: make this a Wave 0 contract test; no repair service before every consumer uses the same resolver.
+### R1. AD-19 release layout and member-to-component contract
+
+The six AD-19 release assets are exact, and the manifest/signature are release metadata only: neither is extracted into a generation. The four ZIPs always create one **complete** candidate generation; repair never downloads only a failed individual component. The signed manifest's four archive records use these exact `component`, `file_name`, and `size_bytes` values:
+
+| Release asset role | Manifest `component` | Exact `file_name` | Allowed ZIP members (forward slash only) | Staged destination and canonical ownership |
+|---|---|---|---|---|
+| Manifest | `runtime-manifest` | `LecturePack-{app_version}-RuntimeManifest-v1.json` | Not a ZIP; verify raw bytes then parse. | Metadata only; owned by `release_trust`, never installed. |
+| Detached signature | `runtime-manifest-signature` | `LecturePack-{app_version}-RuntimeManifest-v1.json.sig` | Not a ZIP; exactly 64 raw bytes. | Metadata only; owned by `release_trust`, never installed. |
+| FFmpeg ZIP | `ffmpeg` | `LecturePack-{app_version}-Runtime-ffmpeg.zip` | `bin/ffmpeg.exe`; `bin/ffprobe.exe` | `<candidate>/bin/ffmpeg.exe`, `<candidate>/bin/ffprobe.exe`; static entries in `runtime_inventory._STATIC_ENTRIES`. |
+| Whisper CPU ZIP | `whisper-cpu` | `LecturePack-{app_version}-Runtime-whisper-cpu.zip` | `bin/ggml-base.dll`; `bin/ggml.dll`; `bin/whisper-cli.exe`; `bin/whisper.dll`; and one-or-more `bin/ggml-cpu-*.dll` names | Same relative paths under `<candidate>/bin/`; static entries plus the concrete CPU DLL names discovered from this archive are owned by `canonical_inventory()` / `inventory_for_root()`. |
+| Base-English model ZIP | `model-base-en` | `LecturePack-{app_version}-Runtime-model-base-en.zip` | `models/ggml-base.en.bin` | `<candidate>/models/ggml-base.en.bin`; static entry in `runtime_inventory._STATIC_ENTRIES`. |
+| Smoke-fixture ZIP | `smoke-fixture` | `LecturePack-{app_version}-Runtime-smoke-fixture.zip` | `smoke/runtime-smoke.wav` | `<candidate>/smoke/runtime-smoke.wav`; static entry in `runtime_inventory._STATIC_ENTRIES`. |
+
+The archive records are the signed payload records: their SHA-256 and `size_bytes` authenticate the exact ZIP bytes before inspection. The member allow-list above then rejects every directory entry, symlink/special entry, duplicate, case-collision, backslash, absolute/drive/UNC path, traversal segment, unexpected member, missing required static member, or whisper ZIP with zero `ggml-cpu-*.dll` members. The wildcard is deliberately constrained to the existing canonical inventory rule; after extraction the concrete set is frozen by `inventory_for_root(candidate)` and must be identical for every later `resolve_inventory`, identity calculation, admission, diagnostics, and packaged-smoke call. There is no second repair-owned inventory. [VERIFIED: AD-19 asset contract; `runtime_inventory.py`; `app/packaging/build.py`]
+
+The release workflow must create exactly these four ZIPs plus the manifest/signature, generate the manifest archive records from the ZIP bytes, sign its canonical bytes, and reject publication unless the extracted archive layout reconstructs the canonical inventory. It must be triggered by both a `v*` tag push and manual `workflow_dispatch` selecting an existing `v{app_version}` tag; both paths must check that tag-without-`v`, checked-out commit, manifest `app_version`, and `app/desktop/version.py::__version__` agree before signing/publishing. This replaces the current manual-only packaging workflow for Phase 2 planning; it is mandatory AD-19 scope, not optional release polish. [VERIFIED: AD-19; existing `.github/workflows/release.yml`; `app/desktop/version.py`]
+
+### R2. Smoke fixture is a runtime-required canonical component
+
+`smoke/runtime-smoke.wav` is runtime-required, not validation-only. `RuntimeBootstrapService._validate_full()` stages it with `models/ggml-base.en.bin` and invokes `whisper-cli.exe` against it; without it the mandatory full admission cannot establish health. Therefore the smoke fixture ZIP participates in the signed archive inventory, complete generation, `payload_identity`, repair rollback, startup admission, and packaged repaired-runtime smoke evidence exactly like the executables and model. It is never placed in a separate test-fixtures directory and is never omitted merely because the user did not select a diagnostic action. [VERIFIED: `runtime_inventory.py`; `RuntimeBootstrapService._validate_full()`; `app/packaging/build.py`; `tests/test_runtime_packaged_smoke.py`]
+
+The Phase 2 packaged repair harness must copy a repaired complete generation to a disposable writable path containing both spaces and non-ASCII characters, resolve that generation through the active-generation resolver, and retain the same captured `RuntimeValidator` argv, exit code, duration, stdout, and stderr evidence already required for the bundled smoke. [VERIFIED: `tests/test_runtime_packaged_smoke.py`; 02-VALIDATION.md]
+
+### R3. Authenticated metadata-before-consent and exact download size
+
+Selecting **Repair all** starts a metadata-only operation. It may issue GET requests only for the fixed exact-version manifest and detached-signature URLs under the AD-19 origin. It verifies the 64-byte signature against the exact manifest bytes *before* parsing; then enforces canonical JSON, schema, `app_version`, signing key id, exactly the four ZIP records in R1, exact filenames/components, non-negative integer `size_bytes`, and valid lowercase SHA-256. It does not issue HEAD, range, or ZIP requests before **Confirm & repair**. [VERIFIED: AD-19; CONTEXT.md D-06/D-19/D-20]
+
+The confirmation derives two separate truthful fields from this authenticated metadata and the current admission result: (1) **Affected components** is the friendly, deduplicated mapping of unhealthy canonical inventory paths to `Media tools`, `Speech runtime`, `Base English model`, and `Runtime check audio`; (2) **What will be repaired** says the entire four-archive runtime will be replaced safely, because atomic complete-generation activation requires all four archives even when only one component was unhealthy. **Download size** is the exact decimal sum of the four signed ZIP `size_bytes` values, with checked integer arithmetic; it is formatted only after computing the exact byte total. It must not use HTTP `Content-Length`, because that header is neither authenticated nor required. [VERIFIED: UI-SPEC confirmation fields; CONTEXT.md D-21; R1 contract]
+
+If manifest/signature acquisition is offline, the gate enters the locked offline state. If the signature, schema, component set, archive size, or total is missing, invalid, negative, duplicate, or overflows the defined unsigned-64-bit total, the gate enters failed/diagnostics and does not present an enabled **Confirm & repair** action. Thus the UI never estimates, hides, or changes the bytes after consent, and no repair payload download occurs until a valid confirmation is shown and explicitly accepted. [VERIFIED: UI-SPEC offline/failure contract; CONTEXT.md D-06/D-07/D-19/D-20]
+
+### R4. Active-generation resolver, pointer/journal, and rollback contract
+
+`resolve_active_runtime_root(config)` is the one canonical resolver introduced before repair integration. It uses `config.resolve_data_dir()/runtime/active.json`; `RuntimeBootstrapService`, bridge collaborator construction, packaged-smoke harnesses, and repair receive its resolved root rather than independently reading `config.resource_dir`. `RuntimeDiagnosticsService` remains a projection of the bootstrap result obtained through that resolver. If no pointer exists, it returns the immutable bundled `config.resource_dir` (first install). If a pointer exists but is malformed, wrong-schema, wrong-app-version, noncanonical, points outside `runtime/generations`, or targets a missing/non-directory generation, it returns a setup-required resolver error rather than falling back to the bundle. [VERIFIED: `ConfigManager`; `RuntimeBootstrapService`; `RuntimeDiagnosticsService`; CONTEXT.md D-21/D-23]
+
+The exact pointer and journal schemas, activation ordering, Windows atomic-write behavior, crash recovery, and cancellation invariants are specified in Architecture Pattern 3 and are test requirements, not implementation discretion. Wave 0 must parameterize pointer write/replace, process-crash-after-journal, process-crash-after-pointer-replace, cancelled-before-activation, invalid candidate admission, and first-install failure. Each case asserts that the prior generation's files and pointer meaning remain unchanged, no incomplete candidate is resolvable, and normal bridge collaborators remain absent until canonical `assess(trigger="repair")` reports `HEALTHY`. [VERIFIED: 02-VALIDATION.md; `RuntimeBootstrapService`; CONTEXT.md D-21/D-22]
 
 ## Environment Availability
 

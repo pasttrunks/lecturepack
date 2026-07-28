@@ -4,9 +4,9 @@ milestone: v0.9.0-beta.6
 milestone_name: Clean-Machine Reliability and Onboarding
 current_phase: 2
 current_phase_name: Hard Setup & Signed Repair
-status: planning
-stopped_at: Phase 2 context gathered
-last_updated: "2026-07-28T17:38:15.948Z"
+status: executing
+stopped_at: Phase 2 UI-SPEC approved
+last_updated: "2026-07-28T18:34:00.365Z"
 last_activity: 2026-07-28
 last_activity_desc: Phase 1 complete, transitioned to Phase 2
 progress:
@@ -30,7 +30,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-28)
 
 Phase: 2 — Hard Setup & Signed Repair
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-07-28 — Phase 1 complete, transitioned to Phase 2
 
 Milestone progress: [██░░░░░░░░] 20%
@@ -101,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-28T17:38:15.937Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-hard-setup-signed-repair/02-CONTEXT.md
+Last session: 2026-07-28T17:53:34.703Z
+Stopped at: Phase 2 UI-SPEC approved
+Resume file: .planning/phases/02-hard-setup-signed-repair/02-UI-SPEC.md
