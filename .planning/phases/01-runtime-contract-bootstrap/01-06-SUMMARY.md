@@ -76,7 +76,14 @@ status: complete
 
 Every packaged/full-suite command set `LECTUREPACK_ONEDIR_FIXTURE=C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Phase1 Gap Fixture Corrected 20260728`. This explicitly supplied run-scoped fixture is a copy of `C:\\Users\\marsh\\Documents\\LecturePack\\app\\dist\\LecturePack`, augmented only with the repository-approved `app\\packaging\\assets\\runtime-smoke.wav` at `smoke\\runtime-smoke.wav`. It was validated with `check_clean_state()` before each real smoke and was never modified; smoke copied it to a disposable Unicode-and-space path.
 
-The real copied-onedir admission command used staged ASCII argv in the form `whisper-cli.exe -m <ASCII model> -f <ASCII WAV> -t 1 -nt`; it exited 0 in under the 30,000ms bound, with captured stdout/stderr containing the established backend/model/WAV/processing evidence and reason `success`. The tests assert and retain actual `argv`, `exit_code`, `duration_ms`, `stdout`, `stderr`, and `reason` fields; no mock is used as the packaged proof.
+The real fixture admission evidence captured after the gate was:
+
+- `argv`: `['C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePack Phase1 Gap Fixture Corrected 20260728\\bin\\whisper-cli.exe', '-m', 'C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePackWhisper\\lpws-3il6le83\\inputs\\model.bin', '-f', 'C:\\Users\\marsh\\AppData\\Local\\Temp\\LecturePackWhisper\\lpws-3il6le83\\inputs\\audio.wav', '-t', '1', '-nt']`
+- `exit_code`: `0`; `duration_ms`: `4125`; `reason`: `success`; `timed_out`: `False`.
+- `stdout`: `\n (electronic beeping)`.
+- `stderr`: CPU backend loaded from the fixture's `ggml-cpu-haswell.dll`; model loaded from the staged ASCII `model.bin`; audio read from staged ASCII `audio.wav`; `system_info` reported `n_threads = 1`; and `main` reported processing the 1.0-second WAV. The full captured evidence remains in the `SmokeEvidence` returned by the run and is asserted by packaged-smoke tests.
+
+No mock is used as the packaged proof.
 
 ## Task Commits
 
