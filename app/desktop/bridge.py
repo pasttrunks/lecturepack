@@ -117,6 +117,8 @@ class Backend(QObject):
         self._repair_worker = None
         self._repair_offer_id = None
         self._runtime_repair = None
+        self._repair_confirmed = False
+        self._repair_terminal_seen = False
         if self.runtime_health_result.state == "HEALTHY":
             self._adapter = make_adapter(
                 self,
@@ -155,6 +157,8 @@ class Backend(QObject):
         if payload.get("operation_id") != self._repair_offer_id:
             return
         kind = payload.get("kind")
+        if self._repair_terminal_seen:
+            return
         if kind == "metadata_ready":
             self._repair_offer_id = payload["operation_id"]
             self._repair_worker = None
@@ -165,8 +169,13 @@ class Backend(QObject):
                 if self.runtime_health_result.state == "HEALTHY" and self._adapter is None:
                     self._adapter = make_adapter(self, runtime_health_result=self.runtime_health_result, runtime_diagnostics_controller=self._runtime_diagnostics)
                     self._updater = Updater(self)
+                elif self.runtime_health_result.state != "HEALTHY":
+                    payload = {"operation_id": self._repair_offer_id, "kind": "failed", "detail": "repaired runtime did not pass admission"}
+            self._repair_terminal_seen = True
             self._repair_offer_id = None
             self._repair_worker = None
+            self._runtime_repair = None
+            self._repair_confirmed = False
         self.repair_event.emit(json.dumps(payload))
 
     def _start_repair_worker(self, worker):
@@ -187,6 +196,8 @@ class Backend(QObject):
         if self._repair_worker is not None or self._repair_offer_id is not None:
             return json.dumps({"type": "repair_in_progress", "operation_id": self._repair_offer_id})
         self._repair_offer_id = operation_id
+        self._repair_confirmed = False
+        self._repair_terminal_seen = False
         self._runtime_repair = self._make_runtime_repair_service()
         return self._start_repair_worker(RuntimeRepairWorker(self._runtime_repair, operation_id, parent=self))
 
@@ -194,16 +205,22 @@ class Backend(QObject):
     def confirm_runtime_repair(self, operation_id: str) -> str:
         if operation_id != self._repair_offer_id:
             return json.dumps({"type": "invalid_repair_offer"})
-        if self._runtime_repair is None:
+        if self._runtime_repair is None or self._repair_worker is not None or self._repair_confirmed:
             return json.dumps({"type": "invalid_repair_offer"})
+        self._repair_confirmed = True
         return self._start_repair_worker(RuntimeRepairWorker(self._runtime_repair, operation_id, confirm=True, parent=self))
 
     @Slot(str)
     def cancel_runtime_repair(self, operation_id: str):
-        if operation_id == self._repair_offer_id and self._repair_worker is not None:
+        if operation_id != self._repair_offer_id or self._runtime_repair is None:
+            return
+        if self._repair_worker is not None:
             self._repair_worker.cancel()
-            self._repair_offer_id = None
-            self._runtime_repair = None
+            return
+        start = len(self._runtime_repair.events)
+        self._runtime_repair.cancel(operation_id)
+        for event in self._runtime_repair.events[start:]:
+            self._on_repair_event(event.payload())
 
     @Slot(result=str)
     def retry_runtime_assessment(self) -> str:
@@ -219,6 +236,10 @@ class Backend(QObject):
             def get(self, url):
                 with urlopen(url, timeout=30) as response:
                     return response.read()
+            def stream_get(self, url):
+                with urlopen(url, timeout=30) as response:
+                    while chunk := response.read(64 * 1024):
+                        yield chunk
         evidence = {name: item.get("reason", name) for name, item in self.runtime_health_result.components.items() if not item.get("healthy")}
         def assess(root):
             return RuntimeBootstrapService(self._runtime_config, runtime_root=root).assess(trigger="repair")

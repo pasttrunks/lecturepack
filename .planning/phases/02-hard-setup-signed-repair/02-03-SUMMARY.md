@@ -2,18 +2,19 @@
 phase: 02-hard-setup-signed-repair
 plan: 03
 subsystem: runtime-repair
-tags: [signed-repair, generation, bridge]
+tags: [signed-repair, generation, bridge, rollback]
 requires: [02-01, 02-02]
-provides: [consent-gated repair offer, staged repair transaction, guarded bridge repair boundary]
+provides: [consent-gated repair offer, strict staged repair transaction, guarded desktop repair boundary]
 affects: [setup-gate]
 tech-stack:
   added: []
-  patterns: [metadata-before-payload, operation-bound-offers, healthy-only-admission]
+  patterns: [metadata-before-payload, operation-bound-offers, bounded-streaming, healthy-only-admission]
 key-files:
-  created: [lecturepack/services/runtime_repair.py, app/desktop/repair_worker.py, tests/test_runtime_repair.py]
-  modified: [app/desktop/bridge.py]
+  created: [lecturepack/services/runtime_repair.py, app/desktop/repair_worker.py]
+  modified: [app/desktop/bridge.py, tests/test_runtime_repair.py]
 decisions:
-  - "Repair metadata is authenticated before any archive acquisition."
+  - "Only the authenticated exact-version offer authorizes the fixed four archive URLs."
+  - "The store-owned staged/post-pointer assess(trigger='repair') callback is the rollback-capable admission boundary."
 metrics:
   tasks: 2
 status: complete
@@ -21,30 +22,45 @@ status: complete
 
 # Phase 02 Plan 03: Signed Repair Service Summary
 
-**Consent-bound signed release metadata, staged generation publication, and a guarded desktop repair boundary.**
+Completed the consent-bound signed repair consumer and desktop admission boundary.
 
-## Accomplishments
+## Delivered
 
-- Added a Qt-free repair coordinator that authenticates manifest/signature metadata before confirmation and uses fixed official release URLs.
-- Added worker/bridge repair event transport while retaining unhealthy-admission guards for all normal collaborator calls.
-- Added focused consent and stale-offer tests.
+- Metadata-only offers acquire exactly the authenticated manifest and signature before confirmation; the offer carries the exact version, fixed official source, friendly affected components, and checked four-archive byte total.
+- Confirmed repair uses only fixed authenticated archive names/URLs, bounded chunk writes, archive SHA-256/size verification, strict component member sets, Windows path/ADS/device rejection, duplicate/case-collision rejection, special-entry rejection, streamed extraction, and complete canonical-inventory validation.
+- Generation publication uses the existing transactional store with staged and post-activation canonical admission inside its rollback-capable callback. Download, validation, cancellation, permission, and admission failures retain the prior active generation.
+- Repair events are ordered and JSON-safe, use one terminal result, classify offline exhaustion, and keep cancellation/idempotency operation-bound.
+- The worker enriches the sole metadata-ready event; the bridge rejects concurrent confirmation, preserves cancellation routing until terminal delivery, filters stale/duplicate terminal events, and creates adapter/updater once only after canonical `HEALTHY` re-admission.
 
-## Task Commits
+## Coverage
 
-1. Task 1 RED: `07de8b0`; GREEN: `d939767`; transaction extension: `6f4165b`.
-2. Task 2 RED: `610b7dd`; GREEN: `4de6546`.
+- `tests/test_runtime_repair.py::test_offer_authenticates_only_manifest_and_signature_before_confirmation` — real trust offer is metadata-only and has the authenticated confirmation fields.
+- `tests/test_runtime_repair.py::test_confirmed_repair_streams_exact_four_archives_and_admits_only_after_transaction` — exact four signed archives, canonical payload, event order, and admitted completion.
+- `tests/test_runtime_repair.py::test_archive_rejection_preserves_the_prior_active_generation` — traversal, ADS, and case-collision rejection preserves prior pointer/content.
+- `tests/test_runtime_repair.py::test_retry_exhaustion_is_offline_and_cancel_is_idempotent_without_archive_requests` — bounded retries, offline classification, no payload request, and one cancellation terminal result.
+- `tests/test_runtime_repair.py::test_post_activation_admission_failure_rolls_back_before_terminal_failure` — store callback restores first-install pointer state after post-activation admission rejection.
+- `tests/test_runtime_repair.py::test_worker_forwards_one_json_safe_ordered_offer_event` and `test_bridge_accepts_one_admitted_event_then_constructs_collaborators_once` — JSON-safe worker sequence and exactly-once healthy bridge construction.
+- `tests/test_runtime_generation.py` remains the lower-layer matrix for streamed extraction bounds, links, hashes, pointer journal recovery, and byte-identical rollback.
+
+## Corrections Incorporated
+
+- Prior audit correction `4018fff` was retained: event forwarding, cancellation idempotency, concurrent-start rejection, and HEALTHY re-admission ordering.
+- This completion pass removed the service's duplicate/manual extraction path in favor of `safe_extract_verified_archive`, added operation-terminal suppression/classification, and closed bridge cancellation/duplicate-confirmation races.
 
 ## Verification
 
-`python -m pytest tests/test_runtime_repair.py tests/test_runtime_generation.py tests/test_adapter_startup.py -q` — **19 passed in 1.29s**.
+```text
+python -m pytest tests/test_runtime_repair.py tests/test_runtime_generation.py -q
+19 passed in 1.58s
 
-`python -m pytest -q` was started but exceeded the execution timeout and then pytest's Windows terminal reporter raised `OSError: [Errno 22] Invalid argument`; no test failure was reported before timeout.
+python -m pytest tests/test_runtime_repair.py tests/test_adapter_startup.py -q
+18 passed in 1.45s
+```
 
-## Deviations from Plan
+The known cross-wave UI registration regression remains intentionally untouched: `python -m pytest tests/test_media_link_adapter.py -q` reports one failure because `repair_event` is declared by `app/desktop/bridge.py` but is absent from `app/ui/bridge.js`'s `SIGNALS` list. That file/test pair is Wave 3 ownership, so this plan does not claim the full suite is green.
 
-None - plan implementation remained within the four authorized code/test files.
+## Task Commits
 
-## Self-Check: PASSED
-
-- All four planned implementation/test files exist.
-- Commits `07de8b0`, `d939767`, `610b7dd`, `4de6546`, and `6f4165b` exist.
+1. Initial Plan 02-03 implementation: `07de8b0`, `d939767`, `610b7dd`, `4de6546`, `6f4165b`.
+2. Audit ordering correction: `4018fff`.
+3. Completion hardening and expanded fault matrix: recorded by the follow-on commit for this summary.
