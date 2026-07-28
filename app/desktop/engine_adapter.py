@@ -24,14 +24,32 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import uuid
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QFileDialog
 
-from .assets import asset_url, thumb_url
+from .assets import AssetResolver, asset_url, thumb_url
 from .paths import data_dir
 from .win_integration import WindowsIntegration
+
+
+def _media_fetch_available() -> bool:
+    """yt-dlp presence, resolved lazily so a build without it still starts."""
+    try:
+        from lecturepack.services import media_fetch
+        return media_fetch.is_available()
+    except Exception:
+        return False
+
+
+def _media_fetch_version() -> str:
+    try:
+        from lecturepack.services import media_fetch
+        return media_fetch.version()
+    except Exception:
+        return ""
 
 
 class EngineAdapter(QObject):
@@ -71,8 +89,42 @@ class EngineAdapter(QObject):
     def set_job_group(self, job_id: str, group: str) -> None:
         """Set a job's course/subject group; refresh the jobs list."""
 
+    def delete_jobs(self, ids_json: str) -> None:
+        """Delete several jobs (Home multi-select). One list refresh and one
+        summary job_deleted signal for the whole batch."""
+
+    def set_jobs_group(self, ids_json: str, group: str) -> None:
+        """Group several jobs at once; one list refresh for the batch."""
+
     def notify_drag_over(self):
         """Optional: UI feedback while a file is dragged over the window."""
+
+    # -- import from a link ---------------------------------------------------
+    def push_storage(self) -> None:
+        """Emit storage_changed {ok, used, used_h, free_h, pct}.
+
+        The demo/preview adapter reports nothing, so the widget stays hidden
+        rather than showing a fabricated number (BUG-04)."""
+        self.backend.storage_changed.emit(json.dumps({"ok": False}))
+
+    def media_link_support(self) -> None:
+        """Emit media_link_state {available, version} so the UI can hide the
+        paste-a-link affordance in builds without yt-dlp."""
+        self.backend.media_link_state.emit(json.dumps(
+            {"available": _media_fetch_available(), "version": _media_fetch_version()}))
+
+    def probe_media_url(self, url: str) -> None:
+        """Emit media_probe {ok, title, duration, uploader, error}."""
+        self.backend.media_probe.emit(json.dumps(
+            {"ok": False, "error": "Link import isn't available here."}))
+
+    def import_media_url(self, url: str, title: str) -> None:
+        """Download then call import_video(path). Emits media_progress/media_done."""
+        self.backend.media_done.emit(json.dumps(
+            {"ok": False, "error": "Link import isn't available here."}))
+
+    def cancel_media_url(self) -> None:
+        """Cancel an in-flight link download."""
 
     def start_processing(self, mode: str) -> None:
         """Kick off the engine pipeline for the pending import. Emit
@@ -685,9 +737,39 @@ class LecturePackAdapter(EngineAdapter):
     def _ollama_settings(self) -> dict:
         return dict(self.config.get("ollama", {}) or {})
 
+    # Workspace signals carry data that belongs to ONE lecture. Stamping the
+    # owning job id centrally lets the UI reject a payload that arrives after
+    # the user switched lectures (a late signal used to silently repaint the
+    # previous job's data over the new one).
+    _JOB_SCOPED_SIGNALS = frozenset({
+        "pipeline_changed", "slides_changed", "transcript_changed",
+        "study_changed", "quiz_changed", "flashcards_changed",
+        "export_progress", "export_done", "post_completion",
+    })
+
     def _emit(self, signal, payload):
+        if signal in self._JOB_SCOPED_SIGNALS and isinstance(payload, dict) \
+                and "job" not in payload:
+            job = getattr(self, "current_job", None)
+            payload = dict(payload, job=getattr(job, "job_id", "") or "")
         getattr(self.backend, signal).emit(
             payload if isinstance(payload, str) else json.dumps(payload))
+
+    def _set_active_job(self, job):
+        """Single place that changes which lecture the workspace belongs to.
+
+        Emits ``active_job`` so the UI can scope (and clear) its screens. The
+        UI owns no job identity of its own -- it follows this signal.
+        """
+        self.current_job = job
+        job_id = getattr(job, "job_id", "") or ""
+        title = ""
+        if job is not None:
+            try:
+                title = job.manifest.get("title", "") or ""
+            except Exception:
+                title = ""
+        self._emit("active_job", {"id": job_id, "title": title})
 
     def _log(self, tag: str, text: str, key: str = ""):
         color = _LOG_COLORS.get(key or tag.strip("[]").lower(), "var(--ink)")
@@ -767,6 +849,103 @@ class LecturePackAdapter(EngineAdapter):
 
     def _push_jobs(self):
         self._emit("jobs_changed", self._list_jobs())
+        self.push_storage()
+
+    # Bursty flows (bulk delete, queue promotion, startup reconciliation) fire
+    # several jobs_changed in a row. Without coalescing, each one launched its
+    # own full os.walk of the data root -- N overlapping unbounded threads
+    # stat-ing tens of thousands of files, concurrently with the pipeline's own
+    # heavy I/O. Flagged by the beta.4 pre-release review; see BUG-13.
+    _STORAGE_DEBOUNCE_MS = 1500
+
+    def push_storage(self):
+        """Coalesce storage measurements; the real work is in _run_storage_walk.
+
+        Restarting a single-shot timer on every call collapses a burst of
+        jobs_changed into ONE walk, 1.5s after the last of them.
+        """
+        # getattr defaults throughout: tests build the adapter with __new__,
+        # so __init__ has not necessarily run.
+        pending = getattr(self, "_storage_timer_armed", False)
+        self._storage_timer_armed = True
+        if pending:
+            return          # a walk is already scheduled; let it absorb this
+        QTimer.singleShot(self._STORAGE_DEBOUNCE_MS, self.backend,
+                          self._run_storage_walk)
+
+    def _run_storage_walk(self):
+        """Measure the data dir on a worker thread, then emit storage_changed.
+
+        BUG-04 left the sidebar storage widget permanently hidden because no
+        backend ever reported disk usage, and the UI (correctly) refuses to
+        invent a figure. This is that missing signal.
+
+        Walked on a worker thread on purpose: a data dir with many lectures is
+        thousands of files, and os.walk on the Qt main thread would stutter the
+        UI every time the job list moved. Delivery goes through _emit_soon, so
+        it lands on the main thread (see BUG-09 -- this only works because the
+        context object is passed).
+        """
+        self._storage_timer_armed = False
+        if getattr(self, "_storage_inflight", False):
+            # A walk is still running. Don't stack a second one, and do NOT
+            # re-arm by calling push_storage() here -- if the timer ever fires
+            # synchronously that recurses until the stack blows. Just record
+            # that the result will be stale; the running walk re-arms on exit.
+            self._storage_dirty = True
+            return
+        self._storage_inflight = True
+        self._storage_dirty = False
+        root = self.config.data_dir
+
+        def worker():
+            try:
+                used = 0
+                for dirpath, _dirnames, filenames in os.walk(root):
+                    for fn in filenames:
+                        try:
+                            used += os.path.getsize(os.path.join(dirpath, fn))
+                        except OSError:
+                            pass          # file vanished mid-walk; skip it
+                free = shutil.disk_usage(root).free
+                # Fraction of the space actually available to LecturePack that
+                # LecturePack is using -- not whole-disk usage, which would be
+                # a figure about the user's SSD rather than about this app.
+                denom = used + free
+                pct = (used / denom * 100.0) if denom else 0.0
+                payload = {
+                    "ok": True,
+                    "used": used,
+                    "used_h": _human_size(used),
+                    "free_h": _human_size(free),
+                    "pct": round(pct, 2),
+                }
+            except Exception as exc:
+                payload = {"ok": False, "error": str(exc)[:200]}
+            finally:
+                # Must clear even on failure, or one bad walk wedges the
+                # widget for the rest of the session.
+                self._storage_inflight = False
+            if getattr(self, "_storage_dirty", False):
+                # Jobs changed while we were walking: the number we just
+                # computed is already stale, so schedule one more pass.
+                self._storage_dirty = False
+                try:
+                    QTimer.singleShot(self._STORAGE_DEBOUNCE_MS, self.backend,
+                                      self._run_storage_walk)
+                except Exception:
+                    pass
+            try:
+                self._emit_soon(self.backend.storage_changed, payload)
+            except Exception:
+                # The walk can outlive the thing that asked for it -- on app
+                # exit (or between tests) the Qt bindings may already be torn
+                # down, and this daemon thread would then die with a bare
+                # NameError on a module global. A storage figure is never worth
+                # a noisy shutdown, so a late emit is simply dropped.
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ------------------------------------------------------------------ lifecycle
     def on_ui_ready(self):
@@ -863,11 +1042,11 @@ class LecturePackAdapter(EngineAdapter):
                     best = (key, job_id)
         if best:
             try:
-                self.current_job = Job(self.config.data_dir, job_id=best[1])
+                self._set_active_job(Job(self.config.data_dir, job_id=best[1]))
                 self._push_review_data()
                 self._push_study_data()
             except Exception:
-                self.current_job = None
+                self._set_active_job(None)
 
     def open_job(self, job_id: str):
         """Open a completed job from the Home grid: load it and push its review /
@@ -877,7 +1056,7 @@ class LecturePackAdapter(EngineAdapter):
             self._log("[error]", f"job not found: {job_id}", "error")
             return
         try:
-            self.current_job = Job(self.config.data_dir, job_id=job_id)
+            self._set_active_job(Job(self.config.data_dir, job_id=job_id))
         except Exception as exc:
             self._log("[error]", f"failed to open job: {exc}", "error")
             return
@@ -909,46 +1088,115 @@ class LecturePackAdapter(EngineAdapter):
                     pass
         return total
 
+    def _delete_one(self, job_id: str) -> dict:
+        """Remove a single job directory. Shared by single and bulk delete so
+        both take exactly the same recycle-bin-first path. Emits nothing and
+        refreshes nothing -- the caller owns signalling."""
+        real = self._job_dir_guarded(job_id)
+        if real is None:
+            self._log("[error]", f"cannot delete: unknown job {job_id}", "error")
+            return {"ok": False, "id": job_id, "freed_bytes": 0}
+        freed = self._dir_size(real)
+        was_current = (self.current_job is not None
+                       and self.current_job.job_id == job_id)
+        # BUG-14: this used to be `except Exception: shutil.rmtree(...)`, so ANY
+        # send2trash failure -- a file locked by an antivirus scan, a MAX_PATH
+        # overrun, a data dir on a network or removable volume -- silently
+        # turned a recoverable delete into an unrecoverable one. The user
+        # confirmed "move to Recycle Bin" and could lose a lecture for good,
+        # and bulk delete multiplied that across a whole selection in one click.
+        #
+        # Only a genuinely absent send2trash justifies a hard delete now. A
+        # runtime failure fails the operation instead: the lecture stays on
+        # disk and the user can retry, which is always recoverable from.
+        try:
+            from send2trash import send2trash
+        except ImportError:
+            shutil.rmtree(real, ignore_errors=False)
+            method = "permanently"
+        else:
+            try:
+                send2trash(real)
+            except Exception as exc:
+                self._log("[home]", f"delete failed for {job_id}: {exc}", "error")
+                return {"ok": False, "id": job_id, "error": str(exc)[:200],
+                        "freed_bytes": 0, "method": "none", "was_current": False}
+            method = "recycle bin"
+        if was_current:
+            self._set_active_job(None)
+        self._log("[home]", f"deleted job {job_id} → {method} "
+                  f"({_human_size(freed)} freed)", "engine")
+        return {"ok": True, "id": job_id, "freed_bytes": freed,
+                "method": method, "was_current": was_current}
+
     def delete_job(self, job_id: str) -> None:
         """Delete a job the user chose to remove (confirmed in the UI). Prefers
         the OS recycle bin (recoverable) and only hard-deletes as a fallback.
         Never called automatically — only from an explicit UI confirmation."""
-        real = self._job_dir_guarded(job_id)
-        if real is None:
-            self._log("[error]", f"cannot delete: unknown job {job_id}", "error")
+        res = self._delete_one(job_id)
+        if not res["ok"]:
             self._emit("job_deleted", {"ok": False, "id": job_id})
             return
-        freed = self._dir_size(real)
-        was_current = (self.current_job is not None
-                       and self.current_job.job_id == job_id)
-        try:
-            from send2trash import send2trash
-            send2trash(real)
-            method = "recycle bin"
-        except Exception:
-            shutil.rmtree(real, ignore_errors=False)
-            method = "permanently"
-        if was_current:
-            self.current_job = None
-        self._log("[home]", f"deleted job {job_id} → {method} "
-                  f"({_human_size(freed)} freed)", "engine")
-        self._emit("job_deleted", {"ok": True, "id": job_id,
-                                   "freed": _human_size(freed), "method": method})
+        self._emit("job_deleted", {
+            "ok": True, "id": job_id,
+            "freed": _human_size(res["freed_bytes"]), "method": res["method"]})
         self._push_jobs()
-        if was_current:
+        if res.get("was_current"):
             self._load_latest_completed_job()
 
-    def set_job_group(self, job_id: str, group: str) -> None:
-        """Set/clear a job's course/subject group (persisted in its manifest)."""
+    def delete_jobs(self, ids_json: str) -> None:
+        """Delete several jobs (multi-select on Home), confirmed in the UI.
+
+        One refresh and one summary signal for the whole batch rather than N of
+        each, and a partial failure still reports what DID get deleted.
+        """
+        try:
+            ids = json.loads(ids_json or "[]")
+        except ValueError:
+            ids = []
+        ids = [str(i) for i in ids if i]
+        if not ids:
+            self._emit("job_deleted", {"ok": False, "bulk": True, "count": 0,
+                                       "error": "Nothing selected."})
+            return
+        deleted, failed, freed, reload_needed = [], [], 0, False
+        for job_id in ids:
+            res = self._delete_one(job_id)
+            if res["ok"]:
+                deleted.append(res["id"])
+                freed += res["freed_bytes"]
+                reload_needed = reload_needed or bool(res.get("was_current"))
+            else:
+                failed.append(job_id)
+        self._emit("job_deleted", {
+            "ok": bool(deleted), "bulk": True, "ids": deleted,
+            "count": len(deleted), "failed": failed,
+            "freed": _human_size(freed)})
+        self._push_jobs()
+        if reload_needed:
+            self._load_latest_completed_job()
+
+    def set_jobs_group(self, ids_json: str, group: str) -> None:
+        """Group several jobs at once; one list refresh for the batch."""
+        try:
+            ids = json.loads(ids_json or "[]")
+        except ValueError:
+            ids = []
+        for job_id in [str(i) for i in ids if i]:
+            self._set_job_group_quiet(job_id, group)
+        self._push_jobs()
+
+    def _set_job_group_quiet(self, job_id: str, group: str) -> bool:
+        """Write one job's group. No list refresh -- the caller batches that."""
         real = self._job_dir_guarded(job_id)
         if real is None:
             self._log("[error]", f"cannot group: unknown job {job_id}", "error")
-            return
+            return False
         manifest_path = os.path.join(real, "manifest.json")
         man = FileManager.read_json_safe(manifest_path, None)
         if not isinstance(man, dict):
             self._log("[error]", f"cannot group: bad manifest {job_id}", "error")
-            return
+            return False
         group = (group or "").strip()
         if group:
             man["group"] = group
@@ -959,7 +1207,12 @@ class LecturePackAdapter(EngineAdapter):
             self.current_job.manifest["group"] = group
         self._log("[home]", f"job {job_id} grouped as "
                   f"'{group or _derive_group(man.get('title', ''))}'", "engine")
-        self._push_jobs()
+        return True
+
+    def set_job_group(self, job_id: str, group: str) -> None:
+        """Set/clear a job's course/subject group (persisted in its manifest)."""
+        if self._set_job_group_quiet(job_id, group):
+            self._push_jobs()
 
     # ------------------------------------------------------------------ import
     def browse_video(self, parent):
@@ -969,14 +1222,144 @@ class LecturePackAdapter(EngineAdapter):
         if path:
             self.import_video(path)
 
+    # -------------------------------------------------------- import from a link
+    def media_link_support(self):
+        self.backend.media_link_state.emit(json.dumps(
+            {"available": _media_fetch_available(),
+             "version": _media_fetch_version()}))
+
+    def _downloads_dir(self) -> str:
+        """Where fetched media lands: inside the data dir, so it is covered by
+        the same disk/cleanup story as everything else (never the repo)."""
+        d = os.path.join(self.config.data_dir, "downloads")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def probe_media_url(self, url: str):
+        """Resolve a link's metadata on a worker thread, then emit media_probe."""
+        try:
+            from lecturepack.services.media_fetch import MediaFetcher, MediaFetchError
+        except Exception:
+            self.backend.media_probe.emit(json.dumps(
+                {"ok": False, "error": "Link import isn't available in this build."}))
+            return
+
+        def worker():
+            try:
+                info = MediaFetcher().probe(url)
+                info["ok"] = True
+                payload = info
+            except MediaFetchError as exc:
+                payload = {"ok": False, "error": str(exc)}
+            except Exception as exc:                       # never kill the thread
+                payload = {"ok": False, "error": str(exc)[:300]}
+            self._emit_soon(self.backend.media_probe, payload)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def cancel_media_url(self):
+        ev = getattr(self, "_media_cancel", None)
+        if ev is not None:
+            ev.set()
+            self._log("[import]", "link download cancelled", "engine")
+
+    def import_media_url(self, url: str, title: str = ""):
+        """Download ``url`` then hand the local file to :meth:`import_video`."""
+        try:
+            from lecturepack.services.media_fetch import (
+                MediaFetchCancelled, MediaFetcher, MediaFetchError)
+        except Exception:
+            self.backend.media_done.emit(json.dumps(
+                {"ok": False, "error": "Link import isn't available in this build."}))
+            return
+        if getattr(self, "_media_busy", False):
+            self.backend.media_done.emit(json.dumps(
+                {"ok": False, "error": "A link download is already running."}))
+            return
+
+        self._media_busy = True
+        cancel = threading.Event()
+        self._media_cancel = cancel
+        dest = self._downloads_dir()
+        self._log("[import]", f"fetching {url}", "engine")
+
+        def worker():
+            try:
+                path = MediaFetcher().download(
+                    url, dest,
+                    progress_cb=lambda p: self._emit_soon(self.backend.media_progress, p),
+                    cancel_check=cancel.is_set,
+                    title=title or None,
+                )
+                if cancel.is_set():
+                    # BUG-18: cancel is only observed from yt-dlp's progress
+                    # hook. If it arrives while no hook is firing (extractor
+                    # resolution, a stalled socket, the final merge), the
+                    # transfer runs to completion and used to report ok:True --
+                    # so a download the user cancelled still became a job.
+                    # Honour the cancel here instead of importing behind them.
+                    payload = {"ok": False, "cancelled": True}
+                else:
+                    payload = {"ok": True, "path": path,
+                               "name": os.path.basename(path)}
+            except MediaFetchCancelled:
+                payload = {"ok": False, "cancelled": True}
+            except MediaFetchError as exc:
+                payload = {"ok": False, "error": str(exc)}
+            except Exception as exc:
+                payload = {"ok": False, "error": str(exc)[:300]}
+            finally:
+                self._media_busy = False
+                self._media_cancel = None
+            self._emit_soon(self.backend.media_done, payload)
+            # Hand off on the MAIN thread: import_video touches Qt + the engine.
+            # Context object required -- see _emit_soon / BUG-09.
+            if payload.get("ok"):
+                QTimer.singleShot(
+                    0, self.backend, lambda: self.import_video(payload["path"]))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _emit_soon(self, signal, payload):
+        """Emit a JSON signal on the main thread from a worker thread.
+
+        The context object is REQUIRED. ``QTimer.singleShot(0, fn)`` starts the
+        timer in the *calling* thread, and these callers are plain
+        ``threading.Thread`` workers with no Qt event loop -- so the functor
+        was never invoked and the signal never reached the UI. Passing a
+        QObject that lives on the main thread makes Qt run the functor in that
+        object's thread instead. See BUG-09.
+        """
+        data = json.dumps(payload)
+        QTimer.singleShot(0, self.backend, lambda: signal.emit(data))
+
+    def _kick_poster(self, job) -> None:
+        """Generate the job-card poster the instant a file is imported.
+
+        Posters were generated LAZILY -- only when the UI first requested one --
+        so a freshly dropped/browsed file showed a placeholder icon for the first
+        seconds, which is the least polished moment in the app. ffmpeg pulls a
+        frame in well under a second, so do it immediately on a daemon thread and
+        let the card's existing retry-with-backoff pick it up. Never block or
+        fail an import for a cosmetic thumbnail.
+        """
+        try:
+            res = AssetResolver(self.config.data_dir,
+                                ffmpeg_exe=self.config.get("ffmpeg_exe", None))
+            threading.Thread(target=res.make_poster_now, args=(job.job_id,), kwargs={"fast": True},
+                             daemon=True, name="lp-import-poster").start()
+        except Exception:
+            pass
+
     def import_video(self, path: str):
         if not os.path.exists(path):
             return
         try:
             job = Job(self.config.data_dir, video_path=path)
+            self._kick_poster(job)
             self.controller.set_job(job)
             self._pending_job = job
-            self.current_job = job
+            self._set_active_job(job)
             meta_str = f"{_human_size(os.path.getsize(path))}"
             try:
                 self.controller.ffmpeg_wrapper.detect_binaries()
@@ -1032,7 +1415,7 @@ class LecturePackAdapter(EngineAdapter):
         job.settings.setdefault("whisper", {})["transcription_backend"] = \
             self.config.get("transcription_backend", "local-whispercpp")
         job.save()
-        self.current_job = job
+        self._set_active_job(job)
 
         # Validate whisper availability for modes that need it.
         needs_whisper = product_mode != constants.PRODUCT_MODE_SLIDES_ONLY
@@ -1102,7 +1485,33 @@ class LecturePackAdapter(EngineAdapter):
             active = next((s for s in self._stages if s["state"] == "active"), None)
             title = f"{active['label']}…" if active else "Processing…"
         if meta is None:
-            meta = f"elapsed {_fmt_mmss(elapsed)} · {overall}%"
+            # ETA rather than bare elapsed: "01:57 elapsed" tells the user
+            # nothing actionable, while "~4:10 left" lets them decide whether to
+            # go do something else. "overall" counts whole stages only, so it
+            # steps coarsely; the estimate uses a finer fraction that folds in
+            # the ACTIVE stage's own pct, otherwise the ETA would sit frozen for
+            # a whole stage and then lurch.
+            # Stages can run in PARALLEL here (parallel_pipeline), so there is
+            # not one "active" stage with a pct -- there can be several, and the
+            # FIRST one may sit at 0% while a later one is at 42%. Taking only
+            # next(active) froze frac at done/total, which made the percentage
+            # stick (33%) while the ETA, being elapsed*(1-frac)/frac with frac
+            # constant, climbed forever. Sum every in-flight stage instead.
+            active_frac = 0.0
+            for x in self._stages:
+                if x["state"] == "active" and isinstance(x.get("pct"), (int, float)):
+                    active_frac += max(0.0, min(100.0, float(x["pct"]))) / 100.0
+            frac = min(1.0, (done + active_frac) / total)
+            # Report the SAME fine-grained number the ETA is based on, so the
+            # percentage advances smoothly instead of jumping a whole stage at a
+            # time. A percentage that does not move while a clock does reads as
+            # broken even when both are technically correct.
+            shown = int(round(frac * 100))
+            if elapsed > 5 and frac > 0.02:
+                remaining = elapsed * (1.0 - frac) / frac
+                meta = f"~{_fmt_mmss(remaining)} left · {shown}%"
+            else:
+                meta = f"estimating… · {shown}%"
         stages = [{"label": s["label"], "state": s["state"],
                    **({"pct": s["pct"], "color": s["color"]}
                       if s["state"] == "active" else {})}
@@ -1291,7 +1700,7 @@ class LecturePackAdapter(EngineAdapter):
             job = self._reload_job(job_id) or job
         if job is None:
             return
-        self.current_job = job
+        self._set_active_job(job)
         self.controller.set_job(job)
         from lecturepack.models import job_lifecycle as _lc
         try:
@@ -1310,7 +1719,8 @@ class LecturePackAdapter(EngineAdapter):
             return
         for stage in constants.STAGES:
             job.set_stage_status(stage, "pending")
-        self.current_job = self._pending_job = job
+        self._pending_job = job
+        self._set_active_job(job)
         self.start_processing(self._mode_for_job(job))
 
     def retry_stage(self, job_id: str, stage: str):
@@ -1319,7 +1729,7 @@ class LecturePackAdapter(EngineAdapter):
             job = self._reload_job(job_id) or job
         if job is None:
             return
-        self.current_job = job
+        self._set_active_job(job)
         self.controller.set_job(job)
         self.win.on_job_started()
         self.controller.retry_stage(stage)
@@ -1448,7 +1858,7 @@ class LecturePackAdapter(EngineAdapter):
         # starts on the Qt event loop.
         def _go():
             self._pending_job = job
-            self.current_job = job
+            self._set_active_job(job)
             self.start_processing(self._mode_for_job(job))
         QTimer.singleShot(0, _go)
 

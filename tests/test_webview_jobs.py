@@ -12,6 +12,7 @@ import shutil
 import sys
 
 import pytest
+from PySide6.QtCore import QObject
 
 APP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")
 if APP_DIR not in sys.path:
@@ -29,9 +30,10 @@ class _Signal:
         self.emissions.append(payload)
 
 
-class _FakeBackend:
+class _FakeBackend(QObject):
     def __init__(self):
-        for name in ("log_line", "jobs_changed", "job_deleted"):
+        super().__init__()
+        for name in ("log_line", "jobs_changed", "storage_changed", "job_deleted"):
             setattr(self, name, _Signal())
 
 
@@ -115,16 +117,45 @@ def test_delete_job_removes_dir(tmp_path, monkeypatch):
     assert payload["freed"]  # non-empty size string
 
 
-def test_delete_harddelete_fallback_when_recycle_unavailable(tmp_path, monkeypatch):
+def test_hard_delete_only_when_send2trash_is_genuinely_absent(tmp_path, monkeypatch):
+    """BUG-14. This test previously asserted the UNSAFE behaviour: that ANY
+    send2trash exception fell through to `shutil.rmtree`. That meant a file
+    locked by an antivirus scan, a MAX_PATH overrun, or a data dir on a network
+    volume silently turned a "move to Recycle Bin" the user confirmed into an
+    unrecoverable delete -- multiplied across a whole selection by bulk delete.
+
+    The contract now: only an absent send2trash module justifies a hard delete.
+    """
+    import builtins
+    real_import = builtins.__import__
+
+    def no_send2trash(name, *a, **k):
+        if name == "send2trash":
+            raise ImportError("not installed")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", no_send2trash)
+    root = _make_job(str(tmp_path), "jobA")
+    a = _adapter(tmp_path)
+    res = a._delete_job_dir("jobA") if hasattr(a, "_delete_job_dir") else a.delete_job("jobA")
+    assert not os.path.exists(root), "module genuinely absent -> hard delete is correct"
+
+
+def test_runtime_send2trash_failure_preserves_the_lecture(tmp_path, monkeypatch):
+    """A transient failure must FAIL the delete, not escalate it.
+
+    Failing is always recoverable -- the user retries. Escalating to a
+    permanent delete is not.
+    """
     import send2trash
 
     def boom(_p):
-        raise RuntimeError("no recycle bin")
+        raise RuntimeError("file locked by another process")
     monkeypatch.setattr(send2trash, "send2trash", boom)
     root = _make_job(str(tmp_path), "jobA")
     a = _adapter(tmp_path)
     a.delete_job("jobA")
-    assert not os.path.exists(root)  # shutil.rmtree fallback ran
+    assert os.path.exists(root), "a locked file must NOT cause a permanent delete"
 
 
 def test_delete_unknown_job_reports_failure(tmp_path):

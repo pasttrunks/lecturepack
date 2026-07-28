@@ -29,6 +29,15 @@ engine_datas = collect_data_files("lecturepack")
 # scheduling (beta.3) needs the tzdata package's data files bundled.
 tzdata_datas = collect_data_files("tzdata")
 
+# yt-dlp powers "Import from a link". Its extractors are imported dynamically by
+# name, so collect_submodules is required — without it only the core is frozen
+# and every real URL fails at runtime. Optional: if yt-dlp isn't installed the
+# build still succeeds and the app hides the paste-a-link button.
+try:
+    ytdlp_hiddenimports = collect_submodules("yt_dlp")
+except Exception:
+    ytdlp_hiddenimports = []
+
 # Bundle the entire web UI (html/css/js/fonts) next to the exe under ui/.
 ui_datas = []
 for root, _dirs, files in os.walk(UI_DIR):
@@ -50,7 +59,7 @@ a = Analysis(
         "PySide6.QtWebEngineCore",
         "PySide6.QtWebChannel",
         "tzdata",
-    ] + engine_hiddenimports,
+    ] + engine_hiddenimports + ytdlp_hiddenimports,
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "PySide6.QtQuick3D", "PySide6.Qt3DCore"],

@@ -26,11 +26,28 @@
     return '<img src="' + esc(url) + '" style="' + imgStyle + '" ' +
       'onerror="this.style.display=\'none\';var p=this.parentNode.querySelector(\'.lp-img-ph\');if(p)p.style.display=\'flex\'">' + ph;
   }
-  var CHECK_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  var CHECK_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
-  /* ======================= demo data (design content) ======================= */
+  /* ======================= demo data (design content) =======================
+     Everything below is DESIGN-TIME content for the static screenshot pipeline
+     and for opening app/ui/index.html with no backend. It is opt-in: without
+     ?preview=1 the job list starts empty and boot() blanks the whole workspace,
+     so a real launch can never show a lecture that does not exist. See BUG-15.
+     ------------------------------------------------------------------------ */
+  var PREVIEW = (function () {
+    try { return /[?&]preview=1(&|$)/.test(location.search); }
+    catch (e) { return false; }        // no location (odd host) -> not preview
+  })();
+
   var LP = window.LP = {
     state: {
+      // jobId owns the workspace: Process/Review/Transcript/Study render the
+      // data belonging to THIS lecture. '' means nothing is loaded, and the
+      // workspace renders structurally empty rather than showing whatever the
+      // backend last happened to push.
+      jobId: '', jobTitle: '',
+      // Home multi-select: an explicit mode, so a plain click still opens.
+      selecting: false, selected: {},
       screen: 'home', theme: 'dark', focus: false, onb: null, jobsEmpty: false,
       exportPhase: 'idle', studyTab: 'chat',
       chat: [
@@ -49,6 +66,8 @@
         settings: { count: 10, difficulty: 'Basic', style: 'Term → definition', scope: 'Entire lecture' }
       },
       viewingSlide: 2,
+      slidesView: 'grid',   // grid = visual tiles, list = compact rows
+
       updateInfo: null,
       smartStudy: null,   // last smart_study payload
       ssPreset: null,     // user-chosen preset (defaults to recommendation)
@@ -56,11 +75,22 @@
     },
     data: {
       version: '0.0.0',
-      jobs: [
-        { name: 'egypt_excerpt', file: 'egypt_excerpt.m4v', meta: '06:12 · 14 slides · Jul 16', status: 'done' },
-        { name: 'm2-res_1080p', status: 'running', pct: 62, stage: 'Transcribe', eta: '~3m' },
-        { name: 'synthetic_lecture', file: 'synthetic_lecture.mp4', meta: '00:30 · 3 slides · Jul 15', status: 'done' }
-      ],
+      // BUG-07: these three demo lectures exist ONLY so the static screenshot
+      // pipeline and a bare `python -m http.server app/ui` have something to
+      // render. In the packaged app a live bridge overwrites them on the first
+      // jobs_changed, so they were never user-visible -- but shipping fake job
+      // data that is one bridge-failure away from appearing is a foot-gun, and
+      // it already cost a false positive once (a DOM scan matched
+      // `egypt_excerpt` after the markup had been cleaned).
+      // Now opt-in: only seeded when the URL carries ?preview=1.
+      jobs: (function () {
+        if (!PREVIEW) return [];
+        return [
+          { name: 'egypt_excerpt', file: 'egypt_excerpt.m4v', meta: '06:12 · 14 slides · Jul 16', status: 'done' },
+          { name: 'm2-res_1080p', status: 'running', pct: 62, stage: 'Transcribe', eta: '~3m' },
+          { name: 'synthetic_lecture', file: 'synthetic_lecture.mp4', meta: '00:30 · 3 slides · Jul 15', status: 'done' }
+        ];
+      })(),
       pipeline: {
         title: 'Transcribing…', meta: 'elapsed 00:41 · 62%',
         stages: [
@@ -147,29 +177,253 @@
         { key: 'JSON', sel: false }, { key: 'CSV', sel: false }, { key: 'DOCX', sel: false }, { key: 'TSV', sel: false }
       ],
       exportFiles: ['slides.pdf', 'study_pack.html', 'transcript.txt', 'transcript.srt', 'transcript.md']
+    },
+    // Per-lecture workspace store, keyed by job id. LP.data.<blob> is the live
+    // VIEW of LP.state.jobId; switching lectures saves the outgoing blobs here
+    // and loads the incoming ones, so switching back is instant and no lecture
+    // can ever paint over another.
+    byJob: {}
+  };
+
+  /* ======================= motion module (LP.motion) =======================
+     Small, self-contained motion helpers. See scratchpad MOTION_CONTRACT.md.
+     Every entry point is null-safe: missing elements or a reduced-motion OS
+     setting degrade to the plain, instant behavior with no thrown errors. */
+  var _rmMql = (function () {
+    try { return window.matchMedia('(prefers-reduced-motion: reduce)'); }
+    catch (e) { return null; }
+  })();
+  LP.motion = {
+    reduced: function () {
+      return !!(_rmMql && _rmMql.matches);
+    },
+    // Navigation wrapper. Signature unchanged: nav(fn) runs fn once.
+    //
+    // The document.startViewTransition() path was REMOVED 2026-07-27. It is now
+    // a synchronous call, deliberately:
+    //   - No element ever set `view-transition-name`, so there were never any
+    //     shared-element transitions to gain; the layer was root-only.
+    //   - The UA's default root transition IS a full-page crossfade, which was
+    //     precisely the page-level flash being removed (it stacked a 0 -> 1
+    //     opacity ramp on top of the screen rule's own ramp).
+    //   - Its callback fires ASYNCHRONOUSLY, which is what made indicator()
+    //     measure the previously-active nav button.
+    // Kept as a wrapper rather than inlined so setScreen() and any future
+    // caller keep one place to hook screen-change motion.
+    nav: function (fn) {
+      fn();
+    },
+    // Positions the sidebar rail. Sets --ind-y (travel) and --ind-s (scale),
+    // both consumed by a single transform in .lp-nav-ind -- it used to set
+    // --ind-h and transition `height`, which is not compositable and was a
+    // no-op anyway because every nav button is one line of identical height.
+    // The rail's CSS base height is 36px; --ind-s scales that on Y only.
+    indicator: function () {
+      var ind = document.querySelector('.lp-nav-ind');
+      var active = document.querySelector('.lp-nav-list .lp-nav.active');
+      if (!ind || !active) return;
+      var h = active.offsetHeight || 36;
+      ind.style.setProperty('--ind-y', active.offsetTop + 'px');
+      ind.style.setProperty('--ind-s', (h / 36).toFixed(4));
+      ind.classList.add('on');
+    },
+    // Reusable exit-motion close. `cls` defaults to 'out' (scrim/pop overlays);
+    // pass 'lp-out' for the focus pill or any other single-element exit.
+    // Reduced motion / missing element -> done() fires immediately. Guards
+    // against double-invocation so `done` (typically a remove/hide) never
+    // runs twice, and falls back to `done`/`el.remove()` if anything throws.
+    close: function (el, done, cls) {
+      cls = cls || 'out';
+      if (!done) done = function () { if (el) el.remove(); };
+      if (LP.motion.reduced() || !el) { done(); return; }
+      var finished = false, timer = null;
+      function finish() {
+        if (finished) return;
+        finished = true;
+        if (timer) clearTimeout(timer);
+        // The 300ms fallback is never cancelled by a REOPEN, only by this
+        // guard. Reopening a persistent element (#focus-pill, #onb-overlay,
+        // #whatsnew-overlay) within that window used to let the previous
+        // close's timer fire and run ITS done() -- e.g. `hidden = true` on an
+        // element the user had just reopened, with no user action, up to 300ms
+        // later. `finished` cannot catch that: it is per-invocation, and the
+        // stale call is a DIFFERENT invocation with its own flag.
+        // A reopen removes the close class, so its absence means "superseded".
+        if (el && el.classList && !el.classList.contains(cls)) return;
+        done();
+      }
+      try {
+        el.classList.add(cls);
+        var pop = el.querySelector && el.querySelector('.lp-pop');
+        if (pop) pop.classList.add(cls);
+        el.addEventListener('animationend', finish, { once: true });
+        timer = setTimeout(finish, 300);
+      } catch (e) {
+        finish();
+      }
     }
   };
+
+  /* ================= workspace ownership (job-scoped state) =================
+     The workspace screens (Process/Review/Transcript/Study/Exports) used to
+     read one global scratchpad that was seeded with demo content, overwritten
+     by whatever the backend last pushed, and never cleared -- so with no
+     lecture loaded they showed a mix of stale and half-loaded data from earlier
+     jobs. Now a single owner (LP.state.jobId) decides what they render, and
+     "nothing loaded" is structurally empty rather than merely uncleaned. */
+
+  // The blobs that belong to one lecture. Anything NOT listed here is app-wide
+  // (theme, settings, export format choices) and must survive a job switch.
+  var WORKSPACE_KEYS = ['pipeline', 'slides', 'transcript', 'study',
+                        'quiz', 'flashcards', 'exportFiles'];
+
+  function emptyWorkspace() {
+    return {
+      pipeline: { title: 'No lecture loaded', meta: '', stages: [], log: [] },
+      slides: [],
+      transcript: { title: '', duration: '', segments: 0, corrections: 0, blocks: [] },
+      study: {
+        topics: [], topicBlocks: [], topicLabels: [], keyTerms: [],
+        bookmarks: [], stats: [], cards: []
+      },
+      quiz: { questions: [], provider: '', model: '', meta: {} },
+      flashcards: { cards: [], provider: '', model: '', meta: {} },
+      exportFiles: []
+    };
+  }
+
+  function snapshotWorkspace() {
+    var snap = {};
+    WORKSPACE_KEYS.forEach(function (k) { snap[k] = LP.data[k]; });
+    return snap;
+  }
+
+  function applyWorkspace(snap) {
+    WORKSPACE_KEYS.forEach(function (k) { LP.data[k] = snap[k]; });
+  }
+
+  /* Switch which lecture the workspace belongs to. Driven by the backend's
+     active_job signal -- the UI never invents a job identity. */
+  function setActiveJob(id, title) {
+    id = id || '';
+    if (id === LP.state.jobId) {
+      if (title) LP.state.jobTitle = title;
+      renderJobChrome();
+      return;
+    }
+    if (LP.state.jobId) LP.byJob[LP.state.jobId] = snapshotWorkspace();
+    LP.state.jobId = id;
+    LP.state.jobTitle = title || '';
+    applyWorkspace(id && LP.byJob[id] ? LP.byJob[id] : emptyWorkspace());
+    // Per-lecture view state must not leak across lectures either.
+    LP.state.chat = [];
+    LP.state.quiz.phase = 'setup';
+    LP.state.quiz.index = 0;
+    LP.state.quiz.answers = {};
+    LP.state.quiz.flags = {};
+    LP.state.exportPhase = 'idle';
+    // Chrome first: it names the lecture, and it must not be collateral damage
+    // if a workspace renderer throws on unusual data.
+    renderJobChrome();
+    renderWorkspace();
+  }
+
+  /* Reject a payload that belongs to a lecture other than the active one.
+     Without this, a slow signal from the PREVIOUS job lands after a switch and
+     silently repaints its data over the new lecture. An unstamped payload (or
+     one arriving while a job is loading) is accepted for compatibility. */
+  function ownsPayload(p) {
+    if (!p || typeof p !== 'object') return true;
+    var owner = p.job;
+    if (!owner) return true;                 // unstamped -- legacy/app-wide
+    if (!LP.state.jobId) {                   // first data for a fresh load
+      LP.state.jobId = owner;
+      return true;
+    }
+    return owner === LP.state.jobId;
+  }
+
+  function renderWorkspace() {
+    renderPipeline();
+    renderSlides();
+    renderReviewTranscript();
+    renderTranscript();
+    renderStudy();
+    renderChat();
+    renderQuiz();
+    renderExportPhase();
+  }
+
+  /* Sidebar chip + breadcrumb: name the lecture the workspace is scoped to, so
+     content is never anonymous. Idle when nothing is loaded. */
+  function renderJobChrome() {
+    var name = LP.state.jobTitle || '';
+    if (!LP.state.jobId) {
+      resetJobChrome();
+      return;
+    }
+    $('side-job-name').textContent = name || 'Untitled lecture';
+    $('crumb-job').textContent = name || 'Lecture';
+    renderSidePoster(LP.state.jobId);
+  }
+
+  /* The sidebar chip showed a generic icon even once a lecture was loaded.
+     Reuse the same poster the job cards use; the icon stays underneath as the
+     fallback while the poster generates (or if the job has no frame at all). */
+  function renderSidePoster(jobId) {
+    var img = $('side-job-poster'), ph = $('side-job-thumb');
+    if (!img) return;
+    var placeholder = ph && ph.querySelector('[data-side-ph]');
+    if (!jobId) {
+      img.hidden = true; img.style.opacity = 0; img.removeAttribute('src');
+      if (placeholder) placeholder.hidden = false;
+      return;
+    }
+    if (img.getAttribute('data-for') === jobId && !img.hidden) return;
+    img.setAttribute('data-for', jobId);
+    img.hidden = false;
+    img.style.opacity = 0;
+    if (placeholder) placeholder.hidden = false;
+    img.onload = function () {
+      img.style.opacity = 1;
+      if (placeholder) placeholder.hidden = true;
+    };
+    img.onerror = function () {
+      // no poster yet: keep the icon, and let the next list refresh retry
+      img.hidden = true;
+      if (placeholder) placeholder.hidden = false;
+    };
+    img.src = posterSrc(jobId, 0);
+  }
 
   /* ======================= renderers ======================= */
 
   /* ---- lightweight modal + toast (no markup needed) ---- */
   function lpModal(opts) {
     var ov = document.createElement('div');
-    ov.className = 'lp-modal-ov';
-    ov.style.cssText = 'position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);animation:lpin .15s ease';
+    ov.className = 'lp-modal-ov lp-scrim';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)';
     var box = document.createElement('div');
+    box.className = 'lp-pop';
     box.style.cssText = 'background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);padding:22px 24px;max-width:430px;width:90%';
     box.innerHTML = '<div style="font:700 17px \'Space Grotesk\';margin-bottom:10px">' + esc(opts.title) + '</div>' +
       '<div style="font-size:14px;line-height:1.55;margin-bottom:18px">' + (opts.bodyHtml || '') + '</div>';
     var row = document.createElement('div');
     row.style.cssText = 'display:flex;justify-content:flex-end;gap:10px';
-    function close() { ov.remove(); document.removeEventListener('keydown', onKey); }
+    var closed = false;
+    function close() {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener('keydown', onKey);
+      try { LP.motion.close(ov, function () { ov.remove(); }); }
+      catch (e) { try { ov.remove(); } catch (e2) {} }
+    }
     (opts.actions || []).forEach(function (a) {
       var b = document.createElement('button');
       b.textContent = a.label;
       var base = 'font:600 13px \'Space Grotesk\';border-radius:9px;padding:9px 16px;cursor:pointer;border:2px solid var(--border)';
-      b.style.cssText = a.danger ? base + ';background:var(--red);color:#fff;border-color:var(--red)'
-        : a.primary ? base + ';background:var(--orange);color:#fff;border-color:var(--orange-ink)'
+      b.style.cssText = a.danger ? base + ';background:var(--red-fill);color:var(--on-signal);border-color:var(--red)'
+        : a.primary ? base + ';background:var(--orange);color:var(--on-signal);border-color:var(--orange-ink)'
           : base + ';background:var(--panel);color:var(--ink)';
       b.addEventListener('click', function () { if (!(a.onClick && a.onClick())) close(); });
       row.appendChild(b);
@@ -178,17 +432,42 @@
     ov.addEventListener('mousedown', function (e) { if (e.target === ov) close(); });
     function onKey(e) { if (e.key === 'Escape') close(); }
     document.addEventListener('keydown', onKey);
+    // Move focus into the dialog; the global handler keeps Tab inside it.
+    ov.setAttribute('role', 'dialog');
+    ov.setAttribute('aria-modal', 'true');
+    focusFirst(ov);
     return { close: close };
   }
+  /* Progress fills: drive them with transform:scaleX() rather than width, so a
+     per-frame progress tick stays on the compositor instead of forcing layout +
+     paint. The element must carry .lp-fill and width:100%; pct is 0-100.
+     One bar still animates width: #whatsnew-progress-bar -- it runs once, so the
+     layout cost is irrelevant there. */
+  function setFill(el, pct) {
+    if (typeof el === 'string') el = $(el);
+    if (!el) return;
+    var p = Math.max(0, Math.min(100, parseFloat(pct) || 0));
+    el.style.transform = 'scaleX(' + (p / 100) + ')';
+  }
+
+  // `.lp-toast`'s CSS entrance is opacity-only (reuses `lpsupport`), so it cannot
+  // conflict with this singleton's inline `transform:translateX(-50%)`
+  // centering. Re-trigger the entrance on every show by toggling the class
+  // off/on around a reflow; skipped entirely under reduced motion.
   var _toastT = null;
   function toast(msg) {
     var t = $('lp-toast');
     if (!t) {
-      t = document.createElement('div'); t.id = 'lp-toast';
+      t = document.createElement('div'); t.id = 'lp-toast'; t.className = 'lp-toast';
       t.style.cssText = 'position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:130;background:var(--ink);color:var(--bg);font:600 13px \'Space Grotesk\';padding:10px 18px;border-radius:10px;box-shadow:var(--shadow-hi);opacity:0;transition:opacity .2s';
       document.body.appendChild(t);
     }
     t.textContent = msg; t.style.opacity = '1';
+    if (!LP.motion.reduced()) {
+      t.classList.remove('lp-toast');
+      void t.offsetWidth;
+      t.classList.add('lp-toast');
+    }
     if (_toastT) clearTimeout(_toastT);
     _toastT = setTimeout(function () { t.style.opacity = '0'; }, 2600);
   }
@@ -224,16 +503,189 @@
     queued: { label: 'Queued', bg: 'var(--sunk)', fg: 'var(--muted)', dot: 'var(--muted)' },
     scheduled: { label: 'Scheduled', bg: 'var(--sunk)', fg: 'var(--muted)', dot: 'var(--muted)' }
   };
+  // Maps the app's own status vocabularies onto the seven lp-state values
+  // (idle|running|paused|success|failed|interrupted|complete). Purely a
+  // lookup for motion/color feedback -- never consulted for app logic.
+  var JOB_STATE_MAP = {
+    running: 'running', done: 'complete', interrupted: 'interrupted',
+    failed: 'failed', paused: 'paused', queued: 'idle', scheduled: 'idle'
+  };
+  // Best-effort: sets data-state on the nearest ancestor (or self) carrying
+  // class lp-state. No-ops silently if that class isn't present -- the
+  // markup owner may not have landed it yet, or may never for this element.
+  function _applyLpState(el, mapped) {
+    if (!el || !mapped) return;
+    var host = el.classList && el.classList.contains('lp-state')
+      ? el : (el.closest ? el.closest('.lp-state') : null);
+    if (host) host.dataset.state = mapped;
+  }
   function _jobActBtn(act, id, label, primary) {
     var s = primary
       ? 'background:var(--secondary-surface);border:1.5px solid var(--secondary-border);color:var(--secondary-text)'
       : 'background:var(--panel);border:1.5px solid var(--border);color:var(--ink)';
     return '<button class="lp-hit" data-jobact="' + act + '" data-jobid="' + esc(id) + '" style="font:600 11px \'Space Grotesk\';border-radius:7px;padding:6px 11px;cursor:pointer;' + s + '">' + label + '</button>';
   }
+  /* Job-card poster frame. The backend generates posters lazily and returns 404
+     until one is cached, so the icon placeholder stays underneath and the <img>
+     stays invisible until it actually loads -- no broken-image glyph, no layout
+     shift.
+
+     The URL is deliberately STABLE (no cache-busting query): jobs_changed fires
+     on every job state change, and a per-refresh epoch made all N posters
+     refetch on every tick (measured: a full grid rebuild is ~1.1ms per 3 cards
+     plus N image loads). Instead a missing poster retries a bounded number of
+     times with backoff, which is all that's needed now that posters prewarm
+     when a job appears. */
+  // 3 tries x 700ms*n gave up after ~4.2s and then removed the img for good, so
+  // a poster that took longer to extract (a multi-hundred-MB source) never
+  // appeared at all -- the file landed on disk seconds after the UI stopped
+  // asking. Budget now spans ~30s, which covers a cold extract, while still
+  // ending rather than polling forever.
+  var POSTER_RETRIES = 9;
+
+  function posterSrc(id, attempt) {
+    var u = 'lpasset://poster/' + encodeURIComponent(id) + '/poster';
+    return attempt ? u + '?r=' + attempt : u;      // only retries bust the cache
+  }
+
+  function posterHtml(j) {
+    var ph = '<span data-poster-ph style="position:absolute;display:flex;align-items:center;justify-content:center">' +
+      thumb(30, 'var(--muted)') + '</span>';
+    if (!j.id) return ph;
+    // decoding=async + loading=lazy keep a large grid off the main thread.
+    var img = '<img src="' + posterSrc(j.id, 0) + '" alt="" loading="lazy" decoding="async" ' +
+      'data-poster-job="' + esc(j.id) + '" ' +
+      'style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;' +
+      'transition:opacity var(--motion-medium,.22s) var(--motion-ease,ease)" ' +
+      'onload="LP.posterLoaded(this)" onerror="LP.posterRetry(this)">';
+    return ph + img;
+  }
+
+  // Exposed on LP because the handlers are inline attributes on generated HTML.
+  LP.posterLoaded = function (img) {
+    img.style.opacity = 1;
+    var ph = img.parentNode && img.parentNode.querySelector('[data-poster-ph]');
+    if (ph) ph.hidden = true;
+  };
+
+  LP.posterRetry = function (img) {
+    var n = parseInt(img.getAttribute('data-try') || '0', 10) + 1;
+    if (n > POSTER_RETRIES) { img.remove(); return; }   // give up; icon remains
+    img.setAttribute('data-try', String(n));
+    var id = img.getAttribute('data-poster-job');
+    setTimeout(function () {
+      if (img.parentNode) img.src = posterSrc(id, n);   // backend may have it now
+    }, 700 * n);
+  };
+
+  /* ==================== Home multi-select ====================
+     Selecting is an explicit mode so a normal click still opens a lecture -- no
+     accidental selection, and no checkbox clutter until it is wanted. Bulk
+     delete/group go through one bridge call each so the backend performs one
+     list refresh for the whole batch instead of N. */
+  function selCount() { return Object.keys(LP.state.selected).length; }
+
+  function setSelectMode(on) {
+    LP.state.selecting = !!on;
+    if (!on) LP.state.selected = {};
+    var bar = $('jobs-selectbar');
+    if (bar) bar.hidden = !on;
+    var btn = $('btn-select-mode');
+    if (btn) btn.textContent = on ? 'Cancel' : 'Select';
+    renderJobs();
+    renderSelCount();
+  }
+
+  function toggleSelected(id) {
+    if (!id) return;
+    if (LP.state.selected[id]) delete LP.state.selected[id];
+    else LP.state.selected[id] = true;
+    renderSelCount();
+    // repaint just this card's checkbox rather than the whole grid
+    var card = document.querySelector('.lp-card[data-job="' + cssEsc(id) + '"]');
+    var box = card && card.querySelector('[data-selbox]');
+    if (box) paintSelBox(box, !!LP.state.selected[id]);
+    if (card) card.style.borderColor = LP.state.selected[id] ? 'var(--blue)' : 'var(--border)';
+  }
+
+  function cssEsc(s) {
+    return String(s).replace(/["\\]/g, '\\$&');
+  }
+
+  function paintSelBox(box, on) {
+    box.style.background = on ? 'var(--blue)' : 'var(--panel)';
+    box.style.borderColor = on ? 'var(--blue)' : 'var(--border)';
+    box.innerHTML = on
+      ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+      : '';
+    box.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+
+  function renderSelCount() {
+    var n = selCount();
+    var el = $('jobs-selcount');
+    if (el) el.textContent = n + ' selected';
+    ['btn-bulk-delete', 'btn-bulk-group'].forEach(function (id) {
+      var b = $(id);
+      if (!b) return;
+      b.disabled = n === 0;
+      b.style.opacity = n === 0 ? '.45' : '1';
+      b.style.cursor = n === 0 ? 'default' : 'pointer';
+    });
+  }
+
+  function selectableIds() {
+    return LP.data.jobs.filter(function (j) { return j.id; })
+      .map(function (j) { return j.id; });
+  }
+
+  function bulkDelete() {
+    var ids = Object.keys(LP.state.selected);
+    if (!ids.length) return;
+    var names = LP.data.jobs.filter(function (j) { return LP.state.selected[j.id]; })
+      .map(function (j) { return j.name; });
+    var preview = names.slice(0, 5).map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('');
+    if (names.length > 5) preview += '<li>and ' + (names.length - 5) + ' more</li>';
+    lpModal({
+      title: 'Delete ' + ids.length + (ids.length === 1 ? ' lecture?' : ' lectures?'),
+      bodyHtml: '<ul style="margin:0 0 10px 18px;padding:0">' + preview + '</ul>' +
+        'They move to the Recycle Bin and are removed from LecturePack, freeing disk space. Their export files go too.',
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Delete ' + ids.length, danger: true, onClick: function () {
+          if (lpBridge.connected()) lpBridge.call('delete_jobs', JSON.stringify(ids));
+          else toast('Preview mode — nothing deleted');
+          setSelectMode(false);
+        } }
+      ]
+    });
+  }
+
+  function bulkGroup() {
+    var ids = Object.keys(LP.state.selected);
+    if (!ids.length) return;
+    lpModal({
+      title: 'Group ' + ids.length + (ids.length === 1 ? ' lecture' : ' lectures'),
+      bodyHtml: '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px">Course / subject</label>' +
+        '<input id="lp-bulk-group-input" type="text" spellcheck="false" placeholder="e.g. CL100" style="width:100%;box-sizing:border-box;font:600 14px \'JetBrains Mono\';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--ink)">' +
+        '<div style="font-size:12px;color:var(--muted);margin-top:8px">Leave blank to auto-group by each lecture title.</div>',
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Apply', primary: true, onClick: function () {
+          var i = $('lp-bulk-group-input');
+          if (lpBridge.connected()) lpBridge.call('set_jobs_group', JSON.stringify(ids), (i && i.value || '').trim());
+          else toast('Preview mode — not grouped');
+          setSelectMode(false);
+        } }
+      ]
+    });
+    setTimeout(function () { var i = $('lp-bulk-group-input'); if (i) i.focus(); }, 30);
+  }
+
   function _jobCardHtml(j) {
     var b = JOB_BADGES[j.status] || JOB_BADGES.done;
     var dot = '<span style="width:6px;height:6px;border-radius:50%;background:' + b.dot + (b.blink ? ';animation:lpblink 1s infinite' : '') + '"></span>';
-    var badge = '<span style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:' + b.bg + ';color:' + b.fg + ';border-radius:6px;padding:3px 8px">' + dot + b.label + '</span>';
+    var badge = '<span class="lp-state" data-state="' + (JOB_STATE_MAP[j.status] || 'idle') + '" style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:' + b.bg + ';color:' + b.fg + ';border-radius:6px;padding:3px 8px">' + dot + b.label + '</span>';
     var menu = j.id ? '<div style="position:absolute;top:9px;left:9px;display:flex;gap:6px">' +
       _jobBtn('group', j.id, TAG_SVG, 'Set group') + _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
     var body;
@@ -253,16 +705,142 @@
         _jobActBtn('view', j.id, 'View Details') +
         _jobActBtn('remove', j.id, 'Remove') + '</div>';
     }
-    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'style="background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
-      '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + thumb(30, 'var(--muted)') + menu + badge + '</div>' +
+    // In select mode the per-card menu is replaced by a checkbox, and the whole
+    // card toggles selection instead of opening.
+    var selecting = LP.state.selecting && j.id;
+    var chosen = selecting && !!LP.state.selected[j.id];
+    var selbox = selecting
+      ? '<span data-selbox role="checkbox" aria-checked="' + (chosen ? 'true' : 'false') + '" ' +
+        'style="position:absolute;top:9px;left:9px;width:22px;height:22px;border-radius:6px;' +
+        'border:2px solid ' + (chosen ? 'var(--blue)' : 'var(--border)') + ';background:' +
+        (chosen ? 'var(--blue)' : 'var(--panel)') + ';display:flex;align-items:center;justify-content:center;' +
+        'box-shadow:var(--shadow-soft)">' +
+        (chosen ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : '') +
+        '</span>'
+      : '';
+    var border = chosen ? 'var(--blue)' : 'var(--border)';
+    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
+      '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + (selecting ? selbox : menu) + badge + '</div>' +
       '<div style="padding:14px 16px">' + body + '</div></div>';
+  }
+
+  /* ==================== import from a link (yt-dlp) ====================
+     Three short steps, each its own lpModal so they inherit the focus trap:
+     paste -> confirm what was found -> transfer with progress/cancel.
+     The backend hands the finished file to the normal import path, so the
+     existing New-job overlay takes over from there. */
+  var mediaLink = { available: false, version: '', progressModal: null, done: null };
+
+  function fmtDuration(sec) {
+    sec = Math.max(0, parseInt(sec, 10) || 0);
+    if (!sec) return 'unknown length';
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return h ? h + ':' + p(m) + ':' + p(s) : m + ':' + p(s);
+  }
+
+  function fmtBytes(n) {
+    n = parseFloat(n) || 0;
+    if (n < 1024) return n.toFixed(0) + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
+    if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+    return (n / 1073741824).toFixed(2) + ' GB';
+  }
+
+  function linkImportDialog() {
+    if (!lpBridge.connected()) { toast('Preview mode — link import needs the app'); return; }
+    var inp = 'width:100%;box-sizing:border-box;font:500 13px \'JetBrains Mono\';padding:10px 12px;border:2px solid var(--border);border-radius:8px;background:var(--sunk);color:var(--ink)';
+    var body =
+      '<label for="link-url" style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:6px">Video link</label>' +
+      '<input id="link-url" type="url" spellcheck="false" placeholder="https://…" style="' + inp + '">' +
+      '<div id="link-msg" role="status" style="min-height:18px;font-size:12px;color:var(--muted);margin-top:9px"></div>' +
+      '<div style="font-size:12px;line-height:1.5;color:var(--muted);margin-top:4px">Downloads the recording to your computer so it can be processed here. Only fetch lectures you have the right to download.</div>';
+    var m = lpModal({
+      title: 'Import from a link',
+      bodyHtml: body,
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Check link', primary: true, onClick: function () {
+          var v = ($('link-url') || {}).value || '';
+          v = v.trim();
+          if (!/^https?:\/\/.+/i.test(v)) { setLinkMsg('Enter a full http(s) link.', true); return true; }
+          setLinkMsg('Looking it up…');
+          mediaLink.pending = v;
+          lpBridge.call('probe_media_url', v);
+          return true;                 // keep the dialog open while we wait
+        } }
+      ]
+    });
+    mediaLink.probeModal = m;
+    setTimeout(function () { var i = $('link-url'); if (i) i.focus(); }, 40);
+  }
+
+  function setLinkMsg(text, isError) {
+    var el = $('link-msg');
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = isError ? 'var(--red)' : 'var(--muted)';
+  }
+
+  function linkConfirmDialog(info) {
+    var meta = [fmtDuration(info.duration), info.uploader, info.extractor]
+      .filter(Boolean).join(' · ');
+    var warn = info.is_live
+      ? '<div style="font-size:12px;color:var(--orange-ink);margin-top:9px">This looks like a live stream — only the portion already broadcast can be fetched.</div>'
+      : '';
+    lpModal({
+      title: 'Import this recording?',
+      bodyHtml: '<div style="font-weight:700;font-size:15px;margin-bottom:5px;word-break:break-word">' + esc(info.title || 'Untitled') + '</div>' +
+        '<div style="font:500 12px \'JetBrains Mono\';color:var(--muted)">' + esc(meta) + '</div>' + warn,
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Download', primary: true, onClick: function () {
+          linkProgressDialog(info.title || '');
+          lpBridge.call('import_media_url', info.webpage_url || mediaLink.pending || '', info.title || '');
+        } }
+      ]
+    });
+  }
+
+  function linkProgressDialog(title) {
+    var m = lpModal({
+      title: 'Downloading',
+      bodyHtml: '<div style="font-weight:600;font-size:14px;margin-bottom:10px;word-break:break-word">' + esc(title || 'Fetching…') + '</div>' +
+        '<div style="height:9px;border-radius:6px;background:var(--sunk);overflow:hidden"><div id="link-bar" class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(0)"></div></div>' +
+        '<div id="link-stat" role="status" style="font:500 11px \'JetBrains Mono\';color:var(--muted);margin-top:8px">starting…</div>',
+      actions: [{ label: 'Cancel download', danger: true, onClick: function () {
+        lpBridge.call('cancel_media_url');
+      } }]
+    });
+    mediaLink.progressModal = m;
+  }
+
+  function onMediaProgress(p) {
+    var bar = $('link-bar'), stat = $('link-stat');
+    if (!bar || !stat) return;
+    setFill(bar, p.pct || 0);
+    var bits = [(p.pct || 0) + '%'];
+    if (p.total) bits.push(fmtBytes(p.downloaded) + ' / ' + fmtBytes(p.total));
+    else if (p.downloaded) bits.push(fmtBytes(p.downloaded));
+    if (p.speed) bits.push(fmtBytes(p.speed) + '/s');
+    if (p.eta) bits.push('~' + fmtDuration(p.eta) + ' left');
+    stat.textContent = p.status === 'finished' ? 'finishing up…' : bits.join(' · ');
+  }
+
+  // "YYYY-MM-DDTHH:MM" for *local* time -- toISOString() would return UTC and
+  // shift the floor by the timezone offset.
+  function localNowValue() {
+    var d = new Date();
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+      'T' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
   function scheduleJobDialog(id) {
     var inp = 'width:100%;font:500 13px \'JetBrains Mono\';padding:9px 11px;border:2px solid var(--border);border-radius:8px;background:var(--sunk);color:var(--ink)';
     var body =
       '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:6px">When (your local time)</label>' +
-      '<input id="sched-when" type="datetime-local" style="' + inp + ';margin-bottom:15px">' +
+      '<input id="sched-when" type="datetime-local" min="' + localNowValue() + '" style="' + inp + ';margin-bottom:15px">' +
       '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:6px">If the app was closed at that time</label>' +
       '<select id="sched-policy" style="' + inp + '">' +
         '<option value="run_when_opened">Run when the app next opens</option>' +
@@ -277,6 +855,9 @@
         { label: 'Schedule', primary: true, onClick: function () {
           var when = (document.getElementById('sched-when') || {}).value;
           if (!when) { toast('Pick a date and time'); return true; }
+          // `min` is advisory only -- typed input bypasses it, so re-check here
+          // rather than silently scheduling a run in the past (BUG-06).
+          if (when < localNowValue()) { toast('Pick a time in the future'); return true; }
           var pol = (document.getElementById('sched-policy') || {}).value || 'run_when_opened';
           if (lpBridge.connected()) lpBridge.call('schedule_job', id, when, 'local', pol);
           else toast('Preview mode — not scheduled');
@@ -320,7 +901,7 @@
           (disabled ? ' disabled style="opacity:.4;' : ' style="') +
           'font:600 11px \'Space Grotesk\';border-radius:7px;padding:6px 10px;cursor:pointer;background:var(--panel);border:1.5px solid var(--border);color:var(--ink)">' + label + '</button>';
       };
-      return '<div style="display:flex;align-items:center;gap:12px;background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      return '<div class="lp-anim-in" style="display:flex;align-items:center;gap:12px;background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px">' +
         '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted);min-width:20px">' + (i + 1) + '</span>' +
         '<span style="flex:1;font-weight:600;font-size:13.5px">' + esc(_jobName(row.id)) + '</span>' +
         '<div style="display:flex;gap:6px">' +
@@ -370,22 +951,58 @@
     $('jobs-count').textContent = LP.data.jobs.length;
   }
 
+  // renderPipeline is called every tick, so skip the rebuild (and the motion
+  // it destroys) when nothing about the stage list actually changed. Compare
+  // directly against the container's live DOM rather than a cached variable --
+  // the DOM is the source of truth and cannot go stale if the container is
+  // ever mutated or recreated elsewhere.
+  /* Coalesce pipeline re-renders to one per animation frame.
+     `log_line` fires per backend log line, and during transcription / slide
+     detection that is a fast stream. Each event used to call renderPipeline()
+     directly, re-rendering the whole panel INCLUDING all 500 buffered log
+     lines, so the main thread saturated rebuilding DOM and the window stopped
+     accepting clicks mid-job (reported as "stuck for a while, can't click any
+     buttons" around 42-50%). The 500-line cap bounded memory, not work: the
+     cost was one full render PER LINE, not per frame.
+     Batching keeps the same visible output -- a frame is the fastest anything
+     can be seen -- while collapsing N renders per frame into one. */
+  var _pipeRaf = 0;
+  function schedulePipelineRender() {
+    if (_pipeRaf) return;
+    _pipeRaf = (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(function () {
+      _pipeRaf = 0;
+      renderPipeline();
+    });
+  }
   function renderPipeline() {
     var p = LP.data.pipeline;
     $('proc-status-title').textContent = p.title;
     $('proc-status-meta').textContent = p.meta;
-    $('pipeline-stages').innerHTML = p.stages.map(function (st) {
+    // BUG-16: the Process screen's "Source" card had NO writer anywhere in
+    // app.js -- the same defect class as BUG-04's storage figure. It was only
+    // ever set by resetJobChrome(), so it read "No lecture loaded" plus a
+    // hardcoded "1920x1080 · 06:12 · H.264" even while a real lecture was
+    // being processed. The pipeline payload already carries both values.
+    var hasJob = !!(p.title && p.stages && p.stages.length);
+    $('proc-source-name').textContent = hasJob ? p.title : 'No lecture loaded';
+    $('proc-source-meta').textContent = hasJob ? (p.meta || '') : '';
+    var stagesEl = $('pipeline-stages');
+    var stageHtml = p.stages.map(function (st) {
+      // Contract data-state values: idle|running|paused|success|failed|interrupted|complete
+      var ds = st.state === 'done' ? 'complete' : st.state === 'active' ? 'running' :
+        st.state === 'error' ? 'failed' : 'idle';
       if (st.state === 'done') {
-        return '<div style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;background:var(--green);border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--green-soft);overflow:hidden"><div style="width:100%;height:100%;background:var(--green)"></div></div></div>';
+        return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;background:var(--green-fill);border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--green-soft);overflow:hidden"><div style="width:100%;height:100%;background:var(--green)"></div></div></div>';
       }
       if (st.state === 'active') {
         var c = st.color === 'blue' ? 'var(--blue)' : 'var(--orange)';
         var pctColor = st.color === 'blue' ? ';color:var(--blue-ink)' : '';
         var blink = st.color === 'blue' ? '1.3s' : '1s';
-        return '<div style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid ' + c + ';border-radius:50%;flex:none;animation:lpblink ' + blink + ' infinite"></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk);overflow:hidden"><div style="width:' + (st.pct || 0) + '%;height:100%;background:' + c + ';background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.32) 6px,rgba(255,255,255,.32) 13px);animation:lpbar 1s linear infinite"></div></div><span style="width:38px;text-align:right;font:700 11px \'JetBrains Mono\'' + pctColor + '">' + (st.pct || 0) + '%</span></div>';
+        return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid ' + c + ';border-radius:50%;flex:none;animation:lpblink ' + blink + ' infinite"></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk);overflow:hidden"><div style="width:' + (st.pct || 0) + '%;height:100%;background:' + c + ';background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.32) 6px,rgba(255,255,255,.32) 13px);animation:lpbar 1s linear infinite"></div></div><span style="width:38px;text-align:right;font:700 11px \'JetBrains Mono\'' + pctColor + '">' + (st.pct || 0) + '%</span></div>';
       }
-      return '<div style="display:flex;align-items:center;gap:13px;opacity:.45"><span style="width:120px;flex:none;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid var(--muted);border-radius:50%;flex:none"></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk)"></div></div>';
+      return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px;opacity:.45"><span style="width:120px;flex:none;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid var(--muted);border-radius:50%;flex:none"></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk)"></div></div>';
     }).join('');
+    if (stagesEl.innerHTML !== stageHtml) { stagesEl.innerHTML = stageHtml; }
     var logEl = $('proc-log');
     var stick = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8;
     logEl.innerHTML = p.log.map(function (l) {
@@ -545,9 +1162,50 @@
     return { show: show, refit: refit };
   })();
 
+  /* Slide review has two genuinely different jobs, so it gets two layouts.
+     GRID = image tiles, for scanning a deck fast and spotting the slide you
+     want. LIST = compact rows with timecode + status, for working through
+     judgements precisely. Before this the Grid/List control was inert markup
+     (two <span>s, no handler anywhere) while the only layout that existed was
+     the row one -- so it also mislabelled itself as "Grid". */
+  /* Grid tiles animate their entrance ONLY when the user enters grid view, not
+     on every render. renderSlides() rebuilds innerHTML on every slide click,
+     Next/Prev, and now every Keep/Reject (which auto-advances), so an
+     unconditional .lp-anim-in made the whole grid re-play its 140ms slide-up on
+     every single interaction -- a full-grid flash per judgement click. The list
+     branch never carried the class, which is why only grid regressed. */
+  var _gridEntrance = true;   // true so the first paint still animates
   function renderSlides() {
     var v = LP.state.viewingSlide;
     var list = $('slide-list');
+    var grid = LP.state.slidesView === 'grid';
+    // the container is a flex column for list, an auto-fill grid for tiles
+    list.style.display = grid ? 'grid' : 'flex';
+    list.style.gridTemplateColumns = grid ? 'repeat(auto-fill,minmax(104px,1fr))' : '';
+    list.style.alignContent = grid ? 'start' : '';
+    list.style.gap = grid ? '8px' : '9px';
+    if (grid) {
+      var entrance = _gridEntrance ? ' lp-anim-in' : '';
+      _gridEntrance = false;
+      list.innerHTML = LP.data.slides.map(function (s, i) {
+        var viewing = i === v, bd, tint = 'var(--panel)', label, labelColor;
+        if (viewing) { bd = 'var(--orange)'; tint = 'var(--orange-soft)'; label = s.sel ? 'viewing · sel' : 'viewing'; labelColor = 'var(--orange-ink)'; }
+        else if (s.sel) { bd = 'var(--blue)'; tint = 'var(--blue-tint)'; label = 'selected'; labelColor = 'var(--blue-ink)'; }
+        else if (s.state === 'rejected') { bd = 'var(--red)'; tint = 'var(--red-soft)'; label = 'rejected'; labelColor = 'var(--red)'; }
+        else { bd = 'var(--border)'; label = 'accepted'; labelColor = 'var(--blue-ink)'; }
+        var img = slideImg(s.thumb || s.img, 'width:100%;height:100%;object-fit:cover;display:block', 18, labelColor);
+        return '<div class="lp-hit' + entrance + '" data-slide="' + i + '" style="display:flex;flex-direction:column;gap:5px;' +
+          'background:' + tint + ';border:2px solid ' + bd + ';border-radius:10px;padding:5px;cursor:pointer">' +
+          '<div style="aspect-ratio:16/10;overflow:hidden;background:var(--sunk);border-radius:6px;display:flex;' +
+          'align-items:center;justify-content:center">' + img + '</div>' +
+          '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:4px">' +
+          '<span style="font:700 11px \'JetBrains Mono\'">' + esc(s.time) + '</span>' +
+          '<span style="font:700 8.5px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</span>' +
+          '</div></div>';
+      }).join('');
+      finishSlides(v);
+      return;
+    }
     list.innerHTML = LP.data.slides.map(function (s, i) {
       var viewing = i === v;
       var wrap, thumbBd = 'var(--line)', icon = 'var(--muted)', label, labelColor;
@@ -571,6 +1229,10 @@
         '<div style="width:60px;height:38px;flex:none;overflow:hidden;background:var(--sunk);border:1.5px solid ' + thumbBd + ';border-radius:6px;display:flex;align-items:center;justify-content:center">' + thumbImg + '</div>' +
         '<div><div style="font:700 13px \'JetBrains Mono\'">' + esc(s.time) + '</div><div style="font:700 10px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</div></div></div>';
     }).join('');
+    finishSlides(v);
+  }
+
+  function finishSlides(v) {
     var selCount = LP.data.slides.filter(function (s) { return s.sel; }).length;
     $('slides-sel').textContent = '· ' + selCount + ' sel';
     var cur = LP.data.slides[v];
@@ -591,11 +1253,19 @@
       var color = s.state === 'rejected' ? 'var(--red)' : 'var(--blue)';
       return '<div class="lp-tick" data-slide="' + i + '" style="position:absolute;top:6px;left:' + s.pct + '%;width:3px;height:14px;border-radius:2px;background:' + color + '"></div>';
     }).join('');
-    $('timeline-progress').style.width = LP.data.slides[v].pct + '%';
-    var accepted = LP.data.slides.filter(function (s) { return s.state !== 'rejected'; }).length;
-    $('timeline-meta').textContent = LP.data.slides.length + ' slides · ' + LP.data.duration;
-    $('timeline-mid').textContent = LP.data.durationMid;
-    $('timeline-end').textContent = LP.data.duration;
+    // An empty workspace (no lecture loaded) is a legitimate state: slides[v]
+    // does not exist, so the timeline must render at zero rather than throw --
+    // a throw here aborted the whole renderWorkspace() pass.
+    var at = LP.data.slides[v];
+    setFill('timeline-progress', at ? at.pct : 0);
+    $('timeline-meta').textContent = LP.data.slides.length
+      ? LP.data.slides.length + ' slides · ' + (LP.data.duration || '')
+      : 'No slides yet';
+    $('timeline-mid').textContent = LP.data.durationMid || '';
+    $('timeline-end').textContent = LP.data.duration || '';
+    // Restore the axis origin once there is a lecture to measure against;
+    // resetJobChrome() blanks it, and nothing else re-sets it (BUG-15).
+    $('timeline-start').textContent = LP.data.slides.length ? '00:00' : '';
   }
 
   function renderReviewTranscript() {
@@ -614,7 +1284,16 @@
     $('transcript-duration').textContent = t.duration;
     $('transcript-segcount').textContent = t.segments + ' segments';
     $('transcript-corrections').textContent = t.corrections + ' corrections';
-    $('transcript-blocks').innerHTML = t.blocks.map(function (b) {
+    // The staggered entrance (.lp-stagger) must run ONCE, when the transcript
+    // first arrives -- not on every re-render. This container is rebuilt with
+    // innerHTML on every transcript update, so while a lecture is transcribing
+    // each update re-ran a 500ms animation with delays ramping to 300ms on
+    // EVERY block at once. That reads as a flicker, and it fights the user if
+    // they are reading while it streams. Stagger the arrival, not the updates.
+    var blocksEl = $('transcript-blocks');
+    var hadContent = blocksEl.childElementCount > 0;
+    blocksEl.classList.toggle('lp-stagger', !hadContent);
+    blocksEl.innerHTML = t.blocks.map(function (b) {
       var chip = b.hotTime
         ? '<span style="font:700 12px \'JetBrains Mono\';color:var(--orange-ink);background:var(--orange-soft);border-radius:7px;padding:3px 7px">' + esc(b.t) + '</span>'
         : '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted)">' + esc(b.t) + '</span>';
@@ -678,7 +1357,7 @@
     return '<div style="display:flex;flex-wrap:wrap;gap:6px">' + opts.map(function (o) {
       var on = String(o) === String(cur);
       return '<button data-qset="' + name + '" data-qval="' + esc(o) + '" style="font:600 12px \'JetBrains Mono\';padding:6px 11px;border-radius:8px;cursor:pointer;border:1.5px solid ' +
-        (on ? 'var(--orange)' : 'var(--border)') + ';background:' + (on ? 'var(--orange)' : 'var(--panel)') + ';color:' + (on ? '#fff' : 'var(--ink)') + '">' + esc(o) + '</button>';
+        (on ? 'var(--orange)' : 'var(--border)') + ';background:' + (on ? 'var(--orange)' : 'var(--panel)') + ';color:' + (on ? 'var(--on-signal)' : 'var(--ink)') + '">' + esc(o) + '</button>';
     }).join('') + '</div>';
   }
   function _qField(label, html) {
@@ -733,7 +1412,7 @@
         _qField('Type', _seg('type', ['Multiple choice', 'True / false', 'Mixed'], s.type)) +
         _qField('Source', _seg('source', ['Transcript', 'Slides', 'Both'], s.source)) +
         '<div style="display:flex;gap:10px;margin-top:8px">' +
-        '<button data-qact="generate" style="font:700 14px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:10px;padding:11px 22px;cursor:pointer">Generate quiz</button>' +
+        '<button data-qact="generate" style="font:700 14px \'Space Grotesk\';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:10px;padding:11px 22px;cursor:pointer">Generate quiz</button>' +
         (qs.length ? '<button data-qact="resume" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:10px;padding:11px 18px;cursor:pointer;color:var(--ink)">Resume last</button>' : '') +
         '</div>' +
         '<div style="font-size:12px;color:var(--muted);margin-top:14px">Difficulty/type/source are recorded with the quiz; question count is applied now. Falls back to a built-in quiz if local AI is off.</div>';
@@ -777,7 +1456,7 @@
       '<div style="display:flex;flex-direction:column;gap:9px">' + opts + '</div>' + reveal +
       '<div style="display:flex;align-items:center;gap:10px;margin-top:18px">' +
       '<button data-qact="prev"' + (i === 0 ? ' disabled' : '') + ' style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:9px 15px;cursor:pointer;color:var(--ink);opacity:' + (i === 0 ? '.5' : '1') + '">Prev</button>' +
-      (answered ? '' : '<button data-qact="submit"' + (q.pick == null ? ' disabled' : '') + ' style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:9px 17px;cursor:pointer;opacity:' + (q.pick == null ? '.5' : '1') + '">Submit</button>') +
+      (answered ? '' : '<button data-qact="submit"' + (q.pick == null ? ' disabled' : '') + ' style="font:700 13px \'Space Grotesk\';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 17px;cursor:pointer;opacity:' + (q.pick == null ? '.5' : '1') + '">Submit</button>') +
       '<label style="display:flex;align-items:center;gap:6px;font:500 11px \'JetBrains Mono\';color:var(--muted);cursor:pointer;margin-left:auto"><input type="checkbox" data-qact="auto"' + (q.autoAdvance ? ' checked' : '') + '>auto-advance</label>' +
       (last ? '<button data-qact="finish" style="font:700 13px \'Space Grotesk\';background:var(--secondary-surface);color:var(--secondary-text);border:2px solid var(--secondary-border);border-radius:9px;padding:9px 17px;cursor:pointer">Finish</button>'
         : '<button data-qact="next"' + (answered ? '' : ' disabled') + ' style="font:700 13px \'Space Grotesk\';background:var(--secondary-surface);color:var(--secondary-text);border:2px solid var(--secondary-border);border-radius:9px;padding:9px 17px;cursor:pointer;opacity:' + (answered ? '1' : '.5') + '">Next</button>') +
@@ -798,7 +1477,7 @@
           '<span>' + esc(it.question) + (q.flags[i] ? ' <span style="color:var(--yellow)">⚑</span>' : '') + '</span></div>';
       }).join('') + '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:10px">' +
-      (wrong.length ? '<button data-qact="retry-wrong" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Retry incorrect (' + wrong.length + ')</button>' : '') +
+      (wrong.length ? '<button data-qact="retry-wrong" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Retry incorrect (' + wrong.length + ')</button>' : '') +
       '<button data-qact="restart" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Restart</button>' +
       '<button data-qact="copy" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Copy</button>' +
       '<button data-qact="newquiz" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">New quiz settings</button>' +
@@ -881,7 +1560,7 @@
         _qField('Depth', _fSeg('difficulty', ['Basic', 'Detailed', 'Exam-focused'], s.difficulty)) +
         _qField('Style', _fSeg('style', ['Term → definition', 'Question → answer', 'Concept → explanation', 'Mixed'], s.style)) +
         '<div style="display:flex;gap:10px;margin-top:8px">' +
-        '<button data-fact="generate" style="font:700 14px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:10px;padding:11px 22px;cursor:pointer">Generate flashcards</button>' +
+        '<button data-fact="generate" style="font:700 14px \'Space Grotesk\';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:10px;padding:11px 22px;cursor:pointer">Generate flashcards</button>' +
         (cards.length ? '<button data-fact="resume" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:10px;padding:11px 18px;cursor:pointer;color:var(--ink)">Resume last</button>' : '') +
         '</div>';
       return;
@@ -894,7 +1573,7 @@
     return '<div style="display:flex;flex-wrap:wrap;gap:6px">' + opts.map(function (o) {
       var on = String(o) === String(cur);
       return '<button data-fset="' + name + '" data-fval="' + esc(o) + '" style="font:600 12px \'JetBrains Mono\';padding:6px 11px;border-radius:8px;cursor:pointer;border:1.5px solid ' +
-        (on ? 'var(--orange)' : 'var(--border)') + ';background:' + (on ? 'var(--orange)' : 'var(--panel)') + ';color:' + (on ? '#fff' : 'var(--ink)') + '">' + esc(o) + '</button>';
+        (on ? 'var(--orange)' : 'var(--border)') + ';background:' + (on ? 'var(--orange)' : 'var(--panel)') + ';color:' + (on ? 'var(--on-signal)' : 'var(--ink)') + '">' + esc(o) + '</button>';
     }).join('') + '</div>';
   }
 
@@ -913,7 +1592,7 @@
       '<span style="font-weight:700;font-size:18px;line-height:1.4">' + esc(f.flipped ? c.definition : c.term) + '</span>' +
       '<span style="font:500 11px \'JetBrains Mono\';color:var(--muted);margin-top:16px">tap or Space to flip</span></div>' +
       '<div style="display:flex;gap:8px;margin-top:14px;justify-content:center">' +
-      '<button data-fact="known" style="font:700 12px \'Space Grotesk\';background:' + (marked === 'known' ? 'var(--green)' : 'var(--green-soft)') + ';color:' + (marked === 'known' ? '#fff' : 'var(--green)') + ';border:2px solid var(--green);border-radius:9px;padding:9px 15px;cursor:pointer">Known</button>' +
+      '<button data-fact="known" style="font:700 12px \'Space Grotesk\';background:' + (marked === 'known' ? 'var(--green-fill)' : 'var(--green-soft)') + ';color:' + (marked === 'known' ? 'var(--on-signal)' : 'var(--green)') + ';border:2px solid var(--green);border-radius:9px;padding:9px 15px;cursor:pointer">Known</button>' +
       '<button data-fact="unsure" style="font:700 12px \'Space Grotesk\';background:' + (marked === 'unsure' ? 'var(--yellow)' : 'var(--yellow-soft)') + ';color:var(--ink);border:2px solid var(--yellow);border-radius:9px;padding:9px 15px;cursor:pointer">Unsure</button>' +
       '<button data-fact="bookmark" title="Bookmark" style="font:700 12px \'Space Grotesk\';background:' + (bm ? 'var(--orange-soft)' : 'var(--panel)') + ';color:var(--ink);border:2px solid ' + (bm ? 'var(--orange)' : 'var(--border)') + ';border-radius:9px;padding:9px 13px;cursor:pointer">☆</button>' +
       '</div>' +
@@ -939,7 +1618,7 @@
       '<div style="flex:1;background:var(--panel);border:2px solid var(--border);border-radius:12px;padding:16px;text-align:center"><div style="font-size:26px;font-weight:800">' + cards.length + '</div><div style="font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted)">Total</div></div>' +
       '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:10px">' +
-      (unsure ? '<button data-fact="retry-unsure" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:#fff;border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Review unsure (' + unsure + ')</button>' : '') +
+      (unsure ? '<button data-fact="retry-unsure" style="font:700 13px \'Space Grotesk\';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 17px;cursor:pointer">Review unsure (' + unsure + ')</button>' : '') +
       '<button data-fact="restart" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Restart</button>' +
       '<button data-fact="copy" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">Copy</button>' +
       '<button data-fact="newdeck" style="font:600 13px \'Space Grotesk\';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 17px;cursor:pointer;color:var(--ink)">New settings</button>' +
@@ -1009,36 +1688,44 @@
   var CRUMBS = { home: 'Home', process: 'Process', review: 'Review', transcript: 'Transcript', study: 'Study', exports: 'Exports', settings: 'Settings' };
 
   function setScreen(name) {
-    LP.state.screen = name;
-    if (typeof hideScrub === 'function') hideScrub();
-    Array.prototype.forEach.call(document.querySelectorAll('main [data-screen]'), function (sec) {
-      var show = sec.dataset.screen === name;
-      if (show === !sec.hidden) return;
-      sec.hidden = !show;
-      if (show) { // retrigger entrance animation
-        sec.style.animation = 'none'; void sec.offsetWidth; sec.style.animation = '';
+    LP.motion.nav(function () {
+      LP.state.screen = name;
+      if (typeof hideScrub === 'function') hideScrub();
+      Array.prototype.forEach.call(document.querySelectorAll('main [data-screen]'), function (sec) {
+        var show = sec.dataset.screen === name;
+        if (show === !sec.hidden) return;
+        sec.hidden = !show;
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.lp-nav'), function (b) {
+        b.classList.toggle('active', b.dataset.nav === name);
+      });
+      // MUST stay inside this callback, immediately after the .active toggle
+      // above — it measures the active button, so it has to run after the class
+      // moves. It was previously broken by LP.motion.nav() wrapping this in
+      // document.startViewTransition(), whose callback fires ASYNCHRONOUSLY: an
+      // indicator() call placed after nav() ran BEFORE the toggle and measured
+      // the PREVIOUS button, so the rail trailed one navigation behind. nav()
+      // is synchronous now (the View Transition layer was removed 2026-07-27),
+      // but do not move this line out — ordering, not the API, is the contract.
+      LP.motion.indicator();
+      $('crumb').textContent = CRUMBS[name] || name;
+      // The preview may have been laid out while Review was hidden (0x0) — refit
+      // now that it's visible so the slide fills the canvas.
+      if (name === 'review') {
+        requestAnimationFrame(function () { previewCtl.refit(); });
+      }
+      if ((name === 'study' || name === 'settings') && lpBridge.connected()) {
+        lpBridge.call('smart_study_status');
+      }
+      if (name === 'settings' && lpBridge.connected()) {
+        lpBridge.call('get_updater_state').then(function (json) {
+          if (!json) return;
+          try { renderUpdaterState(JSON.parse(json)); } catch (e) {}
+        });
+        lpBridge.call('cuda_pack_status');
+        lpBridge.call('get_notification_prefs');
       }
     });
-    Array.prototype.forEach.call(document.querySelectorAll('.lp-nav'), function (b) {
-      b.classList.toggle('active', b.dataset.nav === name);
-    });
-    $('crumb').textContent = CRUMBS[name] || name;
-    // The preview may have been laid out while Review was hidden (0x0) — refit
-    // now that it's visible so the slide fills the canvas.
-    if (name === 'review') {
-      requestAnimationFrame(function () { previewCtl.refit(); });
-    }
-    if ((name === 'study' || name === 'settings') && lpBridge.connected()) {
-      lpBridge.call('smart_study_status');
-    }
-    if (name === 'settings' && lpBridge.connected()) {
-      lpBridge.call('get_updater_state').then(function (json) {
-        if (!json) return;
-        try { renderUpdaterState(JSON.parse(json)); } catch (e) {}
-      });
-      lpBridge.call('cuda_pack_status');
-      lpBridge.call('get_notification_prefs');
-    }
   }
 
   function setTheme(theme) {
@@ -1056,14 +1743,117 @@
   function setFocus(on) {
     LP.state.focus = on;
     $('app').dataset.focus = on ? 'true' : 'false';
-    $('focus-pill').hidden = !on;
+    var pill = $('focus-pill');
+    if (!pill) return;
+    if (on) {
+      pill.classList.remove('lp-out');
+      pill.hidden = false;
+      if (!LP.motion.reduced()) {
+        // OPACITY-ONLY entrance, for the same reason as the toast (§4.7): this
+        // pill carries an inline `transform:translateX(-50%)` for horizontal
+        // centering. A transform keyframe with only a `from` state (lpseat-sm)
+        // takes the element's cascaded transform as its implicit `to`, and with
+        // fill-mode `both` the `from` REPLACES the inline centering -- so the
+        // pill started half its own width off-centre and slid sideways into
+        // place. `.lp-anim-fade` touches opacity only and cannot conflict with
+        // any transform the element carries.
+        pill.classList.remove('lp-anim-fade');
+        void pill.offsetWidth; // force reflow so the entrance re-triggers
+        pill.classList.add('lp-anim-fade');
+      }
+    } else {
+      try { LP.motion.close(pill, function () { pill.hidden = true; }, 'lp-out'); }
+      catch (e) { pill.hidden = true; }
+    }
   }
 
   function setOnb(state) { // null | 'drop' | 'detected'
     LP.state.onb = state;
-    $('onb-overlay').hidden = state === null;
+    var ov = $('onb-overlay');
+    if (state === null) {
+      if (ov) {
+        try { LP.motion.close(ov, function () { ov.hidden = true; }); }
+        catch (e) { ov.hidden = true; }
+      }
+    } else if (ov) {
+      ov.classList.remove('out');
+      var ovPop = ov.querySelector && ov.querySelector('.lp-pop');
+      if (ovPop) ovPop.classList.remove('out');
+      ov.hidden = false;
+    }
     $('onb-drop').hidden = state !== 'drop';
     $('onb-detected').hidden = state !== 'detected';
+    if (state !== null) focusFirst($('onb-overlay'));
+  }
+
+  /* ---------- modal containment (BUG-01 / BUG-02) ----------
+     Overlays in this UI are plain divs toggled with [hidden] plus dynamically
+     created .lp-modal-ov nodes.  These helpers give whichever one is on top
+     ownership of the keyboard. */
+  var FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),' +
+    'select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+  function visibleFocusable(scope) {
+    return Array.prototype.filter.call(scope.querySelectorAll(FOCUSABLE), function (el) {
+      if (el.hidden || el.closest('[hidden]')) return false;
+      return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+    });
+  }
+
+  // Highest-z-index open overlay, or null when none is open.
+  function topOverlay() {
+    var open = [];
+    ['onb-overlay', 'whatsnew-overlay'].forEach(function (id) {
+      var el = $(id);
+      if (el && !el.hidden) open.push(el);
+    });
+    Array.prototype.push.apply(open, document.querySelectorAll('.lp-modal-ov'));
+    if (!open.length) return null;
+    return open.reduce(function (a, b) {
+      var za = parseInt(window.getComputedStyle(a).zIndex, 10) || 0;
+      var zb = parseInt(window.getComputedStyle(b).zIndex, 10) || 0;
+      return zb >= za ? b : a;   // later/higher wins, so the newest modal owns focus
+    });
+  }
+
+  function focusFirst(scope) {
+    var items = visibleFocusable(scope);
+    if (items.length) setTimeout(function () { items[0].focus(); }, 30);
+  }
+
+  // Cycle Tab within `scope` instead of letting it reach the page behind.
+  function trapFocus(scope, e) {
+    var items = visibleFocusable(scope);
+    if (!items.length) { e.preventDefault(); return; }
+    var first = items[0], last = items[items.length - 1], active = document.activeElement;
+    if (!scope.contains(active)) { e.preventDefault(); first.focus(); return; }
+    if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+  }
+
+  /* Clears the design-time placeholder chrome shipped in index.html so a fresh
+     profile never shows a fake in-progress job (BUG-04). */
+  function resetJobChrome() {
+    $('side-job-name').textContent = 'No lecture loaded';
+    $('side-job-status').innerHTML = 'Idle';
+    $('crumb-job').textContent = 'Home';
+    $('proc-source-name').textContent = 'No lecture loaded';
+    $('proc-status-meta').textContent = '';
+    // BUG-15: these ship with the demo lecture's real numbers baked in
+    // (1920x1080 · 06:12 · H.264, a 00:00/03:06/06:12 timeline axis), so with
+    // no lecture loaded the Review timeline still advertised a 6-minute
+    // lecture that does not exist. Blank them with everything else.
+    ['proc-source-meta', 'transcript-duration',
+     'timeline-start', 'timeline-mid', 'timeline-end'].forEach(function (id) {
+      var el = $(id);
+      if (el) el.textContent = '';
+    });
+    $('status-label').textContent = 'Idle';
+    $('status-pct').textContent = '';
+    setFill('status-bar', 0);
+    renderSidePoster('');
+    var w = $('storage-widget');
+    if (w) w.hidden = true;
   }
 
   function setStudyTab(tab) {
@@ -1075,6 +1865,15 @@
     $('pane-quiz').hidden = tab !== 'quiz';
     $('pane-flash').hidden = tab !== 'flash';
     $('pane-notes').hidden = tab !== 'notes';
+    if (!LP.motion.reduced()) {
+      var shownId = { chat: 'pane-chat', quiz: 'pane-quiz', flash: 'pane-flash', notes: 'pane-notes' }[tab];
+      var shown = shownId && $(shownId);
+      if (shown) {
+        shown.classList.remove('lp-anim-fade');
+        void shown.offsetWidth; // force reflow so the class re-triggers every switch
+        shown.classList.add('lp-anim-fade');
+      }
+    }
     if (tab === 'quiz') renderQuiz();
     if (tab === 'flash') renderCard();
   }
@@ -1117,7 +1916,7 @@
         var on = p.key === chosen;
         var pad = small ? '7px 11px' : '9px 13px';
         var css = 'flex:1;min-width:120px;text-align:left;font:600 12px \'Space Grotesk\';padding:' + pad + ';border-radius:9px;cursor:pointer;border:2px solid '
-          + (on ? 'var(--orange)' : 'var(--line)') + ';background:' + (on ? 'var(--orange-soft)' : 'var(--panel)') + ';color:' + (on ? 'var(--orange-ink)' : 'var(--ink)');
+          + (on ? 'var(--orange)' : 'transparent') + ';background:' + (on ? 'var(--orange-soft)' : 'var(--panel)') + ';color:' + (on ? 'var(--orange-ink)' : 'var(--ink)');
         var rec = p.recommended ? ' <span style="font:600 9px \'JetBrains Mono\';color:var(--orange-ink)">· RECOMMENDED</span>' : '';
         return '<button class="lp-hit" data-ss-preset="' + p.key + '" style="' + css + '">'
           + esc(p.label) + rec
@@ -1164,7 +1963,7 @@
     prog.hidden = !(st === 'downloading' || st === 'testing');
     if (st === 'downloading' || st === 'testing') {
       var pct = (typeof d.percent === 'number') ? d.percent : null;
-      $('ss-bar').style.width = (pct != null ? pct : (st === 'testing' ? 100 : 3)) + '%';
+      setFill('ss-bar', pct != null ? pct : (st === 'testing' ? 100 : 3));
       $('ss-status').textContent = d.message || (st === 'testing' ? 'Testing…' : 'Downloading…');
       $('ss-pct').textContent = pct != null ? Math.round(pct) + '%' : '';
     }
@@ -1390,6 +2189,32 @@
       b.addEventListener('click', function () { setScreen(b.dataset.nav); });
     });
 
+    // The sidebar lecture chip used to be inert text that just said "No lecture
+    // loaded" -- a dead end exactly when the user has nothing and most needs a
+    // way forward. It is now a button whose destination depends on state:
+    //   lecture loaded -> jump to Review, its workspace (the thing the chip names)
+    //   nothing loaded -> go Home and draw the eye to the import card, so the
+    //                     empty state points at its own cure in one click.
+    // Deliberately does NOT auto-open the native file dialog: this chip is easy
+    // to click while exploring, and a surprise OS dialog is a worse outcome than
+    // one extra intentional click.
+    var sideBtn = $('side-job-btn');
+    if (sideBtn) sideBtn.addEventListener('click', function () {
+      if (LP.state.jobId) { setScreen('review'); return; }
+      setScreen('home');
+      var browse = $('btn-browse');
+      if (!browse) return;
+      var card = browse.closest('.lp-card') || browse.parentElement;
+      if (card) {
+        // re-trigger the shared entrance so the card announces itself; reuses
+        // the MOTION SYSTEM v2 class rather than inventing a highlight effect.
+        card.classList.remove('lp-anim-in');
+        void card.offsetWidth;                 // force reflow so it replays
+        card.classList.add('lp-anim-in');
+      }
+      if (!LP.motion.reduced()) browse.focus({ preventScroll: true });
+    });
+
     // header
     $('btn-theme').addEventListener('click', function () { setTheme(LP.state.theme === 'light' ? 'dark' : 'light'); });
     $('btn-focus').addEventListener('click', function () { setFocus(!LP.state.focus); });
@@ -1412,7 +2237,7 @@
         var on = engine === k;
         el.style.background = on ? 'var(--secondary-surface)' : 'transparent';
         el.style.color = on ? 'var(--secondary-text)' : 'var(--muted)';
-        el.style.border = '1.5px solid ' + (on ? 'var(--secondary-border)' : 'var(--line)');
+        el.style.border = '1.5px solid ' + (on ? 'var(--secondary-border)' : 'transparent');
         el.style.fontWeight = on ? '700' : '500';
         el.style.cursor = 'pointer';
       });
@@ -1446,9 +2271,10 @@
         var on = b.dataset.tbk === bk;
         b.style.background = on ? 'var(--secondary-surface)' : 'var(--panel)';
         b.style.color = on ? 'var(--secondary-text)' : 'var(--ink)';
-        b.style.borderColor = on ? 'var(--secondary-border)' : 'var(--line)';
+        b.style.borderColor = on ? 'var(--secondary-border)' : 'transparent';
       });
     }
+    LP.ui = { reflectEngine: reflectEngine, reflectBackend: reflectBackend };
     $('tbk-seg').addEventListener('click', function (e) {
       var b = e.target.closest('[data-tbk]'); if (!b) return;
       reflectBackend(b.dataset.tbk);
@@ -1516,6 +2342,37 @@
       e.stopPropagation();
       if (lpBridge.connected()) lpBridge.call('browse_video'); else setOnb('drop');
     });
+
+    $('btn-paste-link').addEventListener('click', function (e) {
+      e.stopPropagation();
+      linkImportDialog();
+    });
+
+    // ---- Home multi-select ----
+    $('btn-select-mode').addEventListener('click', function (e) {
+      e.stopPropagation();
+      setSelectMode(!LP.state.selecting);
+    });
+    $('btn-select-done').addEventListener('click', function (e) {
+      e.stopPropagation(); setSelectMode(false);
+    });
+    $('btn-select-all').addEventListener('click', function (e) {
+      e.stopPropagation();
+      LP.state.selected = {};
+      selectableIds().forEach(function (id) { LP.state.selected[id] = true; });
+      renderJobs(); renderSelCount();
+    });
+    $('btn-select-none').addEventListener('click', function (e) {
+      e.stopPropagation();
+      LP.state.selected = {};
+      renderJobs(); renderSelCount();
+    });
+    $('btn-bulk-delete').addEventListener('click', function (e) {
+      e.stopPropagation(); bulkDelete();
+    });
+    $('btn-bulk-group').addEventListener('click', function (e) {
+      e.stopPropagation(); bulkGroup();
+    });
     dz.addEventListener('dragover', function (e) { e.preventDefault(); if (LP.state.onb !== 'detected') setOnb('drop'); });
     dz.addEventListener('drop', function (e) { e.preventDefault(); setOnb('detected'); });
     // "drop anywhere": in the desktop shell native drops are captured by Qt and
@@ -1529,6 +2386,12 @@
     // Home grid: per-card menu buttons (delete / set group) take priority,
     // otherwise clicking a card opens the job.
     $('jobs-grid').addEventListener('click', function (e) {
+      // Select mode owns the click: toggle instead of opening the lecture.
+      if (LP.state.selecting) {
+        var selCard = e.target.closest('.lp-card[data-job]');
+        if (selCard) { e.stopPropagation(); toggleSelected(selCard.dataset.job); }
+        return;
+      }
       var btn = e.target.closest('.lp-jobbtn');
       if (btn) {
         e.stopPropagation();
@@ -1592,8 +2455,8 @@
         Array.prototype.forEach.call(document.querySelectorAll('[data-onb-mode]'), function (o) {
           var on = o === el;
           o.style.cssText = on
-            ? 'flex:1;text-align:center;font:700 12px \'Space Grotesk\';padding:9px 0;border:2px solid var(--orange);border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);cursor:pointer'
-            : 'flex:1;text-align:center;font:500 12px \'Space Grotesk\';padding:9px 0;border:2px solid var(--line);border-radius:9px;color:var(--muted);cursor:pointer';
+            ? 'flex:1;text-align:center;font:700 12px \'Space Grotesk\';padding:9px 0;border:2px solid var(--orange);border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);box-shadow:var(--shadow-hard-sm);cursor:pointer'
+            : 'flex:1;text-align:center;font:500 12px \'Space Grotesk\';padding:9px 0;border:2px solid transparent;border-radius:9px;color:var(--muted);box-shadow:var(--shadow-hard-sm);cursor:pointer';
         });
         LP.state.onbMode = el.dataset.onbMode;
       });
@@ -1647,6 +2510,18 @@
       var item = e.target.closest('[data-slide]');
       if (item) { LP.state.viewingSlide = +item.dataset.slide; renderSlides(); }
     });
+    // Grid / List view toggle. Was inert markup with no handler at all.
+    Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (b) {
+      b.addEventListener('click', function () {
+        if (LP.state.slidesView === b.dataset.view) return;
+        LP.state.slidesView = b.dataset.view;
+        if (LP.state.slidesView === 'grid') _gridEntrance = true;
+        Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (o) {
+          o.classList.toggle('active', o.dataset.view === LP.state.slidesView);
+        });
+        renderSlides();
+      });
+    });
     $('btn-prev-slide').addEventListener('click', function () {
       LP.state.viewingSlide = (LP.state.viewingSlide + LP.data.slides.length - 1) % LP.data.slides.length;
       renderSlides();
@@ -1659,12 +2534,26 @@
       var s = LP.data.slides[LP.state.viewingSlide];
       s.state = 'accepted';
       lpBridge.call('set_slide_state', LP.state.viewingSlide, 'accepted');
+      // Advance after judging: the user is working THROUGH the deck, so keeping
+      // or rejecting is implicitly "done with this one". Wraps like the next
+      // button. Guarded so a 1-slide deck (or an empty one) cannot divide by
+      // zero or bounce the view.
+      if (LP.data.slides.length > 1) {
+        LP.state.viewingSlide = (LP.state.viewingSlide + 1) % LP.data.slides.length;
+      }
       renderSlides();
     });
     $('btn-reject').addEventListener('click', function () {
       var s = LP.data.slides[LP.state.viewingSlide];
       s.state = 'rejected'; s.sel = false;
       lpBridge.call('set_slide_state', LP.state.viewingSlide, 'rejected');
+      // Advance after judging: the user is working THROUGH the deck, so keeping
+      // or rejecting is implicitly "done with this one". Wraps like the next
+      // button. Guarded so a 1-slide deck (or an empty one) cannot divide by
+      // zero or bounce the view.
+      if (LP.data.slides.length > 1) {
+        LP.state.viewingSlide = (LP.state.viewingSlide + 1) % LP.data.slides.length;
+      }
       renderSlides();
     });
     $('btn-save-corrections').addEventListener('click', function () {
@@ -1818,13 +2707,21 @@
       if (lpBridge.connected()) lpBridge.call('test_notification');
     });
 
-    // keyboard shortcuts (prototype behavior)
+    // Keyboard shortcuts.  An open overlay OWNS the keyboard: digit/F shortcuts
+    // must not change the screen behind a modal, and Tab must not escape to
+    // controls the user cannot see (both were live defects -- see BUG_LIST.md
+    // BUG-01 and BUG-02).
     window.addEventListener('keydown', function (e) {
       var tag = (e.target && e.target.tagName) || '';
-      var editing = /INPUT|TEXTAREA/.test(tag) || (e.target && e.target.isContentEditable);
+      var editing = /INPUT|TEXTAREA|SELECT/.test(tag) || (e.target && e.target.isContentEditable);
       if (e.key === 'Escape') {
         setFocus(false); setOnb(null);
         if (!$('whatsnew-overlay').hidden) hideWhatsNew();
+        return;
+      }
+      var overlay = topOverlay();
+      if (overlay) {
+        if (e.key === 'Tab') trapFocus(overlay, e);
         return;
       }
       if (editing) return;
@@ -1849,15 +2746,18 @@
       if (st === 'pause_requested') {
         if (title) title.textContent = 'Finishing current step…';
         if (pause) { pause.disabled = true; pause.textContent = 'Pausing…'; }
+        _applyLpState(title || dot, 'running');
       } else if (st === 'paused') {
         if (title) title.textContent = 'Paused';
         if (dot) dot.style.animation = 'none';
         if (pause) { pause.hidden = true; pause.disabled = false; pause.textContent = 'Pause'; }
         if (resume) resume.hidden = false;
+        _applyLpState(title || dot, 'paused');
       } else if (st === 'resumed') {
         if (dot) dot.style.animation = 'lpblink 1s infinite';
         if (pause) pause.hidden = false;
         if (resume) resume.hidden = true;
+        _applyLpState(title || dot, 'running');
       }
     });
     lpBridge.on('job_completed', function (json) {
@@ -1872,6 +2772,7 @@
       var pause = $('btn-pause-job'), resume = $('btn-resume-job');
       if (pause) pause.hidden = true;
       if (resume) resume.hidden = true;
+      _applyLpState(panel, 'complete');
     });
     lpBridge.on('notification_prefs', function (json) {
       var prefs; try { prefs = JSON.parse(json); } catch (e) { return; }
@@ -1879,13 +2780,100 @@
         if (cb.dataset.notif in prefs) cb.checked = !!prefs[cb.dataset.notif];
       });
     });
-    lpBridge.on('jobs_changed', function (json) { LP.data.jobs = JSON.parse(json); renderJobs(); });
+    // BUG-04: the storage widget ships hidden and only appears once a backend
+    // actually reports usage. `ok:false` (demo adapter, or a failed walk) keeps
+    // it hidden rather than showing an invented figure -- inventing one was the
+    // original bug.
+    lpBridge.on('storage_changed', function (json) {
+      var w = $('storage-widget');
+      if (!w) return;
+      var s;
+      try { s = JSON.parse(json); } catch (e) { w.hidden = true; return; }
+      if (!s || !s.ok) { w.hidden = true; return; }
+      $('storage-label').textContent = s.used_h + ' · ' + s.free_h + ' free';
+      setFill('storage-bar', s.pct);
+      w.hidden = false;
+    });
+
+    lpBridge.on('jobs_changed', function (json) {
+      LP.data.jobs = JSON.parse(json);
+      // Forget selections whose job is gone, else the count lies.
+      if (LP.state.selecting) {
+        var alive = {};
+        LP.data.jobs.forEach(function (j) { if (j.id) alive[j.id] = true; });
+        Object.keys(LP.state.selected).forEach(function (id) {
+          if (!alive[id]) delete LP.state.selected[id];
+        });
+        renderSelCount();
+      }
+      renderJobs();           // poster URLs are stable, so loaded ones stay cached
+    });
+
+    // ---- import from a link ----
+    lpBridge.on('media_link_state', function (json) {
+      var s = JSON.parse(json || '{}');
+      mediaLink.available = !!s.available;
+      mediaLink.version = s.version || '';
+      var btn = $('btn-paste-link');
+      if (btn) btn.hidden = !mediaLink.available;
+    });
+
+    lpBridge.on('media_probe', function (json) {
+      var info = JSON.parse(json || '{}');
+      if (!info.ok) { setLinkMsg(info.error || 'That link could not be read.', true); return; }
+      if (mediaLink.probeModal) { mediaLink.probeModal.close(); mediaLink.probeModal = null; }
+      linkConfirmDialog(info);
+    });
+
+    lpBridge.on('media_progress', function (json) {
+      try { onMediaProgress(JSON.parse(json || '{}')); } catch (err) { /* ignore */ }
+    });
+
+    lpBridge.on('media_done', function (json) {
+      var r = JSON.parse(json || '{}');
+      if (mediaLink.progressModal) { mediaLink.progressModal.close(); mediaLink.progressModal = null; }
+      if (r.ok) toast('Downloaded ' + (r.name || 'the recording'));
+      else if (r.cancelled) toast('Download cancelled');
+      else lpModal({ title: 'Download failed', bodyHtml: esc(r.error || 'Unknown error.'), actions: [{ label: 'Close', primary: true }] });
+    });
     lpBridge.on('job_deleted', function (json) {
       var d = JSON.parse(json);
+      if (d.bulk) {
+        var msg = d.ok
+          ? (d.count + (d.count === 1 ? ' lecture' : ' lectures') + ' deleted · ' + (d.freed || '') + ' freed')
+          : (d.error || 'Delete failed');
+        if (d.ok && (d.failed || []).length) msg += ' · ' + d.failed.length + ' could not be deleted';
+        toast(msg);
+        (d.ids || []).forEach(function (id) {
+          // Deactivate FIRST, same reason as the single-delete path below:
+          // setActiveJob snapshots the outgoing lecture into byJob, so dropping
+          // the cache entry before the switch would put it straight back.
+          if (id === LP.state.jobId) setActiveJob('', '');
+          delete LP.byJob[id];
+          delete LP.state.selected[id];
+        });
+        renderSelCount();
+        return;
+      }
       toast(d.ok ? ('Lecture deleted · ' + (d.freed || '') + ' freed') : 'Delete failed');
+      // Drop the deleted lecture's cached workspace so it can never come back
+      // if a job id is ever reused, and empty the screens if it was active.
+      if (d.ok && d.id) {
+        // Deactivate FIRST: setActiveJob snapshots the outgoing lecture into
+        // byJob, so deleting before the switch would put it straight back.
+        if (d.id === LP.state.jobId) setActiveJob('', '');
+        delete LP.byJob[d.id];
+      }
+    });
+
+    // The backend owns which lecture the workspace belongs to; the UI follows.
+    lpBridge.on('active_job', function (json) {
+      var a = JSON.parse(json || '{}');
+      setActiveJob(a.id || '', a.title || '');
     });
     lpBridge.on('pipeline_changed', function (json) {
       var p = JSON.parse(json);
+      if (!ownsPayload(p)) return;      // stale: belongs to another lecture
       if (p.log) LP.data.pipeline.log = p.log;
       LP.data.pipeline.title = p.title || LP.data.pipeline.title;
       LP.data.pipeline.meta = p.meta || LP.data.pipeline.meta;
@@ -1893,21 +2881,25 @@
       renderPipeline();
     });
     lpBridge.on('log_line', function (json) {
+      if (!LP.state.jobId) return;      // no lecture owns this log yet
       LP.data.pipeline.log.push(JSON.parse(json));
       if (LP.data.pipeline.log.length > 500) LP.data.pipeline.log.shift();
-      renderPipeline();
+      schedulePipelineRender();   // was renderPipeline() per line -- see the comment there
     });
     lpBridge.on('status_changed', function (json) {
       var s = JSON.parse(json);
       if (s.label !== undefined) $('status-label').textContent = s.label;
-      if (s.pct !== undefined) { $('status-bar').style.width = s.pct + '%'; }
+      if (s.pct !== undefined) setFill('status-bar', s.pct);
       if (s.detail !== undefined) $('status-pct').textContent = s.detail;
       if (s.right !== undefined) $('status-right').textContent = s.right;
-      if (s.job !== undefined) { $('side-job-name').textContent = s.job; $('crumb-job').textContent = s.job; }
+      if (s.job !== undefined && LP.state.jobId) {
+        $('side-job-name').textContent = s.job; $('crumb-job').textContent = s.job;
+      }
       if (s.side !== undefined) $('side-job-status').innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>' + esc(s.side);
     });
     lpBridge.on('slides_changed', function (json) {
       var d = JSON.parse(json);
+      if (!ownsPayload(d)) return;
       LP.data.slides = d.slides || LP.data.slides;
       if (d.duration) LP.data.duration = d.duration;
       if (d.durationMid) LP.data.durationMid = d.durationMid;
@@ -1917,16 +2909,20 @@
     });
     lpBridge.on('transcript_changed', function (json) {
       var d = JSON.parse(json);
+      if (!ownsPayload(d)) return;
       if (d.reviewSegments) { LP.data.reviewSegments = d.reviewSegments; renderReviewTranscript(); }
       if (d.transcript) { LP.data.transcript = d.transcript; renderTranscript(); }
     });
     lpBridge.on('study_changed', function (json) {
-      LP.data.study = JSON.parse(json); renderStudy();
+      var sd = JSON.parse(json);
+      if (!ownsPayload(sd)) return;
+      LP.data.study = sd; renderStudy();
       var na = $('notes-area');
       if (na && document.activeElement !== na) na.value = LP.data.study.notes || '';
     });
     lpBridge.on('quiz_changed', function (json) {
       var d = JSON.parse(json), q = LP.state.quiz;
+      if (!ownsPayload(d)) return;
       LP.data.quiz = { questions: d.questions || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
       if (d.session && typeof d.session === 'object' && Object.keys(d.session).length) {
         q.index = d.session.index || 0; q.answers = d.session.answers || {}; q.flags = d.session.flags || {};
@@ -1945,6 +2941,7 @@
     });
     lpBridge.on('flashcards_changed', function (json) {
       var d = JSON.parse(json), f = LP.state.flash;
+      if (!ownsPayload(d)) return;
       LP.data.flashcards = { cards: d.cards || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
       if (d.session && typeof d.session === 'object' && Object.keys(d.session).length) {
         f.index = d.session.index || 0; f.known = d.session.known || {}; f.unsure = d.session.unsure || {};
@@ -1964,7 +2961,7 @@
     lpBridge.on('export_progress', function (json) {
       var p = JSON.parse(json);
       LP.state.exportPhase = 'running'; renderExportPhase();
-      $('export-progress-bar').style.width = (p.pct || 0) + '%';
+      setFill('export-progress-bar', p.pct || 0);
       $('export-progress-label').textContent = p.label || '';
     });
     lpBridge.on('export_done', function (json) {
@@ -1980,7 +2977,7 @@
     lpBridge.on('groq_status', function (json) {
       var d = JSON.parse(json), el = $('groq-status');
       if (el) { el.textContent = d.message || ''; el.style.color = d.has_key ? 'var(--secondary-text)' : 'var(--muted)'; }
-      if (d.backend && typeof reflectBackend === 'function') reflectBackend(d.backend);
+      if (d.backend && LP.ui) LP.ui.reflectBackend(d.backend);
     });
     lpBridge.on('vulkan_status', function (json) {
       var d = JSON.parse(json), el = $('vulkan-status');
@@ -2008,7 +3005,7 @@
       $('btn-cuda-pack-install').disabled = busy;
       var note = $('cuda-pack-note');
       if (st === 'downloading') {
-        $('cuda-pack-bar').style.width = (d.percent || 0) + '%';
+        setFill('cuda-pack-bar', d.percent || 0);
         $('cuda-pack-label').textContent = 'Downloading… ' + (typeof d.percent === 'number' ? Math.round(d.percent) + '%' : '');
         note.textContent = '';
       } else if (busy) {
@@ -2092,8 +3089,10 @@
         var ep = $('ai-endpoint-url');
         if (ep && document.activeElement !== ep) ep.value = s.endpoint;
       }
-      if (s.engine) reflectEngine(s.engine);
-      if (s.transcription_backend && typeof reflectBackend === 'function') reflectBackend(s.transcription_backend);
+      // TODO: COMPUTE_IDS has no "auto" key — design decision needed for
+      // default engine highlight. Leave as-is for now (no button highlighted).
+      if (s.engine && LP.ui) LP.ui.reflectEngine(s.engine);
+      if (s.transcription_backend && LP.ui) LP.ui.reflectBackend(s.transcription_backend);
       if (s.ollama_model) {
         $('ai-model-name').textContent = s.ollama_model;
         var msel = $('ai-model-select');
@@ -2122,6 +3121,9 @@
 
     lpBridge.ready(function (backend) {
       if (backend && backend.list_ollama_models) lpBridge.call('list_ollama_models');
+      // Ask whether link import exists in this build; the button stays hidden
+      // until the backend says yes.
+      if (backend && backend.media_link_support) lpBridge.call('media_link_support');
       if (backend && backend.get_bootstrap) {
         lpBridge.call('get_bootstrap').then(function (json) {
           if (!json) return;
@@ -2138,6 +3140,25 @@
   /* ======================= boot ======================= */
 
   function boot() {
+    // BUG-15: gating only `LP.data.jobs` behind ?preview=1 was not enough. The
+    // pipeline/slides/reviewSegments/transcript/study literals are ALSO
+    // design-time demo content (a 14-slide "Great Pyramid of Giza" lecture),
+    // and Home was the only screen that got cleaned. Verified on a real launch
+    // against an empty profile: Home correctly showed "No lecture loaded" and
+    // RECENT JOBS 0, while Review showed a full fake lecture — timeline,
+    // slide list with accepted/rejected states, and transcript.
+    //
+    // A brand-new user pressing Review would see a lecture that does not
+    // exist. `active_job` cannot be relied on to clear it, because
+    // _load_latest_completed_job() returns early without emitting when there
+    // is nothing to load. So the workspace starts EMPTY unless explicitly
+    // previewing, and real data only ever arrives from the backend.
+    if (!PREVIEW) {
+      var blank = emptyWorkspace();
+      Object.keys(blank).forEach(function (k) { LP.data[k] = blank[k]; });
+      LP.data.reviewSegments = [];
+    }
+    resetJobChrome();           // clear index.html's design-time placeholders
     renderJobs();
     renderPipeline();
     renderSlides();
@@ -2153,6 +3174,7 @@
     setStudyTab('chat');
     wire();
     wireBridge();
+    window.addEventListener('resize', function () { LP.motion.indicator(); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

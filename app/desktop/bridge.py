@@ -25,6 +25,18 @@ from .updater import Updater
 class Backend(QObject):
     # ---- signals consumed by ui/app.js (names must match bridge.js SIGNALS) ----
     jobs_changed = Signal(str)
+    # disk usage of the data dir; the sidebar storage widget stays hidden until
+    # this arrives, so it never shows an invented figure (BUG-04)
+    storage_changed = Signal(str)
+    # Which lecture the workspace screens belong to ({id, title}); id "" means
+    # nothing is loaded and the workspace must render empty.
+    active_job = Signal(str)
+    # link import (paste a URL): capability report, probe result, transfer
+    # progress, and terminal outcome. Mirrored in app/ui/bridge.js SIGNALS.
+    media_link_state = Signal(str)
+    media_probe = Signal(str)
+    media_progress = Signal(str)
+    media_done = Signal(str)
     pipeline_changed = Signal(str)
     log_line = Signal(str)
     status_changed = Signal(str)
@@ -186,6 +198,27 @@ class Backend(QObject):
     def notify_drag_over(self):
         self._adapter.notify_drag_over()
 
+    # ------------------------------------------------------- import from a link
+
+    @Slot()
+    def media_link_support(self):
+        """Report whether link import is available in this build."""
+        self._adapter.media_link_support()
+
+    @Slot(str)
+    def probe_media_url(self, url: str):
+        """Look up a link's title/duration without downloading it."""
+        self._adapter.probe_media_url(url)
+
+    @Slot(str, str)
+    def import_media_url(self, url: str, title: str):
+        """Download a link, then hand the file to the normal import path."""
+        self._adapter.import_media_url(url, title)
+
+    @Slot()
+    def cancel_media_url(self):
+        self._adapter.cancel_media_url()
+
     @Slot(str)
     def start_processing(self, mode: str):
         self._adapter.start_processing(mode)
@@ -201,6 +234,16 @@ class Backend(QObject):
     @Slot(str, str)
     def set_job_group(self, job_id: str, group: str):
         self._adapter.set_job_group(job_id, group)
+
+    @Slot(str)
+    def delete_jobs(self, ids_json: str):
+        """Bulk delete from Home multi-select; ids_json is a JSON array."""
+        self._adapter.delete_jobs(ids_json)
+
+    @Slot(str, str)
+    def set_jobs_group(self, ids_json: str, group: str):
+        """Bulk group from Home multi-select; ids_json is a JSON array."""
+        self._adapter.set_jobs_group(ids_json, group)
 
     @Slot()
     def cancel_job(self):

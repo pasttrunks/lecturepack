@@ -2,6 +2,15 @@
 
 All notable changes to Lecture Pack are documented here.
 
+## [Unreleased]
+
+### Changed
+- **`LECTUREPACK_DATA_DIR` environment override** for the data root. When set, it
+  overrides the default `~/LecturePackData` and any persisted `data_directory`
+  setting, so packaged-GUI acceptance and install-over-upgrade testing can run
+  against a disposable profile without mutating real jobs. Precedence: explicit
+  argument > `LECTUREPACK_DATA_DIR` > default root; blank/whitespace is ignored.
+
 ## [0.9.0-beta.3] — unreleased
 
 Reliability, queueing, scheduling, notifications, and polish. Beta.3 retains the

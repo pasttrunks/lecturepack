@@ -57,7 +57,24 @@ STAGES = [
 ]
 
 # Default directories
-DEFAULT_DATA_DIR = os.path.expanduser(os.path.join("~", "LecturePackData"))
+#
+# DATA_DIR_ENV_VAR lets a throwaway profile be used for packaged-GUI acceptance
+# and upgrade testing without touching the user's real ~/LecturePackData jobs
+# (startup reconciliation rewrites lifecycle state, so pointing a test run at the
+# real directory would mutate real jobs).  app/desktop/paths.py honours the same
+# variable name -- test_data_dir_override.py asserts the two agree.
+DATA_DIR_ENV_VAR = "LECTUREPACK_DATA_DIR"
+
+
+def resolve_default_data_dir():
+    """Data root: ``LECTUREPACK_DATA_DIR`` if set and non-empty, else the default."""
+    override = os.environ.get(DATA_DIR_ENV_VAR, "").strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    return os.path.expanduser(os.path.join("~", "LecturePackData"))
+
+
+DEFAULT_DATA_DIR = resolve_default_data_dir()
 
 # Adaptive Processing Presets (Conservative, Balanced, Detailed)
 #

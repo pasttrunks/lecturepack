@@ -109,7 +109,7 @@ def check_clean_state(dist_app: Path) -> list:
     forbidden_name_globs = ["*config.json", "*.job.json", "*.db",
                             "*.sqlite", "*.sqlite3"]
     forbidden_dir_names = {"jobs", "exports", "thumbs", "LecturePackData",
-                           "study_packs"}
+                           "study_packs", "downloads"}
 
     for path in dist_app.rglob("*"):
         rel = path.relative_to(dist_app)

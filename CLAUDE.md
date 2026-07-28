@@ -1,3 +1,12 @@
+## Session start: read the bug ledger
+
+Read **`BUG_LIST.md`** (repo root) during the session-start ritual, right after the
+newest `docs/HANDOFF_*.md`. It is the cumulative record of every bug found in this
+project — root causes, what was tried, what regressed. Check the relevant entry
+**before** touching a historically bug-prone area (notably `app/ui/` placeholder
+content and the global keyboard handler), and update the matching entry in the SAME
+session you fix or reopen a bug.
+
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph
 

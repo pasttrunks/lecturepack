@@ -95,11 +95,17 @@ class MainWindow(QMainWindow):
 
         # Serve job slide images through the central, security-checked asset
         # resolver (lpasset:// scheme) rather than raw file:// URLs.
+        # ffmpeg is resolved lazily (callable) because the adapter configures the
+        # binary paths after this point; poster extraction only needs it later.
+        self._assets = AssetResolver(data_dir(), ffmpeg_exe=self._ffmpeg_exe)
         self._asset_handler = install_asset_handler(
             self.view.page().profile(),
-            AssetResolver(data_dir()),
+            self._assets,
             logger=self.backend.log_asset_error,
         )
+        # Generate card posters as soon as a job appears (import, restore, etc.)
+        # rather than waiting for a card to request one and miss.
+        self.backend.jobs_changed.connect(self._prewarm_posters)
 
         s = self.view.settings()
         s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
@@ -112,6 +118,12 @@ class MainWindow(QMainWindow):
         # Windows integration: a tray icon carries local notifications; the
         # window HWND drives taskbar progress. Both degrade to no-ops if the
         # tray/HWND is unavailable. (beta.3)
+        #
+        # This block MUST stay inside __init__. It was previously orphaned
+        # below `_ffmpeg_exe`'s `return ""`, where it was unreachable — which
+        # silently killed every tray notification and all taskbar progress,
+        # because `self.tray` was never assigned and `attach_window` never ran.
+        # Caught by the beta.4 pre-release review; see BUG-11.
         self.tray = None
         try:
             from PySide6.QtWidgets import QSystemTrayIcon
@@ -128,6 +140,31 @@ class MainWindow(QMainWindow):
             self.backend._adapter.attach_window(self, self.tray)
         except Exception:
             pass
+
+    def _prewarm_posters(self, payload: str) -> None:
+        """Kick off poster generation for every job in a jobs_changed payload."""
+        try:
+            import json
+            jobs = json.loads(payload or "[]")
+            ids = [j.get("id") for j in jobs if isinstance(j, dict) and j.get("id")]
+        except (ValueError, AttributeError, TypeError):
+            return
+        try:
+            self._assets.prewarm_posters(ids)
+        except Exception:
+            pass          # posters are cosmetic; never break the job list
+
+    def _ffmpeg_exe(self) -> str:
+        """Current ffmpeg path, asked for lazily by the poster generator.
+
+        Read through the adapter's ConfigManager at call time rather than
+        captured at construction: binary detection runs after the window is
+        built, so an eagerly-read value would be empty on first launch.
+        """
+        try:
+            return self.backend._adapter.config.get("ffmpeg_exe", "") or ""
+        except Exception:
+            return ""
 
     def _on_notification_clicked(self):
         """A tray balloon was clicked: raise the window and route to the target

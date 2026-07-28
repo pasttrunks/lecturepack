@@ -16,6 +16,7 @@ from desktop import engine_adapter as ea  # noqa: E402
 from desktop.win_integration import WindowsIntegration  # noqa: E402
 from lecturepack.infrastructure.config_manager import ConfigManager  # noqa: E402
 from lecturepack.services.job_queue import JobQueue  # noqa: E402
+from PySide6.QtCore import QObject
 
 
 class _Signal:
@@ -25,11 +26,12 @@ class _Signal:
         self.emissions.append(payload)
 
 
-class _FakeBackend:
-    _SIGNALS = ("log_line", "jobs_changed", "job_deleted", "queue_changed",
+class _FakeBackend(QObject):
+    _SIGNALS = ("log_line", "jobs_changed", "storage_changed", "job_deleted", "queue_changed",
                 "pause_state", "notification_prefs", "diagnostics",
                 "job_completed", "post_completion", "status_changed")
     def __init__(self):
+        super().__init__()
         for n in self._SIGNALS:
             setattr(self, n, _Signal())
     def last(self, name):
