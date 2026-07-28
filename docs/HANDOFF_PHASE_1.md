@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-28  
 **Branch:** `codex/beta6-reliability-plan`  
-**Status:** Complete pending phase approval; Phase 2 repair implementation remains unstarted.
+**Status:** Execution complete, but independent verification found Phase 1 gaps; Phase 2 repair implementation remains unstarted.
 
 ## Completed work
 
@@ -22,10 +22,12 @@
 
 ## Remaining work and blockers
 
+- Phase 1 is not approved or complete. The advisory code review recorded four critical findings and one warning; the goal verifier returned `gaps_found` with 5/9 must-haves verified. Gap-closure planning is required before more implementation.
+- The blocking Phase 1 gaps are: create canonical runtime destination directories during clean packaging; perform bounded real model-plus-WAV CPU transcription during startup admission; convert executable launch failures into failed evidence and `SETUP_REQUIRED`; guard all adapter/updater bridge slots while admission is withheld; and stage optional VAD model paths at the ASCII-only native argv boundary.
 - Phase 2 must implement the non-dismissible setup UI, explicit consent, signed exact-version acquisition, manifest/hash validation, transactional writable runtime generation, rollback, revalidation, and actionable diagnostics. None of that repair behavior is implemented here.
 - AD-19 approval satisfies the Phase 1 contract prerequisite, but Phase 2 remains blocked until its ADR post-checkpoint task passes the approved known-good and altered-byte signature vectors in the implementation context.
 - Before release, obtain physical CPU-only, NVIDIA, and AMD/Intel Windows evidence across fresh/upgraded profiles and hostile paths; frozen verifier proof and signing workflow remain Phase 2+ work.
-- No retained temporary smoke-copy paths were found in this worktree. The four disposable cleanup domains remain temporary-only and must stay clean if materialized: copied Unicode/space runtime, fresh `LECTUREPACK_DATA_DIR`, private ASCII staging workspace, and `smoke-output` output prefix.
+- Four copied smoke-test directories remain under `%TEMP%` from pre-staging failure investigations. A scoped PowerShell cleanup was attempted after resolving the exact paths, but host policy rejected recursive deletion; they contain copies only, never original lecture videos or user data. The four disposable cleanup domains remain temporary-only: copied Unicode/space runtime, fresh `LECTUREPACK_DATA_DIR`, private ASCII staging workspace, and `smoke-output` output prefix.
 
 ## Scope and safety
 
