@@ -102,17 +102,17 @@ Every beta-6 requirement maps to exactly one approval-gated roadmap phase.
 | RUNT-06 | Phase 1 — Runtime Contract & Bootstrap | Complete |
 | RUNT-07 | Phase 1 — Runtime Contract & Bootstrap | Complete |
 | RUNT-08 | Phase 1 — Runtime Contract & Bootstrap | Complete |
-| RUNT-09 | Phase 1 — Runtime Contract & Bootstrap | Pending — ADR approval gates Phase 2 |
-| REPR-01 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
-| REPR-02 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
-| REPR-03 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
-| REPR-04 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
-| REPR-05 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
-| REPR-06 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
-| REPR-07 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
-| REPR-08 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
-| REPR-09 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
-| REPR-10 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
+| RUNT-09 | Phase 1 — Runtime Contract & Bootstrap | Complete — AD-19 approved |
+| REPR-01 | Phase 2 — Hard Setup & Signed Repair | Pending — ready to plan under AD-19 |
+| REPR-02 | Phase 2 — Hard Setup & Signed Repair | Pending — ready to plan under AD-19 |
+| REPR-03 | Phase 2 — Hard Setup & Signed Repair | Pending — ready to plan under AD-19 |
+| REPR-04 | Phase 2 — Hard Setup & Signed Repair | Pending — ready to plan under AD-19 |
+| REPR-05 | Phase 2 — Hard Setup & Signed Repair | Pending — ready to plan under AD-19 |
+| REPR-06 | Phase 2 — Hard Setup & Signed Repair | Pending — ready to plan under AD-19 |
+| REPR-07 | Phase 2 — Hard Setup & Signed Repair | Pending — ready to plan under AD-19 |
+| REPR-08 | Phase 2 — Hard Setup & Signed Repair | Pending — ready to plan under AD-19 |
+| REPR-09 | Phase 2 — Hard Setup & Signed Repair | Pending — ready to plan under AD-19 |
+| REPR-10 | Phase 2 — Hard Setup & Signed Repair | Pending — ready to plan under AD-19 |
 | HOME-01 | Phase 3 — Empty Launch & Guided Demo | Pending |
 | HOME-02 | Phase 3 — Empty Launch & Guided Demo | Pending |
 | HOME-03 | Phase 3 — Empty Launch & Guided Demo | Pending |
@@ -147,4 +147,4 @@ Every beta-6 requirement maps to exactly one approval-gated roadmap phase.
 
 ---
 *Requirements defined: 2026-07-27*
-*Last updated: 2026-07-27 after roadmap creation*
+*Last updated: 2026-07-28 after verified Phase 1 completion*

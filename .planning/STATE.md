@@ -21,10 +21,10 @@ progress:
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-27)
+See: `.planning/PROJECT.md` (updated 2026-07-28)
 
 **Core value:** Convert locally stored lecture videos into complete, reviewable, portable study packs entirely on-device.
-**Current focus:** Phase 1 — Runtime Contract & Bootstrap
+**Current focus:** Phase 2 — Hard Setup & Signed Repair
 
 ## Current Position
 
@@ -33,7 +33,7 @@ Plan: Not started
 Status: Ready to plan
 Last activity: 2026-07-28 — Phase 1 complete, transitioned to Phase 2
 
-Progress: [██████████] 100%
+Milestone progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
@@ -87,8 +87,8 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 1 verification is `gaps_found`; plans 01-05 through 01-07 must pass before Phase 1 can close or Phase 2 can begin.
-- Gap closure must prove clean onedir directory creation, fail-closed validator launch behavior, real model-plus-WAV CPU admission, Unicode VAD staging, and safe setup-required bridge slots.
+- Phase 2 must implement the AD-19 signed exact-version repair contract, transactional activation/rollback, and frozen verifier proof before Phase 3 can begin.
+- The real RUNT-02 repair-consumer integration test is intentionally deferred to Phase 2 and must prove repair consumes the Phase 1 canonical inventory.
 - Release proof still requires physical CPU-only, NVIDIA, and AMD/Intel Windows machines plus fresh/upgraded and hostile-path evidence.
 
 ## Deferred Items
@@ -101,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-28T15:27:29.866Z
-Stopped at: Completed 01-07-PLAN.md
+Last session: 2026-07-28T16:49:25.280Z
+Stopped at: Phase 1 verified complete; Phase 2 ready for discussion/planning
 Resume file: None

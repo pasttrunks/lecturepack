@@ -51,15 +51,15 @@ Beta 6 makes the portable app dependable on clean Windows machines: establish a 
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] `01-03-PLAN.md` — Active beta-5 desktop admission/status seam and the Phase 1 handoff.
-- [ ] `01-05-PLAN.md` — Clean onedir directory creation plus fail-closed validator launch and bootstrap evidence.
+- [x] `01-05-PLAN.md` — Clean onedir directory creation plus fail-closed validator launch and bootstrap evidence.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] `01-06-PLAN.md` — Real staged model-and-WAV CPU admission, corrupt-model rejection, and Unicode-safe VAD staging.
+- [x] `01-06-PLAN.md` — Real staged model-and-WAV CPU admission, corrupt-model rejection, and Unicode-safe VAD staging.
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] `01-07-PLAN.md` — Stable setup-required bridge guards and an honest Phase 1 handoff.
+- [x] `01-07-PLAN.md` — Stable setup-required bridge guards and an honest Phase 1 handoff.
 
 Cross-cutting constraints: preserve unrelated comments, docstrings, user data, original lecture videos, frontend/web assets, animations, shadows, transitions, motion, theme, and visual behavior; do not implement Phase 2 repair or add an unapproved verifier dependency; run the targeted tests named by each task, the full suite under a validated packaged fixture at each gap-plan gate, and the real packaged-runtime smoke where specified.
 
@@ -175,7 +175,7 @@ Canonical references: `.planning/MILESTONE-CONTEXT.md`, `.planning/research/SUMM
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Runtime Contract & Bootstrap | 7/7 | Complete    | 2026-07-28 |
-| 2. Hard Setup & Signed Repair | 0/TBD | Blocked — Phase 1 ADR approval | - |
+| 2. Hard Setup & Signed Repair | 0/TBD | Ready to plan — Phase 1 and AD-19 approved | - |
 | 3. Empty Launch & Guided Demo | 0/TBD | Not started | - |
 | 4. Visual Artifact Reliability | 0/TBD | Not started | - |
 | 5. Packaged & Physical Release Gate | 0/TBD | Not started | - |

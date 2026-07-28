@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-28  
 **Branch:** `codex/beta6-reliability-plan`  
-**Status:** Automated gap-closure execution evidence is passing. Phase 1 remains in independent code-review and goal-verification status; it is not complete, and Phase 2 remains unstarted.
+**Status:** Phase 1 is verified complete. All 7 plans are complete, final code review is clean, goal verification passed 9/9, security closed 20/20 registered threats, and roadmap/state have advanced to Phase 2 planning. Phase 2 implementation remains unstarted and requires explicit user approval.
 
 ## Gap repairs completed in Plans 01-05 through 01-07
 
@@ -23,7 +23,15 @@ It is a run-scoped copy of `C:\Users\marsh\Documents\LecturePack\app\dist\Lectur
 - `pytest tests/test_adapter_startup.py tests/test_runtime_diagnostics.py -q` — **10 passed in 0.93s**.
 - `pytest tests/test_beta3_packaging.py tests/test_runtime_bootstrap.py tests/test_runtime_packaged_smoke.py tests/test_whisper_path_staging.py tests/test_adapter_startup.py tests/test_runtime_diagnostics.py -q` — **38 passed in 16.70s**.
 - Required fixture validation (`check_clean_state()`), then `pytest tests/test_runtime_packaged_smoke.py -q` — **3 passed in 15.67s**.
-- `pytest -q` under the same fixture — **737 passed in 183.49s (0:03:03)**.
+- `pytest tests/test_runtime_bootstrap.py -q` after the Nyquist audit — **18 passed in 1.25s**.
+- Final `pytest -q` under the same fixture — **743 passed in 187.42s (0:03:07)**.
+
+Final independent gates:
+
+- `01-REVIEW.md` — **clean**, 0 critical, 0 warning, 0 info findings after three fail-open/smoke-artifact findings were repaired and re-reviewed.
+- `01-VERIFICATION.md` — **passed**, **9/9 must-haves verified**, RUNT-01 through RUNT-09 satisfied.
+- `01-SECURITY.md` — **verified**, **20/20 threats closed**, `threats_open: 0` at ASVS L1.
+- `01-VALIDATION.md` — **validated (partial)**, **8/9 requirements automated**. The two identified RUNT-04 branches were added and pass; the real RUNT-02 repair-consumer integration is explicitly deferred to Phase 2 because Phase 1 intentionally has no repair consumer.
 
 The table-driven bridge gate covers every current adapter/updater dereference: settings; model/engine controls; import, job, queue, review, study, and export actions; all update actions; and Qt `QMetaObject.invokeMethod` dispatch. Repeated calls retain `SETUP_REQUIRED`, do not construct collaborators, and do not write settings, navigate, process jobs, probe optional engines, start updater work, or emit ready/fallback semantics.
 
@@ -37,12 +45,12 @@ It exited **0** in **4078 ms**, with reason `success`; stdout was `(electronic b
 
 Fresh-tree assembly, corrupt-model rejection, blocked launch evidence, VAD staging, and bridge no-side-effect behavior are covered by the passing regression suites above. The earlier 01-05 and 01-06 summaries retain their exact respective historical test outputs and evidence.
 
-## Remaining blockers and out-of-scope work
+## Next-phase and release work
 
-- Phase 1 must receive fresh independent code review and goal verification before it can be marked complete. The prior `01-REVIEW.md` / `01-VERIFICATION.md` findings describe the gaps that Plans 01-05 through 01-07 repaired; they have not themselves been reissued by an independent verifier in this execution.
+- Phase 1 has no remaining implementation or verification blocker. The user must explicitly approve Phase 2 before implementation begins.
 - Required pre-release evidence remains unrun: physical CPU-only, NVIDIA, and AMD/Intel Windows machines; fresh and upgraded profiles; hostile path coverage; frozen verifier/signing workflow proof.
 - Phase 2 remains out of scope and unstarted: non-dismissible setup UI, consent, signed exact-version acquisition, manifest/hash validation, transactional writable runtime generation, rollback, revalidation, and actionable repair diagnostics.
-- AD-19 remains approved and unchanged. Its future compiled trust-root and frozen proof requirements are not claimed as passed here.
+- AD-19 remains approved and unchanged. Its compiled trust-root, real repair-consumer integration, production verifier, and frozen proof requirements are Phase 2 gates and are not claimed as passed here.
 
 ## Scope and safety
 

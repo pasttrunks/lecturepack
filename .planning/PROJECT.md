@@ -10,7 +10,7 @@ Convert lecture videos into complete, reviewable, portable study packs — entir
 
 ## Scope
 
-- **Current state:** `v0.9.0-beta.5` at commit `459faf5` is the authoritative portable beta. Its core runtime payload is bundled, but a fresh profile does not initialize or verify Whisper before processing validation.
+- **Current state:** `v0.9.0-beta.5` at commit `459faf5` remains the authoritative released portable beta. On `codex/beta6-reliability-plan`, Phase 1 is verified complete: a clean packaged CPU runtime is canonically inventoried, admitted through a real staged model-and-WAV smoke, persisted only from complete evidence, and enforced before normal desktop behavior. This branch is not yet a beta-6 release.
 - **Immediate goal:** Ship `v0.9.0-beta.6` as a dependable clean-machine onboarding release with automatic bundled-runtime initialization, verified repair, empty launch ownership, concise guided onboarding, visual-artifact fixes, and a physical-machine release gate.
 - **Architecture:** Strict 4-layer model (UI → Controller → Service → Infrastructure), per-job staged pipeline, plain-file JSON persistence, QProcess for external tools, QThread for internal compute.
 
@@ -65,12 +65,11 @@ Convert lecture videos into complete, reviewable, portable study packs — entir
 | AD-11 | Separate user study data from source-derived artifacts | v1.2 study workspace, data provenance | LOCKED |
 | AD-12 | Provider-neutral transcription above local compute engines | v1.2 transcription architecture | LOCKED |
 | AD-13 | Opt-in Groq audio transcription with Credential Manager | v1.2 online transcription, credential management | LOCKED |
+| AD-18 | Preserve Unicode paths end-to-end while staging whisper.cpp native filesystem arguments under a private ASCII boundary | Beta-6 native process compatibility | LOCKED |
+| AD-19 | Ed25519 signed-manifest and release-authority contract; production verifier and frozen proof are Phase 2 gates | Beta-6 signed repair trust boundary | APPROVED |
 
 ## Tech Debt (Not Locked — Identified for Future Remediation)
 
-- Fresh config persists blank FFmpeg, ffprobe, Whisper executable, and model paths; only FFmpeg initializes during normal startup.
-- Whisper discovery is diagnostics-only, while desktop processing rejects the empty paths before engine discovery can help.
-- Portable packaging checks required payload presence and size but does not execute binaries, prove DLL/model loading, or initialize a disposable profile.
 - Startup automatically activates the latest completed lecture rather than showing an empty Home screen.
 - No signed, exact-version, transactional repair path exists for the bundled CPU runtime.
 - Theme initialization and repeated entrance animation can create flicker/repaint artifacts; long local-model names can overflow.
@@ -125,4 +124,4 @@ This document evolves at phase transitions and milestone boundaries.
 3. Record release evidence and unresolved gaps.
 
 ---
-*Last updated: 2026-07-27 after beta-6 milestone discussion*
+*Last updated: 2026-07-28 after verified Phase 1 completion*
