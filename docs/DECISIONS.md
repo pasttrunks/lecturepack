@@ -519,3 +519,62 @@ Expose a single simple sensitivity control ("Conservative", "Balanced", "Detaile
 **Rationale:** QProcess provides non-blocking external process management integrated with Qt's event loop, with built-in `readyReadStandardOutput`/`readyReadStandardError` signals for real-time log capture. QThread workers avoid IPC overhead for internal processing while keeping the UI thread free.
 
 **Sources:** doc.qt.io/qtforpython/PySide6/QtCore/QProcess.html, PySide6 threading guides
+
+---
+
+## AD-19: Signed Repair Manifest Verifier and Release Authority (Phase 1)
+
+**Date:** 2026-07-28  
+**Status:** Pending named-human approval  
+**Decision owner:** Named human approver (pending)
+
+**Context:** Phase 2 may repair a required runtime only after it can authenticate
+an exact, versioned repair release. D-10 requires a documented verifier,
+canonical manifest bytes, public-key distribution, asset naming, key lifecycle,
+PyInstaller proof, release ownership, and retained evidence. D-11 prohibits
+selecting, importing, emulating, or installing a verifier before named-human
+approval. The Phase 1 ASCII-staging boundary in AD-18 remains independent of
+this release-authentication decision.
+
+**Pending approval record:** Each item below remains deliberately unresolved.
+The values in parentheses are technical recommendations only, not selections.
+
+| Required field | Pending approval value / proposed technical default |
+|---|---|
+| verifier library and exact version | PENDING (propose `cryptography==49.0.0`; no dependency is added in Phase 1) |
+| algorithm | PENDING (propose Ed25519 detached signatures over canonical manifest bytes) |
+| signature encoding | PENDING (propose standard Base64 of the 64-byte detached signature) |
+| public-key encoding | PENDING (propose standard Base64 of the 32-byte Ed25519 raw public key) |
+| canonical manifest schema and bytes | PENDING (propose schema version 1 JSON: `schema_version`, `app_version`, `assets`; recursively sorted object keys; compact separators `,` and `:`; UTF-8 without BOM; no trailing newline; sign exactly those emitted bytes) |
+| exact app-version release asset naming | PENDING (propose `LecturePack-{app_version}-runtime-manifest.json`, `LecturePack-{app_version}-runtime-manifest.sig`, and `LecturePack-{app_version}-runtime-{asset_name}`) |
+| embedded public-key format and location | PENDING (propose Base64 raw key in a code-owned `lecturepack/resources/release_public_key.txt`, collected into the PyInstaller onedir distribution) |
+| signing owner | PENDING named person or role |
+| release owner | PENDING named person or role |
+| approver | PENDING named person |
+| key custodian | PENDING named person or role |
+| backup authority and storage | PENDING named authority and approved storage location |
+| rotation cadence and trigger | PENDING (propose annual rotation and immediate rotation after suspected compromise, custodian change, or signing-system loss) |
+| revocation authority and mechanism | PENDING named authority and approved signed revocation / key-rollover mechanism |
+| incident communication authority and path | PENDING named authority and approved user/release communication path |
+| PyInstaller collection and frozen onedir proof | PENDING (propose explicit data collection plus a clean-machine frozen-onedir test that reads the embedded key and rejects a changed manifest byte) |
+| retained evidence | PENDING (propose immutable release tag, manifest bytes, signature, signer identity, approval record, asset SHA-256 list, PyInstaller build log, and clean-machine proof) |
+
+**Decision:** No verifier is selected and no verifier dependency is authorized by
+this pending ADR. Phase 2 repair/download/signature implementation remains
+closed until a named human supplies exact approved values and accountable
+owners for every field above, and the post-approval concrete-vector contract
+passes. The pending-state test intentionally verifies this closed gate.
+
+**Alternatives considered:**
+- Windows CNG/native bindings: pending a separate approved, supportable Ed25519
+  verifier contract; not selected.
+- An external PowerShell or `certutil` verification process: rejected as a
+  proposed default because an in-process deterministic verifier avoids
+  shell/availability variability; no alternative is selected here.
+- SHA-256 and transport TLS alone: rejected because they do not establish a
+  release-signing authority or authenticate a changed manifest.
+
+**Rationale:** Separating technical defaults from named operational authority
+keeps the release trust boundary reviewable without pretending that an
+unapproved dependency or personal accountability already exists. It also
+preserves D-11's fail-closed Phase 2 gate.
