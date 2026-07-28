@@ -7,6 +7,7 @@ a visible window or the packaged build."""
 
 import os
 import sys
+import json
 
 import pytest
 
@@ -142,3 +143,90 @@ def test_optional_fallback_is_post_health_and_distinct_from_ready(qapp, monkeypa
     assert [__import__("json").loads(item) for item in notices] == [
         {"type": "runtime_fallback", "fallback": fallback}
     ]
+
+
+_GUARDED_BRIDGE_CALLS = (
+    ("ui_ready", ()), ("set_setting", ("theme", "light")), ("browse_model", ()),
+    ("test_endpoint", ()), ("validate_vulkan", ()), ("validate_cuda", ()),
+    ("cuda_pack_status", ()), ("install_cuda_pack", ()), ("cancel_cuda_pack", ()),
+    ("set_groq_key", ("key",)), ("remove_groq_key", ()), ("test_groq_key", ()),
+    ("list_ollama_models", ()), ("smart_study_status", ()),
+    ("set_study_preset", ("standard",)), ("install_smart_study", ("standard",)),
+    ("cancel_smart_study", ()), ("launch_ollama_installer", ()), ("save_project", ()),
+    ("browse_video", ()), ("import_video", ("C:/safe/video.mp4",)), ("notify_drag_over", ()),
+    ("media_link_support", ()), ("probe_media_url", ("https://example.invalid",)),
+    ("import_media_url", ("https://example.invalid", "lecture")), ("cancel_media_url", ()),
+    ("start_processing", ("standard",)), ("open_job", ("job",)), ("delete_job", ("job",)),
+    ("set_job_group", ("job", "group")), ("delete_jobs", ("[]",)),
+    ("set_jobs_group", ("[]", "group")), ("cancel_job", ()), ("pause_job", ()),
+    ("resume_job", ("job",)), ("restart_job", ("job",)), ("retry_stage", ("job", "inspect")),
+    ("enqueue_job", ("job",)), ("reorder_queue", ("job", 0)), ("run_now", ("job",)),
+    ("remove_from_queue", ("job",)), ("schedule_job", ("job", "tomorrow", "UTC", "skip")),
+    ("unschedule_job", ("job",)), ("get_notification_prefs", ()),
+    ("set_notification_prefs", ("{}",)), ("test_notification", ()),
+    ("run_diagnostics", ("job",)), ("open_job_folder", ("job",)), ("get_post_completion", ()),
+    ("set_slide_state", (0, "accepted")), ("save_corrections", ("{}",)),
+    ("repair_selection", ()), ("ask_ai", ("prompt",)), ("generate_quiz", ("{}",)),
+    ("cancel_quiz", ()), ("save_quiz_session", ("{}",)), ("generate_flashcards", ("{}",)),
+    ("cancel_flashcards", ()), ("save_flashcard_session", ("{}",)), ("save_notes", ("notes",)),
+    ("export_all", ("[]",)), ("export_one", ("pdf",)), ("open_export_folder", ()),
+    ("check_updates", ()), ("get_updater_state", ()), ("start_update_download", ()),
+    ("cancel_update_download", ()), ("install_downloaded_update", ()),
+    ("open_release_page", ()), ("set_update_channel", ("beta",)), ("set_auto_check", ("true",)),
+    ("skip_update_version", ()), ("clear_skipped_version", ()), ("install_update", ()),
+    ("whatsnew_seen", ()),
+)
+
+
+def test_setup_required_guards_every_adapter_and_updater_bridge_call(qapp, monkeypatch):
+    from desktop import bridge
+
+    monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
+    monkeypatch.setattr(
+        bridge, "RuntimeBootstrapService",
+        lambda config: _BootstrapService(_BootstrapResult("SETUP_REQUIRED"), []),
+    )
+    monkeypatch.setattr(bridge, "make_adapter", lambda *args, **kwargs: pytest.fail("adapter constructed"))
+    monkeypatch.setattr(bridge, "Updater", lambda *args, **kwargs: pytest.fail("updater constructed"))
+    backend = bridge.Backend(None)
+    diagnostics = []
+    backend.diagnostics.connect(diagnostics.append)
+
+    for operation, args in _GUARDED_BRIDGE_CALLS:
+        result = getattr(backend, operation)(*args)
+        payload = json.loads(result) if operation == "get_updater_state" else json.loads(diagnostics.pop())
+        assert payload == {
+            "type": "setup_required",
+            "operation": operation,
+            "runtime_health": json.loads(backend.get_runtime_health_snapshot()),
+        }
+        assert backend._adapter is None
+        assert backend._updater is None
+
+
+def test_setup_required_bootstrap_reuses_canonical_admission_snapshot(qapp, monkeypatch):
+    from desktop import bridge
+
+    snapshot = {"inventory_identity": "canonical", "admission_state": "SETUP_REQUIRED", "components": {}}
+
+    class _Controller:
+        def runtime_health_snapshot(self):
+            return snapshot
+
+    monkeypatch.setattr(bridge, "ConfigManager", lambda: object())
+    monkeypatch.setattr(
+        bridge, "RuntimeBootstrapService",
+        lambda config: _BootstrapService(_BootstrapResult("SETUP_REQUIRED"), []),
+    )
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsService", lambda config, result: object())
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsController", lambda service: _Controller())
+
+    backend = bridge.Backend(None)
+
+    assert json.loads(backend.get_bootstrap()) == {
+        "theme": "dark",
+        "version": bridge.version.__version__,
+        "runtime_health_state": "SETUP_REQUIRED",
+        "setup_required": snapshot,
+    }
+    assert json.loads(backend.get_runtime_health_snapshot()) == snapshot
