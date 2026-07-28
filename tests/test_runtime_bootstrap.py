@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 from lecturepack.infrastructure.runtime_validation import RuntimeValidator
 
 
@@ -147,6 +149,51 @@ def test_optional_resolution_is_not_probed_when_cpu_admission_fails(tmp_path):
 
     assert result.state == "SETUP_REQUIRED"
     assert probed == []
+
+
+def test_runner_captures_os_launch_failure_as_failed_evidence(monkeypatch):
+    import lecturepack.infrastructure.runtime_validation as runtime_validation
+
+    def blocked(*args, **kwargs):
+        raise OSError("blocked executable")
+
+    monkeypatch.setattr(runtime_validation.subprocess, "Popen", blocked)
+    evidence = RuntimeValidator(timeout_ms=1_000).run("blocked.exe", ["--help"])
+
+    assert evidence.argv == ["blocked.exe", "--help"]
+    assert evidence.exit_code is None
+    assert evidence.reason == "launch failed"
+    assert evidence.timed_out is False
+    assert "blocked executable" in evidence.stderr
+    assert evidence.duration_ms >= 0
+
+
+def test_unexpected_full_validator_failure_stays_setup_required_without_persistence(tmp_path):
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    cfg = ConfigManager(str(tmp_path))
+    executable = tmp_path / "ffmpeg.exe"
+    executable.write_bytes(b"x")
+    optional_calls = []
+    service = RuntimeBootstrapService(
+        cfg, runtime_root=tmp_path,
+        inventory_resolver=lambda root: {"bin/ffmpeg.exe": executable},
+        identity_provider=lambda root: "payload-v1",
+        full_validator=lambda components: (_ for _ in ()).throw(RuntimeError("validator exploded")),
+        optional_resolver=lambda requested: optional_calls.append(requested) or ("whispercpp-cpu", "unavailable"),
+    )
+
+    for _ in range(2):
+        result = service.assess()
+        assert result.state == "SETUP_REQUIRED"
+        assert result.validation_mode == "full"
+        assert result.components["bin/ffmpeg.exe"]["healthy"] is False
+        assert "validator exploded" in result.components["bin/ffmpeg.exe"]["reason"]
+
+    assert cfg.get("runtime_health") is None
+    assert cfg.get("migration_versions", {}).get("runtime_contract") is None
+    assert optional_calls == []
 
 
 def test_runner_captures_success_evidence_with_argument_array(tmp_path):
