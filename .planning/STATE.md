@@ -4,17 +4,17 @@ milestone: v0.9.0-beta.6
 milestone_name: Clean-Machine Reliability and Onboarding
 current_phase: 1
 current_phase_name: Runtime Contract & Bootstrap
-status: executing
-stopped_at: Completed 01-04-PLAN.md
-last_updated: "2026-07-28T12:16:07.756Z"
+status: verifying
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-07-28T12:32:23.600Z"
 last_activity: 2026-07-27
 last_activity_desc: Phase 1 execution started
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
-  percent: 0
+  completed_plans: 4
+  percent: 20
 ---
 
 # Project State
@@ -30,10 +30,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-27)
 
 Phase: 1 (Runtime Contract & Bootstrap) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-27 — Phase 1 execution started
 
-Progress: [████████░░] 75%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [████████░░] 75%
 | Phase 01-runtime-contract-bootstrap P01 | 49min | 2 tasks | 12 files |
 | Phase 01-runtime-contract-bootstrap P02 | 17min | 2 tasks | 4 files |
 | Phase 01-runtime-contract-bootstrap P04 | 17m | 3 tasks | 5 files |
+| Phase 01-runtime-contract-bootstrap P03 | 40m | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,8 @@ Progress: [████████░░] 75%
 - [Phase ?]: Optional engine resolution happens only after healthy canonical CPU admission, preserving healthy choices and falling back visibly to CPU.
 - [Phase ?]: AD-19 approves cryptography==49.0.0 and pure Ed25519 detached signatures over exact canonical manifest bytes.
 - [Phase ?]: The release trust root will be compiled into a future application release; Phase 2 implementation remains deferred.
+- [Phase ?]: Backend owns runtime admission and constructs no adapter before HEALTHY.
+- [Phase ?]: Runtime diagnostics transport serializes one controller/service snapshot and never rebuilds required inventory.
 
 ### Pending Todos
 
@@ -90,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-28T12:16:07.744Z
-Stopped at: Completed 01-04-PLAN.md
+Last session: 2026-07-28T12:32:23.589Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
