@@ -16,7 +16,7 @@
 - [x] **RUNT-06**: Upgrade to beta 6 selects bundled `ggml-base.en.bin` as the default model while leaving other installed models available for later manual selection.
 - [x] **RUNT-07**: A healthy saved optional CUDA/custom engine remains selected while bundled CPU stays validated as the recovery path.
 - [x] **RUNT-08**: A missing or broken optional engine falls back visibly to bundled CPU without blocking entry when the required CPU runtime is healthy.
-- [ ] **RUNT-09**: Phase 1 records an approved ADR for the signed-manifest verifier, algorithm/encoding, key custody and rotation, canonical manifest bytes/schema, exact-version asset contract, and PyInstaller validation; signed repair implementation cannot start until it is approved.
+- [x] **RUNT-09**: Phase 1 records an approved ADR for the signed-manifest verifier, algorithm/encoding, key custody and rotation, canonical manifest bytes/schema, exact-version asset contract, and PyInstaller validation; signed repair implementation cannot start until it is approved.
 
 ### Setup Gate and Secure Repair
 

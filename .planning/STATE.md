@@ -5,15 +5,15 @@ milestone_name: Clean-Machine Reliability and Onboarding
 current_phase: 1
 current_phase_name: Runtime Contract & Bootstrap
 status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-07-28T04:35:10.446Z"
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-07-28T12:16:07.756Z"
 last_activity: 2026-07-27
 last_activity_desc: Phase 1 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-27)
 ## Current Position
 
 Phase: 1 (Runtime Contract & Bootstrap) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-27 — Phase 1 execution started
 
-Progress: [█████░░░░░] 50%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [█████░░░░░] 50%
 |------|----------|-------|-------|
 | Phase 01-runtime-contract-bootstrap P01 | 49min | 2 tasks | 12 files |
 | Phase 01-runtime-contract-bootstrap P02 | 17min | 2 tasks | 4 files |
+| Phase 01-runtime-contract-bootstrap P04 | 17m | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ Progress: [█████░░░░░] 50%
 - [Phase ?]: AD-18: keep Unicode paths end-to-end while staging only whisper.cpp v1.9.1 native CLI arguments under private ASCII paths.
 - [Phase ?]: Runtime admission rejects incomplete full-validation evidence; only complete trusted component evidence is persisted.
 - [Phase ?]: Optional engine resolution happens only after healthy canonical CPU admission, preserving healthy choices and falling back visibly to CPU.
+- [Phase ?]: AD-19 approves cryptography==49.0.0 and pure Ed25519 detached signatures over exact canonical manifest bytes.
+- [Phase ?]: The release trust root will be compiled into a future application release; Phase 2 implementation remains deferred.
 
 ### Pending Todos
 
@@ -87,6 +90,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-28T04:35:10.434Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-07-28T12:16:07.744Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None
