@@ -90,3 +90,33 @@ def test_missing_cpu_backend_dlls_flagged(tmp_path):
     (app / "bin" / "ggml-cpu-haswell.dll").unlink()
     v = build.check_clean_state(app)
     assert any("ggml-cpu" in x for x in v)
+
+
+def test_bundle_engine_creates_runtime_parents_in_a_fresh_onedir(monkeypatch, tmp_path):
+    """Canonical payload assembly must not rely on PyInstaller-created folders."""
+    repo = tmp_path / "repo"
+    app_dir = repo / "app"
+    package_dir = app_dir / "packaging"
+    release_dir = repo / "bin" / "Release"
+    for directory in (package_dir / "assets", release_dir, repo / "models"):
+        directory.mkdir(parents=True)
+    (app_dir / "dist" / "LecturePack").mkdir(parents=True)
+    (app_dir / "dist" / "LecturePack" / "LecturePack.exe").write_bytes(b"app")
+    for rel in ("bin/ffmpeg.exe", "bin/ffprobe.exe"):
+        source = repo / rel
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(b"tool")
+    for name in ("whisper-cli.exe", "whisper.dll", "ggml.dll", "ggml-base.dll", "ggml-cpu-test.dll"):
+        (release_dir / name).write_bytes(b"native")
+    (repo / "models" / "ggml-base.en.bin").write_bytes(b"model")
+    (package_dir / "assets" / "runtime-smoke.wav").write_bytes(b"wav")
+    monkeypatch.setattr(build, "APP_DIR", app_dir)
+    monkeypatch.setattr(build, "PKG_DIR", package_dir)
+
+    build.bundle_engine()
+
+    assembled = app_dir / "dist" / "LecturePack"
+    assert build.check_clean_state(assembled) == []
+    assert [path.relative_to(assembled).as_posix() for path in assembled.rglob("*") if path.is_file() and path.name != "LecturePack.exe"] == [
+        "bin/ffmpeg.exe", "bin/ffprobe.exe", "bin/ggml-base.dll", "bin/ggml-cpu-test.dll", "bin/ggml.dll", "bin/whisper-cli.exe", "bin/whisper.dll", "models/ggml-base.en.bin", "smoke/runtime-smoke.wav",
+    ]

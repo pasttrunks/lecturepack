@@ -11,7 +11,7 @@ import pytest
 
 from app.packaging import build
 
-SMOKE_ASSET = Path(__file__).parents[1] / "app" / "packaging" / "assets" / "runtime-smoke.wav"
+SMOKE_RELATIVE_PATH = Path("smoke") / "runtime-smoke.wav"
 
 
 def test_package_membership_uses_canonical_inventory():
@@ -35,11 +35,14 @@ def test_real_packaged_smoke_uses_unicode_space_path_and_fresh_profile(monkeypat
     root = Path(fixture)
     if not root.is_dir():
         pytest.fail(f"clean onedir fixture is required but missing: {root}")
+    fixture_smoke = root / SMOKE_RELATIVE_PATH
+    if not fixture_smoke.is_file() or fixture_smoke.stat().st_size == 0:
+        pytest.fail("clean onedir fixture must include a nonempty smoke/runtime-smoke.wav")
     with tempfile.TemporaryDirectory(prefix="LecturePack smoke ") as workspace:
         copied = Path(workspace) / "runtime 漢 copy"
         shutil.copytree(root, copied)
-        (copied / "smoke").mkdir()
-        shutil.copy2(SMOKE_ASSET, copied / "smoke" / "runtime-smoke.wav")
+        copied_smoke = copied / SMOKE_RELATIVE_PATH
+        assert copied_smoke.is_file() and copied_smoke.stat().st_size == fixture_smoke.stat().st_size
         profile = Path(workspace) / "fresh profile"
         monkeypatch.setenv("LECTUREPACK_DATA_DIR", str(profile))
         evidence = build.run_disposable_runtime_smoke(copied, timeout_ms=30_000)
