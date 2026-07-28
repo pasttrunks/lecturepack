@@ -90,22 +90,60 @@
 
 ## Traceability
 
-Roadmap creation will map every beta-6 requirement to exactly one approval-gated phase.
+Every beta-6 requirement maps to exactly one approval-gated roadmap phase.
 
-| Requirement group | Phase | Status |
-|-------------------|-------|--------|
-| RUNT-01..09 | Pending roadmap | Pending |
-| REPR-01..10 | Pending roadmap | Pending |
-| HOME-01..03 | Pending roadmap | Pending |
-| DEMO-01..08 | Pending roadmap | Pending |
-| VIS-01..05 | Pending roadmap | Pending |
-| REL-01..09 | Pending roadmap | Pending |
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| RUNT-01 | Phase 1 — Runtime Contract & Bootstrap | Pending |
+| RUNT-02 | Phase 1 — Runtime Contract & Bootstrap | Pending |
+| RUNT-03 | Phase 1 — Runtime Contract & Bootstrap | Pending |
+| RUNT-04 | Phase 1 — Runtime Contract & Bootstrap | Pending |
+| RUNT-05 | Phase 1 — Runtime Contract & Bootstrap | Pending |
+| RUNT-06 | Phase 1 — Runtime Contract & Bootstrap | Pending |
+| RUNT-07 | Phase 1 — Runtime Contract & Bootstrap | Pending |
+| RUNT-08 | Phase 1 — Runtime Contract & Bootstrap | Pending |
+| RUNT-09 | Phase 1 — Runtime Contract & Bootstrap | Pending — ADR approval gates Phase 2 |
+| REPR-01 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
+| REPR-02 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
+| REPR-03 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
+| REPR-04 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
+| REPR-05 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
+| REPR-06 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
+| REPR-07 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
+| REPR-08 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
+| REPR-09 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
+| REPR-10 | Phase 2 — Hard Setup & Signed Repair | Pending — blocked by Phase 1 ADR |
+| HOME-01 | Phase 3 — Empty Launch & Guided Demo | Pending |
+| HOME-02 | Phase 3 — Empty Launch & Guided Demo | Pending |
+| HOME-03 | Phase 3 — Empty Launch & Guided Demo | Pending |
+| DEMO-01 | Phase 3 — Empty Launch & Guided Demo | Pending |
+| DEMO-02 | Phase 3 — Empty Launch & Guided Demo | Pending |
+| DEMO-03 | Phase 3 — Empty Launch & Guided Demo | Pending |
+| DEMO-04 | Phase 3 — Empty Launch & Guided Demo | Pending |
+| DEMO-05 | Phase 3 — Empty Launch & Guided Demo | Pending |
+| DEMO-06 | Phase 3 — Empty Launch & Guided Demo | Pending |
+| DEMO-07 | Phase 3 — Empty Launch & Guided Demo | Pending |
+| DEMO-08 | Phase 3 — Empty Launch & Guided Demo | Pending |
+| VIS-01 | Phase 4 — Visual Artifact Reliability | Pending |
+| VIS-02 | Phase 4 — Visual Artifact Reliability | Pending |
+| VIS-03 | Phase 4 — Visual Artifact Reliability | Pending |
+| VIS-04 | Phase 4 — Visual Artifact Reliability | Pending |
+| VIS-05 | Phase 4 — Visual Artifact Reliability | Pending |
+| REL-01 | Phase 5 — Packaged & Physical Release Gate | Pending |
+| REL-02 | Phase 5 — Packaged & Physical Release Gate | Pending |
+| REL-03 | Phase 5 — Packaged & Physical Release Gate | Pending |
+| REL-04 | Phase 5 — Packaged & Physical Release Gate | Pending |
+| REL-05 | Phase 5 — Packaged & Physical Release Gate | Pending |
+| REL-06 | Phase 5 — Packaged & Physical Release Gate | Pending |
+| REL-07 | Phase 5 — Packaged & Physical Release Gate | Pending |
+| REL-08 | Phase 5 — Packaged & Physical Release Gate | Pending |
+| REL-09 | Phase 5 — Packaged & Physical Release Gate | Pending |
 
 **Coverage:**
 - Beta-6 requirements: 44 total
-- Mapped to phases: 0 pending roadmap approval
-- Unmapped: 44 pending roadmap approval
+- Mapped to phases: 44
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-27*
-*Last updated: 2026-07-27 after milestone discussion and research*
+*Last updated: 2026-07-27 after roadmap creation*

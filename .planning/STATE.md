@@ -1,12 +1,10 @@
 ---
-gsd_state_version: 1.0
+gsd_state_version: '1.0'
 milestone: v0.9.0-beta.6
 milestone_name: Clean-Machine Reliability and Onboarding
 status: planning
-last_updated: "2026-07-28T02:39:55.315Z"
-last_activity: 2026-07-27
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,63 +15,41 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-17)
+See: `.planning/PROJECT.md` (updated 2026-07-27)
 
-**Core value:** Convert lecture videos into complete, reviewable, portable study packs — entirely on-device.
-**Current focus:** Phase 1 — Packaging & Release
+**Core value:** Convert locally stored lecture videos into complete, reviewable, portable study packs entirely on-device.
+**Current focus:** Phase 1 — Runtime Contract & Bootstrap
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-07-27 — Milestone v0.9.0-beta.6 started
+Phase: 1 of 5 (Runtime Contract & Bootstrap)
+Plan: Not yet planned
+Status: Ready to plan after roadmap approval
+Last activity: 2026-07-27 — Beta-6 roadmap created; 44 requirements mapped once.
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
-
-- Total plans completed: 1
-- Average duration: 2 min
-- Total execution time: 2 min
+- Total plans completed: 0
+- Average duration: —
+- Total execution time: —
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 | 1 | 2 min | 2 min |
-
-*Updated after each plan completion*
-**Per-Plan Metrics:**
-
-| Plan | Duration | Tasks | Files |
-|------|----------|-------|-------|
-| Phase 01 P01 | 2 min | 2 tasks | 6 files |
-| Phase 01 P02 | 30 min | 3 tasks | 15 files |
-| Phase 01 P03 | 25min | 2 tasks | 5 files |
+| 1–5 | 0 | — | — |
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table.
-13 ADR decisions (AD-1 through AD-13), all LOCKED. See PROJECT.md.
-
-- [Phase 01]: AD-14: lecturepack.__version__ is the sole executable runtime/build version authority; human-facing build labels remain synchronized but non-authoritative.
-- [Phase 01]: AD-15: strict adjacent-layer architecture remains the target; Phase 1 blocks new exact violation identities relative to 25e9dd1, and Phase 2 owns closure of the 47-item baseline debt.
-
-### Ingested Intel
-
-| File | Contents |
-|------|----------|
-| intel/SYNTHESIS.md | 13 locked decisions, 10 requirements, 13 constraints, 17 context topics |
-| intel/decisions.md | AD-1 through AD-13 with source, status, scope |
-| intel/requirements.md | 10 functional requirements from PRODUCT_SPEC/ARCHITECTURE/IMPLEMENTATION_PLAN/TEST_PLAN |
-| intel/constraints.md | 13 technical constraints (protocol, schema, nfr) |
-| intel/context.md | 17 topic areas (history, incidents, v1.2 phases, performance, privacy) |
-| codebase/ARCHITECTURE.md | As-built 4-layer architecture with component table |
-| codebase/CONCERNS.md | 10 tech debt items, 4 known bugs, 7 security considerations, 6 performance bottlenecks, 8 test gaps |
-| INGEST-CONFLICTS.md | 0 blockers, 1 warning (pipeline stage count), 2 info notes |
+- Beta 6 preserves the existing stack and four-layer architecture; only approval-gated milestone work is in scope.
+- Phase 1 must produce an explicitly approved verifier/signing ADR covering trust, release assets, and PyInstaller validation.
+- Phase 2 signed-repair implementation is blocked until that ADR is approved; it must not weaken the signed-manifest requirement.
+- Startup admission precedes normal UI/job behavior; demo data remains isolated from normal library and profile state.
 
 ### Pending Todos
 
@@ -81,21 +57,19 @@ None yet.
 
 ### Blockers/Concerns
 
-- **run_packaged_validation hardcoded paths:** lecturepack/app.py has owner-specific paths; must not be used for validation.
+- Phase 1 verifier/signing ADR has no approved dependency or operational signing contract yet; Phase 2 cannot begin until approval.
+- Release proof requires physical CPU-only, NVIDIA, and AMD/Intel Windows machines plus fresh/upgraded and hostile-path evidence.
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Tech debt | QThread.terminate() for Align/Export workers | Deferred to Phase 2 | 2026-07-17 |
-| Tech debt | ffprobe inspect on GUI thread | Deferred to Phase 2 | 2026-07-17 |
-| Tech debt | Detector logic duplication | Deferred (not critical for release) | 2026-07-17 |
-| Feature | Groq live API validation | Deferred (no API key) | 2026-07-17 |
-| Feature | Incremental results during processing | Deferred (not v1.2 scope) | 2026-07-17 |
-| Feature | OneDrive placeholder detection | Deferred (documented, not coded) | 2026-07-17 |
+| Repair | Offline repair-package import and per-file selection | Future (FUTR-01, FUTR-02) | 2026-07-27 |
+| Onboarding | Alternate tour modes and reduced-motion preference | Future (FUTR-03, FUTR-04) | 2026-07-27 |
+| Architecture | Unrelated detector and worker technical debt | Out of beta-6 scope | 2026-07-27 |
 
 ## Session Continuity
 
-Last session: 2026-07-18T20:03:30.885Z
-Stopped at: Phase 1 gap-closure plans created
-Resume file: .planning/phases/01-packaging-release/01-04-PLAN.md
+Last session: 2026-07-27
+Stopped at: Beta-6 roadmap, state, and traceability prepared for approval.
+Resume file: None
