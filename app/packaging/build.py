@@ -225,6 +225,7 @@ def bundle_engine() -> None:
     def _copy(src: Path, dst: Path):
         if not src.exists() or src.stat().st_size == 0:
             sys.exit(f"engine bundle FAILED — missing or empty {src}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
         if not dst.exists() or dst.stat().st_size == 0:
             sys.exit(f"engine bundle FAILED — copy produced empty {dst}")
