@@ -209,6 +209,81 @@ def test_same_identity_healthy_only_evidence_requires_full_validation(tmp_path):
     assert cfg.get("runtime_health")["components"]["bin/ffmpeg.exe"] == {"healthy": True}
 
 
+@pytest.mark.parametrize("trigger", ("update", "repair"))
+def test_update_and_repair_force_failed_full_validation_without_overwriting_healthy_state(tmp_path, trigger):
+    """Explicit update/repair checks must re-prove a healthy saved runtime."""
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    cfg = ConfigManager(str(tmp_path))
+    executable = tmp_path / "ffmpeg.exe"
+    executable.write_bytes(b"healthy before explicit revalidation")
+    previous = {
+        "identity": "payload-v1",
+        "components": _complete_success_evidence({"bin/ffmpeg.exe": executable}),
+        "validation_mode": "full",
+    }
+    cfg.settings["runtime_health"] = previous
+    full_calls = []
+    optional_calls = []
+    service = RuntimeBootstrapService(
+        cfg,
+        runtime_root=tmp_path,
+        inventory_resolver=lambda root: {"bin/ffmpeg.exe": executable},
+        identity_provider=lambda root: "payload-v1",
+        full_validator=lambda components: full_calls.append(components) or {
+            "bin/ffmpeg.exe": {"healthy": False, "reason": "explicit revalidation failed"},
+        },
+        optional_resolver=lambda requested: optional_calls.append(requested) or ("whispercpp-cpu", "unavailable"),
+    )
+
+    result = service.assess(trigger=trigger)
+
+    assert result.state == "SETUP_REQUIRED"
+    assert result.validation_mode == "full"
+    assert full_calls == [{"bin/ffmpeg.exe": executable}]
+    assert optional_calls == []
+    assert cfg.get("runtime_health") == previous
+
+
+def test_light_validation_blocks_when_previously_healthy_payload_disappears(tmp_path):
+    """A light launch must fail closed when a required payload vanishes."""
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    cfg = ConfigManager(str(tmp_path))
+    executable = tmp_path / "ffmpeg.exe"
+    executable.write_bytes(b"healthy before payload loss")
+    previous = {
+        "identity": "payload-v1",
+        "components": _complete_success_evidence({"bin/ffmpeg.exe": executable}),
+        "validation_mode": "full",
+    }
+    cfg.settings["runtime_health"] = previous
+    executable.unlink()
+    full_calls = []
+    optional_calls = []
+    service = RuntimeBootstrapService(
+        cfg,
+        runtime_root=tmp_path,
+        # Return the canonical key with its now-missing path: no ACL behavior is
+        # involved, and a previously healthy light-path payload is unavailable.
+        inventory_resolver=lambda root: {"bin/ffmpeg.exe": executable},
+        identity_provider=lambda root: "payload-v1",
+        full_validator=lambda components: full_calls.append(components) or _complete_success_evidence(components),
+        optional_resolver=lambda requested: optional_calls.append(requested) or ("whispercpp-cpu", "unavailable"),
+    )
+
+    result = service.assess()
+
+    assert result.state == "SETUP_REQUIRED"
+    assert result.validation_mode == "light"
+    assert result.components["bin/ffmpeg.exe"]["healthy"] is False
+    assert full_calls == []
+    assert optional_calls == []
+    assert cfg.get("runtime_health") == previous
+
+
 def test_incomplete_full_validation_cannot_become_healthy_state(tmp_path):
     from lecturepack.infrastructure.config_manager import ConfigManager
     from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
