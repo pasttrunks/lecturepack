@@ -1834,13 +1834,22 @@
   /* ================= runtime setup gate =================
      The desktop bridge is the trust boundary.  This controller only renders
      its canonical admission/repair events; it never infers health or sizes. */
+  /* Pure event filter used by the DOM controller and executable Node tests. */
+  function RuntimeSetupGateModel() {
+    var operation = null, terminal = false;
+    return { begin: function (id) { operation = id; terminal = false; },
+      accept: function (event) { return !!(event && event.operation_id === operation && !terminal); },
+      finish: function () { terminal = true; }, reset: function () { operation = null; terminal = false; } };
+  }
   var RuntimeSetupGate = (function () {
     var STATES = ['gate', 'diagnostics', 'confirm', 'repairing', 'offline', 'failed', 'ready'];
     var state = 'gate', returnState = 'gate', activeOperation = null, terminal = false;
-    var offer = null, snapshot = null, retryPending = false, cancelPending = false, restoreInert = [];
+    var offer = null, snapshot = null, retryPending = false, cancelPending = false, restoreInert = [], inertCaptured = false, bootstrapPending = true;
+    var eventModel = RuntimeSetupGateModel();
 
     function overlay() { return $('runtime-setup-overlay'); }
     function isOpen() { var el = overlay(); return !!(el && !el.hidden); }
+    function isBlocking() { return bootstrapPending || isOpen(); }
     function operationId() {
       if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
       return 'runtime-repair-' + Date.now() + '-' + Math.random().toString(16).slice(2);
@@ -1860,6 +1869,7 @@
       var root = $('app'); if (!root) return;
       var children = root.children;
       if (open) {
+        if (inertCaptured) return;
         restoreInert = [];
         Array.prototype.forEach.call(children, function (child) {
           if (child === overlay()) return;
@@ -1867,14 +1877,15 @@
           try { child.inert = true; } catch (e) {}
           child.setAttribute('aria-hidden', 'true'); child.style.pointerEvents = 'none';
         });
-        document.documentElement.style.overflow = 'hidden';
+        inertCaptured = true; document.documentElement.style.overflow = 'hidden';
       } else {
+        if (!inertCaptured) return;
         restoreInert.forEach(function (saved) {
           try { saved.el.inert = saved.inert; } catch (e) {}
           if (saved.aria === null) saved.el.removeAttribute('aria-hidden'); else saved.el.setAttribute('aria-hidden', saved.aria);
           saved.el.style.pointerEvents = saved.pointer;
         });
-        restoreInert = []; document.documentElement.style.overflow = '';
+        restoreInert = []; inertCaptured = false; document.documentElement.style.overflow = '';
       }
     }
     function renderComponents() {
@@ -1884,7 +1895,7 @@
       var rows = componentRows(); empty.hidden = !!rows.length;
       rows.forEach(function (row) {
         var label = friendlyComponent(row), line = document.createElement('div');
-        line.style.cssText = 'background:var(--panel2);border:2px solid var(--line);border-radius:9px;padding:8px 10px;min-width:0';
+        line.style.cssText = 'background:var(--panel2);border:2px solid var(--line);border-radius:9px;padding:8px 10px;min-width:0;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden';
         line.textContent = label; line.title = label; line.setAttribute('aria-label', label); host.appendChild(line);
       });
     }
@@ -1915,25 +1926,25 @@
       el.hidden = false; el.classList.remove('out'); setUnderlyingInert(true);
       Array.prototype.forEach.call(el.querySelectorAll('[data-runtime-state]'), function (panel) { panel.hidden = panel.dataset.runtimeState !== state; });
       renderComponents(); renderOffer();
-      if (state === 'diagnostics') { var heading = $('runtime-diagnostics-heading'); if (heading) heading.focus(); }
-      else if (state === 'ready') { var ready = $('runtime-ready-heading'); if (ready) ready.focus(); }
-      else focusFirst(el);
+      var targets = { gate: 'btn-runtime-repair', confirm: 'btn-runtime-confirm', repairing: 'btn-runtime-cancel', offline: 'btn-runtime-offline-retry', failed: 'btn-runtime-failed-retry', diagnostics: 'runtime-diagnostics-heading', ready: 'runtime-ready-heading' };
+      var target = $(targets[state]); if (target) target.focus();
     }
     function closeReady() {
       var el = overlay(); if (!el || state !== 'ready') return;
-      setUnderlyingInert(false); el.hidden = true; activeOperation = null; offer = null;
+      setUnderlyingInert(false); el.hidden = true; activeOperation = null; offer = null; eventModel.reset();
     }
     function admit(bootstrap) {
-      snapshot = bootstrap && bootstrap.setup_required || bootstrap || snapshot;
+      bootstrapPending = false; snapshot = bootstrap && bootstrap.setup_required || bootstrap || snapshot;
       if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') { show('gate'); return; }
+      if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !activeOperation) { setUnderlyingInert(false); return; }
       if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && activeOperation && !terminal) {
-        terminal = true; announce('runtime-live-assertive', "You're ready"); show('ready');
+        terminal = true; eventModel.finish(); announce('runtime-live-polite', "You're ready"); show('ready');
         if (LP.motion.reduced()) closeReady(); else setTimeout(closeReady, 800);
       }
     }
     function beginOffer() {
       if (retryPending || activeOperation) return;
-      activeOperation = operationId(); terminal = false; offer = null;
+      activeOperation = operationId(); eventModel.begin(activeOperation); terminal = false; offer = null;
       $('btn-runtime-repair').disabled = true; announce('runtime-live-polite', 'Checking runtime…');
       lpBridge.beginRuntimeRepairOffer(activeOperation).then(function () {});
     }
@@ -1949,7 +1960,7 @@
         try { admit(JSON.parse(json)); } catch (e) { show('gate'); }
       });
     }
-    function beginNewRepair() { activeOperation = null; offer = null; terminal = false; cancelPending = false; show('repairing'); activeOperation = operationId(); lpBridge.beginRuntimeRepairOffer(activeOperation); }
+    function beginNewRepair() { activeOperation = null; offer = null; terminal = false; cancelPending = false; show('repairing'); activeOperation = operationId(); eventModel.begin(activeOperation); lpBridge.beginRuntimeRepairOffer(activeOperation); }
     function cancel() {
       if (!activeOperation || cancelPending) return;
       cancelPending = true; $('btn-runtime-cancel').disabled = true; text('btn-runtime-cancel', 'Cancelling safely…');
@@ -1968,7 +1979,7 @@
     }
     function event(payload) {
       var d = typeof payload === 'string' ? (function () { try { return JSON.parse(payload); } catch (e) { return null; } })() : payload;
-      if (!d || d.operation_id !== activeOperation || terminal) return;
+      if (!eventModel.accept(d) || terminal) return;
       var kind = d.kind;
       if (kind === 'metadata_ready') {
         var o = d.offer || d;
@@ -1977,7 +1988,7 @@
           download_size_bytes: o.download_size_bytes,
           download_size_label: typeof o.download_size_bytes === 'number' && Number.isSafeInteger(o.download_size_bytes) && o.download_size_bytes >= 0 ? formatOfferSize(o.download_size_bytes) : '',
           technical_details: o.technical_details || '' };
-        if (!validOffer(offer)) { terminal = true; show('failed'); return; }
+        if (!validOffer(offer)) { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'Repair could not be completed.'); show('failed'); return; }
         $('btn-runtime-repair').disabled = false; show('confirm'); return;
       }
       if (kind === 'started') { show('repairing'); return; }
@@ -1992,10 +2003,10 @@
       if (kind === 'retrying') { text('runtime-progress-text', 'Connection interrupted — retrying…'); return; }
       if (kind === 'cancel_requested') { cancelPending = true; $('btn-runtime-cancel').disabled = true; text('btn-runtime-cancel', 'Finishing a safe step…'); return; }
       if (kind === 'activated') { text('runtime-progress-text', 'Almost there'); return; }
-      if (kind === 'admitted') { terminal = true; announce('runtime-live-assertive', "You're ready"); show('ready'); if (LP.motion.reduced()) closeReady(); else setTimeout(closeReady, 800); return; }
-      if (kind === 'cancelled') { terminal = true; activeOperation = null; offer = null; cancelPending = false; show('gate'); return; }
-      if (kind === 'offline') { terminal = true; show('offline'); return; }
-      if (kind === 'failed') { terminal = true; text('runtime-failure-reason', "We couldn't verify the repair download. Your previous runtime is still in place."); show('failed'); }
+      if (kind === 'admitted') { terminal = true; eventModel.finish(); announce('runtime-live-polite', "You're ready"); show('ready'); if (LP.motion.reduced()) closeReady(); else setTimeout(closeReady, 800); return; }
+      if (kind === 'cancelled') { terminal = true; eventModel.finish(); activeOperation = null; offer = null; cancelPending = false; show('gate'); return; }
+      if (kind === 'offline' || (kind === 'failed' && d.classification === 'offline')) { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'An internet connection is needed to repair LecturePack.'); show('offline'); return; }
+      if (kind === 'failed') { terminal = true; eventModel.finish(); announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', "We couldn't verify the repair download. Your previous runtime is still in place."); show('failed'); }
     }
     function wire() {
       $('btn-runtime-repair').addEventListener('click', beginOffer);
@@ -2008,13 +2019,14 @@
       $('btn-runtime-exit').addEventListener('click', function () { lpBridge.call('exit_application'); window.close(); });
       Array.prototype.forEach.call(document.querySelectorAll('[data-runtime-diagnostics]'), function (button) { button.addEventListener('click', function () { diagnostics(button); }); });
       $('btn-runtime-diagnostics-back').addEventListener('click', back);
-      $('btn-runtime-copy').addEventListener('click', function () { lpBridge.copyRuntimeRepairDiagnostics().then(function () { announce('runtime-live-polite', 'Details copied.'); }); });
-      $('btn-runtime-save').addEventListener('click', function () { lpBridge.saveRuntimeRepairDiagnostics('runtime-repair-report.txt').then(function () { announce('runtime-live-polite', 'Report saved.'); }); });
-      document.addEventListener('keydown', function (e) { if (!isOpen()) return; if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); return; } if (e.key === 'Tab') { trapFocus(overlay(), e); e.stopImmediatePropagation(); return; } e.stopImmediatePropagation(); }, true);
-      document.addEventListener('wheel', function (e) { if (isOpen() && !overlay().contains(e.target)) { e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true, passive: false });
-      document.addEventListener('pointerdown', function (e) { if (isOpen() && !overlay().contains(e.target)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+      function diagnosticFeedback(promise, ok, bad) { promise.then(function (json) { var r; try { r = JSON.parse(json); } catch (e) {} announce('runtime-live-polite', r && /copied|saved/.test(r.type || '') ? ok : bad); }, function () { announce('runtime-live-polite', bad); }); }
+      $('btn-runtime-copy').addEventListener('click', function () { diagnosticFeedback(lpBridge.copyRuntimeRepairDiagnostics(), 'Details copied.', 'Could not copy details.'); });
+      $('btn-runtime-save').addEventListener('click', function () { diagnosticFeedback(lpBridge.saveRuntimeRepairDiagnostics('runtime-repair-report.txt'), 'Report saved.', 'Could not save report.'); });
+      document.addEventListener('keydown', function (e) { if (!isBlocking()) return; if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); return; } if (e.key === 'Tab' && isOpen()) { trapFocus(overlay(), e); e.stopImmediatePropagation(); return; } e.stopImmediatePropagation(); }, true);
+      document.addEventListener('wheel', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true, passive: false });
+      document.addEventListener('pointerdown', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
     }
-    return { admit: admit, event: event, wire: wire, isOpen: isOpen, state: function () { return state; }, _diagnosticsInvoker: null };
+    return { admit: admit, event: event, wire: wire, beginBootstrap: function () { setUnderlyingInert(true); }, isOpen: isOpen, state: function () { return state; }, _diagnosticsInvoker: null };
   })();
 
   /* Clears the design-time placeholder chrome shipped in index.html so a fresh
@@ -3363,8 +3375,9 @@
     setScreen('home');
     setTheme('dark');           // dark by default (design decision)
     setStudyTab('chat');
-    wire();
     RuntimeSetupGate.wire();
+    RuntimeSetupGate.beginBootstrap();
+    wire();
     wireBridge();
     window.addEventListener('resize', function () { LP.motion.indicator(); });
   }
