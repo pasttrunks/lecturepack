@@ -5,15 +5,15 @@ milestone_name: Clean-Machine Reliability and Onboarding
 current_phase: 2
 current_phase_name: Hard Setup & Signed Repair
 status: executing
-stopped_at: Phase 2 UI-SPEC approved
-last_updated: "2026-07-28T18:35:27.706Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-07-28T18:45:36.839Z"
 last_activity: 2026-07-28
 last_activity_desc: Phase 2 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 12
-  completed_plans: 7
+  completed_plans: 8
   percent: 20
 ---
 
@@ -29,8 +29,8 @@ See: `.planning/PROJECT.md` (updated 2026-07-28)
 ## Current Position
 
 Phase: 2 (Hard Setup & Signed Repair) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 2
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-07-28 — Phase 2 execution started
 
 Milestone progress: [██░░░░░░░░] 20%
@@ -59,6 +59,7 @@ Milestone progress: [██░░░░░░░░] 20%
 | Phase 01-runtime-contract-bootstrap P05 | 28m | 2 tasks | 6 files |
 | Phase 01-runtime-contract-bootstrap P06 | 16m | 2 tasks | 7 files |
 | Phase 01-runtime-contract-bootstrap P07 | 25m | 2 tasks | 3 files |
+| Phase 02-hard-setup-signed-repair P01 | 24m | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,8 @@ Milestone progress: [██░░░░░░░░] 20%
 - [Phase 01-runtime-contract-bootstrap]: Optional VAD models use the same private ASCII native staging boundary as model and WAV inputs. — No Unicode source path may reach whisper.cpp.
 - [Phase ?]: SETUP_REQUIRED bridge operations use the existing diagnostics transport and one JSON-safe payload before collaborator access.
 - [Phase ?]: Bootstrap admission fields are derived from the runtime diagnostics controller without a second inventory projection.
+- [Phase 02-hard-setup-signed-repair]: Release metadata is authenticated as exact raw Ed25519 bytes before parsing. — AD-19 requires signature verification before any parse or reserialization.
+- [Phase 02-hard-setup-signed-repair]: Repair confirmation derives metadata-only data from verified manifest records and admission evidence. — No archive acquisition occurs before explicit confirmation.
 
 ### Pending Todos
 
@@ -101,6 +104,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-28T17:53:34.703Z
-Stopped at: Phase 2 UI-SPEC approved
-Resume file: .planning/phases/02-hard-setup-signed-repair/02-UI-SPEC.md
+Last session: 2026-07-28T18:45:36.829Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None

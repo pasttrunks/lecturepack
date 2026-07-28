@@ -22,10 +22,10 @@
 
 - [ ] **REPR-01**: Any missing, unreadable, corrupt, or unusable required-runtime component blocks entry to the normal application behind a non-dismissible setup gate.
 - [ ] **REPR-02**: The setup gate identifies failed required components in plain language and offers Repair all, Retry, Open diagnostics, and Exit actions.
-- [ ] **REPR-03**: Repair starts only after explicit user confirmation showing the exact LecturePack version, official source, affected components, and download size.
-- [ ] **REPR-04**: Repair downloads only the exact running version's asset from the official LecturePack GitHub release and makes no telemetry or unrelated network requests.
-- [ ] **REPR-05**: LecturePack verifies the project signature on the exact-version manifest before trusting it, then verifies the SHA-256 and inventory of every staged payload file.
-- [ ] **REPR-06**: Repair rejects invalid signatures, wrong app/schema versions, missing/extra archive members, unsafe paths, hash mismatches, and mixed-release components without activating staged content.
+- [x] **REPR-03**: Repair starts only after explicit user confirmation showing the exact LecturePack version, official source, affected components, and download size.
+- [x] **REPR-04**: Repair downloads only the exact running version's asset from the official LecturePack GitHub release and makes no telemetry or unrelated network requests.
+- [x] **REPR-05**: LecturePack verifies the project signature on the exact-version manifest before trusting it, then verifies the SHA-256 and inventory of every staged payload file.
+- [x] **REPR-06**: Repair rejects invalid signatures, wrong app/schema versions, missing/extra archive members, unsafe paths, hash mismatches, and mixed-release components without activating staged content.
 - [ ] **REPR-07**: Repair installs a complete verified runtime generation into an app-managed writable location and atomically activates it without modifying the immutable portable bundle in place.
 - [ ] **REPR-08**: Any download, validation, permission, cancellation, or activation failure retains or restores the previous runtime generation and leaves actionable diagnostics.
 - [ ] **REPR-09**: Successful repair performs full revalidation and enters LecturePack automatically without requiring restart.

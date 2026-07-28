@@ -80,11 +80,17 @@ Canonical references: `.planning/PROJECT.md`, `.planning/MILESTONE-CONTEXT.md`, 
   4. Tampered, mixed-release, incomplete, unsafe, cancelled, or failed repairs never activate partial content; users retain or restore the prior runtime and receive actionable diagnostics.
   5. A successful repair atomically activates a complete writable runtime generation, fully revalidates it, and enters LecturePack automatically; unavailable network offers only Retry, diagnostics, or Exit.
 
-**Plans**: TBD
+**Plans**: 1/5 plans executed
+
+- [x] 02-01-PLAN.md
+- [ ] 02-02-PLAN.md
+- [ ] 02-03-PLAN.md
+- [ ] 02-04-PLAN.md
+- [ ] 02-05-PLAN.md
 
 Likely plan slices:
 
-- [ ] 02-01: Setup-gate state, component explanations, consent, and offline diagnostics.
+- [x] 02-01: Setup-gate state, component explanations, consent, and offline diagnostics.
 - [ ] 02-02: Exact-version release acquisition and approved signature/manifest validation.
 - [ ] 02-03: Staging, transactional activation/rollback, revalidation, and fault matrix.
 
@@ -175,7 +181,7 @@ Canonical references: `.planning/MILESTONE-CONTEXT.md`, `.planning/research/SUMM
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Runtime Contract & Bootstrap | 7/7 | Complete    | 2026-07-28 |
-| 2. Hard Setup & Signed Repair | 0/TBD | Ready to plan — Phase 1 and AD-19 approved | - |
+| 2. Hard Setup & Signed Repair | 1/5 | In Progress|  |
 | 3. Empty Launch & Guided Demo | 0/TBD | Not started | - |
 | 4. Visual Artifact Reliability | 0/TBD | Not started | - |
 | 5. Packaged & Physical Release Gate | 0/TBD | Not started | - |
