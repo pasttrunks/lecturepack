@@ -287,3 +287,19 @@ def test_reduced_motion_block_still_present():
     body = re.search(r"@media \(prefers-reduced-motion: reduce\)\{(.*?)\n\}", CSS, re.S).group(1)
     assert "transition-duration:.001ms !important" in body
     assert "animation-iteration-count:1 !important" in body
+
+
+def test_navigation_only_runs_entrance_for_a_changed_screen():
+    start = JS.index("function setScreen(name)")
+    end = JS.index("function applyTheme", start)
+    body = JS[start:end]
+    assert "if (LP.state.screen === name) return;" in body
+    assert body.index("if (LP.state.screen === name) return;") < body.index("LP.motion.nav")
+    assert "main [data-screen]:not([hidden])" in CSS
+    assert "animation:lprail var(--motion-seat) var(--motion-spring) both" in CSS
+
+
+def test_preserved_motion_and_press_vocabulary_is_not_replaced_by_navigation_guard():
+    assert "--shadow-hard:" in _block(":root")
+    assert ".lp-hit:active{transform:translateY(1px)}" in CSS
+    assert "--motion-seat:140ms" in _block(":root")

@@ -1843,6 +1843,7 @@
   var CRUMBS = { home: 'Home', process: 'Process', review: 'Review', transcript: 'Transcript', study: 'Study', exports: 'Exports', settings: 'Settings' };
 
   function setScreen(name) {
+    if (LP.state.screen === name) return;
     LP.motion.nav(function () {
       LP.state.screen = name;
       if (typeof hideScrub === 'function') hideScrub();
