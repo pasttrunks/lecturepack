@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import sys
 
+import json
 # Smooth, GPU-accelerated rendering. Must be set before Qt loads.
 os.environ.setdefault(
     "QTWEBENGINE_CHROMIUM_FLAGS",
@@ -131,6 +132,9 @@ class MainWindow(QMainWindow):
                 self.tray = QSystemTrayIcon(self)
                 if os.path.exists(icon_path):
                     self.tray.setIcon(QIcon(icon_path))
+        self._show_requested = False
+        self._theme_ready = False
+        self.view.loadFinished.connect(self._apply_initial_theme_before_show)
                 self.tray.setToolTip(version.APP_NAME)
                 self.tray.messageClicked.connect(self._on_notification_clicked)
                 self.tray.show()
@@ -160,6 +164,27 @@ class MainWindow(QMainWindow):
         Read through the adapter's ConfigManager at call time rather than
         captured at construction: binary detection runs after the window is
         built, so an eagerly-read value would be empty on first launch.
+    def show_when_ready(self) -> None:
+        """Show only after the saved palette is installed, or a failed load settles."""
+        self._show_requested = True
+        if self._theme_ready:
+            self.show()
+
+    def _apply_initial_theme_before_show(self, loaded: bool) -> None:
+        if not loaded:
+            self._theme_ready = True
+            if self._show_requested:
+                self.show()
+            return
+        theme = json.dumps(self.backend.initial_theme())
+        script = "document.getElementById('app').dataset.theme = " + theme + ";"
+        self.view.page().runJavaScript(script, self._finish_initial_theme)
+
+    def _finish_initial_theme(self, _result=None) -> None:
+        self._theme_ready = True
+        if self._show_requested:
+            self.show()
+
         """
         try:
             return self.backend._adapter.config.get("ffmpeg_exe", "") or ""
@@ -191,7 +216,7 @@ def main() -> int:
     app.setApplicationVersion(version.__version__)
 
     win = MainWindow()
-    win.show()
+    win.show_when_ready()
 
     # Focus-gate notifications: only fire when the app is not the active window.
     def _on_app_state(state):

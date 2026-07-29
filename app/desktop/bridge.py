@@ -320,12 +320,17 @@ class Backend(QObject):
         snapshot = self._runtime_diagnostics.runtime_health_snapshot()
         return json.dumps(
             {
-                "theme": self._settings.value("theme", "light"),
+                "theme": self.initial_theme(),
                 "version": version.__version__,
                 "runtime_health_state": snapshot["admission_state"],
                 "setup_required": snapshot if snapshot["admission_state"] == "SETUP_REQUIRED" else None,
             }
         )
+
+    def initial_theme(self) -> str:
+        """Return the only valid persisted theme before the WebEngine is shown."""
+        theme = self._settings.value("theme", "light")
+        return theme if theme in {"light", "dark"} else "light"
 
     @Slot(result=str)
     def get_runtime_health_snapshot(self) -> str:
