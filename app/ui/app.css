@@ -738,6 +738,8 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 #glowing-demo-card[data-demo-state="running"]{border-color:var(--blue);box-shadow:var(--shadow-hard),0 0 22px rgba(137,180,250,.24)}
 #glowing-demo-card[data-demo-state="error"]{border-color:var(--red)}
 #glowing-demo-card.lp-demo-tour-active,#dropzone.lp-demo-tour-active{position:relative;z-index:171}
+@keyframes lpdemoprompt{0%,100%{box-shadow:var(--shadow-hard),0 0 16px rgba(255,122,0,.28)}50%{box-shadow:var(--shadow-hard),0 0 30px rgba(255,122,0,.58)}}
+#glowing-demo-card.lp-demo-tour-active{border-color:var(--orange);box-shadow:var(--shadow-hard),0 0 20px rgba(255,122,0,.4);animation:lpdemoprompt 1.6s var(--motion-ease) infinite}
 #dropzone.lp-demo-drop-hover{border-color:var(--orange)!important;box-shadow:var(--shadow-hard),0 0 22px rgba(255,122,0,.32)!important}
 @keyframes lpdemofly{to{transform:translate(var(--demo-fly-x,0),var(--demo-fly-y,0));opacity:.72}}
 #glowing-demo-card.lp-demo-fly{animation:lpdemofly var(--motion-seat) var(--motion-spring) both;pointer-events:none}
@@ -752,6 +754,7 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   }
   .lp-caret{animation:none !important;opacity:1 !important}
   .lp-stagger>*{animation:none !important}
+  #glowing-demo-card.lp-demo-tour-active{animation:none!important;box-shadow:var(--shadow-hard),0 0 20px rgba(255,122,0,.4)}
   [data-focus="true"] .lp-main{animation:none !important;transform:none !important}
   .lp-chrome,.lp-main{transition:none !important}
 

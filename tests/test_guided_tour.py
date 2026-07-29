@@ -424,5 +424,10 @@ def test_real_demo_bridge_contract_and_card_are_wired_without_timers():
     assert "guidedDemoFlow.beginAttempt()" in js
     assert "See export options" in js
     assert "own processed lecture" in js
-    assert "#glowing-demo-card.lp-demo-fly" in CSS.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    assert "#glowing-demo-card.lp-demo-fly" in css
+    assert "#glowing-demo-card.lp-demo-tour-active" in css
+    assert "@keyframes lpdemoprompt" in css
+    assert "animation:none!important" in css
+    assert "setDemoTourInteraction(state.active && flow.phase === 'import')" in js
     assert "setTimeout" not in js[js.index("function startGuidedDemo"):js.index("function isTourFormInput")]
