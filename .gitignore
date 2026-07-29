@@ -22,6 +22,7 @@ models/
 !lecturepack/models/
 LecturePackData/
 *.mp4
+!app/assets/demo/demo_lecture.mp4
 *.avi
 *.wav
 *.log

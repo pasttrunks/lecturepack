@@ -26,12 +26,18 @@ import subprocess
 import sys
 import threading
 import uuid
+from copy import deepcopy
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QFileDialog
 
 from .assets import AssetResolver, asset_url, thumb_url
-from .paths import data_dir
+from .paths import (
+    cleanup_demo_session,
+    create_demo_session_dir,
+    demo_asset_path,
+    sweep_demo_sessions,
+)
 from .win_integration import WindowsIntegration
 
 
@@ -140,6 +146,14 @@ class EngineAdapter(QObject):
         """Kick off the engine pipeline for the pending import. Emit
         pipeline_changed (stages/title/meta), log_line per engine log,
         status_changed for the footer, jobs_changed when the job list moves."""
+        raise NotImplementedError
+
+    def start_demo_job(self) -> dict:
+        """Start the bundled demo through an isolated real engine controller."""
+        raise NotImplementedError
+
+    def end_demo_job(self, reason: str = "ended") -> dict:
+        """Cancel and dispose the isolated demo session, idempotently."""
         raise NotImplementedError
 
     def cancel_job(self) -> None:
@@ -731,6 +745,10 @@ class LecturePackAdapter(EngineAdapter):
         self._repair_worker = None
         self._export_worker = None
         self._export_start = 0.0
+        self._demo_session = None
+        # Clean only sentinel-owned directories left by an interrupted previous
+        # launch.  A malformed temp entry is intentionally preserved.
+        sweep_demo_sessions()
         self._wire_controller()
 
     # ------------------------------------------------------------------ wiring
@@ -762,6 +780,13 @@ class LecturePackAdapter(EngineAdapter):
     })
 
     def _emit(self, signal, payload):
+        demo = getattr(self, "_demo_session", None)
+        if demo and isinstance(payload, dict):
+            payload = dict(
+                payload,
+                demo_session_id=demo["session_id"],
+                operation_id=demo["operation_id"],
+            )
         if signal in self._JOB_SCOPED_SIGNALS and isinstance(payload, dict) \
                 and "job" not in payload:
             job = getattr(self, "current_job", None)
@@ -785,6 +810,21 @@ class LecturePackAdapter(EngineAdapter):
                 title = ""
         self._emit("active_job", {"id": job_id, "title": title})
 
+    def _emit_demo_event(self, status: str, **extra) -> None:
+        """A narrow, JSON-only lifecycle stream for future tour UI wiring."""
+        demo = self._demo_session
+        if demo is None:
+            return
+        payload = {
+            "operation": "guided_demo",
+            "operation_id": demo["operation_id"],
+            "session_id": demo["session_id"],
+            "job_id": demo["job"].job_id,
+            "status": status,
+        }
+        payload.update(extra)
+        self.backend.demo_event.emit(json.dumps(payload))
+
     def _log(self, tag: str, text: str, key: str = ""):
         color = _LOG_COLORS.get(key or tag.strip("[]").lower(), "var(--ink)")
         for line in str(text).splitlines():
@@ -801,7 +841,7 @@ class LecturePackAdapter(EngineAdapter):
         for job_id in os.listdir(jobs_dir):
             manifest_p = os.path.join(jobs_dir, job_id, "manifest.json")
             man = FileManager.read_json_safe(manifest_p, None)
-            if not isinstance(man, dict):
+            if not isinstance(man, dict) or man.get("session_scoped"):
                 continue
             state = FileManager.read_json_safe(
                 os.path.join(jobs_dir, job_id, "state.json"), {}) or {}
@@ -980,9 +1020,8 @@ class LecturePackAdapter(EngineAdapter):
         self.cuda_pack_status()
         self._emit_groq_status()
         self.smart_study_status()
-        # Show the most recent completed job's data so Review/Transcript/Study
-        # aren't empty on launch.
-        self._load_latest_completed_job()
+        # HOME-01: Healthy startup opens Home with no active job automatically opened.
+        self._set_active_job(None)
 
     def _settings_payload(self) -> dict:
         """Current engine-config values the Settings screen reflects."""
@@ -1236,6 +1275,188 @@ class LecturePackAdapter(EngineAdapter):
         if path:
             self.import_video(path)
 
+    # ---------------------------------------------------------- guided demo
+    def _wire_demo_controller(self, controller) -> None:
+        """Forward the isolated controller's real pipeline signals only.
+
+        The normal controller remains intact and continues to own the user's
+        queue.  These slots use the active demo job solely while a demo session
+        exists, then the workspace is torn down.
+        """
+        controller.stage_started.connect(self._on_stage_started)
+        controller.stage_progress.connect(self._on_stage_progress)
+        controller.stage_log.connect(self._on_stage_log)
+        controller.stage_finished.connect(self._on_stage_finished)
+        controller.stage_cached.connect(self._on_stage_cached)
+        controller.backend_info.connect(self._on_backend_info)
+        controller.transcript_segment.connect(self._on_transcript_segment)
+        controller.pause_state_changed.connect(self._on_pause_state)
+        controller.pipeline_completed.connect(self._on_demo_pipeline_completed)
+        controller.pipeline_failed.connect(self._on_demo_pipeline_failed)
+
+    def _make_demo_config(self, workspace: str):
+        """Clone runtime choices into a disposable config without touching it."""
+        config = ConfigManager(workspace)
+        # Copy paths/options so the real FFmpeg/Whisper pipeline can run, but
+        # write the copy exclusively inside the sentinel-owned workspace.
+        config.settings = deepcopy(self.config.settings)
+        config.settings["data_directory"] = workspace
+        config.save()
+        return config
+
+    def start_demo_job(self) -> dict:
+        """Run the bundled MP4 through a separate controller and temp root."""
+        active = self._demo_session
+        if active is not None:
+            return {
+                "ok": True,
+                "idempotent": True,
+                "operation_id": active["operation_id"],
+                "session_id": active["session_id"],
+                "job_id": active["job"].job_id,
+            }
+        asset = demo_asset_path()
+        if not os.path.isfile(asset) or os.path.getsize(asset) == 0:
+            return {"ok": False, "error": "Bundled demo lecture is unavailable."}
+        session_id = uuid.uuid4().hex
+        operation_id = uuid.uuid4().hex
+        try:
+            workspace = create_demo_session_dir(session_id)
+            config = self._make_demo_config(workspace)
+            controller = JobController(config)
+            job = Job(workspace, video_path=asset)
+            job.manifest.update({
+                "session_scoped": True,
+                "demo_session_id": session_id,
+                "demo_operation_id": operation_id,
+            })
+            job.save()
+            controller.set_job(job)
+        except Exception as exc:
+            cleanup_demo_session(workspace if "workspace" in locals() else "", session_id)
+            return {"ok": False, "error": f"Could not start guided demo: {exc}"}
+
+        self._demo_session = {
+            "session_id": session_id,
+            "operation_id": operation_id,
+            "workspace": workspace,
+            "config": config,
+            "controller": controller,
+            "job": job,
+            "cleanup_requested": False,
+        }
+        self._wire_demo_controller(controller)
+        self._pending_job = None
+        self._set_active_job(job)
+        self._stages = [
+            {"name": name, "label": label, "color": color, "state": "pending", "pct": 0}
+            for name, label, color in _STAGE_META
+        ]
+        self._pipeline_start = time.time()
+        self._emit_demo_event("started", stage="prepare", progress=0)
+        self._emit("status_changed", {
+            "label": "Guided demo", "pct": 0,
+            "detail": "starting isolated local processing",
+        })
+        self._render_pipeline(title="Guided demo", meta="preparing bundled lecture")
+        try:
+            # Use the exact normal pipeline; no timer or fabricated results.
+            controller.run_pipeline()
+        except Exception as exc:
+            self._on_demo_pipeline_failed(str(exc))
+            return {"ok": False, "error": str(exc), "operation_id": operation_id,
+                    "session_id": session_id}
+        return {"ok": True, "operation_id": operation_id, "session_id": session_id,
+                "job_id": job.job_id, "workspace": workspace}
+
+    def _demo_controller_busy(self, controller) -> bool:
+        if getattr(controller, "_active_stages", None):
+            return True
+        for name in ("slide_worker", "align_worker", "export_worker"):
+            worker = getattr(controller, name, None)
+            if worker is not None and getattr(worker, "isRunning", lambda: False)():
+                return True
+        # QProcess wrappers own only this controller's external children.
+        for wrapper_name in ("ffmpeg_wrapper", "whisper_wrapper"):
+            process = getattr(getattr(controller, wrapper_name, None), "process", None)
+            if process is not None:
+                try:
+                    if int(process.state()) != 0:
+                        return True
+                except Exception:
+                    pass
+        return False
+
+    def _wait_for_demo_children(self, controller, timeout_ms: int = 1500) -> None:
+        """Give cancellation-owned demo children a bounded exit window.
+
+        This is used only during application shutdown, when a later Qt timer
+        cannot be relied upon.  Every object here was constructed by the
+        isolated demo controller, so no normal lecture subprocess is touched.
+        """
+        for wrapper_name in ("ffmpeg_wrapper", "whisper_wrapper"):
+            process = getattr(getattr(controller, wrapper_name, None), "process", None)
+            if process is None:
+                continue
+            try:
+                if int(process.state()) != 0 and not process.waitForFinished(timeout_ms):
+                    process.kill()
+                    process.waitForFinished(timeout_ms)
+            except Exception:
+                pass
+        for name in ("slide_worker", "align_worker", "export_worker"):
+            worker = getattr(controller, name, None)
+            try:
+                if worker is not None and worker.isRunning():
+                    worker.wait(timeout_ms)
+            except Exception:
+                pass
+
+    def _finish_demo_cleanup(self, reason: str) -> None:
+        demo = self._demo_session
+        if demo is None:
+            return
+        controller = demo["controller"]
+        if self._demo_controller_busy(controller):
+            QTimer.singleShot(100, self.backend,
+                              lambda: self._finish_demo_cleanup(reason))
+            return
+        removed = cleanup_demo_session(demo["workspace"], demo["session_id"])
+        self._emit_demo_event("cleaned", reason=reason, cleaned=removed)
+        self._demo_session = None
+        self._set_active_job(None)
+        self._emit("status_changed", {
+            "label": "Guided demo ended", "pct": 0, "detail": reason,
+        })
+        # This redraw contains only persistent jobs; the demo was never in it.
+        self._push_jobs()
+
+    def end_demo_job(self, reason: str = "ended") -> dict:
+        """Cancel only the demo controller and clean its sentinel workspace."""
+        demo = self._demo_session
+        if demo is None:
+            return {"ok": True, "idempotent": True, "status": "not_running"}
+        if not demo["cleanup_requested"]:
+            demo["cleanup_requested"] = True
+            self._emit_demo_event("cancelling", reason=reason)
+            try:
+                demo["controller"].cancel()
+            finally:
+                self.win.on_cancelled()
+        if reason == "app_exit":
+            self._wait_for_demo_children(demo["controller"])
+        self._finish_demo_cleanup(reason)
+        return {"ok": True, "operation_id": demo["operation_id"],
+                "session_id": demo["session_id"], "status": "cancelling"}
+
+    def _on_demo_pipeline_completed(self) -> None:
+        self._emit_demo_event("completed", stage="complete", progress=100)
+        self.end_demo_job("completed")
+
+    def _on_demo_pipeline_failed(self, message: str) -> None:
+        self._emit_demo_event("failed", error=str(message)[:500])
+        self.end_demo_job("failed")
+
     # -------------------------------------------------------- import from a link
     def media_link_support(self):
         self.backend.media_link_state.emit(json.dumps(
@@ -1477,6 +1698,9 @@ class LecturePackAdapter(EngineAdapter):
         self.controller.run_pipeline()
 
     def cancel_job(self):
+        if self._demo_session is not None:
+            self.end_demo_job("cancelled")
+            return
         try:
             self.controller.cancel()
         finally:
@@ -1543,6 +1767,8 @@ class LecturePackAdapter(EngineAdapter):
             "label": s["label"] if s else name, "pct": 0,
             "detail": f"0% · {s['label'] if s else name}",
             "side": f"{s['label'] if s else name} 0%"})
+        if self._demo_session is not None:
+            self._emit_demo_event("running", stage=name, progress=0)
 
     def _on_stage_progress(self, name: str, pct: int):
         s = self._stage_by_name(name)
@@ -1558,6 +1784,8 @@ class LecturePackAdapter(EngineAdapter):
         self._emit("status_changed", {
             "label": label, "pct": int(pct),
             "detail": f"{int(pct)}% · {label}", "side": f"{label} {int(pct)}%"})
+        if self._demo_session is not None:
+            self._emit_demo_event("running", stage=name, progress=int(pct))
 
     def _on_stage_log(self, name: str, text: str):
         key = name.split()[0].lower()
@@ -1574,6 +1802,10 @@ class LecturePackAdapter(EngineAdapter):
         self._render_pipeline()
         if not success and error:
             self._log("[error]", f"{name}: {error}", "error")
+        if self._demo_session is not None:
+            self._emit_demo_event("stage_finished", stage=name,
+                                  progress=100 if success else 0,
+                                  error=str(error)[:500] if error else "")
 
     def _on_stage_cached(self, name: str):
         self._stage_timings[name] = {"duration": 0.0, "cached": True}
@@ -1703,6 +1935,16 @@ class LecturePackAdapter(EngineAdapter):
             hwnd = None
         self.win.notifier._tray = tray
         self.win.taskbar._hwnd = hwnd
+        # main.py owns the process exit hook; attaching here lets the isolated
+        # demo controller release only its own work before Qt tears down.
+        try:
+            from PySide6.QtGui import QGuiApplication
+            app = QGuiApplication.instance()
+            if app is not None and not getattr(self, "_demo_exit_hooked", False):
+                app.aboutToQuit.connect(lambda: self.end_demo_job("app_exit"))
+                self._demo_exit_hooked = True
+        except Exception:
+            pass
 
     def pause_job(self):
         if self.controller.request_pause():

@@ -1,0 +1,205 @@
+"""Security and real-controller boundary checks for Phase 3 guided demo."""
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+
+from app.desktop import engine_adapter
+from app.desktop import paths as desktop_paths
+from app.desktop.paths import (
+    cleanup_demo_session,
+    create_demo_session_dir,
+    demo_asset_path,
+    demo_temp_root,
+    sweep_demo_sessions,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def isolated_temp(monkeypatch, tmp_path):
+    monkeypatch.setattr("app.desktop.paths.tempfile.gettempdir", lambda: str(tmp_path))
+    return tmp_path
+
+
+def _session_id(n="1"):
+    return n * 32
+
+
+def test_demo_asset_is_real_short_av_media_and_packaged():
+    """The frozen build manifest explicitly collects the real bundled asset."""
+    asset = Path(demo_asset_path())
+    assert asset == ROOT / "app" / "assets" / "demo" / "demo_lecture.mp4"
+    assert asset.is_file() and asset.stat().st_size > 100_000
+    ffprobe = shutil.which("ffprobe") or str(ROOT / "bin" / "ffprobe.exe")
+    probe = subprocess.run(
+        [ffprobe, "-v", "error", "-show_entries", "format=duration",
+         "-show_streams", "-of", "json", str(asset)],
+        check=True, capture_output=True, text=True,
+    )
+    payload = json.loads(probe.stdout)
+    assert abs(float(payload["format"]["duration"]) - 10.005) < 0.15
+    kinds = {stream["codec_type"] for stream in payload["streams"]}
+    assert {"video", "audio"} <= kinds
+    spec = (ROOT / "app" / "packaging" / "lecturepack.spec").read_text(encoding="utf-8")
+    assert "demo_lecture.mp4" in spec and "demo_datas" in spec
+
+
+def test_session_workspace_is_sentinel_owned_and_sweep_is_idempotent(isolated_temp):
+    path = Path(create_demo_session_dir(_session_id("a")))
+    assert path.parent == Path(demo_temp_root())
+    assert json.loads((path / ".lecturepack-demo-session.json").read_text()) == {
+        "schema_version": 1, "session_id": _session_id("a"), "directory": path.name,
+    }
+    (path / "work.json").write_text("{}", encoding="utf-8")
+    assert sweep_demo_sessions() == [str(path)]
+    assert not path.exists()
+    assert sweep_demo_sessions() == []
+
+
+def test_cleanup_refuses_path_traversal_foreign_and_reparse_entries(isolated_temp, monkeypatch):
+    root = Path(demo_temp_root())
+    foreign = root / f"demo_{_session_id('b')}"
+    foreign.mkdir()
+    (foreign / "keep.txt").write_text("must remain", encoding="utf-8")
+    normal = root / "normal-job"
+    normal.mkdir()
+    assert not cleanup_demo_session(str(foreign))
+    assert not cleanup_demo_session(str(normal))
+    assert not cleanup_demo_session(str(root / ".." / "outside"))
+    assert foreign.exists() and normal.exists()
+
+    owned = Path(create_demo_session_dir(_session_id("c")))
+    outside = root.parent / "outside-target"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("must remain", encoding="utf-8")
+    try:
+        os.symlink(outside, owned / "linked-outside", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        # Windows CI may deny symlink creation without Developer Mode.  Still
+        # exercise the same fail-closed branch with a reparse-point boundary.
+        reparse_like = owned / "reparse-like"
+        reparse_like.mkdir()
+        original = desktop_paths._is_reparse_point
+        monkeypatch.setattr(
+            desktop_paths, "_is_reparse_point",
+            lambda candidate: Path(candidate) == reparse_like or original(Path(candidate)),
+        )
+    assert not cleanup_demo_session(str(owned), _session_id("c"))
+    assert owned.exists() and (outside / "keep.txt").exists()
+
+
+class _Signal:
+    def __init__(self):
+        self.slots = []
+
+    def connect(self, slot):
+        self.slots.append(slot)
+
+
+class _DemoController:
+    """Real pipeline boundary double: external process work stays outside unit tests."""
+    def __init__(self, config):
+        self.config = config
+        self.job = None
+        self._active_stages = set()
+        self.slide_worker = self.align_worker = self.export_worker = None
+        self.ffmpeg_wrapper = SimpleNamespace(process=None)
+        self.whisper_wrapper = SimpleNamespace(process=None)
+        self.run_pipeline_calls = 0
+        self.cancel_calls = 0
+        for name in ("stage_started", "stage_progress", "stage_log", "stage_finished",
+                     "stage_cached", "backend_info", "transcript_segment",
+                     "pause_state_changed", "pipeline_completed", "pipeline_failed"):
+            setattr(self, name, _Signal())
+
+    def set_job(self, job):
+        self.job = job
+
+    def run_pipeline(self):
+        self.run_pipeline_calls += 1
+
+    def cancel(self):
+        self.cancel_calls += 1
+
+
+class _Config:
+    def __init__(self, data_dir=None):
+        self.data_dir = str(data_dir or "persistent")
+        self.settings = {"ffmpeg_exe": "ffmpeg", "whisper_exe": "whisper", "whisper_model": "model"}
+        self.save_calls = 0
+
+    def save(self):
+        self.save_calls += 1
+
+    def get(self, key, default=None):
+        return self.settings.get(key, default)
+
+
+def test_start_demo_invokes_isolated_real_controller_and_never_mutates_profile(
+        monkeypatch, tmp_path, isolated_temp):
+    """A real Job is created from the asset, but external tools are mocked at their boundary."""
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    library = profile / "library.json"
+    config_file = profile / "config.json"
+    library.write_bytes(b'{"jobs":["normal"]}')
+    config_file.write_bytes(b'{"theme":"dark"}')
+    before = {p: p.read_bytes() for p in (library, config_file)}
+    monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
+    monkeypatch.setattr(engine_adapter, "JobController", _DemoController)
+    backend = MagicMock()
+    adapter = engine_adapter.LecturePackAdapter(backend, runtime_health_result=MagicMock(state="HEALTHY"))
+    adapter.config = _Config(str(profile))
+    adapter.config.settings["data_directory"] = str(profile)
+    adapter.win = MagicMock()
+    monkeypatch.setattr(adapter, "push_storage", lambda: None)
+
+    result = adapter.start_demo_job()
+
+    assert result["ok"] and Path(result["workspace"]).parent == Path(demo_temp_root())
+    demo = adapter._demo_session
+    assert demo["controller"].run_pipeline_calls == 1
+    assert demo["job"].manifest["source"]["original_path"] == str(Path(demo_asset_path()).resolve())
+    assert demo["job"].manifest["session_scoped"] is True
+    assert Path(demo["job"].paths["root"]).is_relative_to(Path(result["workspace"]))
+    assert {p: p.read_bytes() for p in (library, config_file)} == before
+    event = json.loads(backend.demo_event.emit.call_args.args[0])
+    assert event["operation_id"] == result["operation_id"] and event["session_id"] == result["session_id"]
+
+    again = adapter.start_demo_job()
+    assert again["idempotent"] is True and again["session_id"] == result["session_id"]
+    ended = adapter.end_demo_job("tour_exit")
+    assert ended["ok"] and demo["controller"].cancel_calls == 1
+    assert not Path(result["workspace"]).exists()
+    assert adapter._demo_session is None
+    assert {p: p.read_bytes() for p in (library, config_file)} == before
+
+
+@pytest.mark.parametrize("terminal", ["success", "error", "cancel"])
+def test_every_demo_terminal_path_sweeps_only_its_session(
+        monkeypatch, tmp_path, isolated_temp, terminal):
+    monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
+    monkeypatch.setattr(engine_adapter, "JobController", _DemoController)
+    adapter = engine_adapter.LecturePackAdapter(MagicMock(), runtime_health_result=MagicMock(state="HEALTHY"))
+    adapter.config = _Config(str(tmp_path / "profile"))
+    adapter.win = MagicMock()
+    monkeypatch.setattr(adapter, "push_storage", lambda: None)
+    started = adapter.start_demo_job()
+    workspace = Path(started["workspace"])
+    if terminal == "success":
+        adapter._on_demo_pipeline_completed()
+    elif terminal == "error":
+        adapter._on_demo_pipeline_failed("mocked tool failure")
+    else:
+        adapter.end_demo_job("cancelled")
+    assert not workspace.exists()
+    assert adapter._demo_session is None

@@ -46,6 +46,13 @@ for root, _dirs, files in os.walk(UI_DIR):
         rel = os.path.relpath(root, SPEC_DIR)  # e.g. "ui" or "ui/fonts"
         ui_datas.append((src, rel))
 
+# Phase 3's guided demo is a local, rights-clear media file.  It belongs in the
+# frozen application next to the web UI, never in a user data directory.
+DEMO_ASSET = os.path.join(SPEC_DIR, "assets", "demo", "demo_lecture.mp4")
+if not os.path.isfile(DEMO_ASSET) or os.path.getsize(DEMO_ASSET) == 0:
+    raise RuntimeError("missing required bundled guided-demo asset")
+demo_datas = [(DEMO_ASSET, os.path.join("assets", "demo"))]
+
 a = Analysis(
     # Enter through the package wrapper, not desktop/main.py directly: a
     # PyInstaller entry script runs as __main__ with no package, so main.py's
@@ -53,7 +60,7 @@ a = Analysis(
     [os.path.join(SPEC_DIR, "lecturepack_desktop.py")],
     pathex=[SPEC_DIR, REPO_ROOT],
     binaries=[],
-    datas=ui_datas + engine_datas + tzdata_datas,
+    datas=ui_datas + demo_datas + engine_datas + tzdata_datas,
     hiddenimports=[
         "PySide6.QtWebEngineWidgets",
         "PySide6.QtWebEngineCore",

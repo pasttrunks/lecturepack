@@ -38,6 +38,7 @@ class Backend(QObject):
         "install_smart_study", "cancel_smart_study", "launch_ollama_installer", "save_project",
         "browse_video", "import_video", "notify_drag_over", "media_link_support", "probe_media_url",
         "import_media_url", "cancel_media_url", "start_processing", "open_job", "delete_job",
+        "start_demo_job", "end_demo_job",
         "set_job_group", "delete_jobs", "set_jobs_group", "cancel_job", "pause_job", "resume_job",
         "restart_job", "retry_stage", "enqueue_job", "reorder_queue", "run_now", "remove_from_queue",
         "schedule_job", "unschedule_job", "get_notification_prefs", "set_notification_prefs",
@@ -76,6 +77,10 @@ class Backend(QObject):
     ai_done = Signal()
     ai_status = Signal(str)
     onboarding = Signal(str)
+    # Guided-demo lifecycle payloads are JSON only: operation/session identity,
+    # stage/progress, and terminal cleanup result.  The web UI can subscribe
+    # later without receiving a Qt object or a persistent job handle.
+    demo_event = Signal(str)
     update_available = Signal(str)
     update_progress = Signal(float)
     update_ready = Signal()
@@ -441,6 +446,14 @@ class Backend(QObject):
     @Slot(str)
     def start_processing(self, mode: str):
         self._adapter.start_processing(mode)
+
+    @Slot(result=str)
+    def start_demo_job(self) -> str:
+        return json.dumps(self._adapter.start_demo_job())
+
+    @Slot(str, result=str)
+    def end_demo_job(self, reason: str = "ended") -> str:
+        return json.dumps(self._adapter.end_demo_job(reason))
 
     @Slot(str)
     def open_job(self, job_id: str):
