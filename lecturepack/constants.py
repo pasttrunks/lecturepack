@@ -132,5 +132,23 @@ PRESETS = {
         "min_time_between_slides": 2.0,
         "dedup_phash_threshold": 6,
         **_COMMON_GUARDS,
-    }
+    },
+    # Short bundled lecture used by the guided demo.  This remains a normal
+    # CV detector profile; the higher sampling rate and shorter persistence
+    # windows are calibrated for its deliberately quick slide changes.
+    "demo": {
+        "sample_fps": 4.0,
+        "gaussian_blur_kernel": 3,
+        "major_threshold": 0.12,
+        "minor_threshold": 0.02,
+        "stability_window_sec": 0.75,
+        "stability_ssim": 0.96,
+        "stability_max_wait_sec": 1.5,
+        "min_time_between_slides": 1.0,
+        "dedup_phash_threshold": 4,
+        **_COMMON_GUARDS,
+        "persistence_look_ahead_sec": 0.25,
+        "major_persistence_ssim": 0.90,
+        "build_persistence_ssim": 0.96,
+    },
 }

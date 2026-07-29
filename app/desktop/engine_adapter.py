@@ -1062,8 +1062,14 @@ class LecturePackAdapter(EngineAdapter):
             "engine": self.config.get("engine", "auto"),
             "ollama_model": o.get("model", ""),
             "transcription_backend": self.config.get("transcription_backend", "local-whispercpp"),
+            "slide_detection_preset": self._slide_detection_preset(),
             "export_dir": self.config.data_dir,
         }
+
+    def _slide_detection_preset(self) -> str:
+        """Return the persisted user preset, failing closed to Balanced."""
+        value = self.config.get("slide_detection_preset", "balanced")
+        return value if value in ("conservative", "balanced", "detailed") else "balanced"
 
     def on_setting_changed(self, key: str, value: str):
         """Bridge UI setting changes into the engine's ConfigManager.
@@ -1097,6 +1103,11 @@ class LecturePackAdapter(EngineAdapter):
                 else "local-whispercpp"
             self.config.set("transcription_backend", val)
             self._log("[engine]", f"transcription backend set to {val}", "engine")
+        elif key == "slide_detection_preset":
+            self.config.set(
+                "slide_detection_preset",
+                value if value in ("conservative", "balanced", "detailed") else "balanced",
+            )
         # Re-emit so the UI reflects the persisted value.
         self._emit("settings_changed", self._settings_payload())
 
@@ -1404,6 +1415,9 @@ class LecturePackAdapter(EngineAdapter):
             config = self._make_demo_config(workspace)
             controller = JobController(config)
             job = Job(workspace, video_path=asset)
+            # The guided demo always uses its admitted real-CV calibration,
+            # independent of the user's normal lecture detector preference.
+            job.settings["preset"] = "demo"
             model_path = self._bundled_demo_model_path(config)
             if not model_path:
                 raise RuntimeError("The approved bundled fast Whisper model is unavailable.")
@@ -1762,6 +1776,9 @@ class LecturePackAdapter(EngineAdapter):
         if job is None:
             self._log("[error]", "No video selected.", "error")
             return
+        # Snapshot the current Settings choice onto the job before either the
+        # queued or immediate path.  JobController consumes this exact value.
+        job.settings["preset"] = self._slide_detection_preset()
         # One active job: if a pipeline is already running a DIFFERENT job, queue
         # this one (FIFO) instead of starting a second. It runs when the active
         # job finishes (see _promote_next).
@@ -2193,6 +2210,10 @@ class LecturePackAdapter(EngineAdapter):
 
     # -- queue / scheduling --------------------------------------------------
     def enqueue_job(self, job_id: str):
+        job = self._reload_job(job_id)
+        if job is not None:
+            job.settings["preset"] = self._slide_detection_preset()
+            job.save()
         self.queue.enqueue(job_id)
         self._push_queue()
 

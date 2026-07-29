@@ -78,3 +78,26 @@ def test_slide_detection(tmp_path):
 
     # Check Slide 7 (final slide at 60s)
     assert any(60.0 <= ts <= 65.0 for ts in timestamps), "Final slide not detected"
+
+
+def test_bundled_demo_real_detector_finds_calibrated_slide_sequence(tmp_path):
+    """The guided demo uses the real detector and its explicit CV preset."""
+    video_path = os.path.abspath("app/assets/demo/demo_lecture.mp4")
+    assert os.path.exists(video_path), "Bundled demo video missing"
+    job_paths = FileManager.init_job_dir(str(tmp_path), "demo_detection")
+    crop_region = {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}
+    worker = SlideDetectorWorker(
+        video_path, crop_region, [], PRESETS["demo"].copy(), job_paths)
+    results = []
+    worker.finished.connect(
+        lambda success, error, candidates: results.append((success, error, candidates)))
+
+    worker.run()
+
+    assert len(results) == 1
+    success, error, candidates = results[0]
+    assert success, f"Slide detector failed with error: {error}"
+    timestamps = [candidate["timestamp_seconds"] for candidate in candidates]
+    assert len(timestamps) == 4
+    assert timestamps == sorted(timestamps)
+    assert timestamps == pytest.approx([0.75, 4.0, 6.5, 8.75], abs=0.35)

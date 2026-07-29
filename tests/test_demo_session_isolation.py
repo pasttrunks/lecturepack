@@ -206,6 +206,10 @@ class _Config:
     def get(self, key, default=None):
         return self.settings.get(key, default)
 
+    def set(self, key, value):
+        self.settings[key] = value
+        self.save()
+
 
 def test_start_demo_invokes_isolated_real_controller_and_never_mutates_profile(
         monkeypatch, tmp_path, isolated_temp):
@@ -240,6 +244,7 @@ def test_start_demo_invokes_isolated_real_controller_and_never_mutates_profile(
         "transcription_backend": "local-whispercpp",
     }
     assert expected_whisper.items() <= demo["job"].settings["whisper"].items()
+    assert demo["job"].settings["preset"] == "demo"
     assert {p: p.read_bytes() for p in (library, config_file)} == before
     event = json.loads(backend.demo_event.emit.call_args.args[0])
     assert event["operation_id"] == result["operation_id"] and event["session_id"] == result["session_id"]
@@ -251,6 +256,48 @@ def test_start_demo_invokes_isolated_real_controller_and_never_mutates_profile(
     assert not Path(result["workspace"]).exists()
     assert adapter._demo_session is None
     assert {p: p.read_bytes() for p in (library, config_file)} == before
+
+
+@pytest.mark.parametrize(
+    ("requested", "persisted"),
+    [
+        ("conservative", "conservative"),
+        ("balanced", "balanced"),
+        ("detailed", "detailed"),
+        ("demo", "balanced"),
+        ("unexpected", "balanced"),
+    ],
+)
+def test_slide_detection_setting_is_guarded_persisted_and_reflected(
+        monkeypatch, tmp_path, requested, persisted):
+    monkeypatch.setattr(engine_adapter, "JobController", _DemoController)
+    adapter = engine_adapter.LecturePackAdapter(
+        MagicMock(), runtime_health_result=MagicMock(state="HEALTHY"))
+    adapter.config = _Config(tmp_path)
+
+    adapter.on_setting_changed("slide_detection_preset", requested)
+
+    assert adapter.config.settings["slide_detection_preset"] == persisted
+    assert adapter._settings_payload()["slide_detection_preset"] == persisted
+
+
+def test_normal_start_snapshots_detector_setting_while_demo_forces_demo(
+        monkeypatch, tmp_path):
+    monkeypatch.setattr(engine_adapter, "JobController", _DemoController)
+    adapter = engine_adapter.LecturePackAdapter(
+        MagicMock(), runtime_health_result=MagicMock(state="HEALTHY"))
+    adapter.config = _Config(tmp_path)
+    adapter.config.settings["slide_detection_preset"] = "detailed"
+    adapter.win = MagicMock()
+    video = tmp_path / "lecture.mp4"
+    video.write_bytes(b"fixture")
+    job = Job(str(tmp_path), video_path=str(video))
+    adapter._pending_job = job
+
+    adapter.start_processing("slides")
+
+    assert job.settings["preset"] == "detailed"
+    assert adapter.controller.run_pipeline_calls == 1
 
 
 @pytest.mark.parametrize("terminal", ["error", "cancel"])
