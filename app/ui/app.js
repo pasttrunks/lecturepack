@@ -13,6 +13,53 @@
     });
   };
 
+  /* ======================= guided tour models =======================
+     These reducers deliberately contain no DOM or bridge calls.  The DOM
+     controller below is a thin projection of their state, which keeps the
+     user-controlled tour and stale-event filtering testable without a live
+     QtWebEngine window. */
+  function GuidedTourModel(seen) {
+    var active = false, prompt = false, step = -1, completed = !!seen;
+    function snapshot() { return { active: active, prompt: prompt, step: step, completed: completed }; }
+    return {
+      offer: function () { if (!completed && !active) prompt = true; return snapshot(); },
+      start: function () { prompt = false; active = true; step = 0; return snapshot(); },
+      replay: function () { prompt = false; active = true; step = 0; return snapshot(); },
+      next: function (count) { if (active && step < count - 1) step += 1; return snapshot(); },
+      back: function () { if (active && step > 0) step -= 1; return snapshot(); },
+      exit: function () { active = false; prompt = false; step = -1; completed = true; return snapshot(); },
+      snapshot: snapshot
+    };
+  }
+
+  function GuidedDemoSessionModel() {
+    var operationId = '', sessionId = '', active = false, status = 'idle', stage = '', progress = 0, error = '', terminal = false;
+    function snapshot() { return { operationId: operationId, sessionId: sessionId, active: active, status: status, stage: stage, progress: progress, error: error, terminal: terminal }; }
+    function same(event) { return !!(event && event.operation_id && event.session_id && event.operation_id === operationId && event.session_id === sessionId); }
+    return {
+      starting: function () { active = true; terminal = false; status = 'starting'; stage = 'prepare'; progress = 0; error = ''; return snapshot(); },
+      started: function (result) {
+        if (!result || !result.ok || !result.operation_id || !result.session_id) { active = false; status = 'error'; error = result && result.error || 'Could not start the guided demo.'; return snapshot(); }
+        operationId = result.operation_id; sessionId = result.session_id; active = true; terminal = false; status = 'started'; return snapshot();
+      },
+      event: function (event) {
+        if (terminal || !same(event)) return { accepted: false, state: snapshot() };
+        status = event.status || status;
+        if (event.stage !== undefined) stage = event.stage;
+        if (typeof event.progress === 'number') progress = Math.max(0, Math.min(100, event.progress));
+        if (event.error) error = event.error;
+        if (status === 'cleaned') { active = false; terminal = true; status = 'ended'; }
+        else if (status === 'failed') { active = false; terminal = true; }
+        return { accepted: true, state: snapshot() };
+      },
+      cancelling: function () { if (active) status = 'cancelling'; return snapshot(); },
+      snapshot: snapshot
+    };
+  }
+  /* ===================== guided tour models end ===================== */
+  window.LPTourModel = GuidedTourModel;
+  window.LPDemoSessionModel = GuidedDemoSessionModel;
+
   var THUMB_SVG = '<svg width="{S}" height="{S}" viewBox="0 0 24 24" fill="none" stroke="{C}" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
   function thumb(size, color) { return THUMB_SVG.replace(/\{S\}/g, size).replace('{C}', color); }
 
@@ -2163,6 +2210,156 @@
     $('home-empty').hidden = !empty;
   }
 
+  /* ======================= guided tour / demo ======================= */
+  var TOUR_STORAGE_KEY = 'lecturepack.guided-tour.seen.v1';
+  var TOUR_STEPS = [
+    { screen: 'home', target: '#dropzone', title: 'Bring in a lecture', copy: 'Start here to choose a video from your computer. Your original recording stays untouched.' },
+    { screen: 'process', target: '[data-nav="process"]', title: 'Watch processing', copy: 'Follow the real local pipeline as it builds a transcript and finds slides.' },
+    { screen: 'review', target: '[data-nav="review"]', title: 'Review what matters', copy: 'Check slides and transcript details before you export your study materials.' },
+    { screen: 'exports', target: '#btn-export-top', title: 'Export your pack', copy: 'When you are ready, create the formats you need and keep everything on your machine.' }
+  ];
+  function tourSeen() {
+    try { return window.localStorage.getItem(TOUR_STORAGE_KEY) === '1'; } catch (e) { return false; }
+  }
+  function markTourSeen() {
+    try { window.localStorage.setItem(TOUR_STORAGE_KEY, '1'); } catch (e) {}
+  }
+  var guidedTour = GuidedTourModel(tourSeen());
+  var guidedDemo = GuidedDemoSessionModel();
+  var tourRuntimeHealthy = false;
+
+  function stageLabel(name) {
+    var labels = { prepare: 'Preparing demo', inspect: 'Inspecting video', extract_audio: 'Extracting audio', transcribe: 'Transcribing locally', detect_slides: 'Detecting slides', align: 'Aligning notes', review_ready: 'Preparing review', export: 'Exporting study pack', complete: 'Complete' };
+    return labels[name] || (name ? String(name).replace(/_/g, ' ') : 'Preparing demo');
+  }
+  function renderDemoCard() {
+    var card = $('glowing-demo-card'), status = $('demo-card-status'), action = $('demo-card-action');
+    if (!card || !status || !action) return;
+    var d = guidedDemo.snapshot();
+    card.dataset.demoState = d.status === 'failed' || d.status === 'error' ? 'error' : (d.active ? 'running' : 'idle');
+    if (d.status === 'error' || d.status === 'failed') {
+      status.textContent = d.error || 'The guided demo could not start.'; action.textContent = 'Try again'; return;
+    }
+    if (d.active) {
+      status.textContent = stageLabel(d.stage) + ' · ' + Math.round(d.progress) + '%';
+      action.textContent = d.status === 'cancelling' ? 'Stopping…' : 'End demo'; return;
+    }
+    if (d.status === 'ended') { status.textContent = 'Demo ended and its temporary files were removed.'; action.textContent = 'Try guided demo'; return; }
+    status.textContent = 'See the local processing flow with a short bundled lecture.';
+    action.textContent = 'Try guided demo';
+  }
+  function positionTourSpotlight() {
+    var state = guidedTour.snapshot(), box = $('tour-spotlight-box'), arrow = $('tour-arrow');
+    if (!state.active || !box || !arrow) return;
+    var step = TOUR_STEPS[state.step], target = step && document.querySelector(step.target);
+    if (!target) { box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; return; }
+    var r = target.getBoundingClientRect(), pad = 7;
+    box.style.left = Math.max(6, Math.round(r.left - pad)) + 'px';
+    box.style.top = Math.max(6, Math.round(r.top - pad)) + 'px';
+    box.style.width = Math.max(0, Math.round(r.width + pad * 2)) + 'px';
+    box.style.height = Math.max(0, Math.round(r.height + pad * 2)) + 'px';
+    arrow.hidden = false;
+    arrow.style.left = Math.round(r.left + Math.min(r.width - 18, 24)) + 'px';
+    arrow.style.top = Math.max(8, Math.round(r.top - 19)) + 'px';
+  }
+  function renderGuidedTour() {
+    var state = guidedTour.snapshot(), overlay = $('guided-tour-overlay');
+    if (!overlay) return;
+    overlay.hidden = !state.active && !state.prompt;
+    if (overlay.hidden) return;
+    var isPrompt = state.prompt, step = state.active ? TOUR_STEPS[state.step] : null;
+    $('tour-step-label').textContent = isPrompt ? 'WELCOME' : 'STEP ' + (state.step + 1) + ' OF ' + TOUR_STEPS.length;
+    $('tour-title').textContent = isPrompt ? 'A quick look around' : step.title;
+    $('tour-copy').textContent = isPrompt ? 'Want a short, user-controlled tour of the main parts of LecturePack?' : step.copy;
+    $('tour-prompt-actions').hidden = !isPrompt;
+    $('tour-step-actions').hidden = !state.active;
+    $('btn-tour-back').disabled = !state.active || state.step === 0;
+    $('btn-tour-next').textContent = state.active && state.step === TOUR_STEPS.length - 1 ? 'Finish' : 'Next';
+    $('tour-progress').innerHTML = isPrompt ? '' : TOUR_STEPS.map(function (_, i) { return '<span class="' + (i === state.step ? 'active' : '') + '"></span>'; }).join('');
+    $('tour-spotlight-box').style.display = state.active ? 'block' : 'none';
+    $('tour-arrow').style.display = state.active ? 'block' : 'none';
+    if (state.active) requestAnimationFrame(positionTourSpotlight);
+  }
+  function offerGuidedTour() {
+    if (!tourRuntimeHealthy) return;
+    guidedTour.offer(); renderGuidedTour();
+  }
+  function startGuidedTour(replay) {
+    if (replay) guidedTour.replay(); else guidedTour.start();
+    var step = TOUR_STEPS[guidedTour.snapshot().step];
+    if (step) setScreen(step.screen);
+    renderGuidedTour();
+  }
+  function exitGuidedTour() {
+    guidedTour.exit(); markTourSeen(); renderGuidedTour();
+    endGuidedDemo('tour_exit');
+  }
+  function moveGuidedTour(direction) {
+    var before = guidedTour.snapshot();
+    if (!before.active) return;
+    if (direction > 0 && before.step === TOUR_STEPS.length - 1) { exitGuidedTour(); return; }
+    if (direction > 0) guidedTour.next(TOUR_STEPS.length); else guidedTour.back();
+    var step = TOUR_STEPS[guidedTour.snapshot().step];
+    if (step) setScreen(step.screen);
+    renderGuidedTour();
+  }
+  function parseBridgeResult(value) {
+    if (typeof value === 'string') { try { return JSON.parse(value); } catch (e) { return null; } }
+    return value && typeof value === 'object' ? value : null;
+  }
+  function startGuidedDemo() {
+    var current = guidedDemo.snapshot();
+    if (current.active) { endGuidedDemo('user_cancelled'); return; }
+    if (!lpBridge.connected()) { toast('Guided demo needs the LecturePack desktop app.'); return; }
+    guidedDemo.starting(); renderDemoCard();
+    lpBridge.startDemoJob().then(function (value) {
+      var result = parseBridgeResult(value);
+      guidedDemo.started(result);
+      renderDemoCard();
+      if (result && result.ok) setScreen('process');
+      else if (result && result.error) toast(result.error);
+    }, function () { guidedDemo.started({ ok: false, error: 'Could not start the guided demo.' }); renderDemoCard(); });
+  }
+  function endGuidedDemo(reason) {
+    var current = guidedDemo.snapshot();
+    if (!current.active) return;
+    guidedDemo.cancelling(); renderDemoCard();
+    if (lpBridge.connected()) lpBridge.endDemoJob(reason || 'ended').then(function () {}, function () {});
+  }
+  function receiveDemoEvent(value) {
+    var event = parseBridgeResult(value);
+    if (!event) return;
+    // A start signal can legitimately arrive before the slot return reaches JS.
+    // Adopt only that first live identity; every later mismatched/stale event is
+    // rejected by the model, so another demo cannot repaint this card.
+    var before = guidedDemo.snapshot();
+    if (!before.operationId && before.status === 'starting' && event.status === 'started') guidedDemo.started({ ok: true, operation_id: event.operation_id, session_id: event.session_id });
+    var handled = guidedDemo.event(event);
+    if (!handled.accepted) return;
+    renderDemoCard();
+    if (event.status === 'failed') toast(event.error || 'Guided demo failed.');
+  }
+  function isTourFormInput(target) {
+    if (!target || !target.matches) return false;
+    return target.matches('input, textarea, select, [contenteditable="true"]');
+  }
+  function wireGuidedTour() {
+    $('btn-tour-start').addEventListener('click', function () { startGuidedTour(false); });
+    $('btn-tour-skip').addEventListener('click', exitGuidedTour);
+    $('btn-tour-next').addEventListener('click', function () { moveGuidedTour(1); });
+    $('btn-tour-back').addEventListener('click', function () { moveGuidedTour(-1); });
+    $('btn-tour-exit').addEventListener('click', exitGuidedTour);
+    $('btn-replay-tour').addEventListener('click', function () { startGuidedTour(true); });
+    $('glowing-demo-card').addEventListener('click', startGuidedDemo);
+    document.addEventListener('keydown', function (e) {
+      if (!guidedTour.snapshot().active || isTourFormInput(e.target)) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); moveGuidedTour(1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); moveGuidedTour(-1); }
+    });
+    window.addEventListener('resize', positionTourSpotlight);
+    window.addEventListener('scroll', positionTourSpotlight, true);
+  }
+
   /* ======================= Smart Study ======================= */
 
   function presetByKey(d, key) {
@@ -3014,6 +3211,7 @@
 
   function wireBridge() {
     lpBridge.on('repair_event', function (json) { RuntimeSetupGate.event(json); });
+    lpBridge.on('demo_event', receiveDemoEvent);
     lpBridge.on('queue_changed', function (json) {
       try { LP.data.queue = JSON.parse(json); } catch (e) { return; }
       renderQueue();
@@ -3414,7 +3612,11 @@
             if (b.theme) setTheme(b.theme);
             if (b.version) { LP.data.version = b.version; $('app-version').textContent = b.version; }
             RuntimeSetupGate.admit(b);
-            if (b.runtime_health_state !== 'SETUP_REQUIRED') startNormalBridgeActivity();
+            if (b.runtime_health_state !== 'SETUP_REQUIRED') {
+              tourRuntimeHealthy = b.runtime_health_state === 'HEALTHY';
+              startNormalBridgeActivity();
+              offerGuidedTour();
+            }
           } catch (e) { console.error('bootstrap parse', e); }
         });
       } else startNormalBridgeActivity();
@@ -3453,12 +3655,14 @@
     renderQuiz();
     renderExportFormats();
     renderExportPhase();
+    renderDemoCard();
     setScreen('home');
     setTheme('dark');           // dark by default (design decision)
     setStudyTab('chat');
     RuntimeSetupGate.wire();
     RuntimeSetupGate.beginBootstrap();
     wire();
+    wireGuidedTour();
     wireBridge();
     window.addEventListener('resize', function () { LP.motion.indicator(); });
   }

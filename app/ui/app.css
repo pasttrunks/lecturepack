@@ -713,6 +713,32 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
    panel 70% visible at removal. */
 .lp-pop.out{animation:lppopout var(--motion-fast) var(--motion-ease-in) both}
 
+/* --- 3.8a guided tour -----------------------------------------------------
+   QtWebEngine on Windows can hit-test a full-viewport SVG mask even when its
+   parent says pointer-events:none.  The tour therefore uses one small CSS box
+   with an oversized shadow for the dimmer.  The full-viewport wrapper is also
+   pointer-transparent; only the compact instruction card can receive input. */
+#guided-tour-overlay{position:fixed;inset:0;z-index:170;pointer-events:none}
+#tour-spotlight-box{position:fixed;left:0;top:0;width:0;height:0;border:2px solid var(--orange);border-radius:12px;box-shadow:0 0 0 9999px rgba(8,10,14,.65),0 0 25px rgba(255,122,0,.6);pointer-events:none;transition:left var(--motion-seat) var(--motion-spring),top var(--motion-seat) var(--motion-spring),width var(--motion-seat) var(--motion-spring),height var(--motion-seat) var(--motion-spring);will-change:left,top,width,height}
+#tour-arrow{position:fixed;width:13px;height:13px;border-right:3px solid var(--orange);border-bottom:3px solid var(--orange);transform:rotate(45deg);pointer-events:none;filter:drop-shadow(0 0 5px rgba(255,122,0,.7));transition:left var(--motion-seat) var(--motion-spring),top var(--motion-seat) var(--motion-spring)}
+#guided-tour-card{position:fixed;right:24px;bottom:24px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);padding:18px;pointer-events:auto}
+#tour-step-label{font:600 10px 'JetBrains Mono';letter-spacing:.14em;color:var(--orange-ink);text-transform:uppercase;margin-bottom:7px}
+#tour-title{font:700 19px 'Space Grotesk';letter-spacing:-.02em;margin:0 0 7px}
+#tour-copy{font-size:13px;line-height:1.52;color:var(--muted);margin:0 0 14px}
+#tour-progress{display:flex;gap:5px;margin:0 0 15px}
+#tour-progress span{display:block;width:22px;height:4px;border-radius:3px;background:var(--line);transition:background-color var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-spring)}
+#tour-progress span.active{background:var(--orange);transform:translateY(-1px)}
+#tour-prompt-actions,#tour-step-actions{display:flex;align-items:center;gap:8px}
+#tour-prompt-actions button,#tour-step-actions button{font:700 12px 'Space Grotesk';border-radius:8px;padding:9px 12px;cursor:pointer}
+#btn-tour-start,#btn-tour-next{background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink)}
+#btn-tour-skip,#btn-tour-back,#btn-tour-exit{background:var(--panel);color:var(--ink);border:2px solid var(--border)}
+#btn-tour-exit{color:var(--red);border-color:var(--red)}
+#glowing-demo-card{transition:border-color var(--motion-normal) var(--motion-ease),box-shadow var(--motion-normal) var(--motion-ease),transform var(--motion-normal) var(--motion-spring)}
+#glowing-demo-card:hover{box-shadow:var(--shadow-hard),0 0 22px rgba(255,122,0,.28)}
+#glowing-demo-card[data-demo-state="running"]{border-color:var(--blue);box-shadow:var(--shadow-hard),0 0 22px rgba(137,180,250,.24)}
+#glowing-demo-card[data-demo-state="error"]{border-color:var(--red)}
+@media (max-width:640px){#guided-tour-card{left:16px;right:16px;bottom:16px;width:auto}#tour-prompt-actions,#tour-step-actions{flex-wrap:wrap}#tour-step-actions span{display:none}}
+
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{
     animation-duration:.001ms !important;
@@ -740,7 +766,7 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   .lp-anim-in,.lp-anim-in-fast,.lp-anim-fade,
   main [data-screen]:not([hidden]),
   .lp-scrim,.lp-pop,.lp-tip,.lp-toast,
-  .lp-reveal,.lp-reveal>*{
+  .lp-reveal,.lp-reveal>*,#tour-spotlight-box,#tour-arrow{
     animation:none !important;
   }
   /* animation:none alone is sufficient and is deliberately ALL that is done

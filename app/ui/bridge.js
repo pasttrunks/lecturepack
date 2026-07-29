@@ -27,7 +27,7 @@ window.lpBridge = (function () {
     'queue_changed', 'pause_state', 'notification_prefs', 'notification_navigate',
     'diagnostics', 'job_completed', 'post_completion',
     'media_link_state', 'media_probe', 'media_progress', 'media_done',
-    'active_job', 'storage_changed', 'repair_event'
+    'active_job', 'storage_changed', 'repair_event', 'demo_event'
   ];
 
   function connectQt() {
@@ -95,6 +95,15 @@ window.lpBridge = (function () {
     },
     saveRuntimeRepairDiagnostics: function (fileName) {
       return this.call('save_runtime_repair_diagnostics', fileName);
+    },
+    // The guided demo is intentionally a separate, session-scoped controller.
+    // These wrappers keep the UI on the narrow bridge contract instead of
+    // reaching into persistent job operations.
+    startDemoJob: function () {
+      return this.call('start_demo_job');
+    },
+    endDemoJob: function (reason) {
+      return this.call('end_demo_job', reason || 'ended');
     }
   };
 })();

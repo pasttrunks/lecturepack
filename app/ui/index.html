@@ -120,6 +120,15 @@
         <div id="jobs-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px"></div>
         </div>
 
+        <section id="home-demo" aria-labelledby="guided-demo-heading" style="margin-top:32px">
+          <div style="display:flex;align-items:baseline;gap:11px;margin-bottom:14px"><h2 id="guided-demo-heading" style="font:500 12px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;margin:0;color:var(--ink)">Guided demo</h2><span style="font:500 12px 'JetBrains Mono';color:var(--muted)">10 seconds · local only</span></div>
+          <button id="glowing-demo-card" class="lp-hit lp-press" type="button" style="width:100%;text-align:left;display:flex;align-items:center;gap:16px;background:var(--panel);border:2px solid var(--orange);border-radius:14px;padding:16px 18px;cursor:pointer;color:var(--ink);box-shadow:var(--shadow-hard)">
+            <span style="width:40px;height:40px;flex:none;border-radius:11px;background:var(--orange);color:var(--on-signal);display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></span>
+            <span style="flex:1;min-width:0"><span style="display:block;font-weight:700;font-size:15px;margin-bottom:3px">Polar Bears 10s Demo.mp4</span><span id="demo-card-status" style="display:block;font:500 11px 'JetBrains Mono';color:var(--muted)">See the local processing flow with a short bundled lecture.</span></span>
+            <span id="demo-card-action" style="font:700 12px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:8px;padding:8px 12px;white-space:nowrap">Try guided demo</span>
+          </button>
+        </section>
+
         <div id="home-empty" hidden>
         <div style="display:flex;flex-direction:column;align-items:center;text-align:center;padding:46px 24px;border:2px dashed var(--line);border-radius:16px;background:var(--panel);box-shadow:var(--shadow-soft)">
           <div style="width:66px;height:66px;background:var(--blue-soft);border:2px solid var(--border);border-radius:16px;display:flex;align-items:center;justify-content:center;margin-bottom:18px;box-shadow:var(--shadow-soft)"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--blue-ink)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg></div>
@@ -502,6 +511,11 @@
             </div>
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
+            <div style="font-weight:700;font-size:16px;margin-bottom:6px">Onboarding</div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:13px">Take the short, user-controlled walkthrough again whenever you want.</div>
+            <button id="btn-replay-tour" class="lp-hit lp-press-sm" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:10px 16px;cursor:pointer;color:var(--ink)">Replay guided tour</button>
+          </div>
+          <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:13px"><div style="font-weight:700;font-size:16px">Updates</div><span id="update-badge" hidden style="display:flex;align-items:center;gap:5px;font:600 10px 'JetBrains Mono';text-transform:uppercase;background:var(--orange-soft);color:var(--orange-ink);border:1.5px solid var(--orange);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>Update available</span></div>
             <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:9px"><span style="color:var(--muted)">Current version</span><span id="app-version" style="font:700 12px 'JetBrains Mono'">0.0.0</span></div>
             <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px;margin-bottom:11px"><span style="color:var(--muted)">Update channel</span>
@@ -549,6 +563,30 @@
 
   <!-- focus exit pill -->
   <button id="focus-pill" hidden style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;font:700 12px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:22px;padding:9px 18px;cursor:pointer;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>Exit focus · Esc</button>
+
+  <!-- Guided tour: the outer layer and spotlight never receive pointer input.
+       Only this compact card is interactive, avoiding QtWebEngine SVG/mask hit
+       testing while leaving the highlighted application control usable. -->
+  <div id="guided-tour-overlay" hidden aria-live="polite" aria-atomic="true">
+    <div id="tour-spotlight-box" aria-hidden="true"></div>
+    <div id="tour-arrow" aria-hidden="true"></div>
+    <section id="guided-tour-card" aria-labelledby="tour-title">
+      <div id="tour-step-label">QUICK TOUR</div>
+      <h2 id="tour-title">A quick look around</h2>
+      <p id="tour-copy">See the main steps, then stay in control of what happens next.</p>
+      <div id="tour-progress" aria-hidden="true"></div>
+      <div id="tour-prompt-actions">
+        <button id="btn-tour-start" class="lp-hit lp-press" type="button">Take guided tour</button>
+        <button id="btn-tour-skip" class="lp-hit lp-press-sm" type="button">Skip to app</button>
+      </div>
+      <div id="tour-step-actions" hidden>
+        <button id="btn-tour-exit" class="lp-hit lp-press-sm" type="button">Exit demo</button>
+        <span style="flex:1"></span>
+        <button id="btn-tour-back" class="lp-hit lp-press-sm" type="button">Back</button>
+        <button id="btn-tour-next" class="lp-hit lp-press" type="button">Next</button>
+      </div>
+    </section>
+  </div>
 
   <!-- ===== NEW JOB OVERLAY ===== -->
   <div id="onb-overlay" hidden role="dialog" aria-modal="true" class="lp-scrim" style="position:fixed;inset:0;z-index:50;background:rgba(8,10,14,.62);display:flex;align-items:center;justify-content:center;padding:32px">
