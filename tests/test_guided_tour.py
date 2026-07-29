@@ -429,5 +429,8 @@ def test_real_demo_bridge_contract_and_card_are_wired_without_timers():
     assert "#glowing-demo-card.lp-demo-tour-active" in css
     assert "@keyframes lpdemoprompt" in css
     assert "animation:none!important" in css
+    spotlight_glow = "0 0 25px rgba(255,122,0,.6)"
+    assert spotlight_glow in css
+    assert "#glowing-demo-card.lp-demo-tour-active{border-color:var(--orange);box-shadow:var(--shadow-hard)," + spotlight_glow in css
     assert "setDemoTourInteraction(state.active && flow.phase === 'import')" in js
     assert "setTimeout" not in js[js.index("function startGuidedDemo"):js.index("function isTourFormInput")]
