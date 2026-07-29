@@ -1,9 +1,9 @@
 ---
 phase: 04
 slug: visual-artifact-reliability
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: automated-ready
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-29
 ---
 
@@ -32,26 +32,38 @@ created: 2026-07-29
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 04-01-01 | 01 | 1 | VIS-02 | T-04-04 | Pre-visible root theme and idempotent persistence | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ⬜ pending |
-| 04-01-02 | 01 | 1 | VIS-01, VIS-03 | T-04-05 | Navigation-only entrance and targeted in-place updates | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ⬜ pending |
-| 04-02-01 | 02 | 2 | VIS-04, VIS-05 | T-04-07 | Inert tooltip and reachable very-small layout | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ⬜ pending |
-| 04-02-02 | 02 | 2 | VIS-05 | T-04-08, T-04-09 | Intended focus and coalesced live geometry | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ⬜ pending |
-| 04-03-01 | 03 | 3 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | T-04-10 | Focused integrated automated evidence | focused integration | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ existing | ⬜ pending |
-| 04-03-02 | 03 | 3 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | T-04-10 | Full-suite evidence and honest lifecycle flags | full integration | `python -m pytest -q` | ✅ existing | ⬜ pending |
+| 04-01-01 | 01 | 1 | VIS-02 | T-04-04 | Pre-visible root theme and idempotent persistence | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ✅ green |
+| 04-01-02 | 01 | 1 | VIS-01, VIS-03 | T-04-05 | Navigation-only entrance and targeted in-place updates | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ✅ green |
+| 04-02-01 | 02 | 2 | VIS-04, VIS-05 | T-04-07 | Inert tooltip and reachable very-small layout | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ✅ green |
+| 04-02-02 | 02 | 2 | VIS-05 | T-04-08, T-04-09 | Intended focus and coalesced live geometry | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ✅ green |
+| 04-03-01 | 03 | 3 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | T-04-10 | Focused integrated automated evidence | focused integration | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ existing | ✅ green |
+| 04-03-02 | 03 | 3 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | T-04-10 | Full-suite evidence and honest lifecycle flags | full integration | `LECTUREPACK_ONEDIR_FIXTURE=C:\Users\marsh\Documents\LecturePack-beta6-plan\app\dist\LecturePack python -m pytest -q` | ✅ existing | ✅ green |
 | 04-04-01 | 04 | 4 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | T-04-10 | Handoff with actual automated evidence | handoff | `python -m pytest -q` | ✅ existing | ⬜ pending |
 | 04-04-02 | 04 | 4 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | T-04-11 | Packaged gate/tour focus and physical visual behavior | blocking packaged human verification | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ existing | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
+## Plan 03 Automated Evidence
+
+- **Fixture gate (read-only):** `python -c "from pathlib import Path; from app.packaging import build; fixture=Path(r'''C:\\Users\\marsh\\Documents\\LecturePack-beta6-plan\\app\\dist\\LecturePack'''); violations=build.check_clean_state(fixture); print('CLEAN_STATE_VIOLATIONS=' + repr(violations)); raise SystemExit(0 if not violations else 1)"`
+  - Result: `CLEAN_STATE_VIOLATIONS=[]`; exit `0`. The existing onedir fixture was not modified.
+- **Focused integration:** `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py`
+  - Result: `53 passed in 0.77s`; exit `0`.
+- **Full integration:** `LECTUREPACK_ONEDIR_FIXTURE=C:\\Users\\marsh\\Documents\\LecturePack-beta6-plan\\app\\dist\\LecturePack python -m pytest -q`
+  - Result: `853 passed, 1 warning in 296.00s (0:04:56)`; exit `0`.
+  - Warning retained: Python `zipfile` reports a deliberately exercised duplicate archive member in `tests/test_runtime_repair.py`; no test failed.
+
+**Lifecycle completion date:** 2026-07-29
+
 ## Automated Coverage Readiness Requirements
 
-- [ ] Extend `tests/test_ui_tokens_motion_responsive.py`, `tests/test_webview_theme.py`, and `tests/test_guided_tour.py` with explicit VIS-01 through VIS-05 coverage; do not create a parallel UI test framework.
-- [ ] Add a deterministic DOM/reducer seam that records root `animationstart` events and proves only navigation to a different page can generate them.
-- [ ] Add startup/bridge coverage proving a fresh profile applies Light before visibility and a user theme action atomically applies and immediately persists one value.
-- [ ] Add a QtWebEngine viewport/DPI helper that asserts no horizontal overflow, required-action visibility, focus containment, geometry tracking, and an empty console-error collection.
-- [ ] Add model-name tooltip tests for mouse hover and keyboard focus, exact full text, `aria-describedby`, viewport bounds, and no layout reflow.
-- [ ] Add `app/desktop/main.py` coverage proving pre-visible theme readiness and confirming no 1080x680 Phase-4 minimum prevents the 480x560 matrix.
-- [ ] After all vertical TDD slices and integrated suites pass, set `wave_0_complete: true` and `nyquist_compliant: true` in this frontmatter; retain both false for any missing or failing seam.
+- [x] Extend `tests/test_ui_tokens_motion_responsive.py`, `tests/test_webview_theme.py`, and `tests/test_guided_tour.py` with explicit VIS-01 through VIS-05 coverage; do not create a parallel UI test framework.
+- [x] Add a deterministic DOM/reducer seam that records root `animationstart` events and proves only navigation to a different page can generate them.
+- [x] Add startup/bridge coverage proving a fresh profile applies Light before visibility and a user theme action atomically applies and immediately persists one value.
+- [x] Add a QtWebEngine viewport/DPI helper that asserts no horizontal overflow, required-action visibility, focus containment, geometry tracking, and an empty console-error collection.
+- [x] Add model-name tooltip tests for mouse hover and keyboard focus, exact full text, `aria-describedby`, viewport bounds, and no layout reflow.
+- [x] Add `app/desktop/main.py` coverage proving pre-visible theme readiness and confirming no 1080x680 Phase-4 minimum prevents the 480x560 matrix.
+- [x] After all vertical TDD slices and integrated suites pass, set `wave_0_complete: true` and `nyquist_compliant: true` in this frontmatter; retain both false for any missing or failing seam.
 
 ## Manual-Only Verifications
 
@@ -63,11 +75,11 @@ created: 2026-07-29
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** automated readiness approved on 2026-07-29; the Plan 04 physical packaged visual verification remains pending.
