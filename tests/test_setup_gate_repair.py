@@ -105,6 +105,14 @@ def test_executable_reducer_seam_covers_the_authoritative_gate_lifecycle() -> No
       gate.event({operation_id:'ready',kind:'admitted'}); if (state() !== 'ready' || !gate.snapshot().terminal) fail(17);
       gate.event({operation_id:'ready',kind:'failed'}); if (state() !== 'ready') fail(18);
       if (gate.accept({operation_id:'ready',kind:'admitted'})) fail(19);
+
+      // Repair admission must become healthy, while a later SETUP_REQUIRED
+      // assessment terminalizes that operation so its late callback is inert.
+      gate.begin('repair-admitted', 'repairing'); gate.event({operation_id:'repair-admitted',kind:'admitted'});
+      if (state() !== 'ready' || !gate.snapshot().healthy) fail(20);
+      gate.begin('late-after-reset', 'repairing'); gate.bootstrap({runtime_health_state:'SETUP_REQUIRED'});
+      gate.event({operation_id:'late-after-reset',kind:'admitted'});
+      if (gate.snapshot().healthy || gate.accept({operation_id:'late-after-reset',kind:'admitted'})) fail(21);
     '''
     result = subprocess.run(["node", "-e", program], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr

@@ -360,6 +360,11 @@ def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
     assert "target: '#demo-study-actions'" in js
     assert "target: '#btn-export-all'" in js
     assert 'id="btn-replay-tour"' in html
+    assert '<section id="home-demo"' in html and 'id="home-demo"' in html.split('>', 1)[1]
+    home_demo = html.split('<section id="home-demo"', 1)[1].split('>', 1)[0]
+    onboarding = html.split('<div id="settings-onboarding"', 1)[1].split('>', 1)[0]
+    assert 'hidden' in home_demo
+    assert 'hidden' in onboarding
     assert "Replay guided tour" in html
     assert "Take guided tour" in html
     assert "Skip to app" in html
@@ -370,6 +375,21 @@ def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
     assert "guidedTour.exit()" in exit_block
     assert "setScreen('home')" in exit_block
     assert "endGuidedDemo('tour_exit')" in exit_block
+    admission_start = js.index("function setDemoAdmissionAvailable")
+    admission_end = js.index("function stageLabel", admission_start)
+    admission_block = js[admission_start:admission_end]
+    assert "demoAdmissionAvailable = next" in admission_block
+    assert "demoHome.hidden = !next" in admission_block
+    assert "onboarding.hidden = !next" in admission_block
+    assert "if (!wasAvailable) offerGuidedTour();" in admission_block
+    assert "overlay.hidden = !demoAdmissionAvailable" in js
+    start_tour = js[js.index("function startGuidedTour"):js.index("function exitGuidedTour")]
+    start_demo = js[js.index("function startGuidedDemo"):js.index("function endGuidedDemo")]
+    assert "if (!demoAdmissionAvailable) return;" in start_tour
+    assert "if (!demoAdmissionAvailable) return;" in start_demo
+    gate = js[js.index("var RuntimeSetupGate ="):js.index("/* Clears", js.index("var RuntimeSetupGate ="))]
+    assert "syncDemoAdmission(view);" in gate
+    assert "setDemoAdmissionAvailable(!!(view && view.healthy" in gate
 
 
 def test_healthy_runtime_markup_has_no_stale_pyramid_or_export_count():

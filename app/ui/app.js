@@ -2009,7 +2009,7 @@
       bootstrap: function (bootstrap) {
         bootstrapPending = false;
         if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') {
-          healthy = false;
+          healthy = false; terminal = true;
           if (!activeOperation) { state = 'gate'; terminal = false; offer = null; cancelPending = false; }
         } else if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY') {
           healthy = true;
@@ -2145,9 +2145,16 @@
     function admit(bootstrap) {
       bootstrapSnapshot = bootstrap && bootstrap.setup_required || bootstrap || bootstrapSnapshot;
       var before = eventModel.snapshot(), view = eventModel.bootstrap(bootstrap);
+      syncDemoAdmission(view);
       if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') { render(); return; }
       if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !before.activeOperation) { setUnderlyingInert(false); return; }
       if (view.state === 'ready') ready();
+    }
+    // The guided demo is available only after this authoritative setup gate
+    // admits the runtime. Its controller owns both initial and repair paths.
+    function syncDemoAdmission(view) {
+      setDemoAdmissionAvailable(!!(view && view.healthy && !view.bootstrapPending &&
+        (view.state === 'ready' || !view.activeOperation)));
     }
     function beginOffer() {
       var previous = eventModel.snapshot(); if (previous.retryPending || (previous.activeOperation && !previous.terminal)) return;
@@ -2167,6 +2174,7 @@
         var bootstrap; try { bootstrap = JSON.parse(json); } catch (e) { bootstrap = null; }
         bootstrapSnapshot = bootstrap && bootstrap.setup_required || bootstrap || bootstrapSnapshot;
         var view = eventModel.retryResult(bootstrap); $('btn-runtime-retry').disabled = false;
+        syncDemoAdmission(view);
         if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !view.activeOperation) setUnderlyingInert(false); else render();
       });
     }
@@ -2223,7 +2231,7 @@
       if (kind === 'retrying') { text('runtime-progress-text', 'Connection interrupted — retrying…'); return; }
       if (kind === 'cancel_requested') { if (view.cancelPending) { $('btn-runtime-cancel').disabled = true; text('btn-runtime-cancel', 'Finishing a safe step…'); } return; }
       if (kind === 'activated') { text('runtime-progress-text', 'Almost there'); return; }
-      if (kind === 'admitted') { ready(); return; }
+      if (kind === 'admitted') { syncDemoAdmission(view); ready(); return; }
       if (kind === 'cancelled') { render(); return; }
       if (kind === 'offline' || (kind === 'failed' && d.classification === 'offline')) { announce('runtime-live-assertive', 'An internet connection is needed to repair LecturePack.'); render(); return; }
       if (kind === 'failed') { announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', "We couldn't verify the repair download. Your previous runtime is still in place."); render(); }
@@ -2321,7 +2329,29 @@
   var guidedTour = GuidedTourModel(tourSeen());
   var guidedDemo = GuidedDemoSessionModel();
   var guidedDemoFlow = GuidedDemoFlowModel();
+  var demoAdmissionAvailable = false;
   var tourRuntimeHealthy = false;
+
+  function setDemoAdmissionAvailable(available) {
+    var next = available === true, wasAvailable = demoAdmissionAvailable;
+    demoAdmissionAvailable = next;
+    tourRuntimeHealthy = next;
+    var demoHome = $('home-demo'), onboarding = $('settings-onboarding'), replay = $('btn-replay-tour');
+    if (demoHome) demoHome.hidden = !next;
+    if (onboarding) onboarding.hidden = !next;
+    if (replay) replay.disabled = !next;
+    if (!next) {
+      // A repair/reset may arrive while a tour is open. Hide every entry point
+      // immediately; a late bridge callback cannot re-open it without a new
+      // healthy admission from RuntimeSetupGate.
+      guidedTour.exit(); guidedDemoFlow.exit(); renderGuidedTour();
+      setDemoTourInteraction(false);
+      if (guidedDemo.snapshot().active) endGuidedDemo('runtime_unavailable');
+      return;
+    }
+    renderDemoCard();
+    if (!wasAvailable) offerGuidedTour();
+  }
 
   function stageLabel(name) {
     var labels = { prepare: 'Preparing demo', inspect: 'Inspecting video', extract_audio: 'Extracting audio', transcribe: 'Transcribing locally', detect_slides: 'Detecting slides', align: 'Aligning notes', review_ready: 'Preparing review', export: 'Exporting study pack', complete: 'Complete' };
@@ -2367,7 +2397,7 @@
   function renderGuidedTour() {
     var state = guidedTour.snapshot(), overlay = $('guided-tour-overlay');
     if (!overlay) return;
-    overlay.hidden = !state.active && !state.prompt;
+    overlay.hidden = !demoAdmissionAvailable || (!state.active && !state.prompt);
     if (overlay.hidden) return;
     var isPrompt = state.prompt, phase = state.active ? currentTourPhase() : null, flow = guidedDemoFlow.snapshot();
     $('tour-step-label').textContent = isPrompt ? 'WELCOME' : 'DEMO · ' + flow.phase.toUpperCase();
@@ -2385,10 +2415,11 @@
     if (state.active) requestAnimationFrame(positionTourSpotlight);
   }
   function offerGuidedTour() {
-    if (!tourRuntimeHealthy) return;
+    if (!demoAdmissionAvailable || !tourRuntimeHealthy) return;
     guidedTour.offer(); renderGuidedTour();
   }
   function startGuidedTour(replay) {
+    if (!demoAdmissionAvailable) return;
     if (replay) guidedTour.replay(); else guidedTour.start();
     guidedDemoFlow.start();
     var phase = currentTourPhase();
@@ -2418,6 +2449,7 @@
   function startGuidedDemo() {
     var current = guidedDemo.snapshot();
     if (current.active) { endGuidedDemo('user_cancelled'); return; }
+    if (!demoAdmissionAvailable) return;
     if (!lpBridge.connected()) { toast('Guided demo needs the LecturePack desktop app.'); return; }
     if (!guidedTour.snapshot().active) startGuidedTour(true);
     // A retry after clean-up (or a failed start) is a new demo, not a
@@ -2546,6 +2578,7 @@
   }
   function clearDemoDropState() { var dz = $('dropzone'); if (dz) dz.classList.remove('lp-demo-drop-hover'); }
   function useDroppedDemo() {
+    if (!demoAdmissionAvailable) return;
     if (!guidedTour.snapshot().active) startGuidedTour(true);
     if (demoFlowPhase() === 'idle') guidedDemoFlow.start();
     guidedDemoFlow.imported(); renderGuidedTour(); startGuidedDemo();
@@ -3816,9 +3849,7 @@
             if (b.version) { LP.data.version = b.version; $('app-version').textContent = b.version; }
             RuntimeSetupGate.admit(b);
             if (b.runtime_health_state !== 'SETUP_REQUIRED') {
-              tourRuntimeHealthy = b.runtime_health_state === 'HEALTHY';
               startNormalBridgeActivity();
-              offerGuidedTour();
             }
           } catch (e) { console.error('bootstrap parse', e); }
         });
