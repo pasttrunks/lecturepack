@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(version.APP_NAME)
-        self.setMinimumSize(1080, 680)
+        self.setMinimumSize(480, 560)
         self.resize(1360, 860)
 
         if getattr(sys, "frozen", False):
