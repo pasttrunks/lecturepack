@@ -266,6 +266,7 @@
       quiz: { questions: [], provider: '', model: '', meta: {} },
       flashcards: { cards: [], provider: '', model: '', meta: {} },
       study: {
+        summary: 'A tour of the Great Pyramid of Giza — how Khufu\'s builders laid a foundation level to two centimeters, aligned it to true north without a compass, and moved 2.3 million stone blocks around 2560 BC.',
         topics: [
           { t: '00:01', title: 'Welcome & overview', active: true },
           { t: '00:36', title: 'Building the foundation' },
@@ -1297,6 +1298,7 @@
   function renderSlides() {
     var v = LP.state.viewingSlide;
     var list = $('slide-list');
+    updateExportPdfDescription();
     var grid = LP.state.slidesView === 'grid';
     // the container is a flex column for list, an auto-fill grid for tiles
     list.style.display = grid ? 'grid' : 'flex';
@@ -1422,6 +1424,8 @@
 
   function renderStudy() {
     var st = LP.data.study;
+    var overview = $('study-overview');
+    if (overview) overview.textContent = studyOverviewText(st);
     $('topics-list').innerHTML = st.topics.map(function (tp, i) {
       var wrap = tp.active
         ? 'background:var(--blue-tint);border:1.5px solid var(--blue);border-radius:10px;padding:10px 12px;cursor:pointer'
@@ -1445,6 +1449,11 @@
       return '<div style="display:flex;justify-content:space-between;font-size:13px;' + mb + '"><span style="color:var(--muted)">' + esc(row[0]) + '</span><span style="font-weight:700">' + esc(row[1]) + '</span></div>';
     }).join('');
     renderCard();
+  }
+
+  function studyOverviewText(study) {
+    var summary = study && typeof study.summary === 'string' ? study.summary.trim() : '';
+    return summary || 'A study overview will appear here after your lecture is ready.';
   }
 
   function renderChat() {
@@ -1788,6 +1797,16 @@
     }).join('');
     var n = LP.data.exportFormats.filter(function (f) { return f.sel; }).length;
     $('export-all-desc').textContent = 'PDF + HTML + ' + n + ' transcript formats';
+    updateExportPdfDescription();
+  }
+
+  function exportPdfDescription(slides) {
+    var accepted = (slides || []).filter(function (slide) { return slide && slide.state === 'accepted'; }).length;
+    return accepted + ' accepted ' + (accepted === 1 ? 'slide' : 'slides') + ', one per page, full resolution.';
+  }
+  function updateExportPdfDescription() {
+    var description = $('export-pdf-desc');
+    if (description) description.textContent = exportPdfDescription(LP.data.slides);
   }
 
   function renderExportPhase() {
@@ -1833,6 +1852,7 @@
       if (name === 'review') {
         requestAnimationFrame(function () { previewCtl.refit(); });
       }
+      if (name === 'exports') updateExportPdfDescription();
       if ((name === 'study' || name === 'settings') && lpBridge.connected()) {
         lpBridge.call('smart_study_status');
       }
@@ -2377,6 +2397,7 @@
   }
   function exitGuidedTour() {
     guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen(); renderGuidedTour();
+    setScreen('home');
     endGuidedDemo('tour_exit');
   }
   function moveGuidedTour(direction) {
@@ -3565,6 +3586,7 @@
       if (LP.state.viewingSlide >= LP.data.slides.length) LP.state.viewingSlide = 0;
       hideScrub();  // job changed — drop any stale hover preview
       renderSlides();
+      updateExportPdfDescription();
     });
     lpBridge.on('transcript_changed', function (json) {
       var d = JSON.parse(json);

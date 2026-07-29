@@ -44,6 +44,29 @@ def _run_model(script: str) -> dict:
     return json.loads(result.stdout)
 
 
+def _projection_javascript() -> str:
+    source = APP_JS.read_text(encoding="utf-8")
+    study_start = source.index("function studyOverviewText")
+    study_end = source.index("function renderChat", study_start)
+    export_start = source.index("function exportPdfDescription")
+    export_end = source.index("function renderExportPhase", export_start)
+    return source[study_start:study_end] + "\n" + source[export_start:export_end]
+
+
+def _run_projection(script: str) -> dict:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node is required to execute shared UI projection helpers")
+    result = subprocess.run(
+        [node, "-e", "'use strict';\n" + _projection_javascript() + "\n" + script],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return json.loads(result.stdout)
+
+
 def test_tour_reducer_moves_back_next_exits_and_replays():
     """DEMO-02/03: the four-step user-controlled tour is an executable state machine."""
     result = _run_model(
@@ -128,6 +151,26 @@ def test_new_demo_attempt_resets_review_or_exports_before_live_events_arrive():
     assert result["exportsBeforeRetry"]["phase"] == "exports"
     assert result["exportsReset"]["phase"] == "import"
     assert result["exportsReviewReady"]["phase"] == "review"
+
+
+def test_runtime_study_and_export_projections_replace_design_time_copy():
+    """Healthy payloads use their source-derived summary and exact kept-slide count."""
+    result = _run_projection(
+        """
+        const polar = studyOverviewText({summary:'Polar bears conserve heat with dense fur and blubber.'});
+        const empty = studyOverviewText({});
+        const zero = exportPdfDescription([]);
+        const one = exportPdfDescription([{state:'accepted'}, {state:'rejected'}]);
+        const two = exportPdfDescription([{state:'accepted'}, {state:'accepted'}, {state:'rejected'}]);
+        console.log(JSON.stringify({polar, empty, zero, one, two}));
+        """
+    )
+    assert result["polar"] == "Polar bears conserve heat with dense fur and blubber."
+    assert "Pyramid" not in result["polar"]
+    assert result["empty"] == "A study overview will appear here after your lecture is ready."
+    assert result["zero"] == "0 accepted slides, one per page, full resolution."
+    assert result["one"] == "1 accepted slide, one per page, full resolution."
+    assert result["two"] == "2 accepted slides, one per page, full resolution."
 
 
 def test_demo_event_identity_rejects_stale_and_late_events():
@@ -321,6 +364,28 @@ def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
     assert "Take guided tour" in html
     assert "Skip to app" in html
     assert 'id="btn-tour-exit"' in html
+    exit_start = js.index("function exitGuidedTour")
+    exit_end = js.index("function moveGuidedTour", exit_start)
+    exit_block = js[exit_start:exit_end]
+    assert "guidedTour.exit()" in exit_block
+    assert "setScreen('home')" in exit_block
+    assert "endGuidedDemo('tour_exit')" in exit_block
+
+
+def test_healthy_runtime_markup_has_no_stale_pyramid_or_export_count():
+    """The static shell starts friendly; real projections provide lecture-specific text."""
+    html = HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+    overview_markup = html.split('id="study-overview"', 1)[1].split('</p>', 1)[0]
+    export_markup = html.split('id="export-pdf-desc"', 1)[1].split('</div>', 1)[0]
+    assert "Great Pyramid" not in overview_markup
+    assert "14 accepted slides" not in export_markup
+    assert 'id="study-overview"' in html
+    assert 'id="export-pdf-desc"' in html
+    assert "overview.textContent = studyOverviewText(st)" in js
+    assert "updateExportPdfDescription();" in js
+    slides_handler = js[js.index("lpBridge.on('slides_changed'"):js.index("lpBridge.on('transcript_changed'")]
+    assert "updateExportPdfDescription();" in slides_handler
 
 
 def test_real_demo_bridge_contract_and_card_are_wired_without_timers():
