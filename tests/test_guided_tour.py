@@ -170,6 +170,60 @@ def test_demo_end_slot_acknowledgements_settle_only_when_terminal():
     assert result["rejectedResponse"]["error"] == "bridge unavailable"
 
 
+def test_demo_retry_attempt_generation_ignores_old_callbacks_and_stop_results():
+    """A retry is cleanly isolated from late promises belonging to its predecessor."""
+    result = _run_model(
+        """
+        const old = {ok:true, operation_id:'op-old', session_id:'session-old'};
+        const fresh = {ok:true, operation_id:'op-new', session_id:'session-new'};
+
+        const completed = GuidedDemoSessionModel();
+        const firstAttempt = completed.starting().attempt;
+        completed.started(old, firstAttempt);
+        completed.event({operation_id:'op-old', session_id:'session-old', status:'cleaned'});
+        const retryAttempt = completed.starting().attempt;
+        const retryStarted = completed.started(fresh, retryAttempt);
+        const retryEvent = completed.event({operation_id:'op-new', session_id:'session-new', status:'running', stage:'detect_slides', progress:54});
+
+        const failed = GuidedDemoSessionModel();
+        const failedAttempt = failed.starting().attempt;
+        failed.started(old, failedAttempt);
+        failed.event({operation_id:'op-old', session_id:'session-old', status:'failed', error:'temporary failure'});
+        const failedRetryAttempt = failed.starting().attempt;
+        const failedRetry = failed.started(fresh, failedRetryAttempt);
+
+        const racy = GuidedDemoSessionModel();
+        const oldAttempt = racy.starting().attempt;
+        const newAttempt = racy.starting().attempt;
+        const oldSuccess = racy.started(old, oldAttempt);
+        const oldFailure = racy.started({ok:false, error:'old rejected'}, oldAttempt);
+        const beforeCurrent = racy.snapshot();
+        const currentSuccess = racy.started(fresh, newAttempt);
+
+        const staleStop = GuidedDemoSessionModel();
+        const stopAttempt = staleStop.starting().attempt;
+        staleStop.started(old, stopAttempt); staleStop.cancelling();
+        const replacementAttempt = staleStop.starting().attempt;
+        staleStop.started(fresh, replacementAttempt);
+        const oldStopResult = staleStop.settleEndResult({ok:true, status:'not_running'}, stopAttempt, 'op-old', 'session-old');
+        console.log(JSON.stringify({firstAttempt, retryAttempt, retryStarted, retryEvent, failedRetryAttempt, failedRetry, oldSuccess, oldFailure, beforeCurrent, currentSuccess, oldStopResult, staleStop:staleStop.snapshot()}));
+        """
+    )
+    assert result["retryAttempt"] > result["firstAttempt"]
+    assert result["retryStarted"]["operationId"] == "op-new"
+    assert result["retryEvent"]["accepted"] is True
+    assert result["retryEvent"]["state"]["stage"] == "detect_slides"
+    assert result["failedRetryAttempt"] > result["firstAttempt"]
+    assert result["failedRetry"]["operationId"] == "op-new"
+    assert result["oldSuccess"] == result["beforeCurrent"]
+    assert result["oldFailure"] == result["beforeCurrent"]
+    assert result["currentSuccess"]["operationId"] == "op-new"
+    assert result["oldStopResult"]["operationId"] == "op-new"
+    assert result["oldStopResult"]["status"] == "started"
+    assert result["staleStop"]["active"] is True
+    assert result["staleStop"]["attempt"] > result["firstAttempt"]
+
+
 def test_css_spotlight_is_pointer_transparent_and_has_no_svg_mask():
     """QtWebEngine-safe spotlight: CSS box-shadow dimmer, never an SVG hit surface."""
     html = HTML.read_text(encoding="utf-8")
@@ -217,6 +271,8 @@ def test_real_demo_bridge_contract_and_card_are_wired_without_timers():
     assert "lpBridge.startDemoJob()" in js
     assert "lpBridge.endDemoJob(reason || 'ended')" in js
     assert "settleEndResult" in js
+    assert "isCurrentAttempt(startedAttempt)" in js
+    assert "isCurrentAttempt(endingAttempt, endingOperationId, endingSessionId)" in js
     assert "operation_id" in js and "session_id" in js
     assert 'id="glowing-demo-card"' in html
     assert "Polar Bears 10s Demo.mp4" in html

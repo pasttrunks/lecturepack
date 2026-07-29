@@ -33,17 +33,31 @@
   }
 
   function GuidedDemoSessionModel() {
-    var operationId = '', sessionId = '', active = false, status = 'idle', stage = '', progress = 0, error = '', terminal = false;
-    function snapshot() { return { operationId: operationId, sessionId: sessionId, active: active, status: status, stage: stage, progress: progress, error: error, terminal: terminal }; }
+    var operationId = '', sessionId = '', active = false, status = 'idle', stage = '', progress = 0, error = '', terminal = false, attempt = 0;
+    function snapshot() { return { operationId: operationId, sessionId: sessionId, active: active, status: status, stage: stage, progress: progress, error: error, terminal: terminal, attempt: attempt }; }
     function same(event) { return !!(event && event.operation_id && event.session_id && event.operation_id === operationId && event.session_id === sessionId); }
     function sameResult(result) { return !!(result && result.operation_id === operationId && result.session_id === sessionId); }
     return {
-      starting: function () { active = true; terminal = false; status = 'starting'; stage = 'prepare'; progress = 0; error = ''; return snapshot(); },
-      started: function (result) {
+      starting: function () {
+        // A retry is a genuinely new local attempt. Clearing the old backend
+        // identity prevents its terminal state from poisoning the retry, while
+        // the incremented token lets promise callbacks prove they still belong.
+        attempt += 1; operationId = ''; sessionId = ''; active = true; terminal = false;
+        status = 'starting'; stage = 'prepare'; progress = 0; error = '';
+        return snapshot();
+      },
+      isCurrentAttempt: function (token, expectedOperationId, expectedSessionId) {
+        if (token !== attempt) return false;
+        if (expectedOperationId && operationId !== expectedOperationId) return false;
+        if (expectedSessionId && sessionId !== expectedSessionId) return false;
+        return true;
+      },
+      started: function (result, token) {
         // The backend may emit a live `started` event before this slot result
         // reaches JS. A delayed result must never revive a session that was
         // cancelled/cleaned in the meantime, overwrite live progress, or swap
         // the identity adopted from that event.
+        if (token !== undefined && token !== attempt) return snapshot();
         if (terminal || status === 'cancelling') return snapshot();
         if (!result || !result.ok || !result.operation_id || !result.session_id) {
           if (!operationId && status === 'starting') { active = false; status = 'error'; error = result && result.error || 'Could not start the guided demo.'; }
@@ -68,9 +82,12 @@
         return { accepted: true, state: snapshot() };
       },
       cancelling: function () { if (active) status = 'cancelling'; return snapshot(); },
-      settleEndResult: function (result) {
+      settleEndResult: function (result, token, expectedOperationId, expectedSessionId) {
         // A terminal UI state is monotonic for this operation. In particular,
         // a start slot completion may arrive after an idempotent end response.
+        if (token !== undefined && token !== attempt) return snapshot();
+        if (expectedOperationId && operationId !== expectedOperationId) return snapshot();
+        if (expectedSessionId && sessionId !== expectedSessionId) return snapshot();
         if (terminal) return snapshot();
         if (!result || result.ok !== true) {
           active = false; terminal = true; status = 'error';
@@ -2344,31 +2361,40 @@
     var current = guidedDemo.snapshot();
     if (current.active) { endGuidedDemo('user_cancelled'); return; }
     if (!lpBridge.connected()) { toast('Guided demo needs the LecturePack desktop app.'); return; }
-    guidedDemo.starting(); renderDemoCard();
+    var startedAttempt = guidedDemo.starting().attempt;
+    renderDemoCard();
     lpBridge.startDemoJob().then(function (value) {
+      if (!guidedDemo.isCurrentAttempt(startedAttempt)) return;
       var result = parseBridgeResult(value);
-      var state = guidedDemo.started(result);
+      var state = guidedDemo.started(result, startedAttempt);
       renderDemoCard();
       // A start completion can arrive after an idempotent end acknowledgement.
       // Only navigate when it still represents the currently active identity.
       if (result && result.ok && state.active && !state.terminal &&
           state.operationId === result.operation_id && state.sessionId === result.session_id) setScreen('process');
       else if (result && result.error) toast(result.error);
-    }, function () { guidedDemo.started({ ok: false, error: 'Could not start the guided demo.' }); renderDemoCard(); });
+    }, function () {
+      if (!guidedDemo.isCurrentAttempt(startedAttempt)) return;
+      guidedDemo.started({ ok: false, error: 'Could not start the guided demo.' }, startedAttempt);
+      renderDemoCard();
+    });
   }
   function endGuidedDemo(reason) {
     var current = guidedDemo.snapshot();
     if (!current.active) return;
+    var endingAttempt = current.attempt, endingOperationId = current.operationId, endingSessionId = current.sessionId;
     guidedDemo.cancelling(); renderDemoCard();
     if (!lpBridge.connected()) {
-      guidedDemo.settleEndResult({ ok: false, error: 'Guided demo needs the LecturePack desktop app to stop safely.' });
+      guidedDemo.settleEndResult({ ok: false, error: 'Guided demo needs the LecturePack desktop app to stop safely.' }, endingAttempt, endingOperationId, endingSessionId);
       renderDemoCard(); return;
     }
     lpBridge.endDemoJob(reason || 'ended').then(function (value) {
-      guidedDemo.settleEndResult(parseBridgeResult(value));
+      if (!guidedDemo.isCurrentAttempt(endingAttempt, endingOperationId, endingSessionId)) return;
+      guidedDemo.settleEndResult(parseBridgeResult(value), endingAttempt, endingOperationId, endingSessionId);
       renderDemoCard();
     }, function () {
-      guidedDemo.settleEndResult({ ok: false, error: 'Could not confirm that the demo stopped. Try again.' });
+      if (!guidedDemo.isCurrentAttempt(endingAttempt, endingOperationId, endingSessionId)) return;
+      guidedDemo.settleEndResult({ ok: false, error: 'Could not confirm that the demo stopped. Try again.' }, endingAttempt, endingOperationId, endingSessionId);
       renderDemoCard();
     });
   }
@@ -2379,7 +2405,7 @@
     // Adopt only that first live identity; every later mismatched/stale event is
     // rejected by the model, so another demo cannot repaint this card.
     var before = guidedDemo.snapshot();
-    if (!before.operationId && before.status === 'starting' && event.status === 'started') guidedDemo.started({ ok: true, operation_id: event.operation_id, session_id: event.session_id });
+    if (!before.operationId && before.status === 'starting' && event.status === 'started') guidedDemo.started({ ok: true, operation_id: event.operation_id, session_id: event.session_id }, before.attempt);
     var handled = guidedDemo.event(event);
     if (!handled.accepted) return;
     renderDemoCard();
