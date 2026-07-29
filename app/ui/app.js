@@ -2505,16 +2505,50 @@
     model.addEventListener('focus', showModelTooltip);
     model.addEventListener('blur', hideModelTooltip);
   }
+  function tourFocusable() {
+    var card = $('guided-tour-card'), tourTarget = currentTourTarget(), items = card ? visibleFocusable(card) : [];
+    if (tourTarget && tourTarget.matches('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')) items.unshift(tourTarget);
+    else if (tourTarget) items = items.concat(visibleFocusable(tourTarget));
+    return items.filter(function (item, index) { return items.indexOf(item) === index && ((!card || card.contains(item)) || (tourTarget && tourTarget.contains(item))); });
+  }
+  function trapTourFocus(e) {
+    var items = tourFocusable();
+    if (!items.length) { e.preventDefault(); return; }
+    var first = items[0], last = items[items.length - 1], active = document.activeElement;
+    if (items.indexOf(active) === -1) { e.preventDefault(); first.focus(); return; }
+    if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+  }
+  var tourGeometryFrame = null;
+  function currentTourTarget() {
+    var phase = currentTourPhase();
+    return phase && document.querySelector(phase.target);
+  }
+  function scheduleTourGeometry() {
+    if (tourGeometryFrame !== null) return;
+    tourGeometryFrame = requestAnimationFrame(function () {
+      tourGeometryFrame = null;
+      positionTourSpotlight();
+    });
+  }
   function positionTourSpotlight() {
     var state = guidedTour.snapshot(), box = $('tour-spotlight-box'), arrow = $('tour-arrow');
     if (!state.active || !box || !arrow) return;
-    var phase = currentTourPhase(), target = phase && document.querySelector(phase.target);
+    var target = currentTourTarget();
     if (!target) { box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; return; }
+    var before = target.getBoundingClientRect();
+    if (before.top < 0 || before.left < 0 || before.bottom > window.innerHeight || before.right > window.innerWidth) {
+      target.scrollIntoView({block: 'nearest', inline: 'nearest'});
+    }
     var r = target.getBoundingClientRect(), pad = 7;
-    box.style.left = Math.max(6, Math.round(r.left - pad)) + 'px';
-    box.style.top = Math.max(6, Math.round(r.top - pad)) + 'px';
-    box.style.width = Math.max(0, Math.round(r.width + pad * 2)) + 'px';
-    box.style.height = Math.max(0, Math.round(r.height + pad * 2)) + 'px';
+    var left = Math.max(6, Math.min(Math.round(r.left - pad), window.innerWidth - Math.round(r.width + pad * 2) - 6));
+    var top = Math.max(6, Math.min(Math.round(r.top - pad), window.innerHeight - Math.round(r.height + pad * 2) - 6));
+    var width = Math.max(0, Math.min(Math.round(r.width + pad * 2), window.innerWidth - left - 6));
+    var height = Math.max(0, Math.min(Math.round(r.height + pad * 2), window.innerHeight - top - 6));
+    box.style.left = left + 'px';
+    box.style.top = top + 'px';
+    box.style.width = width + 'px';
+    box.style.height = height + 'px';
     arrow.hidden = false;
     arrow.style.left = Math.round(r.left + Math.min(r.width - 18, 24)) + 'px';
     arrow.style.top = Math.max(8, Math.round(r.top - 19)) + 'px';
@@ -2538,7 +2572,7 @@
     $('tour-spotlight-box').style.display = state.active ? 'block' : 'none';
     $('tour-arrow').style.display = state.active ? 'block' : 'none';
     setDemoTourInteraction(state.active && flow.phase === 'import');
-    if (state.active) requestAnimationFrame(positionTourSpotlight);
+    if (state.active) scheduleTourGeometry();
   }
   function offerGuidedTour() {
     if (!demoAdmissionAvailable || !tourRuntimeHealthy) return;
@@ -2682,8 +2716,12 @@
       if (e.key === 'ArrowRight') { e.preventDefault(); moveGuidedTour(1); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); moveGuidedTour(-1); }
     });
-    window.addEventListener('resize', positionTourSpotlight);
-    window.addEventListener('scroll', positionTourSpotlight, true);
+    window.addEventListener('resize', scheduleTourGeometry);
+    window.addEventListener('scroll', scheduleTourGeometry, true);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', scheduleTourGeometry);
+      window.visualViewport.addEventListener('scroll', scheduleTourGeometry);
+    }
   }
   function flyDemoTileToDropzone(done) {
     var card = $('glowing-demo-card'), target = $('dropzone');
@@ -3566,7 +3604,10 @@
       }
       var overlay = topOverlay();
       if (overlay) {
-        if (e.key === 'Tab') trapFocus(overlay, e);
+        if (e.key === 'Tab') {
+          if (guidedTour.snapshot().active) trapTourFocus(e);
+          else trapFocus(overlay, e);
+        }
         return;
       }
       if (editing) return;

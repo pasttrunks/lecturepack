@@ -375,8 +375,8 @@ def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
     assert "tourRuntimeHealthy" in js and "offerGuidedTour();" in js
     assert "isTourFormInput(e.target)" in js
     assert "e.key === 'ArrowRight'" in js and "e.key === 'ArrowLeft'" in js
-    assert "window.addEventListener('resize', positionTourSpotlight)" in js
-    assert "window.addEventListener('scroll', positionTourSpotlight, true)" in js
+    assert "window.addEventListener('resize', scheduleTourGeometry)" in js
+    assert "window.addEventListener('scroll', scheduleTourGeometry, true)" in js
     assert "target: '#pipeline-stages'" in js
     assert "target: '#demo-review-actions'" in js
     assert "target: '#demo-study-actions'" in js
@@ -425,6 +425,31 @@ def test_model_tooltip_handles_hover_focus_and_safe_empty_values():
     assert "showModelTooltip" in js and "hideModelTooltip" in js
     assert "mouseenter" in js and "mouseleave" in js
     assert "focus" in js and "blur" in js
+
+
+def test_tour_geometry_is_rAF_coalesced_revealed_remeasured_and_clamped():
+    """VIS-05: resize/scroll/DPI changes update the real CSS spotlight once per frame."""
+    js = APP_JS.read_text(encoding="utf-8")
+    start = js.index("function positionTourSpotlight")
+    end = js.index("function renderGuidedTour", start)
+    geometry = js[start:end]
+    assert "function scheduleTourGeometry()" in js
+    assert "requestAnimationFrame" in js
+    assert "tourGeometryFrame !== null" in js
+    assert "scrollIntoView({block: 'nearest', inline: 'nearest'})" in js
+    assert geometry.count("getBoundingClientRect()") >= 2
+    assert "window.innerWidth -" in geometry
+    assert "window.innerHeight -" in geometry
+    assert "visualViewport" in js
+
+
+def test_tour_focus_is_scoped_to_real_target_and_card_controls_with_exit_reachable():
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "function tourFocusable()" in js
+    assert "function trapTourFocus(e)" in js
+    assert "btn-tour-exit" in js
+    assert "trapTourFocus(e)" in js
+    assert "tourTarget.contains(item)" in js
 
 
 def test_healthy_runtime_markup_has_no_stale_pyramid_or_export_count():
