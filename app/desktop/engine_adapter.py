@@ -1768,7 +1768,7 @@ class LecturePackAdapter(EngineAdapter):
         except Exception as exc:
             self._log("[import]", f"failed to open video: {exc}", "error")
 
-    def start_processing(self, mode: str):
+    def start_processing(self, mode: str, *, preserve_preset: bool = False):
         if getattr(self, "_demo_session", None) is not None:
             self._log("[engine]", "End the guided demo before starting a lecture.", "engine")
             return
@@ -1776,9 +1776,18 @@ class LecturePackAdapter(EngineAdapter):
         if job is None:
             self._log("[error]", "No video selected.", "error")
             return
-        # Snapshot the current Settings choice onto the job before either the
-        # queued or immediate path.  JobController consumes this exact value.
-        job.settings["preset"] = self._slide_detection_preset()
+        # Explicit user starts snapshot the current Settings choice. Internal
+        # queue promotion preserves the valid choice captured when queued or
+        # scheduled, so a later global Settings change cannot rewrite it.
+        saved_preset = job.settings.get("preset")
+        if preserve_preset:
+            job.settings["preset"] = (
+                saved_preset
+                if saved_preset in ("conservative", "balanced", "detailed")
+                else "balanced"
+            )
+        else:
+            job.settings["preset"] = self._slide_detection_preset()
         # One active job: if a pipeline is already running a DIFFERENT job, queue
         # this one (FIFO) instead of starting a second. It runs when the active
         # job finishes (see _promote_next).
@@ -2230,13 +2239,16 @@ class LecturePackAdapter(EngineAdapter):
         self._push_queue()
 
     def schedule_job(self, job_id: str, when: str, tz: str, missed_policy: str):
+        job = self._reload_job(job_id)
+        if job is not None:
+            job.settings["preset"] = self._slide_detection_preset()
+            job.save()
         # A scheduled job waits for its time, so it leaves the FIFO run queue.
         self.queue.schedule(job_id, when, tz or "local",
                             missed_policy or "run_when_opened")
         if job_id in self.queue.queued():
             self.queue.store["queue"].remove(job_id)
             self.queue.save()
-        job = self._reload_job(job_id)
         if job is not None:
             from lecturepack.models import job_lifecycle as _lc
             try:
@@ -2281,7 +2293,8 @@ class LecturePackAdapter(EngineAdapter):
         def _go():
             self._pending_job = job
             self._set_active_job(job)
-            self.start_processing(self._mode_for_job(job))
+            self.controller.set_job(job)
+            self.start_processing(self._mode_for_job(job), preserve_preset=True)
         QTimer.singleShot(0, _go)
 
     def _completion_payload(self, job) -> dict:

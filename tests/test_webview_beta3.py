@@ -29,7 +29,8 @@ class _Signal:
 class _FakeBackend(QObject):
     _SIGNALS = ("log_line", "jobs_changed", "storage_changed", "job_deleted", "queue_changed",
                 "pause_state", "notification_prefs", "diagnostics",
-                "job_completed", "post_completion", "status_changed")
+                "job_completed", "post_completion", "status_changed",
+                "active_job", "pipeline_changed")
     def __init__(self):
         super().__init__()
         for n in self._SIGNALS:
@@ -60,10 +61,14 @@ class _FakeController:
         self.paused = False
         self.resumed = False
         self.retried = None
+        self.job = None
+        self.run_pipeline_calls = 0
+        self._active_stages = set()
     def request_pause(self): self.paused = True; return True
     def resume(self): self.resumed = True
     def retry_stage(self, stage): self.retried = stage
-    def set_job(self, job): pass
+    def set_job(self, job): self.job = job
+    def run_pipeline(self): self.run_pipeline_calls += 1
     class _FF:  ffmpeg_path = "C:/x/bin/ffmpeg.exe"
     ffmpeg_wrapper = _FF()
 
@@ -78,6 +83,11 @@ def _adapter(tmp_path, prefs=None):
     a.win = WindowsIntegration(power=_FakePower(), taskbar=_FakeTaskbar(),
                                notifier=_FakeNotifier(), prefs=prefs or {})
     a.queue = JobQueue(str(tmp_path))
+    a._demo_session = None
+    a._pending_job = None
+    a._stages = []
+    a._stage_timings = {}
+    a._pipeline_start = None
     return a
 
 
@@ -233,6 +243,74 @@ def test_start_processing_enqueues_when_busy(tmp_path):
     # it was queued, not run
     assert newjob.job_id in a.queue.queued()
     assert newjob.get_lifecycle() == "queued"
+
+
+def test_promotion_preserves_detector_preset_snapshotted_when_queued(
+        tmp_path, monkeypatch):
+    from lecturepack import constants
+    from lecturepack.models.job import Job
+    a = _adapter(tmp_path)
+    monkeypatch.setattr(ea.QTimer, "singleShot", lambda _delay, callback: callback())
+    a.push_storage = lambda: None
+    a.config.set("slide_detection_preset", "detailed")
+    running_video = tmp_path / "running.mp4"; running_video.write_bytes(b"x")
+    a.current_job = Job(str(tmp_path), video_path=str(running_video))
+    a.controller._active_stages = {"Transcribe"}
+    queued_video = tmp_path / "queued.mp4"; queued_video.write_bytes(b"x")
+    queued = Job(str(tmp_path), video_path=str(queued_video))
+    a._pending_job = queued
+
+    a.start_processing("slides")
+    a.config.set("slide_detection_preset", "conservative")
+    a.controller._active_stages.clear()
+    a._promote_next()
+
+    assert a.controller.job.job_id == queued.job_id
+    assert a.controller.job.settings["preset"] == "detailed"
+    assert a.controller.job.get_preset_settings() == constants.PRESETS["detailed"]
+
+
+def test_scheduled_promotion_preserves_detector_preset_snapshotted_at_schedule(
+        tmp_path, monkeypatch):
+    from lecturepack import constants
+    from lecturepack.models.job import Job
+    a = _adapter(tmp_path)
+    monkeypatch.setattr(ea.QTimer, "singleShot", lambda _delay, callback: callback())
+    a.push_storage = lambda: None
+    video = tmp_path / "scheduled.mp4"; video.write_bytes(b"x")
+    scheduled = Job(str(tmp_path), video_path=str(video))
+    scheduled.settings["product_mode"] = constants.PRODUCT_MODE_SLIDES_ONLY
+    scheduled.save()
+    a.config.set("slide_detection_preset", "detailed")
+
+    a.schedule_job(
+        scheduled.job_id, "2000-01-01T00:00:00", "UTC", "run_when_opened")
+    a.config.set("slide_detection_preset", "conservative")
+    a.queue.activate_due()
+    a._promote_next()
+
+    assert a.controller.job.job_id == scheduled.job_id
+    assert a.controller.job.settings["preset"] == "detailed"
+    assert a.controller.job.get_preset_settings() == constants.PRESETS["detailed"]
+
+
+def test_internal_normal_start_sanitizes_demo_preset_to_balanced(tmp_path):
+    from lecturepack import constants
+    from lecturepack.models.job import Job
+    a = _adapter(tmp_path)
+    video = tmp_path / "normal.mp4"; video.write_bytes(b"x")
+    job = Job(str(tmp_path), video_path=str(video))
+    job.settings.update({
+        "preset": "demo",
+        "product_mode": constants.PRODUCT_MODE_SLIDES_ONLY,
+    })
+    a.current_job = job
+    a.controller.set_job(job)
+
+    a.start_processing("slides", preserve_preset=True)
+
+    assert job.settings["preset"] == "balanced"
+    assert job.get_preset_settings() == constants.PRESETS["balanced"]
 
 
 def test_is_processing_reflects_active_stages(tmp_path):
