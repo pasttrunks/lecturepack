@@ -280,15 +280,10 @@ Source pattern: live `getBoundingClientRect()` plus rAF prior to repaint. [CITED
 | A1 | QtWebEngine exposes `ResizeObserver`/`requestAnimationFrame` with Chromium-compatible behavior in the pinned runtime. | Standard Stack / geometry | Use window resize/scroll fallback and verify in packaged WebEngine before relying on observer-only updates. |
 | A2 | The startup bridge can provide a saved theme before the first WebEngine frame without a new architecture layer. | Theme pattern | If not, planner must make first-frame theme bootstrap an explicit desktop/bridge task, not a post-load UI patch. |
 
-## Open Questions
+## Open Questions — Resolved
 
-1. **What is the exact current pre-WebEngine settings injection path?**
-   - What we know: the static shell starts with `data-theme="dark"`; later `settings_changed` calls `setTheme`, while fresh profiles must start Light.
-   - What's unclear: whether `app/desktop/main.py`/bridge already has a pre-visible bootstrap payload.
-   - Recommendation: planner assigns a read-only seam audit first, then changes only the existing desktop/bridge owner necessary to supply Light/saved theme before `show()`.
-2. **Which smallest viewports/DPI factors are supported by the package?**
-   - What we know: D-12 requires very small windows and existing CSS uses 1220/820/640px breakpoints.
-   - Recommendation: lock representative test matrix in Wave 0 (at least desktop, 1220, 820, 640, and a very-small fixture; 100%, 125%, 150% DPI) and record the physical package checks.
+1. **Pre-visible theme path — RESOLVED.** `index.html` statically starts `#app` with `data-theme="dark"`; `bridge.py:get_bootstrap()` currently defaults QSettings to dark; `app.js` calls it only after `lpBridge.ready`, then calls `setTheme`; and `main.py` loads the page before immediately calling `win.show()`. This is post-load/post-visible and cannot satisfy VIS-02. The implementation path is an explicit pre-visible bootstrap in the existing `app/desktop/main.py` owner: obtain the canonical bridge/QSettings theme (default Light), inject or otherwise apply the correct root theme before the view is shown, and gate `win.show()` on that readiness. This preserves the existing desktop/bridge architecture rather than introducing another theme system. [VERIFIED: current source seam inspection]
+2. **Supported viewport/DPI matrix — RESOLVED.** Automated CSS/WebEngine coverage uses 1360x860 desktop/default, 1220px, 820px, 640px, and 480x560 very-small fixtures plus continuous arbitrary-resize assertions. Physical packaged Windows evidence covers 100%, 125%, and 150% display scaling. D-12 also requires removing or relaxing the current `MainWindow.setMinimumSize(1080,680)` constraint in `app/desktop/main.py`; otherwise the 480x560 fixture is not physically reachable. [VERIFIED: existing CSS breakpoints, D-12, and current desktop minimum-size seam]
 
 ## Environment Availability
 
