@@ -131,6 +131,45 @@ def test_delayed_demo_slot_result_cannot_resurrect_or_overwrite_live_session():
     assert result["running"]["operationId"] == "op-current"
 
 
+def test_demo_end_slot_acknowledgements_settle_only_when_terminal():
+    """Idempotent stop replies release the card; a live cancellation waits for cleanup."""
+    result = _run_model(
+        """
+        const ok = {ok:true, operation_id:'op-current', session_id:'session-current'};
+
+        const alreadyGone = GuidedDemoSessionModel();
+        alreadyGone.starting(); alreadyGone.started(ok); alreadyGone.cancelling();
+        const notRunning = alreadyGone.settleEndResult({ok:true, status:'not_running'});
+        const delayedStart = alreadyGone.started(ok);
+
+        const pendingCleanup = GuidedDemoSessionModel();
+        pendingCleanup.starting(); pendingCleanup.started(ok); pendingCleanup.cancelling();
+        const cancelling = pendingCleanup.settleEndResult({ok:true, status:'cancelling'});
+        const cleaned = pendingCleanup.event({operation_id:'op-current', session_id:'session-current', status:'cleaned'});
+
+        const malformed = GuidedDemoSessionModel();
+        malformed.starting(); malformed.started(ok); malformed.cancelling();
+        const malformedResponse = malformed.settleEndResult(null);
+        const rejected = GuidedDemoSessionModel();
+        rejected.starting(); rejected.started(ok); rejected.cancelling();
+        const rejectedResponse = rejected.settleEndResult({ok:false, error:'bridge unavailable'});
+        console.log(JSON.stringify({notRunning, delayedStart, cancelling, cleaned, malformedResponse, rejectedResponse}));
+        """
+    )
+    assert result["notRunning"]["status"] == "ended"
+    assert result["notRunning"]["active"] is False
+    assert result["notRunning"]["terminal"] is True
+    assert result["delayedStart"] == result["notRunning"]
+    assert result["cancelling"]["status"] == "cancelling"
+    assert result["cancelling"]["terminal"] is False
+    assert result["cleaned"]["accepted"] is True
+    assert result["cleaned"]["state"]["status"] == "ended"
+    assert result["malformedResponse"]["status"] == "error"
+    assert result["malformedResponse"]["terminal"] is True
+    assert result["rejectedResponse"]["status"] == "error"
+    assert result["rejectedResponse"]["error"] == "bridge unavailable"
+
+
 def test_css_spotlight_is_pointer_transparent_and_has_no_svg_mask():
     """QtWebEngine-safe spotlight: CSS box-shadow dimmer, never an SVG hit surface."""
     html = HTML.read_text(encoding="utf-8")
@@ -177,6 +216,7 @@ def test_real_demo_bridge_contract_and_card_are_wired_without_timers():
     assert "lpBridge.on('demo_event', receiveDemoEvent)" in js
     assert "lpBridge.startDemoJob()" in js
     assert "lpBridge.endDemoJob(reason || 'ended')" in js
+    assert "settleEndResult" in js
     assert "operation_id" in js and "session_id" in js
     assert 'id="glowing-demo-card"' in html
     assert "Polar Bears 10s Demo.mp4" in html

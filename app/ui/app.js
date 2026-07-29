@@ -68,6 +68,24 @@
         return { accepted: true, state: snapshot() };
       },
       cancelling: function () { if (active) status = 'cancelling'; return snapshot(); },
+      settleEndResult: function (result) {
+        // A terminal UI state is monotonic for this operation. In particular,
+        // a start slot completion may arrive after an idempotent end response.
+        if (terminal) return snapshot();
+        if (!result || result.ok !== true) {
+          active = false; terminal = true; status = 'error';
+          error = result && result.error || 'Could not confirm that the demo stopped. Try again.';
+          return snapshot();
+        }
+        if (result.status === 'not_running' || result.status === 'cleaned' || result.status === 'ended') {
+          active = false; terminal = true; status = 'ended'; error = '';
+          return snapshot();
+        }
+        if (result.status === 'cancelling') return snapshot();
+        active = false; terminal = true; status = 'error';
+        error = 'The demo stop request returned an unexpected response. Try again.';
+        return snapshot();
+      },
       snapshot: snapshot
     };
   }
@@ -2329,9 +2347,12 @@
     guidedDemo.starting(); renderDemoCard();
     lpBridge.startDemoJob().then(function (value) {
       var result = parseBridgeResult(value);
-      guidedDemo.started(result);
+      var state = guidedDemo.started(result);
       renderDemoCard();
-      if (result && result.ok) setScreen('process');
+      // A start completion can arrive after an idempotent end acknowledgement.
+      // Only navigate when it still represents the currently active identity.
+      if (result && result.ok && state.active && !state.terminal &&
+          state.operationId === result.operation_id && state.sessionId === result.session_id) setScreen('process');
       else if (result && result.error) toast(result.error);
     }, function () { guidedDemo.started({ ok: false, error: 'Could not start the guided demo.' }); renderDemoCard(); });
   }
@@ -2339,7 +2360,17 @@
     var current = guidedDemo.snapshot();
     if (!current.active) return;
     guidedDemo.cancelling(); renderDemoCard();
-    if (lpBridge.connected()) lpBridge.endDemoJob(reason || 'ended').then(function () {}, function () {});
+    if (!lpBridge.connected()) {
+      guidedDemo.settleEndResult({ ok: false, error: 'Guided demo needs the LecturePack desktop app to stop safely.' });
+      renderDemoCard(); return;
+    }
+    lpBridge.endDemoJob(reason || 'ended').then(function (value) {
+      guidedDemo.settleEndResult(parseBridgeResult(value));
+      renderDemoCard();
+    }, function () {
+      guidedDemo.settleEndResult({ ok: false, error: 'Could not confirm that the demo stopped. Try again.' });
+      renderDemoCard();
+    });
   }
   function receiveDemoEvent(value) {
     var event = parseBridgeResult(value);
