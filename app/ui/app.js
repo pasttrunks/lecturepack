@@ -36,10 +36,25 @@
     var operationId = '', sessionId = '', active = false, status = 'idle', stage = '', progress = 0, error = '', terminal = false;
     function snapshot() { return { operationId: operationId, sessionId: sessionId, active: active, status: status, stage: stage, progress: progress, error: error, terminal: terminal }; }
     function same(event) { return !!(event && event.operation_id && event.session_id && event.operation_id === operationId && event.session_id === sessionId); }
+    function sameResult(result) { return !!(result && result.operation_id === operationId && result.session_id === sessionId); }
     return {
       starting: function () { active = true; terminal = false; status = 'starting'; stage = 'prepare'; progress = 0; error = ''; return snapshot(); },
       started: function (result) {
-        if (!result || !result.ok || !result.operation_id || !result.session_id) { active = false; status = 'error'; error = result && result.error || 'Could not start the guided demo.'; return snapshot(); }
+        // The backend may emit a live `started` event before this slot result
+        // reaches JS. A delayed result must never revive a session that was
+        // cancelled/cleaned in the meantime, overwrite live progress, or swap
+        // the identity adopted from that event.
+        if (terminal || status === 'cancelling') return snapshot();
+        if (!result || !result.ok || !result.operation_id || !result.session_id) {
+          if (!operationId && status === 'starting') { active = false; status = 'error'; error = result && result.error || 'Could not start the guided demo.'; }
+          return snapshot();
+        }
+        if (operationId || sessionId) {
+          // Same identity is an idempotent duplicate; a different identity is
+          // a stale slot completion and is rejected by leaving state untouched.
+          if (!sameResult(result)) return snapshot();
+          return snapshot();
+        }
         operationId = result.operation_id; sessionId = result.session_id; active = true; terminal = false; status = 'started'; return snapshot();
       },
       event: function (event) {
@@ -2214,8 +2229,8 @@
   var TOUR_STORAGE_KEY = 'lecturepack.guided-tour.seen.v1';
   var TOUR_STEPS = [
     { screen: 'home', target: '#dropzone', title: 'Bring in a lecture', copy: 'Start here to choose a video from your computer. Your original recording stays untouched.' },
-    { screen: 'process', target: '[data-nav="process"]', title: 'Watch processing', copy: 'Follow the real local pipeline as it builds a transcript and finds slides.' },
-    { screen: 'review', target: '[data-nav="review"]', title: 'Review what matters', copy: 'Check slides and transcript details before you export your study materials.' },
+    { screen: 'process', target: '#pipeline-stages', title: 'Watch processing', copy: 'Follow the real local pipeline as it builds a transcript and finds slides.' },
+    { screen: 'review', target: '#review-transcript', title: 'Review what matters', copy: 'Check slides and transcript details before you export your study materials.' },
     { screen: 'exports', target: '#btn-export-top', title: 'Export your pack', copy: 'When you are ready, create the formats you need and keep everything on your machine.' }
   ];
   function tourSeen() {

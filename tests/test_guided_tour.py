@@ -92,6 +92,45 @@ def test_demo_event_identity_rejects_stale_and_late_events():
     assert result["final"]["status"] == "ended"
 
 
+def test_delayed_demo_slot_result_cannot_resurrect_or_overwrite_live_session():
+    """A live signal can beat the QWebChannel slot result without losing cleanup safety."""
+    result = _run_model(
+        """
+        const ok = {ok:true, operation_id:'op-current', session_id:'session-current'};
+        const wrong = {ok:true, operation_id:'op-stale', session_id:'session-stale'};
+
+        const cleaned = GuidedDemoSessionModel();
+        cleaned.starting();
+        cleaned.started(ok); // identity adopted by an early `started` signal
+        cleaned.event({operation_id:'op-current', session_id:'session-current', status:'running', stage:'transcribe', progress:37});
+        cleaned.event({operation_id:'op-current', session_id:'session-current', status:'cleaned'});
+        const afterCleanedDelayedSuccess = cleaned.started(ok);
+
+        const cancelling = GuidedDemoSessionModel();
+        cancelling.starting(); cancelling.started(ok); cancelling.cancelling();
+        const afterCancellingDelayedSuccess = cancelling.started(ok);
+        cancelling.event({operation_id:'op-current', session_id:'session-current', status:'cleaned'});
+        const afterCancelCleanedDelayedSuccess = cancelling.started(ok);
+
+        const running = GuidedDemoSessionModel();
+        running.starting(); running.started(ok);
+        running.event({operation_id:'op-current', session_id:'session-current', status:'running', stage:'detect_slides', progress:61});
+        const duplicateSame = running.started(ok);
+        const mismatch = running.started(wrong);
+        console.log(JSON.stringify({afterCleanedDelayedSuccess, afterCancellingDelayedSuccess, afterCancelCleanedDelayedSuccess, duplicateSame, mismatch, running:running.snapshot()}));
+        """
+    )
+    assert result["afterCleanedDelayedSuccess"]["terminal"] is True
+    assert result["afterCleanedDelayedSuccess"]["status"] == "ended"
+    assert result["afterCancellingDelayedSuccess"]["status"] == "cancelling"
+    assert result["afterCancelCleanedDelayedSuccess"]["terminal"] is True
+    assert result["duplicateSame"]["status"] == "running"
+    assert result["duplicateSame"]["stage"] == "detect_slides"
+    assert result["duplicateSame"]["progress"] == 61
+    assert result["mismatch"] == result["duplicateSame"]
+    assert result["running"]["operationId"] == "op-current"
+
+
 def test_css_spotlight_is_pointer_transparent_and_has_no_svg_mask():
     """QtWebEngine-safe spotlight: CSS box-shadow dimmer, never an SVG hit surface."""
     html = HTML.read_text(encoding="utf-8")
@@ -118,6 +157,8 @@ def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
     assert "e.key === 'ArrowRight'" in js and "e.key === 'ArrowLeft'" in js
     assert "window.addEventListener('resize', positionTourSpotlight)" in js
     assert "window.addEventListener('scroll', positionTourSpotlight, true)" in js
+    assert "target: '#pipeline-stages'" in js
+    assert "target: '#review-transcript'" in js
     assert 'id="btn-replay-tour"' in html
     assert "Replay guided tour" in html
     assert "Take guided tour" in html
