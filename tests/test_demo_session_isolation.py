@@ -19,6 +19,9 @@ from app.desktop.paths import (
     demo_temp_root,
     sweep_demo_sessions,
 )
+from lecturepack.controllers.job_controller import JobController
+from lecturepack.infrastructure.config_manager import ConfigManager
+from lecturepack.models.job import Job
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -134,6 +137,7 @@ class _DemoController:
 class _Config:
     def __init__(self, data_dir=None):
         self.data_dir = str(data_dir or "persistent")
+        self.resource_dir = str(ROOT)
         self.settings = {"ffmpeg_exe": "ffmpeg", "whisper_exe": "whisper", "whisper_model": "model"}
         self.save_calls = 0
 
@@ -171,6 +175,12 @@ def test_start_demo_invokes_isolated_real_controller_and_never_mutates_profile(
     assert demo["job"].manifest["source"]["original_path"] == str(Path(demo_asset_path()).resolve())
     assert demo["job"].manifest["session_scoped"] is True
     assert Path(demo["job"].paths["root"]).is_relative_to(Path(result["workspace"]))
+    expected_whisper = {
+        "model": str(ROOT / "models" / "ggml-base.en.bin"),
+        "profile": "fast", "engine": "whispercpp-cpu",
+        "transcription_backend": "local-whispercpp",
+    }
+    assert expected_whisper.items() <= demo["job"].settings["whisper"].items()
     assert {p: p.read_bytes() for p in (library, config_file)} == before
     event = json.loads(backend.demo_event.emit.call_args.args[0])
     assert event["operation_id"] == result["operation_id"] and event["session_id"] == result["session_id"]
@@ -195,11 +205,112 @@ def test_every_demo_terminal_path_sweeps_only_its_session(
     monkeypatch.setattr(adapter, "push_storage", lambda: None)
     started = adapter.start_demo_job()
     workspace = Path(started["workspace"])
+    demo = adapter._demo_session
     if terminal == "success":
-        adapter._on_demo_pipeline_completed()
+        adapter._on_demo_pipeline_completed(
+            demo["controller"], demo["session_id"], demo["operation_id"])
     elif terminal == "error":
-        adapter._on_demo_pipeline_failed("mocked tool failure")
+        adapter._on_demo_pipeline_failed(
+            demo["controller"], demo["session_id"], demo["operation_id"], "mocked tool failure")
     else:
         adapter.end_demo_job("cancelled")
     assert not workspace.exists()
     assert adapter._demo_session is None
+
+
+def test_normal_busy_rejects_demo_without_mutating_workspace_or_profile(
+        monkeypatch, tmp_path, isolated_temp):
+    monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
+    monkeypatch.setattr(engine_adapter, "JobController", _DemoController)
+    backend = MagicMock()
+    adapter = engine_adapter.LecturePackAdapter(backend, runtime_health_result=MagicMock(state="HEALTHY"))
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    snapshot = profile / "library.json"
+    snapshot.write_bytes(b'{"jobs":["normal"]}')
+    adapter.config = _Config(str(profile))
+    adapter.current_job = SimpleNamespace(job_id="normal-job", manifest={"title": "Normal"})
+    adapter.controller._active_stages.add("transcribe")
+
+    result = adapter.start_demo_job()
+
+    assert result == {
+        "ok": False, "status": "normal_processing",
+        "error": "Finish or cancel the current lecture before starting the guided demo.",
+    }
+    assert adapter._demo_session is None
+    assert adapter.current_job.job_id == "normal-job"
+    assert snapshot.read_bytes() == b'{"jobs":["normal"]}'
+    assert list(Path(demo_temp_root()).glob("demo_*")) == []
+
+
+def test_controller_scoped_callbacks_restore_prior_job_and_ignore_late_signals(
+        monkeypatch, tmp_path, isolated_temp):
+    monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
+    monkeypatch.setattr(engine_adapter, "JobController", _DemoController)
+    backend = MagicMock()
+    adapter = engine_adapter.LecturePackAdapter(backend, runtime_health_result=MagicMock(state="HEALTHY"))
+    prior = SimpleNamespace(job_id="normal-job", manifest={"title": "Normal"})
+    adapter.config = _Config(str(tmp_path / "profile"))
+    adapter.current_job = prior
+    adapter._pending_job = prior
+    adapter._stages = [{"name": "old", "label": "Old", "color": "x", "state": "done", "pct": 100}]
+    monkeypatch.setattr(adapter, "push_storage", lambda: None)
+    monkeypatch.setattr(adapter, "_push_review_data", lambda: None)
+    monkeypatch.setattr(adapter, "_push_study_data", lambda: None)
+
+    started = adapter.start_demo_job()
+    demo = adapter._demo_session
+    normal = adapter.controller
+    event_count = backend.demo_event.emit.call_count
+    # A normal-controller signal while a demo owns the UI is ignored entirely.
+    normal.stage_started.slots[0]("normal-stage")
+    assert backend.demo_event.emit.call_count == event_count
+    # The demo's own signal is forwarded and tagged with its session.
+    demo["controller"].stage_started.slots[0]("demo-stage")
+    assert json.loads(backend.demo_event.emit.call_args.args[0])["session_id"] == started["session_id"]
+
+    adapter.end_demo_job("tour_exit")
+    assert adapter.current_job is prior and adapter._pending_job is prior
+    event_count = backend.demo_event.emit.call_count
+    active_job_count = backend.active_job.emit.call_count
+    # Queued signals from the disposed demo must not repaint or end anything.
+    demo["controller"].stage_started.slots[0]("late-stage")
+    demo["controller"].pipeline_completed.slots[0]()
+    assert backend.demo_event.emit.call_count == event_count
+    assert backend.active_job.emit.call_count == active_job_count
+    assert adapter.current_job is prior and adapter._demo_session is None
+
+
+def test_real_job_controller_consumes_pinned_demo_whisper_settings(tmp_path, monkeypatch):
+    """Mock only the external backend; exercise JobController's request construction."""
+    config = ConfigManager(str(tmp_path / "demo"))
+    model = ROOT / "models" / "ggml-base.en.bin"
+    config.set("whisper_model", str(model))
+    job = Job(str(tmp_path / "demo"), video_path=str(Path(demo_asset_path())))
+    job.settings["whisper"].update({
+        "model": str(model), "profile": "fast", "engine": "whispercpp-cpu",
+        "transcription_backend": "local-whispercpp",
+    })
+    job.save()
+    controller = JobController(config)
+    controller.set_job(job)
+    captured = []
+
+    class _Backend:
+        def capabilities(self):
+            return SimpleNamespace(is_local=True, label="Local", key="local-whispercpp")
+
+        def start(self, request):
+            captured.append(request)
+
+    backend = _Backend()
+    monkeypatch.setattr(controller.transcription_backends, "resolve", lambda _key: (backend, "test"))
+    monkeypatch.setattr(controller, "_set_transcription_backend", lambda _backend: None)
+    monkeypatch.setattr(controller.engine_registry, "resolve",
+                        lambda key: SimpleNamespace(key=key, label="CPU", reason="explicit"))
+
+    controller._run_transcribe()
+
+    assert captured[0].model == str(model)
+    assert captured[0].local_engine == "whispercpp-cpu"

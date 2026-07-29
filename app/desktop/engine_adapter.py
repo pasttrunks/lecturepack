@@ -715,6 +715,10 @@ def _normalize_flashcards(cards, count: int) -> list[dict]:
 class LecturePackAdapter(EngineAdapter):
     """Drives the real LecturePack engine behind the web UI."""
 
+    _DEMO_MODEL_FILENAME = "ggml-base.en.bin"
+    _DEMO_WHISPER_ENGINE = "whispercpp-cpu"
+    _DEMO_WHISPER_PROFILE = "fast"
+
     def __init__(self, backend, *, runtime_health_result=None, runtime_diagnostics_controller=None):
         super().__init__(
             backend,
@@ -754,16 +758,34 @@ class LecturePackAdapter(EngineAdapter):
     # ------------------------------------------------------------------ wiring
     def _wire_controller(self):
         c = self.controller
-        c.stage_started.connect(self._on_stage_started)
-        c.stage_progress.connect(self._on_stage_progress)
-        c.stage_log.connect(self._on_stage_log)
-        c.stage_finished.connect(self._on_stage_finished)
-        c.stage_cached.connect(self._on_stage_cached)
-        c.backend_info.connect(self._on_backend_info)
-        c.transcript_segment.connect(self._on_transcript_segment)
-        c.pipeline_completed.connect(self._on_pipeline_completed)
-        c.pipeline_failed.connect(self._on_pipeline_failed)
-        c.pause_state_changed.connect(self._on_pause_state)
+        # Never attach the normal controller directly to generic UI slots.
+        # A demo owns the workspace temporarily; controller identity is the
+        # boundary that prevents a late normal signal being stamped as demo.
+        c.stage_started.connect(lambda name, controller=c:
+                                self._forward_normal(controller, self._on_stage_started, name))
+        c.stage_progress.connect(lambda name, pct, controller=c:
+                                 self._forward_normal(controller, self._on_stage_progress, name, pct))
+        c.stage_log.connect(lambda name, text, controller=c:
+                            self._forward_normal(controller, self._on_stage_log, name, text))
+        c.stage_finished.connect(lambda name, ok, error, controller=c:
+                                 self._forward_normal(controller, self._on_stage_finished, name, ok, error))
+        c.stage_cached.connect(lambda name, controller=c:
+                               self._forward_normal(controller, self._on_stage_cached, name))
+        c.backend_info.connect(lambda text, controller=c:
+                               self._forward_normal(controller, self._on_backend_info, text))
+        c.transcript_segment.connect(lambda segment, controller=c:
+                                     self._forward_normal(controller, self._on_transcript_segment, segment))
+        c.pipeline_completed.connect(lambda controller=c:
+                                     self._forward_normal(controller, self._on_pipeline_completed))
+        c.pipeline_failed.connect(lambda message, controller=c:
+                                  self._forward_normal(controller, self._on_pipeline_failed, message))
+        c.pause_state_changed.connect(lambda state, controller=c:
+                                      self._forward_normal(controller, self._on_pause_state, state))
+
+    def _forward_normal(self, controller, handler, *args) -> None:
+        """Deliver only current normal-controller events outside demo mode."""
+        if controller is self.controller and self._demo_session is None:
+            handler(*args)
 
     # ------------------------------------------------------------------ helpers
     def _ollama_settings(self) -> dict:
@@ -1276,23 +1298,50 @@ class LecturePackAdapter(EngineAdapter):
             self.import_video(path)
 
     # ---------------------------------------------------------- guided demo
-    def _wire_demo_controller(self, controller) -> None:
+    def _demo_is_current(self, controller, session_id: str, operation_id: str) -> bool:
+        demo = self._demo_session
+        return bool(demo and demo["controller"] is controller
+                    and demo["session_id"] == session_id
+                    and demo["operation_id"] == operation_id)
+
+    def _forward_demo(self, controller, session_id: str, operation_id: str,
+                      handler, *args) -> None:
+        """Deliver a demo signal only while its exact session still owns UI."""
+        if self._demo_is_current(controller, session_id, operation_id):
+            handler(*args)
+
+    def _wire_demo_controller(self, controller, session_id: str, operation_id: str) -> None:
         """Forward the isolated controller's real pipeline signals only.
 
         The normal controller remains intact and continues to own the user's
         queue.  These slots use the active demo job solely while a demo session
         exists, then the workspace is torn down.
         """
-        controller.stage_started.connect(self._on_stage_started)
-        controller.stage_progress.connect(self._on_stage_progress)
-        controller.stage_log.connect(self._on_stage_log)
-        controller.stage_finished.connect(self._on_stage_finished)
-        controller.stage_cached.connect(self._on_stage_cached)
-        controller.backend_info.connect(self._on_backend_info)
-        controller.transcript_segment.connect(self._on_transcript_segment)
-        controller.pause_state_changed.connect(self._on_pause_state)
-        controller.pipeline_completed.connect(self._on_demo_pipeline_completed)
-        controller.pipeline_failed.connect(self._on_demo_pipeline_failed)
+        controller.stage_started.connect(lambda name:
+            self._forward_demo(controller, session_id, operation_id, self._on_stage_started, name))
+        controller.stage_progress.connect(lambda name, pct:
+            self._forward_demo(controller, session_id, operation_id, self._on_stage_progress, name, pct))
+        controller.stage_log.connect(lambda name, text:
+            self._forward_demo(controller, session_id, operation_id, self._on_stage_log, name, text))
+        controller.stage_finished.connect(lambda name, ok, error:
+            self._forward_demo(controller, session_id, operation_id,
+                               self._on_stage_finished, name, ok, error))
+        controller.stage_cached.connect(lambda name:
+            self._forward_demo(controller, session_id, operation_id, self._on_stage_cached, name))
+        controller.backend_info.connect(lambda text:
+            self._forward_demo(controller, session_id, operation_id, self._on_backend_info, text))
+        controller.transcript_segment.connect(lambda segment:
+            self._forward_demo(controller, session_id, operation_id,
+                               self._on_transcript_segment, segment))
+        controller.pause_state_changed.connect(lambda state:
+            self._forward_demo(controller, session_id, operation_id, self._on_pause_state, state))
+        controller.pipeline_completed.connect(lambda:
+            self._forward_demo(controller, session_id, operation_id,
+                               self._on_demo_pipeline_completed, controller, session_id, operation_id))
+        controller.pipeline_failed.connect(lambda message:
+            self._forward_demo(controller, session_id, operation_id,
+                               self._on_demo_pipeline_failed, controller, session_id,
+                               operation_id, message))
 
     def _make_demo_config(self, workspace: str):
         """Clone runtime choices into a disposable config without touching it."""
@@ -1303,6 +1352,19 @@ class LecturePackAdapter(EngineAdapter):
         config.settings["data_directory"] = workspace
         config.save()
         return config
+
+    def _bundled_demo_model_path(self, config) -> str:
+        """Locate the admitted base.en model; no user-selected fallback."""
+        candidates = [
+            os.path.join(getattr(config, "resource_dir", ""), "models",
+                         self._DEMO_MODEL_FILENAME),
+            os.path.join(getattr(self.config, "resource_dir", ""), "models",
+                         self._DEMO_MODEL_FILENAME),
+        ]
+        for candidate in candidates:
+            if candidate and os.path.isfile(candidate):
+                return os.path.abspath(candidate)
+        return ""
 
     def start_demo_job(self) -> dict:
         """Run the bundled MP4 through a separate controller and temp root."""
@@ -1315,6 +1377,11 @@ class LecturePackAdapter(EngineAdapter):
                 "session_id": active["session_id"],
                 "job_id": active["job"].job_id,
             }
+        # The normal controller owns all persistent jobs.  A demo must never
+        # overlap it or alter the current normal workspace while it is busy.
+        if self.is_processing() or self._demo_controller_busy(self.controller):
+            return {"ok": False, "status": "normal_processing",
+                    "error": "Finish or cancel the current lecture before starting the guided demo."}
         asset = demo_asset_path()
         if not os.path.isfile(asset) or os.path.getsize(asset) == 0:
             return {"ok": False, "error": "Bundled demo lecture is unavailable."}
@@ -1325,11 +1392,27 @@ class LecturePackAdapter(EngineAdapter):
             config = self._make_demo_config(workspace)
             controller = JobController(config)
             job = Job(workspace, video_path=asset)
+            model_path = self._bundled_demo_model_path(config)
+            if not model_path:
+                raise RuntimeError("The approved bundled fast Whisper model is unavailable.")
             job.manifest.update({
                 "session_scoped": True,
                 "demo_session_id": session_id,
                 "demo_operation_id": operation_id,
             })
+            # Never inherit a user's GPU/backend/model preference.  The demo
+            # contract is the admitted CPU base.en fast profile, persisted on
+            # the demo Job and consumed by JobController._run_transcribe().
+            whisper = job.settings.setdefault("whisper", {})
+            whisper.update({
+                "model": model_path,
+                "profile": self._DEMO_WHISPER_PROFILE,
+                "engine": self._DEMO_WHISPER_ENGINE,
+                "transcription_backend": "local-whispercpp",
+            })
+            config.settings["whisper_model"] = model_path
+            config.settings["engine"] = self._DEMO_WHISPER_ENGINE
+            config.save()
             job.save()
             controller.set_job(job)
         except Exception as exc:
@@ -1344,8 +1427,15 @@ class LecturePackAdapter(EngineAdapter):
             "controller": controller,
             "job": job,
             "cleanup_requested": False,
+            "prior": {
+                "current_job": self.current_job,
+                "pending_job": self._pending_job,
+                "stages": deepcopy(self._stages),
+                "pipeline_start": self._pipeline_start,
+                "stage_timings": deepcopy(self._stage_timings),
+            },
         }
-        self._wire_demo_controller(controller)
+        self._wire_demo_controller(controller, session_id, operation_id)
         self._pending_job = None
         self._set_active_job(job)
         self._stages = [
@@ -1363,14 +1453,14 @@ class LecturePackAdapter(EngineAdapter):
             # Use the exact normal pipeline; no timer or fabricated results.
             controller.run_pipeline()
         except Exception as exc:
-            self._on_demo_pipeline_failed(str(exc))
+            self._on_demo_pipeline_failed(controller, session_id, operation_id, str(exc))
             return {"ok": False, "error": str(exc), "operation_id": operation_id,
                     "session_id": session_id}
         return {"ok": True, "operation_id": operation_id, "session_id": session_id,
                 "job_id": job.job_id, "workspace": workspace}
 
     def _demo_controller_busy(self, controller) -> bool:
-        if getattr(controller, "_active_stages", None):
+        if getattr(controller, "_active_stages", None) or getattr(controller, "current_stage", None):
             return True
         for name in ("slide_worker", "align_worker", "export_worker"):
             worker = getattr(controller, name, None)
@@ -1423,13 +1513,21 @@ class LecturePackAdapter(EngineAdapter):
             return
         removed = cleanup_demo_session(demo["workspace"], demo["session_id"])
         self._emit_demo_event("cleaned", reason=reason, cleaned=removed)
+        prior = demo["prior"]
         self._demo_session = None
-        self._set_active_job(None)
+        self._pending_job = prior["pending_job"]
+        self._stages = prior["stages"]
+        self._pipeline_start = prior["pipeline_start"]
+        self._stage_timings = prior["stage_timings"]
+        self._set_active_job(prior["current_job"])
         self._emit("status_changed", {
             "label": "Guided demo ended", "pct": 0, "detail": reason,
         })
         # This redraw contains only persistent jobs; the demo was never in it.
         self._push_jobs()
+        if self.current_job is not None:
+            self._push_review_data()
+            self._push_study_data()
 
     def end_demo_job(self, reason: str = "ended") -> dict:
         """Cancel only the demo controller and clean its sentinel workspace."""
@@ -1449,11 +1547,16 @@ class LecturePackAdapter(EngineAdapter):
         return {"ok": True, "operation_id": demo["operation_id"],
                 "session_id": demo["session_id"], "status": "cancelling"}
 
-    def _on_demo_pipeline_completed(self) -> None:
+    def _on_demo_pipeline_completed(self, controller, session_id: str, operation_id: str) -> None:
+        if not self._demo_is_current(controller, session_id, operation_id):
+            return
         self._emit_demo_event("completed", stage="complete", progress=100)
         self.end_demo_job("completed")
 
-    def _on_demo_pipeline_failed(self, message: str) -> None:
+    def _on_demo_pipeline_failed(self, controller, session_id: str, operation_id: str,
+                                 message: str) -> None:
+        if not self._demo_is_current(controller, session_id, operation_id):
+            return
         self._emit_demo_event("failed", error=str(message)[:500])
         self.end_demo_job("failed")
 
@@ -1613,6 +1716,9 @@ class LecturePackAdapter(EngineAdapter):
             self._log("[import]", f"failed to open video: {exc}", "error")
 
     def start_processing(self, mode: str):
+        if self._demo_session is not None:
+            self._log("[engine]", "End the guided demo before starting a lecture.", "engine")
+            return
         job = self._pending_job or self.current_job
         if job is None:
             self._log("[error]", "No video selected.", "error")
