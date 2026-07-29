@@ -32,19 +32,18 @@ created: 2026-07-29
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 04-01-01 | 01 | 0 | VIS-01, VIS-03, VIS-05 | — | N/A | structural + DOM/reducer + responsive matrix | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ⬜ pending |
-| 04-01-02 | 01 | 0 | VIS-02 | — | N/A | bridge/main pre-visible theme integration | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ⬜ pending |
-| 04-01-03 | 01 | 0 | VIS-04, VIS-05 | — | Gate/tour retain intended focus and real-control interaction | QtWebEngine DOM/reducer + console/DPI helper | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ⬜ pending |
-| 04-02-01 | 02 | 1 | VIS-02 | — | N/A | desktop/bridge/WebEngine implementation | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ Wave 0 | ⬜ pending |
-| 04-02-02 | 02 | 1 | VIS-01, VIS-03 | — | N/A | navigation/render regression | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ Wave 0 | ⬜ pending |
-| 04-03-01 | 03 | 2 | VIS-04, VIS-05 | — | N/A | tooltip + responsive/minimum-size implementation | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ Wave 0 | ⬜ pending |
-| 04-03-02 | 03 | 2 | VIS-05 | — | Setup gate and guided tour retain keyboard containment and reachable Exit | QtWebEngine geometry/focus integration | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ Wave 0 | ⬜ pending |
-| 04-04-01 | 04 | 3 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | — | N/A | full pytest and handoff evidence | `python -m pytest -q` | ✅ Wave 0 | ⬜ pending |
-| 04-04-02 | 04 | 3 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | T-04-11 | Packaged gate/tour focus and physical visual behavior | blocking packaged human verification | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ Wave 0 | ⬜ pending |
+| 04-01-01 | 01 | 1 | VIS-02 | T-04-04 | Pre-visible root theme and idempotent persistence | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ⬜ pending |
+| 04-01-02 | 01 | 1 | VIS-01, VIS-03 | T-04-05 | Navigation-only entrance and targeted in-place updates | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ⬜ pending |
+| 04-02-01 | 02 | 2 | VIS-04, VIS-05 | T-04-07 | Inert tooltip and reachable very-small layout | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ⬜ pending |
+| 04-02-02 | 02 | 2 | VIS-05 | T-04-08, T-04-09 | Intended focus and coalesced live geometry | vertical TDD | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ extend | ⬜ pending |
+| 04-03-01 | 03 | 3 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | T-04-10 | Focused integrated automated evidence | focused integration | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ existing | ⬜ pending |
+| 04-03-02 | 03 | 3 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | T-04-10 | Full-suite evidence and honest lifecycle flags | full integration | `python -m pytest -q` | ✅ existing | ⬜ pending |
+| 04-04-01 | 04 | 4 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | T-04-10 | Handoff with actual automated evidence | handoff | `python -m pytest -q` | ✅ existing | ⬜ pending |
+| 04-04-02 | 04 | 4 | VIS-01, VIS-02, VIS-03, VIS-04, VIS-05 | T-04-11 | Packaged gate/tour focus and physical visual behavior | blocking packaged human verification | `python -m pytest -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py` | ✅ existing | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
-## Wave 0 Requirements
+## Automated Coverage Readiness Requirements
 
 - [ ] Extend `tests/test_ui_tokens_motion_responsive.py`, `tests/test_webview_theme.py`, and `tests/test_guided_tour.py` with explicit VIS-01 through VIS-05 coverage; do not create a parallel UI test framework.
 - [ ] Add a deterministic DOM/reducer seam that records root `animationstart` events and proves only navigation to a different page can generate them.
@@ -52,7 +51,7 @@ created: 2026-07-29
 - [ ] Add a QtWebEngine viewport/DPI helper that asserts no horizontal overflow, required-action visibility, focus containment, geometry tracking, and an empty console-error collection.
 - [ ] Add model-name tooltip tests for mouse hover and keyboard focus, exact full text, `aria-describedby`, viewport bounds, and no layout reflow.
 - [ ] Add `app/desktop/main.py` coverage proving pre-visible theme readiness and confirming no 1080x680 Phase-4 minimum prevents the 480x560 matrix.
-- [ ] After all Wave 0 seams pass, set `wave_0_complete: true` and `nyquist_compliant: true` in this frontmatter; retain both false for any missing or failing seam.
+- [ ] After all vertical TDD slices and integrated suites pass, set `wave_0_complete: true` and `nyquist_compliant: true` in this frontmatter; retain both false for any missing or failing seam.
 
 ## Manual-Only Verifications
 
