@@ -15,6 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSS = open(os.path.join(ROOT, "app", "ui", "app.css"), encoding="utf-8").read()
 HTML = open(os.path.join(ROOT, "app", "ui", "index.html"), encoding="utf-8").read()
 JS = open(os.path.join(ROOT, "app", "ui", "app.js"), encoding="utf-8").read()
+MAIN = open(os.path.join(ROOT, "app", "desktop", "main.py"), encoding="utf-8").read()
 
 AA_NORMAL = 4.5
 AA_LARGE = 3.0
@@ -303,3 +304,7 @@ def test_preserved_motion_and_press_vocabulary_is_not_replaced_by_navigation_gua
     assert "--shadow-hard:" in _block(":root")
     assert ".lp-hit:active{transform:translateY(1px)}" in CSS
     assert "--motion-seat:140ms" in _block(":root")
+
+
+def test_desktop_minimum_size_keeps_the_small_viewport_matrix_reachable():
+    assert "self.setMinimumSize(480, 560)" in MAIN
