@@ -721,7 +721,7 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 #guided-tour-overlay{position:fixed;inset:0;z-index:170;pointer-events:none}
 #tour-spotlight-box{position:fixed;left:0;top:0;width:0;height:0;border:2px solid var(--orange);border-radius:12px;box-shadow:0 0 0 9999px rgba(8,10,14,.65),0 0 25px rgba(255,122,0,.6);pointer-events:none;transition:left var(--motion-seat) var(--motion-spring),top var(--motion-seat) var(--motion-spring),width var(--motion-seat) var(--motion-spring),height var(--motion-seat) var(--motion-spring);will-change:left,top,width,height}
 #tour-arrow{position:fixed;width:13px;height:13px;border-right:3px solid var(--orange);border-bottom:3px solid var(--orange);transform:rotate(45deg);pointer-events:none;filter:drop-shadow(0 0 5px rgba(255,122,0,.7));transition:left var(--motion-seat) var(--motion-spring),top var(--motion-seat) var(--motion-spring)}
-#guided-tour-card{position:fixed;right:24px;bottom:24px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);padding:18px;pointer-events:auto}
+#guided-tour-card{position:fixed;right:24px;bottom:24px;z-index:2;width:min(360px,calc(100vw - 32px));box-sizing:border-box;background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);padding:18px;pointer-events:auto}
 #tour-step-label{font:600 10px 'JetBrains Mono';letter-spacing:.14em;color:var(--orange-ink);text-transform:uppercase;margin-bottom:7px}
 #tour-title{font:700 19px 'Space Grotesk';letter-spacing:-.02em;margin:0 0 7px}
 #tour-copy{font-size:13px;line-height:1.52;color:var(--muted);margin:0 0 14px}
@@ -738,6 +738,7 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 #glowing-demo-card[data-demo-state="running"]{border-color:var(--blue);box-shadow:var(--shadow-hard),0 0 22px rgba(137,180,250,.24)}
 #glowing-demo-card[data-demo-state="error"]{border-color:var(--red)}
 #glowing-demo-card.lp-demo-tour-active,#dropzone.lp-demo-tour-active{position:relative;z-index:171}
+#glowing-demo-card.lp-demo-tour-lifted{position:fixed!important;z-index:1!important;pointer-events:auto!important}
 @keyframes lpdemoprompt{0%,100%{box-shadow:var(--shadow-hard),0 0 25px rgba(255,122,0,.6)}50%{box-shadow:var(--shadow-hard),0 0 32px rgba(255,122,0,.68)}}
 #glowing-demo-card.lp-demo-tour-active{border-color:var(--orange);box-shadow:var(--shadow-hard),0 0 25px rgba(255,122,0,.6);animation:lpdemoprompt 1.6s var(--motion-ease) infinite}
 #dropzone.lp-demo-drop-hover{border-color:var(--orange)!important;box-shadow:var(--shadow-hard),0 0 22px rgba(255,122,0,.32)!important}

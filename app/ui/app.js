@@ -2349,14 +2349,15 @@
   var guidedDemoFlow = GuidedDemoFlowModel();
   var slideDetectionPreset = SlideDetectionPresetModel();
   var demoAdmissionAvailable = false;
+  var demoHomeDismissed = tourSeen();
   var tourRuntimeHealthy = false;
 
   function setDemoAdmissionAvailable(available) {
     var next = available === true, wasAvailable = demoAdmissionAvailable;
     demoAdmissionAvailable = next;
     tourRuntimeHealthy = next;
-    var demoHome = $('home-demo'), onboarding = $('settings-onboarding'), replay = $('btn-replay-tour');
-    if (demoHome) demoHome.hidden = !next;
+    var onboarding = $('settings-onboarding'), replay = $('btn-replay-tour');
+    renderDemoHomeAvailability();
     if (onboarding) onboarding.hidden = !next;
     if (replay) replay.disabled = !next;
     if (!next) {
@@ -2371,6 +2372,11 @@
     }
     renderDemoCard();
     if (!wasAvailable) offerGuidedTour();
+  }
+  function renderDemoHomeAvailability() {
+    var demoHome = $('home-demo');
+    if (demoHome) demoHome.hidden = !demoAdmissionAvailable ||
+      (demoHomeDismissed && !guidedTour.snapshot().active);
   }
 
   function stageLabel(name) {
@@ -2422,8 +2428,45 @@
   }
   function demoFlowPhase() { return guidedDemoFlow.snapshot().phase; }
   function currentTourPhase() { return TOUR_PHASES[demoFlowPhase()] || null; }
+  var liftedDemoCardPlaceholder = null, liftedDemoCardStyle = null;
+  function positionLiftedDemoCard() {
+    var card = $('glowing-demo-card');
+    if (!card || !liftedDemoCardPlaceholder) return;
+    var r = liftedDemoCardPlaceholder.getBoundingClientRect();
+    card.style.left = Math.round(r.left) + 'px';
+    card.style.top = Math.round(r.top) + 'px';
+    card.style.width = Math.round(r.width) + 'px';
+    card.style.height = Math.round(r.height) + 'px';
+  }
+  function liftDemoCardAboveTourScrim() {
+    var card = $('glowing-demo-card'), overlay = $('guided-tour-overlay');
+    if (!card || !overlay) return;
+    if (!liftedDemoCardPlaceholder) {
+      var r = card.getBoundingClientRect(), placeholder = document.createElement('div');
+      placeholder.id = 'guided-demo-card-placeholder';
+      placeholder.setAttribute('aria-hidden', 'true');
+      placeholder.style.cssText = 'display:block;width:' + Math.round(r.width) + 'px;height:' + Math.round(r.height) + 'px';
+      liftedDemoCardStyle = card.getAttribute('style');
+      card.parentNode.insertBefore(placeholder, card);
+      liftedDemoCardPlaceholder = placeholder;
+      overlay.appendChild(card);
+      card.classList.add('lp-demo-tour-lifted');
+    }
+    positionLiftedDemoCard();
+  }
+  function restoreDemoCardBelowTourScrim() {
+    var card = $('glowing-demo-card');
+    if (!card || !liftedDemoCardPlaceholder) return;
+    liftedDemoCardPlaceholder.parentNode.insertBefore(card, liftedDemoCardPlaceholder);
+    liftedDemoCardPlaceholder.remove(); liftedDemoCardPlaceholder = null;
+    card.classList.remove('lp-demo-tour-lifted');
+    if (liftedDemoCardStyle === null) card.removeAttribute('style');
+    else card.setAttribute('style', liftedDemoCardStyle);
+    liftedDemoCardStyle = null;
+  }
   function setDemoTourInteraction(active) {
     var card = $('glowing-demo-card'), dropzone = $('dropzone');
+    if (active) liftDemoCardAboveTourScrim(); else restoreDemoCardBelowTourScrim();
     if (card) card.classList.toggle('lp-demo-tour-active', !!active);
     if (dropzone) dropzone.classList.toggle('lp-demo-tour-active', !!active);
   }
@@ -2440,12 +2483,13 @@
     arrow.hidden = false;
     arrow.style.left = Math.round(r.left + Math.min(r.width - 18, 24)) + 'px';
     arrow.style.top = Math.max(8, Math.round(r.top - 19)) + 'px';
+    positionLiftedDemoCard();
   }
   function renderGuidedTour() {
     var state = guidedTour.snapshot(), overlay = $('guided-tour-overlay');
     if (!overlay) return;
     overlay.hidden = !demoAdmissionAvailable || (!state.active && !state.prompt);
-    if (overlay.hidden) return;
+    if (overlay.hidden) { setDemoTourInteraction(false); return; }
     var isPrompt = state.prompt, phase = state.active ? currentTourPhase() : null, flow = guidedDemoFlow.snapshot();
     $('tour-step-label').textContent = isPrompt ? 'WELCOME' : 'DEMO · ' + flow.phase.toUpperCase();
     $('tour-title').textContent = isPrompt ? 'A quick look around' : phase.title;
@@ -2469,12 +2513,14 @@
     if (!demoAdmissionAvailable) return;
     if (replay) guidedTour.replay(); else guidedTour.start();
     guidedDemoFlow.start();
+    renderDemoHomeAvailability();
     var phase = currentTourPhase();
     if (phase) setScreen(phase.screen);
     renderGuidedTour();
   }
   function exitGuidedTour() {
-    guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen(); renderGuidedTour();
+    guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen(); demoHomeDismissed = true;
+    renderDemoHomeAvailability(); renderGuidedTour();
     renderSlideDetectionPreset();
     setScreen('home');
     endGuidedDemo('tour_exit');

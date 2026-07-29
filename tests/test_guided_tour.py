@@ -362,6 +362,8 @@ def test_css_spotlight_is_pointer_transparent_and_has_no_svg_mask():
     assert "#tour-spotlight-box" in css
     assert "box-shadow:0 0 0 9999px rgba(8,10,14,.65)" in css
     assert "#guided-tour-card" in css and "pointer-events:auto" in css
+    assert "#glowing-demo-card.lp-demo-tour-lifted" in css
+    assert "pointer-events:auto!important" in css
 
 
 def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
@@ -399,7 +401,7 @@ def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
     admission_end = js.index("function stageLabel", admission_start)
     admission_block = js[admission_start:admission_end]
     assert "demoAdmissionAvailable = next" in admission_block
-    assert "demoHome.hidden = !next" in admission_block
+    assert "renderDemoHomeAvailability();" in admission_block
     assert "onboarding.hidden = !next" in admission_block
     assert "if (!wasAvailable) offerGuidedTour();" in admission_block
     assert "overlay.hidden = !demoAdmissionAvailable" in js
@@ -410,6 +412,10 @@ def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
     gate = js[js.index("var RuntimeSetupGate ="):js.index("/* Clears", js.index("var RuntimeSetupGate ="))]
     assert "syncDemoAdmission(view);" in gate
     assert "setDemoAdmissionAvailable(!!(view && view.healthy" in gate
+    assert "var demoHomeDismissed = tourSeen();" in js
+    assert "function renderDemoHomeAvailability()" in js
+    assert "demoHomeDismissed && !guidedTour.snapshot().active" in js
+    assert "markTourSeen(); demoHomeDismissed = true;" in exit_block
 
 
 def test_healthy_runtime_markup_has_no_stale_pyramid_or_export_count():
@@ -473,6 +479,10 @@ def test_real_demo_bridge_contract_and_card_are_wired_without_timers():
     assert spotlight_glow in css
     assert "#glowing-demo-card.lp-demo-tour-active{border-color:var(--orange);box-shadow:var(--shadow-hard)," + spotlight_glow in css
     assert "setDemoTourInteraction(state.active && flow.phase === 'import')" in js
+    assert "function liftDemoCardAboveTourScrim()" in js
+    assert "overlay.appendChild(card)" in js
+    assert "function restoreDemoCardBelowTourScrim()" in js
+    assert "positionLiftedDemoCard();" in js
     assert "setTimeout" not in js[js.index("function startGuidedDemo"):js.index("function isTourFormInput")]
 
 
