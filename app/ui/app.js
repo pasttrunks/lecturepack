@@ -2474,6 +2474,37 @@
     if (card) card.classList.toggle('lp-demo-tour-active', !!active);
     if (dropzone) dropzone.classList.toggle('lp-demo-tour-active', !!active);
   }
+  function hideModelTooltip() {
+    var tooltip = $('ai-model-tooltip');
+    if (tooltip) tooltip.hidden = true;
+  }
+  function showModelTooltip() {
+    var value = $('ai-model-name'), tooltip = $('ai-model-tooltip');
+    if (!value || !tooltip || !value.textContent || value.textContent === '—') { hideModelTooltip(); return; }
+    tooltip.textContent = value.textContent;
+    tooltip.hidden = false;
+    requestAnimationFrame(function () {
+      if (tooltip.hidden) return;
+      var rect = value.getBoundingClientRect(), inset = 8, width = tooltip.offsetWidth, height = tooltip.offsetHeight;
+      tooltip.style.left = Math.max(inset, Math.min(rect.left, window.innerWidth - width - inset)) + 'px';
+      tooltip.style.top = Math.max(inset, Math.min(rect.bottom + inset, window.innerHeight - height - inset)) + 'px';
+    });
+  }
+  function setModelValue(value) {
+    var model = $('ai-model-name');
+    if (!model) return;
+    var text = String(value || '');
+    model.textContent = text || '—';
+    if (!text) hideModelTooltip();
+  }
+  function wireModelTooltip() {
+    var model = $('ai-model-name');
+    if (!model) return;
+    model.addEventListener('mouseenter', showModelTooltip);
+    model.addEventListener('mouseleave', hideModelTooltip);
+    model.addEventListener('focus', showModelTooltip);
+    model.addEventListener('blur', hideModelTooltip);
+  }
   function positionTourSpotlight() {
     var state = guidedTour.snapshot(), box = $('tour-spotlight-box'), arrow = $('tour-arrow');
     if (!state.active || !box || !arrow) return;
@@ -3110,7 +3141,7 @@
     $('ai-model-select').addEventListener('change', function () {
       if (this.value) {
         lpBridge.call('set_setting', 'ollama_model', this.value);
-        $('ai-model-name').textContent = this.value;
+        setModelValue(this.value);
       }
     });
     $('btn-check-updates').addEventListener('click', function () {
@@ -3847,7 +3878,7 @@
       var col = builtin ? 'var(--secondary-text)' : (err ? 'var(--muted)' : 'var(--green)');
       $('ai-status').style.color = col; $('ai-status').style.borderColor = col;
       $('ai-status').innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:' + col + '"></span>' + esc(txt);
-      if (s.model) $('ai-model-name').textContent = s.model;
+      if (s.model) setModelValue(s.model);
     });
     lpBridge.on('smart_study', function (json) {
       try { renderSmartStudy(JSON.parse(json)); } catch (e) { console.error('smart_study', e); }
@@ -3915,7 +3946,7 @@
         renderSlideDetectionPreset();
       }
       if (s.ollama_model) {
-        $('ai-model-name').textContent = s.ollama_model;
+        setModelValue(s.ollama_model);
         var msel = $('ai-model-select');
         if (msel && msel.querySelector('option[value="' + s.ollama_model + '"]')) msel.value = s.ollama_model;
       }
@@ -4005,6 +4036,7 @@
     RuntimeSetupGate.beginBootstrap();
     wire();
     wireGuidedTour();
+    wireModelTooltip();
     wireBridge();
     window.addEventListener('resize', function () { LP.motion.indicator(); });
   }

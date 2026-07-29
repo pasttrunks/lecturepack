@@ -308,3 +308,28 @@ def test_preserved_motion_and_press_vocabulary_is_not_replaced_by_navigation_gua
 
 def test_desktop_minimum_size_keeps_the_small_viewport_matrix_reachable():
     assert "self.setMinimumSize(480, 560)" in MAIN
+
+
+def test_model_value_uses_an_inert_aria_tooltip_without_reflow():
+    """VIS-04: local model labels stay compact while their exact value is accessible."""
+    model = re.search(r'<span id="ai-model-name"[^>]*>', HTML)
+    assert model, "model value hook missing"
+    tag = model.group(0)
+    assert 'tabindex="0"' in tag
+    assert 'aria-describedby="ai-model-tooltip"' in tag
+    assert 'id="ai-model-tooltip"' in HTML
+    assert 'role="tooltip"' in HTML
+    assert "white-space:nowrap" in CSS
+    assert "text-overflow:ellipsis" in CSS
+    assert ".lp-model-value" in CSS and "min-width:0" in _block(".lp-model-value")
+    assert "tooltip.textContent = value.textContent" in JS
+
+
+def test_very_small_viewports_scroll_vertically_without_page_overflow():
+    """VIS-05: the 480x560 matrix keeps actions reachable without an x-axis page scroll."""
+    assert "overflow-x:hidden" in _block("html,body")
+    assert "#app{min-width:0;min-height:100vh}" in CSS
+    compact = re.search(r"@media \(max-width:640px\)\{(.*?)\n\}", CSS, re.S)
+    assert compact, "very-small responsive breakpoint missing"
+    assert "flex-direction:column" in compact.group(1)
+    assert "overflow-y:auto" in compact.group(1)

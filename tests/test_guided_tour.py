@@ -418,6 +418,15 @@ def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
     assert "markTourSeen(); demoHomeDismissed = true;" in exit_block
 
 
+def test_model_tooltip_handles_hover_focus_and_safe_empty_values():
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "function setModelValue(value)" in js
+    assert "String(value || '')" in js
+    assert "showModelTooltip" in js and "hideModelTooltip" in js
+    assert "mouseenter" in js and "mouseleave" in js
+    assert "focus" in js and "blur" in js
+
+
 def test_healthy_runtime_markup_has_no_stale_pyramid_or_export_count():
     """The static shell starts friendly; real projections provide lecture-specific text."""
     html = HTML.read_text(encoding="utf-8")
