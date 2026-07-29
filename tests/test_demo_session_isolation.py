@@ -356,6 +356,56 @@ def test_cleanup_failure_still_revokes_session_asset_registration(
     assert Path(started["workspace"]).exists()  # cleanup refused, access still revoked
 
 
+def test_busy_end_request_revokes_assets_before_workspace_cleanup(
+        monkeypatch, tmp_path, isolated_temp):
+    monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
+    monkeypatch.setattr(engine_adapter, "JobController", _DemoController)
+    adapter = engine_adapter.LecturePackAdapter(MagicMock(), runtime_health_result=MagicMock(state="HEALTHY"))
+    adapter.config = _Config(str(tmp_path / "profile"))
+    adapter.win = MagicMock()
+    monkeypatch.setattr(adapter, "push_storage", lambda: None)
+    started = adapter.start_demo_job()
+    demo = adapter._demo_session
+    demo["controller"]._active_stages.add("export")
+    scheduled = []
+    monkeypatch.setattr(engine_adapter.QTimer, "singleShot",
+                        lambda *_args: scheduled.append(_args))
+
+    result = adapter.end_demo_job("tour_exit")
+
+    assert result["ok"] is True and result["status"] == "cancelling"
+    assert session_job_frames_root(demo["job"].job_id) is None
+    assert Path(started["workspace"]).exists()
+    assert adapter._demo_session is demo and scheduled
+    demo["controller"]._active_stages.clear()
+    adapter._finish_demo_cleanup("tour_exit")
+    assert not Path(started["workspace"]).exists()
+
+
+def test_cancel_exception_still_revokes_assets_and_attempts_cleanup(
+        monkeypatch, tmp_path, isolated_temp):
+    monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
+    monkeypatch.setattr(engine_adapter, "JobController", _DemoController)
+    adapter = engine_adapter.LecturePackAdapter(MagicMock(), runtime_health_result=MagicMock(state="HEALTHY"))
+    adapter.config = _Config(str(tmp_path / "profile"))
+    adapter.win = MagicMock()
+    monkeypatch.setattr(adapter, "push_storage", lambda: None)
+    started = adapter.start_demo_job()
+    demo = adapter._demo_session
+
+    def cancel_raises():
+        raise RuntimeError("cancel failed")
+
+    demo["controller"].cancel = cancel_raises
+    result = adapter.end_demo_job("tour_exit")
+
+    assert result["ok"] is False and result["status"] == "cleanup_pending"
+    assert result["error"] == "cancel failed"
+    assert session_job_frames_root(demo["job"].job_id) is None
+    assert not Path(started["workspace"]).exists()
+    assert adapter._demo_session is None
+
+
 def test_normal_busy_rejects_demo_without_mutating_workspace_or_profile(
         monkeypatch, tmp_path, isolated_temp):
     monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)

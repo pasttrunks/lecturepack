@@ -1555,18 +1555,31 @@ class LecturePackAdapter(EngineAdapter):
         demo = getattr(self, "_demo_session", None)
         if demo is None:
             return {"ok": True, "idempotent": True, "status": "not_running"}
+        cancel_error = ""
         if not demo["cleanup_requested"]:
             demo["cleanup_requested"] = True
+            # Exit revokes WebEngine access immediately, even if a worker needs
+            # time to stop before the sentinel workspace can be removed.
+            unregister_session_job_assets(demo["job"].job_id)
             self._emit_demo_event("cancelling", reason=reason)
             try:
                 demo["controller"].cancel()
+            except Exception as exc:
+                cancel_error = str(exc)[:500]
+                self._emit_demo_event("cleanup_waiting", reason=reason,
+                                      error=cancel_error)
             finally:
                 self.win.on_cancelled()
         if reason == "app_exit":
             self._wait_for_demo_children(demo["controller"])
+        # Always attempt/schedule safe cleanup, including after cancel errors.
         self._finish_demo_cleanup(reason)
-        return {"ok": True, "operation_id": demo["operation_id"],
-                "session_id": demo["session_id"], "status": "cancelling"}
+        result = {"ok": not bool(cancel_error), "operation_id": demo["operation_id"],
+                  "session_id": demo["session_id"],
+                  "status": "cleanup_pending" if cancel_error else "cancelling"}
+        if cancel_error:
+            result["error"] = cancel_error
+        return result
 
     def _on_demo_pipeline_completed(self, controller, session_id: str, operation_id: str) -> None:
         if not self._demo_is_current(controller, session_id, operation_id):
