@@ -785,7 +785,7 @@ class LecturePackAdapter(EngineAdapter):
 
     def _forward_normal(self, controller, handler, *args) -> None:
         """Deliver only current normal-controller events outside demo mode."""
-        if controller is self.controller and self._demo_session is None:
+        if controller is self.controller and getattr(self, "_demo_session", None) is None:
             handler(*args)
 
     # ------------------------------------------------------------------ helpers
@@ -835,7 +835,7 @@ class LecturePackAdapter(EngineAdapter):
 
     def _emit_demo_event(self, status: str, **extra) -> None:
         """A narrow, JSON-only lifecycle stream for future tour UI wiring."""
-        demo = self._demo_session
+        demo = getattr(self, "_demo_session", None)
         if demo is None:
             return
         payload = {
@@ -1300,7 +1300,7 @@ class LecturePackAdapter(EngineAdapter):
 
     # ---------------------------------------------------------- guided demo
     def _demo_is_current(self, controller, session_id: str, operation_id: str) -> bool:
-        demo = self._demo_session
+        demo = getattr(self, "_demo_session", None)
         return bool(demo and demo["controller"] is controller
                     and demo["session_id"] == session_id
                     and demo["operation_id"] == operation_id)
@@ -1373,7 +1373,7 @@ class LecturePackAdapter(EngineAdapter):
 
     def start_demo_job(self) -> dict:
         """Run the bundled MP4 through a separate controller and temp root."""
-        active = self._demo_session
+        active = getattr(self, "_demo_session", None)
         if active is not None:
             return {
                 "ok": True,
@@ -1508,7 +1508,7 @@ class LecturePackAdapter(EngineAdapter):
                 pass
 
     def _finish_demo_cleanup(self, reason: str) -> None:
-        demo = self._demo_session
+        demo = getattr(self, "_demo_session", None)
         if demo is None:
             return
         controller = demo["controller"]
@@ -1536,7 +1536,7 @@ class LecturePackAdapter(EngineAdapter):
 
     def end_demo_job(self, reason: str = "ended") -> dict:
         """Cancel only the demo controller and clean its sentinel workspace."""
-        demo = self._demo_session
+        demo = getattr(self, "_demo_session", None)
         if demo is None:
             return {"ok": True, "idempotent": True, "status": "not_running"}
         if not demo["cleanup_requested"]:
@@ -1721,7 +1721,7 @@ class LecturePackAdapter(EngineAdapter):
             self._log("[import]", f"failed to open video: {exc}", "error")
 
     def start_processing(self, mode: str):
-        if self._demo_session is not None:
+        if getattr(self, "_demo_session", None) is not None:
             self._log("[engine]", "End the guided demo before starting a lecture.", "engine")
             return
         job = self._pending_job or self.current_job
@@ -1809,7 +1809,7 @@ class LecturePackAdapter(EngineAdapter):
         self.controller.run_pipeline()
 
     def cancel_job(self):
-        if self._demo_session is not None:
+        if getattr(self, "_demo_session", None) is not None:
             self.end_demo_job("cancelled")
             return
         try:
@@ -1878,7 +1878,7 @@ class LecturePackAdapter(EngineAdapter):
             "label": s["label"] if s else name, "pct": 0,
             "detail": f"0% · {s['label'] if s else name}",
             "side": f"{s['label'] if s else name} 0%"})
-        if self._demo_session is not None:
+        if getattr(self, "_demo_session", None) is not None:
             self._emit_demo_event("running", stage=name, progress=0)
 
     def _on_stage_progress(self, name: str, pct: int):
@@ -1895,7 +1895,7 @@ class LecturePackAdapter(EngineAdapter):
         self._emit("status_changed", {
             "label": label, "pct": int(pct),
             "detail": f"{int(pct)}% · {label}", "side": f"{label} {int(pct)}%"})
-        if self._demo_session is not None:
+        if getattr(self, "_demo_session", None) is not None:
             self._emit_demo_event("running", stage=name, progress=int(pct))
 
     def _on_stage_log(self, name: str, text: str):
@@ -1913,7 +1913,7 @@ class LecturePackAdapter(EngineAdapter):
         self._render_pipeline()
         if not success and error:
             self._log("[error]", f"{name}: {error}", "error")
-        if self._demo_session is not None:
+        if getattr(self, "_demo_session", None) is not None:
             self._emit_demo_event("stage_finished", stage=name,
                                   progress=100 if success else 0,
                                   error=str(error)[:500] if error else "")
