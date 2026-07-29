@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import os
 import sys
-
 import json
+
 # Smooth, GPU-accelerated rendering. Must be set before Qt loads.
 os.environ.setdefault(
     "QTWEBENGINE_CHROMIUM_FLAGS",
@@ -113,6 +113,9 @@ class MainWindow(QMainWindow):
         s.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, True)
 
         index = os.path.join(ui_dir(), "index.html")
+        self._show_requested = False
+        self._theme_ready = False
+        self.view.loadFinished.connect(self._apply_initial_theme_before_show)
         self.view.load(QUrl.fromLocalFile(index))
         self.setCentralWidget(self.view)
 
@@ -132,9 +135,6 @@ class MainWindow(QMainWindow):
                 self.tray = QSystemTrayIcon(self)
                 if os.path.exists(icon_path):
                     self.tray.setIcon(QIcon(icon_path))
-        self._show_requested = False
-        self._theme_ready = False
-        self.view.loadFinished.connect(self._apply_initial_theme_before_show)
                 self.tray.setToolTip(version.APP_NAME)
                 self.tray.messageClicked.connect(self._on_notification_clicked)
                 self.tray.show()
@@ -145,25 +145,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _prewarm_posters(self, payload: str) -> None:
-        """Kick off poster generation for every job in a jobs_changed payload."""
-        try:
-            import json
-            jobs = json.loads(payload or "[]")
-            ids = [j.get("id") for j in jobs if isinstance(j, dict) and j.get("id")]
-        except (ValueError, AttributeError, TypeError):
-            return
-        try:
-            self._assets.prewarm_posters(ids)
-        except Exception:
-            pass          # posters are cosmetic; never break the job list
-
-    def _ffmpeg_exe(self) -> str:
-        """Current ffmpeg path, asked for lazily by the poster generator.
-
-        Read through the adapter's ConfigManager at call time rather than
-        captured at construction: binary detection runs after the window is
-        built, so an eagerly-read value would be empty on first launch.
     def show_when_ready(self) -> None:
         """Show only after the saved palette is installed, or a failed load settles."""
         self._show_requested = True
@@ -185,6 +166,25 @@ class MainWindow(QMainWindow):
         if self._show_requested:
             self.show()
 
+    def _prewarm_posters(self, payload: str) -> None:
+        """Kick off poster generation for every job in a jobs_changed payload."""
+        try:
+            import json
+            jobs = json.loads(payload or "[]")
+            ids = [j.get("id") for j in jobs if isinstance(j, dict) and j.get("id")]
+        except (ValueError, AttributeError, TypeError):
+            return
+        try:
+            self._assets.prewarm_posters(ids)
+        except Exception:
+            pass          # posters are cosmetic; never break the job list
+
+    def _ffmpeg_exe(self) -> str:
+        """Current ffmpeg path, asked for lazily by the poster generator.
+
+        Read through the adapter's ConfigManager at call time rather than
+        captured at construction: binary detection runs after the window is
+        built, so an eagerly-read value would be empty on first launch.
         """
         try:
             return self.backend._adapter.config.get("ffmpeg_exe", "") or ""
