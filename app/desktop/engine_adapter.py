@@ -31,7 +31,13 @@ from copy import deepcopy
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QFileDialog
 
-from .assets import AssetResolver, asset_url, thumb_url
+from .assets import (
+    AssetResolver,
+    asset_url,
+    register_session_job_assets,
+    thumb_url,
+    unregister_session_job_assets,
+)
 from .paths import (
     app_root,
     cleanup_demo_session,
@@ -1392,6 +1398,7 @@ class LecturePackAdapter(EngineAdapter):
             return {"ok": False, "error": "Bundled demo lecture is unavailable."}
         session_id = uuid.uuid4().hex
         operation_id = uuid.uuid4().hex
+        registered_assets = False
         try:
             workspace = create_demo_session_dir(session_id)
             config = self._make_demo_config(workspace)
@@ -1420,7 +1427,13 @@ class LecturePackAdapter(EngineAdapter):
             config.save()
             job.save()
             controller.set_job(job)
+            registered_assets = register_session_job_assets(
+                job.job_id, session_id, workspace, job.paths["root"])
+            if not registered_assets:
+                raise RuntimeError("Could not register isolated demo review assets.")
         except Exception as exc:
+            if registered_assets and "job" in locals():
+                unregister_session_job_assets(job.job_id)
             cleanup_demo_session(workspace if "workspace" in locals() else "", session_id)
             return {"ok": False, "error": f"Could not start guided demo: {exc}"}
 
@@ -1516,6 +1529,9 @@ class LecturePackAdapter(EngineAdapter):
             QTimer.singleShot(100, self.backend,
                               lambda: self._finish_demo_cleanup(reason))
             return
+        # Remove the resolver capability before deleting any backing files so
+        # a late WebEngine request cannot retain access to a disposed session.
+        unregister_session_job_assets(demo["job"].job_id)
         removed = cleanup_demo_session(demo["workspace"], demo["session_id"])
         self._emit_demo_event("cleaned", reason=reason, cleaned=removed)
         prior = demo["prior"]
@@ -2477,6 +2493,8 @@ class LecturePackAdapter(EngineAdapter):
             "topicBlocks": topic_blocks or [{"left": 0.5, "width": 99, "active": True}],
             "topicLabels": topic_labels or ["Lecture"],
             "keyTerms": overview.get("key_terms", []) or [],
+            "summary": overview.get("summary", "") or "",
+            "summarySource": overview.get("summary_source", "") or "",
             "bookmarks": bookmarks,
             "stats": stats,
             "cards": cards,

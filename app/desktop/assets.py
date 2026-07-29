@@ -28,6 +28,9 @@ import os
 import re
 import threading
 import uuid
+import json
+import stat
+import tempfile
 from urllib.parse import quote, unquote
 
 # Poster/thumb generation is reachable from MORE THAN ONE AssetResolver: main.py
@@ -37,6 +40,14 @@ from urllib.parse import quote, unquote
 # module-level guard is shared by every instance in the process.
 _INFLIGHT: set[str] = set()
 _INFLIGHT_LOCK = threading.Lock()
+
+# Session-scoped demo frames are outside the persistent data_dir by design.
+# This registry is the only in-process bridge to them; entries are exact roots,
+# never broad temp directories or scan permissions.
+_SESSION_FRAMES: dict[str, str] = {}
+_SESSION_FRAMES_LOCK = threading.RLock()
+_SESSION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_DEMO_SENTINEL = ".lecturepack-demo-session.json"
 
 
 def _claim(dst: str) -> bool:
@@ -96,6 +107,83 @@ _MIME_BY_EXT = {
 
 # Sub-directories under a job's frames/ tree where slide images may live.
 _FRAME_SUBDIRS = ("candidates", "accepted", "rejected", "")
+
+
+def _is_reparse(path: str) -> bool:
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return True
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def register_session_job_assets(job_id: str, session_id: str,
+                                workspace: str, job_root: str) -> bool:
+    """Register one exact sentinel-owned demo job frames root.
+
+    No discovery occurs here: the caller supplies all identities, which must
+    agree with the sentinel and job manifest already on disk.
+    """
+    job_id = str(job_id or "")
+    session_id = str(session_id or "")
+    if not _JOB_ID_RE.fullmatch(job_id) or not _SESSION_ID_RE.fullmatch(session_id):
+        return False
+    workspace = os.path.abspath(str(workspace or ""))
+    job_root = os.path.abspath(str(job_root or ""))
+    demo_parent = os.path.abspath(os.path.join(tempfile.gettempdir(), "LecturePack"))
+    if (os.path.dirname(workspace) != demo_parent
+            or os.path.basename(workspace) != f"demo_{session_id}"
+            or _is_reparse(workspace) or not os.path.isdir(workspace)):
+        return False
+    sentinel = os.path.join(workspace, _DEMO_SENTINEL)
+    if _is_reparse(sentinel) or not os.path.isfile(sentinel):
+        return False
+    try:
+        with open(sentinel, encoding="utf-8") as handle:
+            owner = json.load(handle)
+    except (OSError, ValueError):
+        return False
+    if owner != {"schema_version": 1, "session_id": session_id,
+                 "directory": os.path.basename(workspace)}:
+        return False
+    expected_job = os.path.join(workspace, "jobs", job_id)
+    if job_root != expected_job or _is_reparse(job_root) or not os.path.isdir(job_root):
+        return False
+    manifest_path = os.path.join(job_root, "manifest.json")
+    if _is_reparse(manifest_path) or not os.path.isfile(manifest_path):
+        return False
+    try:
+        with open(manifest_path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError):
+        return False
+    if (manifest.get("job_id") != job_id or manifest.get("session_scoped") is not True
+            or manifest.get("demo_session_id") != session_id):
+        return False
+    frames = os.path.join(job_root, "frames")
+    if _is_reparse(frames) or not os.path.isdir(frames):
+        return False
+    # Exact lexical and real paths must agree at registration time.
+    if os.path.realpath(frames) != frames:
+        return False
+    with _SESSION_FRAMES_LOCK:
+        _SESSION_FRAMES[job_id] = frames
+    return True
+
+
+def unregister_session_job_assets(job_id: str) -> None:
+    with _SESSION_FRAMES_LOCK:
+        _SESSION_FRAMES.pop(str(job_id or ""), None)
+
+
+def session_job_frames_root(job_id: str) -> str | None:
+    """Return a still-valid exact registered frames root, or None."""
+    with _SESSION_FRAMES_LOCK:
+        root = _SESSION_FRAMES.get(str(job_id or ""))
+    if not root or _is_reparse(root) or not os.path.isdir(root):
+        return None
+    return root if os.path.realpath(root) == root else None
 
 
 def guess_mime(filename: str) -> str:
@@ -180,6 +268,9 @@ class AssetResolver:
     def _job_frames_roots(self, job_id: str) -> list[str]:
         """Candidate frames/ directories for a job (live, then archived)."""
         roots = []
+        session_root = session_job_frames_root(job_id)
+        if session_root is not None:
+            roots.append(session_root)
         for base in ("jobs", "archive"):
             roots.append(os.path.join(self.data_dir, base, job_id, "frames"))
         return roots

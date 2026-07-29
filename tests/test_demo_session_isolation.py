@@ -15,6 +15,7 @@ import pytest
 
 from app.desktop import engine_adapter
 from app.desktop import paths as desktop_paths
+from app.desktop.assets import session_job_frames_root
 from app.desktop.paths import (
     cleanup_demo_session,
     create_demo_session_dir,
@@ -25,6 +26,7 @@ from app.desktop.paths import (
 from lecturepack.controllers.job_controller import JobController
 from lecturepack.infrastructure.config_manager import ConfigManager
 from lecturepack.models.job import Job
+from lecturepack.services import transcript_store
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -294,6 +296,7 @@ def test_success_projects_review_and_study_then_waits_for_explicit_exit(
 
     assert workspace.exists()
     assert adapter._demo_session is demo and adapter.current_job is demo["job"]
+    assert session_job_frames_root(demo["job"].job_id) == demo["job"].paths["frames"]
     review.assert_called_once_with()
     study.assert_called_once_with()
     event = json.loads(backend.demo_event.emit.call_args.args[0])
@@ -306,6 +309,7 @@ def test_success_projects_review_and_study_then_waits_for_explicit_exit(
 
     adapter.end_demo_job("tour_exit")
     assert not workspace.exists() and adapter._demo_session is None
+    assert session_job_frames_root(demo["job"].job_id) is None
 
 
 def test_app_exit_and_demo_export_guard_cleanup_without_export_worker(
@@ -331,6 +335,25 @@ def test_app_exit_and_demo_export_guard_cleanup_without_export_worker(
     assert event["status"] == "export_unavailable" and event["stage"] == "export"
     adapter.end_demo_job("app_exit")
     assert not workspace.exists() and adapter._demo_session is None
+
+
+def test_cleanup_failure_still_revokes_session_asset_registration(
+        monkeypatch, tmp_path, isolated_temp):
+    monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
+    monkeypatch.setattr(engine_adapter, "JobController", _DemoController)
+    adapter = engine_adapter.LecturePackAdapter(MagicMock(), runtime_health_result=MagicMock(state="HEALTHY"))
+    adapter.config = _Config(str(tmp_path / "profile"))
+    adapter.win = MagicMock()
+    monkeypatch.setattr(adapter, "push_storage", lambda: None)
+    started = adapter.start_demo_job()
+    demo = adapter._demo_session
+    assert session_job_frames_root(demo["job"].job_id) is not None
+    monkeypatch.setattr(engine_adapter, "cleanup_demo_session", lambda *_args: False)
+
+    adapter.end_demo_job("tour_exit")
+
+    assert session_job_frames_root(demo["job"].job_id) is None
+    assert Path(started["workspace"]).exists()  # cleanup refused, access still revoked
 
 
 def test_normal_busy_rejects_demo_without_mutating_workspace_or_profile(
@@ -429,3 +452,27 @@ def test_real_job_controller_consumes_pinned_demo_whisper_settings(tmp_path, mon
 
     assert captured[0].model == str(model)
     assert captured[0].local_engine == "whispercpp-cpu"
+
+
+def test_study_payload_includes_polar_transcript_summary_and_provenance(tmp_path):
+    video = tmp_path / "polar.mp4"
+    video.write_bytes(b"source")
+    job = Job(str(tmp_path / "data"), video_path=str(video))
+    transcript_store.save_working(job.paths, [
+        {"id": 1, "start": 0.0, "end": 3.0,
+         "text": "Polar bears rely on sea ice to hunt seals."},
+        {"id": 2, "start": 3.0, "end": 7.0,
+         "text": "Their habitat changes as Arctic ice melts."},
+    ])
+    backend = MagicMock()
+    adapter = engine_adapter.LecturePackAdapter.__new__(engine_adapter.LecturePackAdapter)
+    adapter.backend = backend
+    adapter.current_job = job
+    adapter._demo_session = None
+    adapter._review_ids = []
+
+    adapter._push_study_data()
+
+    payload = json.loads(backend.study_changed.emit.call_args.args[0])
+    assert "Polar bears rely on sea ice" in payload["summary"]
+    assert payload["summarySource"] == "deterministic transcript extract"

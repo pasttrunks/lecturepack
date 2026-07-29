@@ -9,6 +9,7 @@ Only the pure-Python logic is exercised here (no Qt), so these run headless.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 
 import pytest
@@ -203,3 +204,66 @@ def test_resolve_thumb_missing_source_returns_none(qapp, tmp_path):
     r = assets.AssetResolver(str(tmp_path))
     assert r.resolve_thumb("job1", "nope.png") is None
     assert r.make_thumb_now("job1", "nope.png") is None
+
+
+def _make_registered_session(tmp_path, job_id="demo-job"):
+    session_id = "a" * 32
+    workspace = tmp_path / "LecturePack" / f"demo_{session_id}"
+    job_root = workspace / "jobs" / job_id
+    frames = job_root / "frames" / "accepted"
+    frames.mkdir(parents=True)
+    (workspace / ".lecturepack-demo-session.json").write_text(json.dumps({
+        "schema_version": 1, "session_id": session_id, "directory": workspace.name,
+    }), encoding="utf-8")
+    (job_root / "manifest.json").write_text(json.dumps({
+        "job_id": job_id, "session_scoped": True, "demo_session_id": session_id,
+    }), encoding="utf-8")
+    return session_id, workspace, job_root
+
+
+def test_registered_session_full_image_and_thumb_resolve_then_unregister(
+        qapp, tmp_path, monkeypatch):
+    monkeypatch.setattr(assets.tempfile, "gettempdir", lambda: str(tmp_path))
+    session_id, workspace, job_root = _make_registered_session(tmp_path)
+    from PySide6.QtGui import QImage, qRgb
+    image = QImage(640, 360, QImage.Format.Format_RGB32)
+    image.fill(qRgb(12, 80, 140))
+    source = job_root / "frames" / "accepted" / "polar.png"
+    assert image.save(str(source), "PNG")
+    assert assets.register_session_job_assets(
+        "demo-job", session_id, str(workspace), str(job_root))
+    resolver = assets.AssetResolver(str(tmp_path / "persistent"))
+
+    assert resolver.resolve("demo-job", "polar.png") is not None
+    assert resolver.resolve_thumb("demo-job", "polar.png") is not None
+
+    assets.unregister_session_job_assets("demo-job")
+    assert resolver.resolve("demo-job", "polar.png") is None
+    assert resolver.resolve_thumb("demo-job", "polar.png") is None
+
+
+def test_session_asset_registration_rejects_outside_and_malicious_roots(tmp_path, monkeypatch):
+    monkeypatch.setattr(assets.tempfile, "gettempdir", lambda: str(tmp_path))
+    session_id, workspace, job_root = _make_registered_session(tmp_path)
+    outside = tmp_path / "outside" / "demo-job"
+    (outside / "frames").mkdir(parents=True)
+    assert not assets.register_session_job_assets(
+        "../demo-job", session_id, str(workspace), str(job_root))
+    assert not assets.register_session_job_assets(
+        "demo-job", session_id, str(workspace), str(outside))
+    assert not assets.register_session_job_assets(
+        "demo-job", "../" + session_id, str(workspace), str(job_root))
+    outside_workspace = tmp_path / "other" / f"demo_{session_id}"
+    outside_job = outside_workspace / "jobs" / "demo-job"
+    (outside_job / "frames").mkdir(parents=True)
+    (outside_workspace / ".lecturepack-demo-session.json").write_text(json.dumps({
+        "schema_version": 1, "session_id": session_id,
+        "directory": outside_workspace.name,
+    }), encoding="utf-8")
+    (outside_job / "manifest.json").write_text(json.dumps({
+        "job_id": "demo-job", "session_scoped": True,
+        "demo_session_id": session_id,
+    }), encoding="utf-8")
+    assert not assets.register_session_job_assets(
+        "demo-job", session_id, str(outside_workspace), str(outside_job))
+    assert assets.session_job_frames_root("demo-job") is None
