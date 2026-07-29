@@ -99,6 +99,37 @@ def test_action_led_demo_flow_waits_for_real_import_processing_and_review_choice
     assert result["exited"]["phase"] == "idle"
 
 
+def test_new_demo_attempt_resets_review_or_exports_before_live_events_arrive():
+    """A cleaned demo never lets a retry inherit its prior Study/Export phase."""
+    result = _run_model(
+        """
+        function reachStudy(flow) {
+          flow.start(); flow.imported(); flow.running(); flow.reviewReady(); flow.reviewDecision();
+        }
+        const fromStudy = GuidedDemoFlowModel();
+        reachStudy(fromStudy);
+        const studyBeforeRetry = fromStudy.snapshot();
+        const studyReset = fromStudy.beginAttempt();
+        fromStudy.imported(); fromStudy.running();
+        const studyReviewReady = fromStudy.reviewReady();
+
+        const fromExports = GuidedDemoFlowModel();
+        reachStudy(fromExports); fromExports.next();
+        const exportsBeforeRetry = fromExports.snapshot();
+        const exportsReset = fromExports.beginAttempt();
+        fromExports.imported(); fromExports.running();
+        const exportsReviewReady = fromExports.reviewReady();
+        console.log(JSON.stringify({studyBeforeRetry, studyReset, studyReviewReady, exportsBeforeRetry, exportsReset, exportsReviewReady}));
+        """
+    )
+    assert result["studyBeforeRetry"]["phase"] == "study"
+    assert result["studyReset"]["phase"] == "import"
+    assert result["studyReviewReady"]["phase"] == "review"
+    assert result["exportsBeforeRetry"]["phase"] == "exports"
+    assert result["exportsReset"]["phase"] == "import"
+    assert result["exportsReviewReady"]["phase"] == "review"
+
+
 def test_demo_event_identity_rejects_stale_and_late_events():
     """DEMO-06: only the current real demo session may repaint its status card."""
     result = _run_model(
@@ -325,5 +356,8 @@ def test_real_demo_bridge_contract_and_card_are_wired_without_timers():
     assert "hasDemoDrag(e)" in js
     assert "eventStage === 'review_ready'" in js
     assert "guidedDemoFlow.reviewDecision()" in js
+    assert "guidedDemoFlow.beginAttempt()" in js
+    assert "See export options" in js
+    assert "own processed lecture" in js
     assert "#glowing-demo-card.lp-demo-fly" in CSS.read_text(encoding="utf-8")
     assert "setTimeout" not in js[js.index("function startGuidedDemo"):js.index("function isTourFormInput")]

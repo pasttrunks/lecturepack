@@ -115,6 +115,7 @@
         backEnabled: phase === 'study' || phase === 'exports' };
     }
     return {
+      beginAttempt: function () { phase = 'import'; imported = false; reviewDecisionMade = false; return snapshot(); },
       start: function () { phase = 'import'; imported = false; reviewDecisionMade = false; return snapshot(); },
       imported: function () { if (phase === 'import') { imported = true; phase = 'processing'; } return snapshot(); },
       running: function () { if (phase === 'processing') phase = 'processing'; return snapshot(); },
@@ -2289,7 +2290,7 @@
     processing: { screen: 'process', target: '#pipeline-stages', title: 'Watch real processing', copy: 'This is the live local pipeline. It advances only as each step actually completes.', next: 'Processing safely…' },
     review: { screen: 'review', target: '#demo-review-actions', title: 'Make one review choice', copy: 'Use Keep or Reject on the existing review controls to continue.', next: 'Make a review choice' },
     study: { screen: 'study', target: '#demo-study-actions', title: 'Ask about the lecture', copy: 'The study workspace is ready. Try the chat box, then continue when you are ready.', next: 'Next' },
-    exports: { screen: 'exports', target: '#btn-export-all', title: 'Export your study pack', copy: 'Your export options stay here when you are ready. Finish the demo whenever you like.', next: 'Finish' }
+    exports: { screen: 'exports', target: '#btn-export-all', title: 'See export options', copy: 'Exporting unlocks for your own processed lecture. This temporary demo only shows where those options live.', next: 'Finish' }
   };
   function tourSeen() {
     try { return window.localStorage.getItem(TOUR_STORAGE_KEY) === '1'; } catch (e) { return false; }
@@ -2398,7 +2399,10 @@
     if (current.active) { endGuidedDemo('user_cancelled'); return; }
     if (!lpBridge.connected()) { toast('Guided demo needs the LecturePack desktop app.'); return; }
     if (!guidedTour.snapshot().active) startGuidedTour(true);
-    if (demoFlowPhase() === 'idle') guidedDemoFlow.start();
+    // A retry after clean-up (or a failed start) is a new demo, not a
+    // continuation of whatever action-led screen the prior run last reached.
+    // Do not reset the current run: active attempts returned above.
+    if (demoFlowPhase() !== 'import') guidedDemoFlow.beginAttempt();
     guidedDemoFlow.imported(); guidedDemoFlow.running();
     setScreen('process'); renderGuidedTour();
     var startedAttempt = guidedDemo.starting().attempt;
