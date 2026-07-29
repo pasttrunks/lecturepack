@@ -33,6 +33,7 @@ from PySide6.QtWidgets import QFileDialog
 
 from .assets import AssetResolver, asset_url, thumb_url
 from .paths import (
+    app_root,
     cleanup_demo_session,
     create_demo_session_dir,
     demo_asset_path,
@@ -1356,6 +1357,10 @@ class LecturePackAdapter(EngineAdapter):
     def _bundled_demo_model_path(self, config) -> str:
         """Locate the admitted base.en model; no user-selected fallback."""
         candidates = [
+            # PyInstaller data is extracted/collected below _MEIPASS; app_root
+            # follows that layout while ConfigManager supports the post-build
+            # root runtime bundle.
+            os.path.join(app_root(), "models", self._DEMO_MODEL_FILENAME),
             os.path.join(getattr(config, "resource_dir", ""), "models",
                          self._DEMO_MODEL_FILENAME),
             os.path.join(getattr(self.config, "resource_dir", ""), "models",

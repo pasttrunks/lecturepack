@@ -3,9 +3,12 @@
 import json
 import os
 from pathlib import Path
+import runpy
 import shutil
 import subprocess
+import sys
 from types import SimpleNamespace
+from types import ModuleType
 from unittest.mock import MagicMock
 
 import pytest
@@ -25,6 +28,40 @@ from lecturepack.models.job import Job
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _load_packaging_spec(monkeypatch):
+    """Run the spec's data-list seam without invoking a PyInstaller build."""
+    captured = {}
+    hooks = ModuleType("PyInstaller.utils.hooks")
+    hooks.collect_data_files = lambda _name: []
+    hooks.collect_submodules = lambda _name: []
+    pyinstaller = ModuleType("PyInstaller")
+    utils = ModuleType("PyInstaller.utils")
+    pyinstaller.utils = utils
+    utils.hooks = hooks
+
+    class _Analysis:
+        def __init__(self, _scripts, **kwargs):
+            captured["datas"] = kwargs["datas"]
+            self.pure = []
+            self.zipped_data = []
+            self.scripts = []
+            self.binaries = []
+            self.zipfiles = []
+            self.datas = []
+
+    monkeypatch.setitem(sys.modules, "PyInstaller", pyinstaller)
+    monkeypatch.setitem(sys.modules, "PyInstaller.utils", utils)
+    monkeypatch.setitem(sys.modules, "PyInstaller.utils.hooks", hooks)
+    monkeypatch.setattr("PyInstaller.utils.hooks.collect_data_files", hooks.collect_data_files)
+    monkeypatch.setattr("PyInstaller.utils.hooks.collect_submodules", hooks.collect_submodules)
+    runpy.run_path(str(ROOT / "app" / "packaging" / "lecturepack.spec"), init_globals={
+        "SPECPATH": str(ROOT / "app" / "packaging"), "Analysis": _Analysis,
+        "PYZ": lambda *_args, **_kwargs: object(), "EXE": lambda *_args, **_kwargs: object(),
+        "COLLECT": lambda *_args, **_kwargs: object(),
+    })
+    return captured["datas"]
 
 
 @pytest.fixture
@@ -54,6 +91,24 @@ def test_demo_asset_is_real_short_av_media_and_packaged():
     assert {"video", "audio"} <= kinds
     spec = (ROOT / "app" / "packaging" / "lecturepack.spec").read_text(encoding="utf-8")
     assert "demo_lecture.mp4" in spec and "demo_datas" in spec
+
+
+def test_packaging_spec_collects_validated_demo_model_and_frozen_lookup(monkeypatch, tmp_path):
+    """The build seam collects base.en under models/, where frozen lookup reads it."""
+    datas = _load_packaging_spec(monkeypatch)
+    model = ROOT / "models" / "ggml-base.en.bin"
+    assert (str(model), "models") in datas
+
+    meipass = tmp_path / "_internal"
+    (meipass / "ui").mkdir(parents=True)
+    frozen_model = meipass / "models" / "ggml-base.en.bin"
+    frozen_model.parent.mkdir()
+    frozen_model.write_bytes(b"approved model fixture")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(meipass), raising=False)
+    adapter = engine_adapter.LecturePackAdapter.__new__(engine_adapter.LecturePackAdapter)
+    adapter.config = SimpleNamespace(resource_dir=str(tmp_path / "wrong-root"))
+    assert adapter._bundled_demo_model_path(adapter.config) == str(frozen_model)
 
 
 def test_session_workspace_is_sentinel_owned_and_sweep_is_idempotent(isolated_temp):
