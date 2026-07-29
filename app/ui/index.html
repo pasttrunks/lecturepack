@@ -168,11 +168,12 @@
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:15px">
             <div style="font:500 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:11px">Slide sensitivity</div>
-            <div id="proc-sensitivity" style="display:flex;gap:6px">
-              <span data-sens="low" style="flex:1;text-align:center;font:500 11px 'JetBrains Mono';padding:7px 0;border:1.5px solid transparent;border-radius:7px;color:var(--muted);cursor:pointer">Low</span>
-              <span data-sens="balanced" style="flex:1;text-align:center;font:700 11px 'JetBrains Mono';padding:7px 0;border:1.5px solid var(--secondary-border);border-radius:7px;background:var(--secondary-surface);color:var(--secondary-text);cursor:pointer">Balanced</span>
-              <span data-sens="high" style="flex:1;text-align:center;font:500 11px 'JetBrains Mono';padding:7px 0;border:1.5px solid transparent;border-radius:7px;color:var(--muted);cursor:pointer">High</span>
+            <div id="proc-sensitivity" role="group" aria-label="Slide sensitivity" style="display:flex;gap:6px">
+              <button class="lp-hit lp-press-sm" data-sens="low" type="button" aria-pressed="false" style="flex:1;text-align:center;font:500 11px 'JetBrains Mono';padding:7px 0;border:1.5px solid transparent;border-radius:7px;background:transparent;color:var(--muted);cursor:pointer">Low</button>
+              <button class="lp-hit lp-press-sm active" data-sens="balanced" type="button" aria-pressed="true" style="flex:1;text-align:center;font:700 11px 'JetBrains Mono';padding:7px 0;border:1.5px solid var(--secondary-border);border-radius:7px;background:var(--secondary-surface);color:var(--secondary-text);cursor:pointer">Balanced</button>
+              <button class="lp-hit lp-press-sm" data-sens="high" type="button" aria-pressed="false" style="flex:1;text-align:center;font:500 11px 'JetBrains Mono';padding:7px 0;border:1.5px solid transparent;border-radius:7px;background:transparent;color:var(--muted);cursor:pointer">High</button>
             </div>
+            <div id="proc-sensitivity-note" hidden style="font:500 10px 'JetBrains Mono';color:var(--muted);line-height:1.45;margin-top:8px">Guided demo uses its fixed reliable setting.</div>
           </div>
         </div>
 

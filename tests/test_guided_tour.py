@@ -122,6 +122,26 @@ def test_action_led_demo_flow_waits_for_real_import_processing_and_review_choice
     assert result["exited"]["phase"] == "idle"
 
 
+def test_slide_detection_preset_model_maps_labels_and_backend_values():
+    """The UI labels map to the backend's persisted detector presets."""
+    result = _run_model(
+        """
+        const preset = SlideDetectionPresetModel();
+        const initial = preset.snapshot();
+        const low = preset.select('low');
+        const high = preset.select('high');
+        const reflected = preset.reflect('conservative');
+        const invalid = preset.reflect('unknown');
+        console.log(JSON.stringify({initial, low, high, reflected, invalid}));
+        """
+    )
+    assert result["initial"] == {"label": "balanced", "preset": "balanced"}
+    assert result["low"] == {"label": "low", "preset": "conservative"}
+    assert result["high"] == {"label": "high", "preset": "detailed"}
+    assert result["reflected"] == {"label": "low", "preset": "conservative"}
+    assert result["invalid"] == {"label": "balanced", "preset": "balanced"}
+
+
 def test_new_demo_attempt_resets_review_or_exports_before_live_events_arrive():
     """A cleaned demo never lets a retry inherit its prior Study/Export phase."""
     result = _run_model(
@@ -454,3 +474,21 @@ def test_real_demo_bridge_contract_and_card_are_wired_without_timers():
     assert "#glowing-demo-card.lp-demo-tour-active{border-color:var(--orange);box-shadow:var(--shadow-hard)," + spotlight_glow in css
     assert "setDemoTourInteraction(state.active && flow.phase === 'import')" in js
     assert "setTimeout" not in js[js.index("function startGuidedDemo"):js.index("function isTourFormInput")]
+
+
+def test_slide_sensitivity_controls_are_semantic_persistent_and_demo_safe():
+    """Low/Balanced/High is usable before normal processing but locked for the demo."""
+    js = APP_JS.read_text(encoding="utf-8")
+    html = HTML.read_text(encoding="utf-8")
+    controls = html.split('id="proc-sensitivity"', 1)[1].split('</div>', 1)[0]
+    assert controls.count('<button') == 3
+    assert '<span data-sens=' not in controls
+    assert 'role="group"' in controls
+    assert 'aria-pressed="true"' in controls
+    assert "$('proc-sensitivity').addEventListener('click'" in js
+    assert "lpBridge.call('set_setting', 'slide_detection_preset', state.preset)" in js
+    assert "s.slide_detection_preset !== undefined" in js
+    assert "slideDetectionPreset.reflect(s.slide_detection_preset)" in js
+    assert "guidedDemoSensitivityLocked()" in js
+    assert "button.disabled = locked" in js
+    assert "Guided demo uses its fixed reliable setting." in html

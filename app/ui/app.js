@@ -127,10 +127,27 @@
       snapshot: snapshot
     };
   }
+
+  function SlideDetectionPresetModel() {
+    var selected = 'balanced';
+    var presets = { low: 'conservative', balanced: 'balanced', high: 'detailed' };
+    function labelFor(value) {
+      var normalized = String(value || '').toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(presets, normalized)) return normalized;
+      return Object.keys(presets).filter(function (label) { return presets[label] === normalized; })[0] || 'balanced';
+    }
+    function snapshot() { return { label: selected, preset: presets[selected] }; }
+    return {
+      select: function (label) { selected = labelFor(label); return snapshot(); },
+      reflect: function (preset) { selected = labelFor(preset); return snapshot(); },
+      snapshot: snapshot
+    };
+  }
   /* ===================== guided tour models end ===================== */
   window.LPTourModel = GuidedTourModel;
   window.LPDemoSessionModel = GuidedDemoSessionModel;
   window.LPDemoFlowModel = GuidedDemoFlowModel;
+  window.LPSlideDetectionPresetModel = SlideDetectionPresetModel;
 
   var THUMB_SVG = '<svg width="{S}" height="{S}" viewBox="0 0 24 24" fill="none" stroke="{C}" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
   function thumb(size, color) { return THUMB_SVG.replace(/\{S\}/g, size).replace('{C}', color); }
@@ -1852,6 +1869,7 @@
       if (name === 'review') {
         requestAnimationFrame(function () { previewCtl.refit(); });
       }
+      if (name === 'process') renderSlideDetectionPreset();
       if (name === 'exports') updateExportPdfDescription();
       if ((name === 'study' || name === 'settings') && lpBridge.connected()) {
         lpBridge.call('smart_study_status');
@@ -2329,6 +2347,7 @@
   var guidedTour = GuidedTourModel(tourSeen());
   var guidedDemo = GuidedDemoSessionModel();
   var guidedDemoFlow = GuidedDemoFlowModel();
+  var slideDetectionPreset = SlideDetectionPresetModel();
   var demoAdmissionAvailable = false;
   var tourRuntimeHealthy = false;
 
@@ -2346,6 +2365,7 @@
       // healthy admission from RuntimeSetupGate.
       guidedTour.exit(); guidedDemoFlow.exit(); renderGuidedTour();
       setDemoTourInteraction(false);
+      renderSlideDetectionPreset();
       if (guidedDemo.snapshot().active) endGuidedDemo('runtime_unavailable');
       return;
     }
@@ -2356,6 +2376,33 @@
   function stageLabel(name) {
     var labels = { prepare: 'Preparing demo', inspect: 'Inspecting video', extract_audio: 'Extracting audio', transcribe: 'Transcribing locally', detect_slides: 'Detecting slides', align: 'Aligning notes', review_ready: 'Preparing review', export: 'Exporting study pack', complete: 'Complete' };
     return labels[name] || (name ? String(name).replace(/_/g, ' ') : 'Preparing demo');
+  }
+  function guidedDemoSensitivityLocked() {
+    return guidedTour.snapshot().active && demoFlowPhase() !== 'idle';
+  }
+  function renderSlideDetectionPreset() {
+    var group = $('proc-sensitivity'), note = $('proc-sensitivity-note');
+    if (!group) return;
+    var state = slideDetectionPreset.snapshot(), locked = guidedDemoSensitivityLocked();
+    Array.prototype.forEach.call(group.querySelectorAll('button[data-sens]'), function (button) {
+      var active = button.dataset.sens === state.label;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      button.disabled = locked;
+      button.title = locked ? 'Guided demo uses its fixed reliable setting.' : '';
+      button.style.fontWeight = active ? '700' : '500';
+      button.style.borderColor = active ? 'var(--secondary-border)' : 'transparent';
+      button.style.background = active ? 'var(--secondary-surface)' : 'transparent';
+      button.style.color = active ? 'var(--secondary-text)' : 'var(--muted)';
+      button.style.cursor = locked ? 'not-allowed' : 'pointer';
+    });
+    if (note) note.hidden = !locked;
+  }
+  function setSlideDetectionPreset(label) {
+    if (guidedDemoSensitivityLocked()) return;
+    var state = slideDetectionPreset.select(label);
+    renderSlideDetectionPreset();
+    lpBridge.call('set_setting', 'slide_detection_preset', state.preset);
   }
   function renderDemoCard() {
     var card = $('glowing-demo-card'), status = $('demo-card-status'), action = $('demo-card-action');
@@ -2428,6 +2475,7 @@
   }
   function exitGuidedTour() {
     guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen(); renderGuidedTour();
+    renderSlideDetectionPreset();
     setScreen('home');
     endGuidedDemo('tour_exit');
   }
@@ -2887,6 +2935,11 @@
     // nav
     Array.prototype.forEach.call(document.querySelectorAll('.lp-nav'), function (b) {
       b.addEventListener('click', function () { setScreen(b.dataset.nav); });
+    });
+    $('proc-sensitivity').addEventListener('click', function (e) {
+      var button = e.target.closest('button[data-sens]');
+      if (!button) return;
+      setSlideDetectionPreset(button.dataset.sens);
     });
 
     // The sidebar lecture chip used to be inert text that just said "No lecture
@@ -3807,6 +3860,10 @@
       // default engine highlight. Leave as-is for now (no button highlighted).
       if (s.engine && LP.ui) LP.ui.reflectEngine(s.engine);
       if (s.transcription_backend && LP.ui) LP.ui.reflectBackend(s.transcription_backend);
+      if (s.slide_detection_preset !== undefined) {
+        slideDetectionPreset.reflect(s.slide_detection_preset);
+        renderSlideDetectionPreset();
+      }
       if (s.ollama_model) {
         $('ai-model-name').textContent = s.ollama_model;
         var msel = $('ai-model-select');
@@ -3890,6 +3947,7 @@
     renderExportFormats();
     renderExportPhase();
     renderDemoCard();
+    renderSlideDetectionPreset();
     setScreen('home');
     setTheme('dark');           // dark by default (design decision)
     setStudyTab('chat');
