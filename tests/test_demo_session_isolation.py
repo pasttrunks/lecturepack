@@ -98,6 +98,8 @@ def test_packaging_spec_collects_validated_demo_model_and_frozen_lookup(monkeypa
     datas = _load_packaging_spec(monkeypatch)
     model = ROOT / "models" / "ggml-base.en.bin"
     assert (str(model), "models") in datas
+    thumbnail = ROOT / "app" / "assets" / "demo" / "polar_bears_thumbnail.jpg"
+    assert (str(thumbnail), os.path.join("assets", "demo")) in datas
 
     meipass = tmp_path / "_internal"
     (meipass / "ui").mkdir(parents=True)
@@ -249,7 +251,7 @@ def test_start_demo_invokes_isolated_real_controller_and_never_mutates_profile(
     assert {p: p.read_bytes() for p in (library, config_file)} == before
 
 
-@pytest.mark.parametrize("terminal", ["success", "error", "cancel"])
+@pytest.mark.parametrize("terminal", ["error", "cancel"])
 def test_every_demo_terminal_path_sweeps_only_its_session(
         monkeypatch, tmp_path, isolated_temp, terminal):
     monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
@@ -261,16 +263,74 @@ def test_every_demo_terminal_path_sweeps_only_its_session(
     started = adapter.start_demo_job()
     workspace = Path(started["workspace"])
     demo = adapter._demo_session
-    if terminal == "success":
-        adapter._on_demo_pipeline_completed(
-            demo["controller"], demo["session_id"], demo["operation_id"])
-    elif terminal == "error":
+    if terminal == "error":
         adapter._on_demo_pipeline_failed(
             demo["controller"], demo["session_id"], demo["operation_id"], "mocked tool failure")
     else:
         adapter.end_demo_job("cancelled")
     assert not workspace.exists()
     assert adapter._demo_session is None
+
+
+def test_success_projects_review_and_study_then_waits_for_explicit_exit(
+        monkeypatch, tmp_path, isolated_temp):
+    monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
+    monkeypatch.setattr(engine_adapter, "JobController", _DemoController)
+    backend = MagicMock()
+    adapter = engine_adapter.LecturePackAdapter(backend, runtime_health_result=MagicMock(state="HEALTHY"))
+    adapter.config = _Config(str(tmp_path / "profile"))
+    adapter.win = MagicMock()
+    monkeypatch.setattr(adapter, "push_storage", lambda: None)
+    review = MagicMock()
+    study = MagicMock()
+    monkeypatch.setattr(adapter, "_push_review_data", review)
+    monkeypatch.setattr(adapter, "_push_study_data", study)
+    started = adapter.start_demo_job()
+    demo = adapter._demo_session
+    workspace = Path(started["workspace"])
+
+    adapter._on_demo_pipeline_completed(
+        demo["controller"], demo["session_id"], demo["operation_id"])
+
+    assert workspace.exists()
+    assert adapter._demo_session is demo and adapter.current_job is demo["job"]
+    review.assert_called_once_with()
+    study.assert_called_once_with()
+    event = json.loads(backend.demo_event.emit.call_args.args[0])
+    assert event == {
+        "operation": "guided_demo", "operation_id": started["operation_id"],
+        "session_id": started["session_id"], "job_id": started["job_id"],
+        "status": "review_ready", "stage": "review_ready", "progress": 100,
+    }
+    assert adapter._list_jobs() == []
+
+    adapter.end_demo_job("tour_exit")
+    assert not workspace.exists() and adapter._demo_session is None
+
+
+def test_app_exit_and_demo_export_guard_cleanup_without_export_worker(
+        monkeypatch, tmp_path, isolated_temp):
+    monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
+    monkeypatch.setattr(engine_adapter, "JobController", _DemoController)
+    backend = MagicMock()
+    adapter = engine_adapter.LecturePackAdapter(backend, runtime_health_result=MagicMock(state="HEALTHY"))
+    adapter.config = _Config(str(tmp_path / "profile"))
+    adapter.win = MagicMock()
+    monkeypatch.setattr(adapter, "push_storage", lambda: None)
+    monkeypatch.setattr(adapter, "_push_review_data", lambda: None)
+    monkeypatch.setattr(adapter, "_push_study_data", lambda: None)
+    monkeypatch.setattr(engine_adapter, "ExportWorker",
+                        lambda _job: pytest.fail("demo export must not construct ExportWorker"))
+    started = adapter.start_demo_job()
+    workspace = Path(started["workspace"])
+
+    adapter.export_all(["pdf"])
+
+    assert workspace.exists() and adapter._export_worker is None
+    event = json.loads(backend.demo_event.emit.call_args.args[0])
+    assert event["status"] == "export_unavailable" and event["stage"] == "export"
+    adapter.end_demo_job("app_exit")
+    assert not workspace.exists() and adapter._demo_session is None
 
 
 def test_normal_busy_rejects_demo_without_mutating_workspace_or_profile(

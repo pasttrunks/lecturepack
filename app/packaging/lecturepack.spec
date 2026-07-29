@@ -51,7 +51,13 @@ for root, _dirs, files in os.walk(UI_DIR):
 DEMO_ASSET = os.path.join(SPEC_DIR, "assets", "demo", "demo_lecture.mp4")
 if not os.path.isfile(DEMO_ASSET) or os.path.getsize(DEMO_ASSET) == 0:
     raise RuntimeError("missing required bundled guided-demo asset")
-demo_datas = [(DEMO_ASSET, os.path.join("assets", "demo"))]
+DEMO_THUMBNAIL = os.path.join(SPEC_DIR, "assets", "demo", "polar_bears_thumbnail.jpg")
+if not os.path.isfile(DEMO_THUMBNAIL) or os.path.getsize(DEMO_THUMBNAIL) == 0:
+    raise RuntimeError("missing required bundled guided-demo thumbnail")
+demo_datas = [
+    (DEMO_ASSET, os.path.join("assets", "demo")),
+    (DEMO_THUMBNAIL, os.path.join("assets", "demo")),
+]
 
 # The guided demo runs the real local pipeline, so its pinned fast base.en
 # model must be present in the PyInstaller payload as well as the post-build

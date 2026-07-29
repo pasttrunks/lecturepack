@@ -1555,8 +1555,13 @@ class LecturePackAdapter(EngineAdapter):
     def _on_demo_pipeline_completed(self, controller, session_id: str, operation_id: str) -> None:
         if not self._demo_is_current(controller, session_id, operation_id):
             return
-        self._emit_demo_event("completed", stage="complete", progress=100)
-        self.end_demo_job("completed")
+        # Success is an action boundary, not a terminal cleanup.  Keep the
+        # isolated job/workspace alive so the tour can show the real Review and
+        # Study projections.  Explicit Exit owns cleanup.
+        self._demo_session["status"] = "review_ready"
+        self._push_review_data()
+        self._push_study_data()
+        self._emit_demo_event("review_ready", stage="review_ready", progress=100)
 
     def _on_demo_pipeline_failed(self, controller, session_id: str, operation_id: str,
                                  message: str) -> None:
@@ -2799,10 +2804,23 @@ class LecturePackAdapter(EngineAdapter):
 
     # ------------------------------------------------------------------ exports
     def export_all(self, formats: list[str]):
+        if getattr(self, "_demo_session", None) is not None:
+            self._reject_demo_export()
+            return
         self._run_export()
 
     def export_one(self, kind: str):
+        if getattr(self, "_demo_session", None) is not None:
+            self._reject_demo_export()
+            return
         self._run_export()
+
+    def _reject_demo_export(self) -> None:
+        """Keep demo teardown safe: no ExportWorker may own its workspace."""
+        detail = "Export is available after importing your own lecture."
+        self._emit("export_done", {"files": [], "meta": detail})
+        self._emit_demo_event("export_unavailable", stage="export", progress=100,
+                              detail=detail)
 
     def _run_export(self):
         job = self.current_job
