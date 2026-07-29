@@ -3604,10 +3604,8 @@
       }
       var overlay = topOverlay();
       if (overlay) {
-        if (e.key === 'Tab') {
-          if (guidedTour.snapshot().active) trapTourFocus(e);
-          else trapFocus(overlay, e);
-        }
+        if (e.key === 'Tab') trapFocus(overlay, e);
+        if (e.key === 'Tab' && guidedTour.snapshot().active) trapTourFocus(e);
         return;
       }
       if (editing) return;
