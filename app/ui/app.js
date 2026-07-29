@@ -106,9 +106,30 @@
       snapshot: snapshot
     };
   }
+
+  function GuidedDemoFlowModel() {
+    var phase = 'idle', imported = false, reviewDecisionMade = false;
+    function snapshot() {
+      return { phase: phase, imported: imported, reviewDecisionMade: reviewDecisionMade,
+        nextEnabled: phase === 'study' || phase === 'exports',
+        backEnabled: phase === 'study' || phase === 'exports' };
+    }
+    return {
+      start: function () { phase = 'import'; imported = false; reviewDecisionMade = false; return snapshot(); },
+      imported: function () { if (phase === 'import') { imported = true; phase = 'processing'; } return snapshot(); },
+      running: function () { if (phase === 'processing') phase = 'processing'; return snapshot(); },
+      reviewReady: function () { if (phase === 'processing') phase = 'review'; return snapshot(); },
+      reviewDecision: function () { if (phase === 'review') { reviewDecisionMade = true; phase = 'study'; } return snapshot(); },
+      next: function () { if (phase === 'study') phase = 'exports'; else if (phase === 'exports') phase = 'finished'; return snapshot(); },
+      back: function () { if (phase === 'exports') phase = 'study'; else if (phase === 'study') phase = 'review'; return snapshot(); },
+      exit: function () { phase = 'idle'; imported = false; reviewDecisionMade = false; return snapshot(); },
+      snapshot: snapshot
+    };
+  }
   /* ===================== guided tour models end ===================== */
   window.LPTourModel = GuidedTourModel;
   window.LPDemoSessionModel = GuidedDemoSessionModel;
+  window.LPDemoFlowModel = GuidedDemoFlowModel;
 
   var THUMB_SVG = '<svg width="{S}" height="{S}" viewBox="0 0 24 24" fill="none" stroke="{C}" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
   function thumb(size, color) { return THUMB_SVG.replace(/\{S\}/g, size).replace('{C}', color); }
@@ -2262,12 +2283,14 @@
 
   /* ======================= guided tour / demo ======================= */
   var TOUR_STORAGE_KEY = 'lecturepack.guided-tour.seen.v1';
-  var TOUR_STEPS = [
-    { screen: 'home', target: '#dropzone', title: 'Bring in a lecture', copy: 'Start here to choose a video from your computer. Your original recording stays untouched.' },
-    { screen: 'process', target: '#pipeline-stages', title: 'Watch processing', copy: 'Follow the real local pipeline as it builds a transcript and finds slides.' },
-    { screen: 'review', target: '#review-transcript', title: 'Review what matters', copy: 'Check slides and transcript details before you export your study materials.' },
-    { screen: 'exports', target: '#btn-export-top', title: 'Export your pack', copy: 'When you are ready, create the formats you need and keep everything on your machine.' }
-  ];
+  var DEMO_DRAG_MIME = 'application/x-lecturepack-demo';
+  var TOUR_PHASES = {
+    import: { screen: 'home', target: '#dropzone', title: 'Add the demo video', copy: 'Drag the Polar Bears demo into this lecture area, or click the tile to use it.', next: 'Add demo to continue' },
+    processing: { screen: 'process', target: '#pipeline-stages', title: 'Watch real processing', copy: 'This is the live local pipeline. It advances only as each step actually completes.', next: 'Processing safely…' },
+    review: { screen: 'review', target: '#demo-review-actions', title: 'Make one review choice', copy: 'Use Keep or Reject on the existing review controls to continue.', next: 'Make a review choice' },
+    study: { screen: 'study', target: '#demo-study-actions', title: 'Ask about the lecture', copy: 'The study workspace is ready. Try the chat box, then continue when you are ready.', next: 'Next' },
+    exports: { screen: 'exports', target: '#btn-export-all', title: 'Export your study pack', copy: 'Your export options stay here when you are ready. Finish the demo whenever you like.', next: 'Finish' }
+  };
   function tourSeen() {
     try { return window.localStorage.getItem(TOUR_STORAGE_KEY) === '1'; } catch (e) { return false; }
   }
@@ -2276,6 +2299,7 @@
   }
   var guidedTour = GuidedTourModel(tourSeen());
   var guidedDemo = GuidedDemoSessionModel();
+  var guidedDemoFlow = GuidedDemoFlowModel();
   var tourRuntimeHealthy = false;
 
   function stageLabel(name) {
@@ -2295,13 +2319,20 @@
       action.textContent = d.status === 'cancelling' ? 'Stopping…' : 'End demo'; return;
     }
     if (d.status === 'ended') { status.textContent = 'Demo ended and its temporary files were removed.'; action.textContent = 'Try guided demo'; return; }
-    status.textContent = 'See the local processing flow with a short bundled lecture.';
-    action.textContent = 'Try guided demo';
+    status.textContent = 'Move this demo video into the lecture drop area, or click to use it.';
+    action.textContent = 'Use demo video';
+  }
+  function demoFlowPhase() { return guidedDemoFlow.snapshot().phase; }
+  function currentTourPhase() { return TOUR_PHASES[demoFlowPhase()] || null; }
+  function setDemoTourInteraction(active) {
+    var card = $('glowing-demo-card'), dropzone = $('dropzone');
+    if (card) card.classList.toggle('lp-demo-tour-active', !!active);
+    if (dropzone) dropzone.classList.toggle('lp-demo-tour-active', !!active);
   }
   function positionTourSpotlight() {
     var state = guidedTour.snapshot(), box = $('tour-spotlight-box'), arrow = $('tour-arrow');
     if (!state.active || !box || !arrow) return;
-    var step = TOUR_STEPS[state.step], target = step && document.querySelector(step.target);
+    var phase = currentTourPhase(), target = phase && document.querySelector(phase.target);
     if (!target) { box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; return; }
     var r = target.getBoundingClientRect(), pad = 7;
     box.style.left = Math.max(6, Math.round(r.left - pad)) + 'px';
@@ -2317,17 +2348,19 @@
     if (!overlay) return;
     overlay.hidden = !state.active && !state.prompt;
     if (overlay.hidden) return;
-    var isPrompt = state.prompt, step = state.active ? TOUR_STEPS[state.step] : null;
-    $('tour-step-label').textContent = isPrompt ? 'WELCOME' : 'STEP ' + (state.step + 1) + ' OF ' + TOUR_STEPS.length;
-    $('tour-title').textContent = isPrompt ? 'A quick look around' : step.title;
-    $('tour-copy').textContent = isPrompt ? 'Want a short, user-controlled tour of the main parts of LecturePack?' : step.copy;
+    var isPrompt = state.prompt, phase = state.active ? currentTourPhase() : null, flow = guidedDemoFlow.snapshot();
+    $('tour-step-label').textContent = isPrompt ? 'WELCOME' : 'DEMO · ' + flow.phase.toUpperCase();
+    $('tour-title').textContent = isPrompt ? 'A quick look around' : phase.title;
+    $('tour-copy').textContent = isPrompt ? 'Want a short, user-controlled tour of the main parts of LecturePack?' : phase.copy;
     $('tour-prompt-actions').hidden = !isPrompt;
     $('tour-step-actions').hidden = !state.active;
-    $('btn-tour-back').disabled = !state.active || state.step === 0;
-    $('btn-tour-next').textContent = state.active && state.step === TOUR_STEPS.length - 1 ? 'Finish' : 'Next';
-    $('tour-progress').innerHTML = isPrompt ? '' : TOUR_STEPS.map(function (_, i) { return '<span class="' + (i === state.step ? 'active' : '') + '"></span>'; }).join('');
+    $('btn-tour-back').disabled = !state.active || !flow.backEnabled;
+    $('btn-tour-next').disabled = !state.active || !flow.nextEnabled;
+    $('btn-tour-next').textContent = state.active ? phase.next : 'Next';
+    $('tour-progress').innerHTML = isPrompt ? '' : Object.keys(TOUR_PHASES).map(function (name) { return '<span class="' + (name === flow.phase ? 'active' : '') + '"></span>'; }).join('');
     $('tour-spotlight-box').style.display = state.active ? 'block' : 'none';
     $('tour-arrow').style.display = state.active ? 'block' : 'none';
+    setDemoTourInteraction(state.active && flow.phase === 'import');
     if (state.active) requestAnimationFrame(positionTourSpotlight);
   }
   function offerGuidedTour() {
@@ -2336,21 +2369,24 @@
   }
   function startGuidedTour(replay) {
     if (replay) guidedTour.replay(); else guidedTour.start();
-    var step = TOUR_STEPS[guidedTour.snapshot().step];
-    if (step) setScreen(step.screen);
+    guidedDemoFlow.start();
+    var phase = currentTourPhase();
+    if (phase) setScreen(phase.screen);
     renderGuidedTour();
   }
   function exitGuidedTour() {
-    guidedTour.exit(); markTourSeen(); renderGuidedTour();
+    guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen(); renderGuidedTour();
     endGuidedDemo('tour_exit');
   }
   function moveGuidedTour(direction) {
     var before = guidedTour.snapshot();
     if (!before.active) return;
-    if (direction > 0 && before.step === TOUR_STEPS.length - 1) { exitGuidedTour(); return; }
-    if (direction > 0) guidedTour.next(TOUR_STEPS.length); else guidedTour.back();
-    var step = TOUR_STEPS[guidedTour.snapshot().step];
-    if (step) setScreen(step.screen);
+    var flow = guidedDemoFlow.snapshot();
+    if (direction > 0 && !flow.nextEnabled) return;
+    if (direction > 0 && flow.phase === 'exports') { exitGuidedTour(); return; }
+    if (direction > 0) guidedDemoFlow.next(); else guidedDemoFlow.back();
+    var phase = currentTourPhase();
+    if (phase) setScreen(phase.screen);
     renderGuidedTour();
   }
   function parseBridgeResult(value) {
@@ -2361,6 +2397,10 @@
     var current = guidedDemo.snapshot();
     if (current.active) { endGuidedDemo('user_cancelled'); return; }
     if (!lpBridge.connected()) { toast('Guided demo needs the LecturePack desktop app.'); return; }
+    if (!guidedTour.snapshot().active) startGuidedTour(true);
+    if (demoFlowPhase() === 'idle') guidedDemoFlow.start();
+    guidedDemoFlow.imported(); guidedDemoFlow.running();
+    setScreen('process'); renderGuidedTour();
     var startedAttempt = guidedDemo.starting().attempt;
     renderDemoCard();
     lpBridge.startDemoJob().then(function (value) {
@@ -2408,6 +2448,13 @@
     if (!before.operationId && before.status === 'starting' && event.status === 'started') guidedDemo.started({ ok: true, operation_id: event.operation_id, session_id: event.session_id }, before.attempt);
     var handled = guidedDemo.event(event);
     if (!handled.accepted) return;
+    var eventStage = String(event.stage || '').toLowerCase().replace(/[\s-]+/g, '_');
+    if (eventStage === 'review_ready') {
+      guidedDemoFlow.reviewReady();
+      if (guidedTour.snapshot().active) { setScreen('review'); renderGuidedTour(); }
+    } else if ((event.status === 'started' || event.status === 'running') && demoFlowPhase() === 'import') {
+      guidedDemoFlow.imported(); guidedDemoFlow.running();
+    }
     renderDemoCard();
     if (event.status === 'failed') toast(event.error || 'Guided demo failed.');
   }
@@ -2422,7 +2469,28 @@
     $('btn-tour-back').addEventListener('click', function () { moveGuidedTour(-1); });
     $('btn-tour-exit').addEventListener('click', exitGuidedTour);
     $('btn-replay-tour').addEventListener('click', function () { startGuidedTour(true); });
-    $('glowing-demo-card').addEventListener('click', startGuidedDemo);
+    var demoCard = $('glowing-demo-card');
+    demoCard.addEventListener('click', function () {
+      if (guidedDemo.snapshot().active) { startGuidedDemo(); return; }
+      flyDemoTileToDropzone(startGuidedDemo);
+    });
+    demoCard.addEventListener('dragstart', function (e) {
+      if (!e.dataTransfer) return;
+      e.dataTransfer.effectAllowed = 'copy';
+      e.dataTransfer.setData(DEMO_DRAG_MIME, 'polar-bears-10s');
+      e.dataTransfer.setData('text/plain', 'Polar Bears 10s Demo.mp4');
+    });
+    demoCard.addEventListener('dragend', clearDemoDropState);
+    function markReviewDecision() {
+      if (!guidedTour.snapshot().active || demoFlowPhase() !== 'review') return;
+      guidedDemoFlow.reviewDecision();
+      setScreen('study');
+      renderGuidedTour();
+    }
+    // These listeners run after the existing review handlers, so this tour gate
+    // is advanced by the user's actual Keep/Reject action, never a timer.
+    $('btn-keep').addEventListener('click', markReviewDecision);
+    $('btn-reject').addEventListener('click', markReviewDecision);
     document.addEventListener('keydown', function (e) {
       if (!guidedTour.snapshot().active || isTourFormInput(e.target)) return;
       if (e.key === 'ArrowRight') { e.preventDefault(); moveGuidedTour(1); }
@@ -2430,6 +2498,32 @@
     });
     window.addEventListener('resize', positionTourSpotlight);
     window.addEventListener('scroll', positionTourSpotlight, true);
+  }
+  function flyDemoTileToDropzone(done) {
+    var card = $('glowing-demo-card'), target = $('dropzone');
+    if (!card || !target) { done(); return; }
+    if (LP.motion && LP.motion.reduced && LP.motion.reduced()) { done(); return; }
+    var from = card.getBoundingClientRect(), to = target.getBoundingClientRect();
+    card.style.setProperty('--demo-fly-x', Math.round(to.left - from.left) + 'px');
+    card.style.setProperty('--demo-fly-y', Math.round(to.top - from.top) + 'px');
+    function finish() {
+      card.removeEventListener('animationend', finish);
+      card.classList.remove('lp-demo-fly');
+      card.style.removeProperty('--demo-fly-x'); card.style.removeProperty('--demo-fly-y');
+      done();
+    }
+    card.addEventListener('animationend', finish);
+    card.classList.add('lp-demo-fly');
+  }
+  function hasDemoDrag(e) {
+    var types = e.dataTransfer && e.dataTransfer.types;
+    return !!types && Array.prototype.indexOf.call(types, DEMO_DRAG_MIME) !== -1;
+  }
+  function clearDemoDropState() { var dz = $('dropzone'); if (dz) dz.classList.remove('lp-demo-drop-hover'); }
+  function useDroppedDemo() {
+    if (!guidedTour.snapshot().active) startGuidedTour(true);
+    if (demoFlowPhase() === 'idle') guidedDemoFlow.start();
+    guidedDemoFlow.imported(); renderGuidedTour(); startGuidedDemo();
   }
 
   /* ======================= Smart Study ======================= */
@@ -2921,8 +3015,19 @@
     $('btn-bulk-group').addEventListener('click', function (e) {
       e.stopPropagation(); bulkGroup();
     });
-    dz.addEventListener('dragover', function (e) { e.preventDefault(); if (LP.state.onb !== 'detected') setOnb('drop'); });
-    dz.addEventListener('drop', function (e) { e.preventDefault(); setOnb('detected'); });
+    dz.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      if (hasDemoDrag(e)) { dz.classList.add('lp-demo-drop-hover'); return; }
+      if (LP.state.onb !== 'detected') setOnb('drop');
+    });
+    dz.addEventListener('dragleave', function (e) {
+      if (hasDemoDrag(e)) clearDemoDropState();
+    });
+    dz.addEventListener('drop', function (e) {
+      e.preventDefault();
+      if (hasDemoDrag(e)) { clearDemoDropState(); useDroppedDemo(); return; }
+      setOnb('detected');
+    });
     // "drop anywhere": in the desktop shell native drops are captured by Qt and
     // routed through backend.import_video, which drives the same overlay.
     window.addEventListener('dragover', function (e) { e.preventDefault(); });

@@ -68,6 +68,37 @@ def test_tour_reducer_moves_back_next_exits_and_replays():
     assert result["replay"]["step"] == 0
 
 
+def test_action_led_demo_flow_waits_for_real_import_processing_and_review_choice():
+    """DEMO-02/03: Next never advances the live stages; real actions do."""
+    result = _run_model(
+        """
+        const flow = GuidedDemoFlowModel();
+        const started = flow.start();
+        const importNext = flow.next();
+        const imported = flow.imported();
+        const processingNext = flow.next();
+        const review = flow.reviewReady();
+        const reviewNext = flow.next();
+        const study = flow.reviewDecision();
+        const exports = flow.next();
+        const back = flow.back();
+        const exited = flow.exit();
+        console.log(JSON.stringify({started, importNext, imported, processingNext, review, reviewNext, study, exports, back, exited}));
+        """
+    )
+    assert result["started"]["phase"] == "import"
+    assert result["importNext"]["phase"] == "import"
+    assert result["imported"]["phase"] == "processing"
+    assert result["processingNext"]["phase"] == "processing"
+    assert result["review"]["phase"] == "review"
+    assert result["reviewNext"]["phase"] == "review"
+    assert result["study"]["phase"] == "study"
+    assert result["study"]["nextEnabled"] is True
+    assert result["exports"]["phase"] == "exports"
+    assert result["back"]["phase"] == "study"
+    assert result["exited"]["phase"] == "idle"
+
+
 def test_demo_event_identity_rejects_stale_and_late_events():
     """DEMO-06: only the current real demo session may repaint its status card."""
     result = _run_model(
@@ -251,7 +282,9 @@ def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
     assert "window.addEventListener('resize', positionTourSpotlight)" in js
     assert "window.addEventListener('scroll', positionTourSpotlight, true)" in js
     assert "target: '#pipeline-stages'" in js
-    assert "target: '#review-transcript'" in js
+    assert "target: '#demo-review-actions'" in js
+    assert "target: '#demo-study-actions'" in js
+    assert "target: '#btn-export-all'" in js
     assert 'id="btn-replay-tour"' in html
     assert "Replay guided tour" in html
     assert "Take guided tour" in html
@@ -276,4 +309,21 @@ def test_real_demo_bridge_contract_and_card_are_wired_without_timers():
     assert "operation_id" in js and "session_id" in js
     assert 'id="glowing-demo-card"' in html
     assert "Polar Bears 10s Demo.mp4" in html
+    assert 'draggable="true"' in html
+    assert 'polar_bears_thumbnail.jpg' in html
+    thumbnail = ROOT / "app" / "assets" / "demo" / "polar_bears_thumbnail.jpg"
+    assert thumbnail.is_file()
+    assert thumbnail.stat().st_size > 0
+    # QImage is supplied by the app runtime and confirms the packaged browser
+    # asset is an actual decodable JPEG rather than a placeholder text file.
+    from PySide6.QtGui import QImage
+    image = QImage(str(thumbnail))
+    assert not image.isNull()
+    assert image.width() == 960 and image.height() == 540
+    assert "application/x-lecturepack-demo" in js
+    assert "flyDemoTileToDropzone" in js
+    assert "hasDemoDrag(e)" in js
+    assert "eventStage === 'review_ready'" in js
+    assert "guidedDemoFlow.reviewDecision()" in js
+    assert "#glowing-demo-card.lp-demo-fly" in CSS.read_text(encoding="utf-8")
     assert "setTimeout" not in js[js.index("function startGuidedDemo"):js.index("function isTourFormInput")]

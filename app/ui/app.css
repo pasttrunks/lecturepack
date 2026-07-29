@@ -737,6 +737,10 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 #glowing-demo-card:hover{box-shadow:var(--shadow-hard),0 0 22px rgba(255,122,0,.28)}
 #glowing-demo-card[data-demo-state="running"]{border-color:var(--blue);box-shadow:var(--shadow-hard),0 0 22px rgba(137,180,250,.24)}
 #glowing-demo-card[data-demo-state="error"]{border-color:var(--red)}
+#glowing-demo-card.lp-demo-tour-active,#dropzone.lp-demo-tour-active{position:relative;z-index:171}
+#dropzone.lp-demo-drop-hover{border-color:var(--orange)!important;box-shadow:var(--shadow-hard),0 0 22px rgba(255,122,0,.32)!important}
+@keyframes lpdemofly{to{transform:translate(var(--demo-fly-x,0),var(--demo-fly-y,0));opacity:.72}}
+#glowing-demo-card.lp-demo-fly{animation:lpdemofly var(--motion-seat) var(--motion-spring) both;pointer-events:none}
 @media (max-width:640px){#guided-tour-card{left:16px;right:16px;bottom:16px;width:auto}#tour-prompt-actions,#tour-step-actions{flex-wrap:wrap}#tour-step-actions span{display:none}}
 
 @media (prefers-reduced-motion: reduce){
