@@ -320,7 +320,7 @@ class Backend(QObject):
         snapshot = self._runtime_diagnostics.runtime_health_snapshot()
         return json.dumps(
             {
-                "theme": self._settings.value("theme", "dark"),
+                "theme": self._settings.value("theme", "light"),
                 "version": version.__version__,
                 "runtime_health_state": snapshot["admission_state"],
                 "setup_required": snapshot if snapshot["admission_state"] == "SETUP_REQUIRED" else None,

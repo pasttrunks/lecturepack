@@ -12,6 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSS = open(os.path.join(ROOT, "app", "ui", "app.css"), encoding="utf-8").read()
 HTML = open(os.path.join(ROOT, "app", "ui", "index.html"), encoding="utf-8").read()
 JS = open(os.path.join(ROOT, "app", "ui", "app.js"), encoding="utf-8").read()
+BRIDGE = open(os.path.join(ROOT, "app", "desktop", "bridge.py"), encoding="utf-8").read()
 
 
 def test_secondary_tokens_defined_for_both_themes():
@@ -43,3 +44,16 @@ def test_theme_button_active_uses_secondary_surface():
 
 def test_accent_swatches_removed():
     assert "Accent" not in HTML  # inert accent swatch row is gone
+
+
+def test_theme_bootstrap_defaults_to_light_without_persisting_a_bootstrap_event():
+    assert 'data-theme="light"' in HTML
+    assert 'self._settings.value("theme", "light")' in BRIDGE
+    assert "applyTheme('light', false);" in JS
+    assert "if (persist) lpBridge.call('set_setting', 'theme', theme);" in JS
+
+
+def test_theme_notifications_are_idempotent_and_do_not_echo_to_settings():
+    assert "if (LP.state.theme === theme && $('app').dataset.theme === theme) return;" in JS
+    assert "if (s.theme) applyTheme(s.theme, false);" in JS
+    assert "if (b.theme) applyTheme(b.theme, false);" in JS

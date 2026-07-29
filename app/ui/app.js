@@ -1885,7 +1885,8 @@
     });
   }
 
-  function setTheme(theme) {
+  function applyTheme(theme, persist) {
+    if (LP.state.theme === theme && $('app').dataset.theme === theme) return;
     LP.state.theme = theme;
     $('app').dataset.theme = theme;
     $('theme-label').textContent = theme === 'light' ? 'DARK' : 'LIGHT';
@@ -1894,8 +1895,10 @@
       : 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z');
     $('btn-set-light').classList.toggle('active', theme === 'light');
     $('btn-set-dark').classList.toggle('active', theme === 'dark');
-    lpBridge.call('set_setting', 'theme', theme);
+    if (persist) lpBridge.call('set_setting', 'theme', theme);
   }
+
+  function setTheme(theme) { applyTheme(theme, true); }
 
   function setFocus(on) {
     LP.state.focus = on;
@@ -3895,7 +3898,7 @@
     lpBridge.on('whatsnew', function (json) { showWhatsNew(JSON.parse(json), 'installed'); });
     lpBridge.on('settings_changed', function (json) {
       var s = JSON.parse(json);
-      if (s.theme) setTheme(s.theme);
+      if (s.theme) applyTheme(s.theme, false);
       if (s.version) { LP.data.version = s.version; $('app-version').textContent = s.version; }
       if (s.model_path) $('setting-model-path').textContent = s.model_path;
       if (s.endpoint) {
@@ -3948,7 +3951,7 @@
           if (!json) { startNormalBridgeActivity(); return; }
           try {
             var b = JSON.parse(json);
-            if (b.theme) setTheme(b.theme);
+            if (b.theme) applyTheme(b.theme, false);
             if (b.version) { LP.data.version = b.version; $('app-version').textContent = b.version; }
             RuntimeSetupGate.admit(b);
             if (b.runtime_health_state !== 'SETUP_REQUIRED') {
@@ -3995,7 +3998,7 @@
     renderDemoCard();
     renderSlideDetectionPreset();
     setScreen('home');
-    setTheme('dark');           // dark by default (design decision)
+    applyTheme('light', false);
     setStudyTab('chat');
     RuntimeSetupGate.wire();
     RuntimeSetupGate.beginBootstrap();
