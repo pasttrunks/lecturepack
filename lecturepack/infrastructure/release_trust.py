@@ -17,7 +17,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
-RELEASE_PUBLIC_KEY_HEX = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+RELEASE_PUBLIC_KEY_HEX = "b15b321dc50d9e2cb4b59898361f7b58278f676f3cabf11d18d383b61c6c04e3"
 _SCHEMA_VERSION = 1
 _MAX_U64 = (1 << 64) - 1
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
