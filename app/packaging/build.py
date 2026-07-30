@@ -457,6 +457,40 @@ def ensure_demo_whisper_model() -> None:
     print(f"Downloaded model ({model_path.stat().st_size} bytes)")
 
 
+def ensure_bundled_engine_binaries() -> None:
+    """Ensure ffmpeg, ffprobe, whisper-cli, CPU DLLs, and models exist on CI."""
+    repo = REPO_DIR
+    ffmpeg_exe = repo / "bin" / "ffmpeg.exe"
+    whisper_cli = repo / "bin" / "Release" / "whisper-cli.exe"
+    if ffmpeg_exe.is_file() and ffmpeg_exe.stat().st_size > 0 and whisper_cli.is_file() and whisper_cli.stat().st_size > 0:
+        return
+    print("Downloading engine binaries from release v0.9.0-beta.5 for build payload...")
+    import zipfile
+    import urllib.request
+    temp_zip = APP_DIR / "temp_engine_portable.zip"
+    url = "https://github.com/pasttrunks/lecturepack/releases/download/v0.9.0-beta.5/LecturePack-0.9.0-beta.5-Portable.zip"
+    urllib.request.urlretrieve(url, temp_zip)
+    (repo / "bin" / "Release").mkdir(parents=True, exist_ok=True)
+    (repo / "models").mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(temp_zip, "r") as zf:
+        for name in zf.namelist():
+            if name.startswith("LecturePack/bin/ffmpeg") or name.startswith("LecturePack/bin/ffprobe"):
+                target = repo / "bin" / Path(name).name
+                if not target.exists() or target.stat().st_size == 0:
+                    target.write_bytes(zf.read(name))
+            elif name.startswith("LecturePack/bin/"):
+                target = repo / "bin" / "Release" / Path(name).name
+                if not target.exists() or target.stat().st_size == 0:
+                    target.write_bytes(zf.read(name))
+            elif name.startswith("LecturePack/models/"):
+                target = repo / "models" / Path(name).name
+                if not target.exists() or target.stat().st_size == 0:
+                    target.write_bytes(zf.read(name))
+    if temp_zip.exists():
+        temp_zip.unlink()
+    print("Extracted bundled engine binaries.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-installer", action="store_true", help="build the exe but skip Inno Setup")
@@ -469,6 +503,7 @@ def main() -> None:
     for d in ("build", "dist"):
         shutil.rmtree(APP_DIR / d, ignore_errors=True)
 
+    ensure_bundled_engine_binaries()
     ensure_demo_whisper_model()
     stamp_version_info(version)
 
