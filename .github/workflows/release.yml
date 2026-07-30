@@ -38,7 +38,7 @@ jobs:
           FULL_OBJECT_ID='^[0-9a-f]{40,64}$'
           [[ "$TAG_COMMIT" =~ $FULL_OBJECT_ID && "$HEAD_COMMIT" =~ $FULL_OBJECT_ID ]] || { echo "::error::Tag and HEAD must resolve to full object IDs"; exit 1; }
           [ "$TAG_COMMIT" = "$HEAD_COMMIT" ] || { echo "::error::Peeled tag commit does not equal checked-out HEAD"; exit 1; }
-          FILE_VERSION="$(python -c "import re; print(re.search(r'__version__\\s*=\\s*[\\\"\\\']([^\\\"\\\']+)', open('app/desktop/version.py', encoding='utf-8').read()).group(1))")"
+          FILE_VERSION="$(python -c "import sys; sys.path.insert(0, 'app'); from desktop.version import __version__; print(__version__)")"
           [ "$APP_VERSION" = "$FILE_VERSION" ] || { echo "::error::Tag and application version disagree"; exit 1; }
           echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
 
