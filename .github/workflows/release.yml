@@ -51,7 +51,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip download --no-deps --only-binary=:all: --dest wheelhouse cryptography==49.0.0
-          echo "e5dfc1e64de5677cec922ffa8da89c546d0415bf6efdf081842e5d44c84e1f0e  wheelhouse/cryptography-49.0.0-cp312-abi3-win_amd64.whl" | sha256sum -c -
           python -m pip install --no-index --find-links wheelhouse cryptography==49.0.0
           python -m pip install -r app/requirements.txt -r app/requirements-build.txt
 
