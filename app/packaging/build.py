@@ -442,6 +442,21 @@ def write_sha256sums(version: str) -> Path:
     return sums_path
 
 
+def ensure_demo_whisper_model() -> None:
+    """Ensure the base.en Whisper model exists for the bundled guided demo."""
+    model_path = REPO_DIR / "models" / "ggml-base.en.bin"
+    if model_path.is_file() and model_path.stat().st_size > 0:
+        return
+    print(f"Downloading required guided-demo Whisper model to {model_path}...")
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+    import urllib.request
+    urllib.request.urlretrieve(url, model_path)
+    if not model_path.is_file() or model_path.stat().st_size == 0:
+        sys.exit(f"FAILED to download guided-demo Whisper model from {url}")
+    print(f"Downloaded model ({model_path.stat().st_size} bytes)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-installer", action="store_true", help="build the exe but skip Inno Setup")
@@ -454,6 +469,7 @@ def main() -> None:
     for d in ("build", "dist"):
         shutil.rmtree(APP_DIR / d, ignore_errors=True)
 
+    ensure_demo_whisper_model()
     stamp_version_info(version)
 
     run([sys.executable, "-m", "PyInstaller", str(PKG_DIR / "lecturepack.spec"), "--noconfirm"])
