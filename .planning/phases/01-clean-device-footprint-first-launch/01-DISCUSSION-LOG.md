@@ -82,6 +82,29 @@ Options: dedupe + safe Qt cuts / aggressive allowlist / dedupe only.
 
 ---
 
+## Post-discussion correction round (owner review, 2026-07-30)
+
+The owner challenged three claims in the first draft. Verifying them changed two.
+
+| Claim | Verdict |
+|---|---|
+| "CI runs `--no-installer`" | **Stood.** Current `release.yml:58` does. The owner was describing the workflow as of `f3d713d`; `a6164b1` replaced it. Both accurate, different commits. |
+| "ISCC is not installed" | **Wrong — owner correct.** The check was `where.exe ISCC`, which tests PATH only. ISCC 6 is at `%LOCALAPPDATA%\Programs\Inno Setup 6\`, and `_find_iscc()` probes exactly that path. |
+| "The installed artifact is unidentified" | **Mostly wrong.** `build.py` does produce `Setup.exe` locally, so a local build is the likely source. The ~900 MB vs 1.9 GB gap remains genuinely open. |
+
+**Method lesson worth keeping:** `where`/`which` answers "is it on PATH", not "is it
+installed". When the code under discussion has its own discovery logic — as `_find_iscc()`
+does — read that logic and test the paths *it* probes.
+
+**And it surfaced a bigger problem.** Tracing the release.yml history showed `a6164b1`
+("automate signed runtime release assets", beta-6 Phase 2 Plan 05) *replaced* installer
+publication rather than adding to it. The updater requires `Setup.exe` + `SHA256SUMS.txt`
+(`update_service.py:117-120`); CI publishes neither. So the in-app updater is broken against
+any current-workflow release — recorded as a blocker rather than folded silently into scope,
+since it directly contradicts the owner's "preserve beta-6 updater behavior" constraint.
+
+---
+
 ## Scope creep
 
 None. Every item traced to one of the owner's thirteen numbered work items. The aggressive

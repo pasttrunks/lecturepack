@@ -71,10 +71,16 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 
 ### Blockers/Concerns
 
-- **Unidentified installed artifact.** CI builds with `--no-installer` and ISCC is not
-  installed locally, so no `Setup.exe` is produced anywhere visible. The owner's reported
-  ~800 MB / ~900 MB does not reconcile with the measured 841 MB / 1.9 GB. Resolve before
-  treating any size number as the baseline.
+- **Updater cannot consume a current-workflow release.** `a6164b1` (beta-6 Phase 2 Plan 05)
+  replaced the installer-publishing release job with one publishing only six signed runtime
+  assets. `expected_asset_names()` (`app/desktop/update_service.py:117-120`) requires
+  `Setup.exe` + `SHA256SUMS.txt`, neither of which CI now publishes. Pre-existing, not
+  caused by beta 7, but it contradicts the "preserve updater behavior" constraint.
+- **Size figures not yet reconciled.** ISCC *is* installed (`%LOCALAPPDATA%\Programs\Inno
+  Setup 6\`) and `build.py` does produce `Setup.exe` locally — an earlier claim to the
+  contrary was based on a PATH-only check and was wrong. What remains unexplained is the
+  owner's ~900 MB extraction vs. the 1.9 GB measured dev tree. Build and measure one fresh
+  artifact before adopting any baseline.
 - **Beta-6's "complete" certification is not trustworthy.** Its Phase 5 release gate never
   measured size or launch time, names no physical machine, and cites beta-5 artifacts while
   certifying beta-6. See `.planning/milestones/v0.9.0-beta.6/README.md`.

@@ -28,7 +28,7 @@ existing user data.
 
 **Success Criteria** (what must be TRUE):
 
-  1. Installer size and installed size are recorded as separate measured numbers, sourced from a named artifact, with the largest packaged contributors listed. The reported-vs-measured discrepancy (owner saw ~800 MB / ~900 MB; dev build measures 841 MB ZIP / 1.9 GB installed) is resolved and explained, not averaged.
+  1. Installer size and installed size are recorded as separate measured numbers from one freshly built `Setup.exe`, with the largest packaged contributors listed. The reported-vs-measured discrepancy (owner saw ~800 MB / ~900 MB; dev tree measures 841 MB ZIP / 1.9 GB installed) is resolved and explained, not averaged.
   2. `ggml-base.en.bin` is present exactly once in the packaged output; `translations/`, `qml/`, the Quick/Quick3D DLLs, and `Qt6Pdf.dll` are absent. Offline processing (FFmpeg, ffprobe, Whisper CPU CLI + DLLs, `ggml-base.en.bin`, `runtime-smoke.wav`) still passes the packaged runtime smoke.
   3. One click on a cold clean profile produces visible on-screen feedback in a few seconds, and the remaining runtime validation reports honest itemized progress rather than an unexplained wait. One cold and one warm launch are measured and recorded.
   4. Launching LecturePack while an instance is running raises the existing window instead of starting a second process; the guard acts before the slow validation path.
@@ -36,6 +36,8 @@ existing user data.
   6. The LecturePack icon appears in the window title bar and the Windows taskbar for the installed build.
 
 **Plans**: TBD
+
+**Known blocker carried in, not caused here:** commit `a6164b1` (beta-6 Phase 2 Plan 05) replaced the installer-publishing release job with one that publishes only six signed runtime assets. The in-app updater requires `Setup.exe` + `SHA256SUMS.txt`, which CI no longer produces, so the updater cannot consume a current-workflow release. Planning must decide whether restoring installer publication belongs in this phase or its own slice — and this phase may not claim "updater behavior preserved" while it stands. See `01-CONTEXT.md` `<updater_regression>`.
 
 Cross-cutting constraints: preserve existing user data, existing processing behavior, and beta-6 updater behavior; do not weaken the AD-19 signed-manifest repair contract or the AD-18 ASCII native-staging boundary; do not use a splash screen to conceal an unresolved startup delay; keep the setup checklist in the existing WebEngine UI vocabulary.
 

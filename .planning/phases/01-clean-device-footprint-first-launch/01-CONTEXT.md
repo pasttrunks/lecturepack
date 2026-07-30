@@ -61,19 +61,61 @@ Plus, outside PySide6:
   (`lecturepack.iss:34-35`). There is no win available in compression settings.
 
 <open_measurement>
-**Unresolved and blocking Success Criterion 1.** The owner reported ~800 MB installer
-extracting to ~900 MB. The dev build measures 841 MB compressed → **1.9 GB** installed,
-not 900 MB. These do not reconcile, and the gap is not a rounding difference.
+**Corrected 2026-07-30 after owner review.** An earlier draft of this section claimed no
+`Setup.exe` could be produced. That was wrong, and the method behind it was bad — the check
+was `where.exe ISCC`, which only tests PATH.
 
-Compounding it: **no `Setup.exe` is produced anywhere we can see.** CI runs
-`python packaging/build.py --no-installer` (`.github/workflows/release.yml:58`) and ISCC
-is not on PATH on this machine. So the artifact the owner actually installed has not been
-identified.
+Established facts:
 
-Planning must first establish **which artifact was installed on the clean device** before
-treating any size number as the baseline. Do not average the two figures or assume the
-owner misread.
+- **ISCC 6 is installed** at `%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe` (1.4 MB).
+  `_find_iscc()` (`app/packaging/build.py:275-286`) probes exactly that path, so
+  `build.py` finds it without PATH. A local `python packaging/build.py` **does** produce
+  `LecturePack-<version>-Setup.exe` (`build.py:532-540`).
+- The artifact the owner installed was therefore almost certainly a **locally built
+  `LecturePack-0.9.0-beta.6-Setup.exe`**. `app/dist/installer/` currently holds only the
+  portable ZIP and SHA256SUMS, so that build's installer was cleared or its last run used
+  `--no-installer`.
+
+**Still unresolved and still blocking Success Criterion 1.** A solid-LZMA2 `Setup.exe`
+should land near the 841 MB portable ZIP, which matches the owner's "~800 MB". The figure
+that does not fit is the **~900 MB extraction vs. the 1.9 GB measured `app/dist/LecturePack/`**.
+
+Planning must build the installer locally and measure, in one sitting and on one artifact:
+Setup.exe size, the size it expands to, and the top contributors. Do not average the
+figures, do not assume the owner misread, and do not reuse the 1.9 GB number without
+re-measuring it against a freshly built tree (the existing `dist/` may carry build residue).
 </open_measurement>
+
+<updater_regression>
+## Blocking discovery — the release workflow no longer feeds the updater
+
+Found while verifying the measurement question. **Not caused by this phase's work, and
+larger than this phase's scope, but it collides directly with the owner's constraint
+"preserve existing beta.6 updater behavior."**
+
+- `expected_asset_names()` (`app/desktop/update_service.py:117-120`) has the updater look
+  for exactly `LecturePack-<version>-Setup.exe` (or `-Portable.zip`) plus
+  `LecturePack-<version>-SHA256SUMS.txt` among the GitHub release assets.
+- Until `f3d713d`, `release.yml` ran `choco install innosetup`, then
+  `python packaging/build.py`, and published `Setup.exe`, `Portable.zip`, and
+  `SHA256SUMS.txt` — exactly what the updater consumes.
+- Commit **`a6164b1`** ("feat(02-05): automate signed runtime release assets", beta-6
+  Phase 2 Plan 05) replaced that job. Current `release.yml` runs
+  `build.py --no-installer` (line 58) and publishes **only six signed runtime component
+  assets** (lines 80-85): the manifest, its signature, and four component ZIPs.
+- Consequently a release produced by the current workflow contains **none** of the three
+  assets the updater needs, and `select_asset` fails → `"update available but assets
+  unavailable"` (`updater.py:88`).
+
+The signed-runtime assets serve the *repair* path (AD-19). The installer assets serve the
+*update* path. Plan 02-05 appears to have swapped one for the other rather than adding to it.
+
+**Planning must decide and surface, not silently absorb:** whether restoring installer
+publication belongs in this phase (it is a packaging change, and this phase is already
+rebuilding and measuring the installer) or in its own slice. Either way it must not weaken
+the AD-19 signed-manifest repair contract, and this phase must not claim "updater behavior
+preserved" while this stands.
+</updater_regression>
 </measured_baseline>
 
 <decisions>
@@ -209,8 +251,13 @@ All paths are relative to the repository root on `codex/phase4-visual-artifact-r
   373, the `.ico` copy at 406-408); GPU-exclusion rationale at line 377.
 - `app/packaging/lecturepack.iss` — `[Files]` at line 47, compression at lines 34-35,
   `SetupIconFile` at line 32.
-- `.github/workflows/release.yml:58` — CI builds with `--no-installer`. Directly relevant
-  to the unresolved measurement question.
+- `app/packaging/build.py:275-286` — `_find_iscc()`; probes `%LOCALAPPDATA%\Programs\Inno
+  Setup 6\ISCC.exe`, so ISCC does not need to be on PATH. Installer build at 532-540.
+- `.github/workflows/release.yml` — line 58 `build.py --no-installer`; lines 80-85 the six
+  published assets. Compare against `git show f3d713d:.github/workflows/release.yml` to see
+  what `a6164b1` removed.
+- `app/desktop/update_service.py:117-120` — `expected_asset_names()`; the three asset names
+  the updater requires and CI no longer publishes.
 - `scripts/build_signed_runtime_release.py` — the four signed component archives; external
   release assets only, not bundled.
 
