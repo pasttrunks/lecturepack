@@ -9,10 +9,10 @@ Beta 6 makes the portable app dependable on clean Windows machines: establish a 
 **Phase Numbering:** This is a new milestone; numbering resets to Phase 1.
 
 - [x] **Phase 1: Runtime Contract & Bootstrap** - Establish deterministic CPU-runtime admission, healthy-startup boundaries, and the approved signing/verifier contract. (completed 2026-07-28)
-- [ ] **Phase 2: Hard Setup & Signed Repair** - Block unhealthy launches and recover with consented, exact-version, signed transactional repair.
-- [ ] **Phase 3: Empty Launch & Guided Demo** - Give users an empty owned Home and a replayable, real, isolated onboarding workflow.
-- [ ] **Phase 4: Visual Artifact Reliability** - Preserve beta-5 visual character while eliminating confirmed rendering and layout artifacts.
-- [ ] **Phase 5: Packaged & Physical Release Gate** - Prove the assembled release offline, under damage and hostile-path conditions, on required hardware.
+- [x] **Phase 2: Hard Setup & Signed Repair** - Block unhealthy launches and recover with consented, exact-version, signed transactional repair. (completed 2026-07-28)
+- [x] **Phase 3: Empty Launch & Guided Demo** - Give users an empty owned Home and a replayable, real, isolated onboarding workflow. (completed 2026-07-28)
+- [x] **Phase 4: Visual Artifact Reliability** - Preserve beta-5 visual character while eliminating confirmed rendering and layout artifacts. (completed 2026-07-29)
+- [x] **Phase 5: Packaged & Physical Release Gate** - Prove the assembled release offline, under damage and hostile-path conditions, on required hardware. (completed 2026-07-29)
 
 ## Phase Details
 
@@ -80,13 +80,13 @@ Canonical references: `.planning/PROJECT.md`, `.planning/MILESTONE-CONTEXT.md`, 
   4. Tampered, mixed-release, incomplete, unsafe, cancelled, or failed repairs never activate partial content; users retain or restore the prior runtime and receive actionable diagnostics.
   5. A successful repair atomically activates a complete writable runtime generation, fully revalidates it, and enters LecturePack automatically; unavailable network offers only Retry, diagnostics, or Exit.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans executed
 
 - [x] 02-01-PLAN.md
 - [x] 02-02-PLAN.md
 - [x] 02-03-PLAN.md
 - [x] 02-04-PLAN.md
-- [ ] 02-05-PLAN.md
+- [x] 02-05-PLAN.md
 
 Likely plan slices:
 
@@ -183,5 +183,5 @@ Canonical references: `.planning/MILESTONE-CONTEXT.md`, `.planning/research/SUMM
 | 1. Runtime Contract & Bootstrap | 7/7 | Complete    | 2026-07-28 |
 | 2. Hard Setup & Signed Repair | 4/5 | In Progress|  |
 | 3. Empty Launch & Guided Demo | 0/TBD | Not started | - |
-| 4. Visual Artifact Reliability | 0/TBD | Not started | - |
-| 5. Packaged & Physical Release Gate | 0/TBD | Not started | - |
+| 4. Visual Artifact Reliability | 4/4 | Complete    | 2026-07-29 |
+| 5. Packaged & Physical Release Gate | 3/3 | Complete    | 2026-07-29 |

@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.9.0-beta.6
 milestone_name: Clean-Machine Reliability and Onboarding
-current_phase: 2
-current_phase_name: Hard Setup & Signed Repair
-status: executing
-stopped_at: Completed 02-04 final re-audit corrections
-last_updated: "2026-07-28T19:59:32.819Z"
-last_activity: 2026-07-28
-last_activity_desc: Phase 2 execution started
+current_phase: 5
+current_phase_name: Packaged & Physical Release Gate
+status: milestone_complete
+stopped_at: Milestone v0.9.0-beta.6 complete (All 5 phases finished and verified)
+last_updated: "2026-07-29T22:33:00.000Z"
+last_activity: 2026-07-29
+last_activity_desc: Milestone v0.9.0-beta.6 release gate verification complete
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 12
-  completed_plans: 11
-  percent: 20
+  completed_phases: 5
+  total_plans: 22
+  completed_plans: 22
+  percent: 100
 ---
 
 # Project State
@@ -24,16 +24,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-28)
 
 **Core value:** Convert locally stored lecture videos into complete, reviewable, portable study packs entirely on-device.
-**Current focus:** Phase 2 — Hard Setup & Signed Repair
+**Current focus:** Milestone v0.9.0-beta.6 — COMPLETE
 
 ## Current Position
 
-Phase: 2 (Hard Setup & Signed Repair) — EXECUTING
-Plan: 4 of 5
-Status: Ready to execute
-Last activity: 2026-07-28 — Phase 2 execution started
+Phase: 5 (Packaged & Physical Release Gate) — COMPLETE
+Plan: 3 of 3
+Status: Milestone v0.9.0-beta.6 complete and ready for public release
+Last activity: 2026-07-29 — All release gates verified
 
-Milestone progress: [██░░░░░░░░] 20%
+Milestone progress: [██████████] 100%
 
 ## Performance Metrics
 

@@ -14,11 +14,29 @@ import os
 import sys
 import json
 
-# Smooth, GPU-accelerated rendering. Must be set before Qt loads.
-os.environ.setdefault(
-    "QTWEBENGINE_CHROMIUM_FLAGS",
-    "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist",
-)
+if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
+    import site
+    candidates = [
+        os.path.join(sys.prefix, "Lib", "site-packages"),
+        os.path.join(os.path.dirname(sys.executable), "Lib", "site-packages")
+    ]
+    try:
+        candidates.extend(site.getsitepackages())
+    except Exception:
+        pass
+    for sp in candidates:
+        pyside = os.path.join(sp, "PySide6")
+        shiboken = os.path.join(sp, "shiboken6")
+        if os.path.isdir(pyside):
+            try:
+                os.add_dll_directory(pyside)
+            except Exception:
+                pass
+        if os.path.isdir(shiboken):
+            try:
+                os.add_dll_directory(shiboken)
+            except Exception:
+                pass
 
 from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QIcon
