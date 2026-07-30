@@ -1,115 +1,99 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.9.0-beta.6
-milestone_name: Clean-Machine Reliability and Onboarding
-current_phase: 5
-current_phase_name: Packaged & Physical Release Gate
-status: milestone_complete
-stopped_at: Milestone v0.9.0-beta.6 complete (All 5 phases finished and verified)
-last_updated: "2026-07-29T22:33:00.000Z"
-last_activity: 2026-07-29
-last_activity_desc: Milestone v0.9.0-beta.6 release gate verification complete
+milestone: v0.9.0-beta.7
+milestone_name: Clean-Device Footprint and First Launch
+current_phase: 1
+current_phase_name: Clean-Device Footprint & First Launch
+status: discussing
+stopped_at: Phase 1 context gathered
+last_updated: "2026-07-30T00:00:00.000Z"
+last_activity: 2026-07-30
+last_activity_desc: Phase 1 context captured; beta-6 milestone archived
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 22
-  completed_plans: 22
-  percent: 100
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-28)
+See: `.planning/PROJECT.md`
 
 **Core value:** Convert locally stored lecture videos into complete, reviewable, portable study packs entirely on-device.
-**Current focus:** Milestone v0.9.0-beta.6 — COMPLETE
+**Current focus:** Milestone v0.9.0-beta.7 — Phase 1 context gathered, ready for planning.
 
 ## Current Position
 
-Phase: 5 (Packaged & Physical Release Gate) — COMPLETE
-Plan: 3 of 3
-Status: Milestone v0.9.0-beta.6 complete and ready for public release
-Last activity: 2026-07-29 — All release gates verified
+Phase: 1 (Clean-Device Footprint & First Launch) — DISCUSSED
+Plan: none yet
+Status: Ready for `/gsd-plan-phase 1`
+Last activity: 2026-07-30 — Phase 1 context captured
 
-Milestone progress: [██████████] 100%
+Milestone progress: [░░░░░░░░░░] 0%
 
-## Performance Metrics
+## Branch
 
-**Velocity:**
-
-- Total plans completed: 7
-- Average duration: 31m
-- Total execution time: 123m
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1 | 7 | - | - |
-**Per-Plan Metrics:**
-
-| Plan | Duration | Tasks | Files |
-|------|----------|-------|-------|
-| Phase 01-runtime-contract-bootstrap P01 | 49min | 2 tasks | 12 files |
-| Phase 01-runtime-contract-bootstrap P02 | 17min | 2 tasks | 4 files |
-| Phase 01-runtime-contract-bootstrap P04 | 17m | 3 tasks | 5 files |
-| Phase 01-runtime-contract-bootstrap P03 | 40m | 3 tasks | 7 files |
-| Phase 01-runtime-contract-bootstrap P05 | 28m | 2 tasks | 6 files |
-| Phase 01-runtime-contract-bootstrap P06 | 16m | 2 tasks | 7 files |
-| Phase 01-runtime-contract-bootstrap P07 | 25m | 2 tasks | 3 files |
-| Phase 02-hard-setup-signed-repair P01 | 24m | 3 tasks | 7 files |
-| Phase 02-hard-setup-signed-repair P02 | 28m | 2 tasks | 4 files |
-| Phase 02-hard-setup-signed-repair P04 | 6min | 2 tasks | 4 files |
+**All work lives on `codex/phase4-visual-artifact-reliability`.** `main` is 153 commits
+behind and its `.planning/` describes an unfinished v1.2 milestone for the *legacy*
+QtWidgets application. Do not plan or implement against `main`.
 
 ## Accumulated Context
 
 ### Decisions
 
-- Beta 6 preserves the existing stack and four-layer architecture; only approval-gated milestone work is in scope.
-- Phase 1 must produce an explicitly approved verifier/signing ADR covering trust, release assets, and PyInstaller validation.
-- Phase 2 signed-repair implementation is blocked until that ADR is approved; it must not weaken the signed-manifest requirement.
-- Startup admission precedes normal UI/job behavior; demo data remains isolated from normal library and profile state.
-- [Phase ?]: AD-18: keep Unicode paths end-to-end while staging only whisper.cpp v1.9.1 native CLI arguments under private ASCII paths.
-- [Phase ?]: Runtime admission rejects incomplete full-validation evidence; only complete trusted component evidence is persisted.
-- [Phase ?]: Optional engine resolution happens only after healthy canonical CPU admission, preserving healthy choices and falling back visibly to CPU.
-- [Phase ?]: AD-19 approves cryptography==49.0.0 and pure Ed25519 detached signatures over exact canonical manifest bytes.
-- [Phase ?]: The release trust root will be compiled into a future application release; Phase 2 implementation remains deferred.
-- [Phase ?]: Backend owns runtime admission and constructs no adapter before HEALTHY.
-- [Phase ?]: Runtime diagnostics transport serializes one controller/service snapshot and never rebuilds required inventory.
-- [Phase ?]: Failed runtime launch or validator exceptions are untrusted evidence and cannot persist health or resolve optional engines.
-- [Phase 01-runtime-contract-bootstrap]: Full CPU admission requires a bounded staged canonical model-and-WAV transcription before persistence. — Readable inventory bytes are not usability evidence.
-- [Phase 01-runtime-contract-bootstrap]: Optional VAD models use the same private ASCII native staging boundary as model and WAV inputs. — No Unicode source path may reach whisper.cpp.
-- [Phase ?]: SETUP_REQUIRED bridge operations use the existing diagnostics transport and one JSON-safe payload before collaborator access.
-- [Phase ?]: Bootstrap admission fields are derived from the runtime diagnostics controller without a second inventory projection.
-- [Phase 02-hard-setup-signed-repair]: Release metadata is authenticated as exact raw Ed25519 bytes before parsing. — AD-19 requires signature verification before any parse or reserialization.
-- [Phase 02-hard-setup-signed-repair]: Repair confirmation derives metadata-only data from verified manifest records and admission evidence. — No archive acquisition occurs before explicit confirmation.
-- [Phase ?]: Only an absent active pointer permits immutable-bundle fallback; malformed pointers and journals are setup-required.
-- [Phase ?]: A generation is fully admitted before activation and re-admitted after the atomic pointer boundary, restoring the prior pointer on failure.
-- [Phase ?]: The UI formats only the backend-authenticated four-archive byte total and never estimates download size.
-- [Phase ?]: Normal UI bridge activity begins only after the canonical bootstrap result is not SETUP_REQUIRED.
+Beta-6 decisions (AD-18, AD-19, runtime admission contract, demo isolation) remain
+canonical — see `.planning/milestones/v0.9.0-beta.6/`.
 
-### Pending Todos
+Beta-7 Phase 1 decisions D-01..D-21 are in
+`.planning/phases/01-clean-device-footprint-first-launch/01-CONTEXT.md`. Headlines:
 
-None yet.
+- Size cuts are scoped to the model dedupe plus provably-unused Qt components; an
+  aggressive allowlist was considered and rejected for this phase.
+- Startup is fixed on both axes — window-first with honest itemized progress, *and*
+  reducing validation cost without weakening admission evidence.
+- The first-run setup checklist is a deliberate behavior change, not a bug fix; the
+  existing gate correctly skips on a healthy first run.
+- A second launch raises the existing window, and the guard runs before the slow
+  validation path.
+
+### Measured baseline (2026-07-30)
+
+| Artifact | Size |
+|---|---|
+| `LecturePack-0.9.0-beta.6-Portable.zip` | 841.2 MB |
+| `app/dist/LecturePack/` installed | 1.9 GB |
+| `_internal/PySide6/` | 538 MB |
+| `ggml-base.en.bin` duplication | 148 MB × 2 |
 
 ### Blockers/Concerns
 
-- Phase 2 must implement the AD-19 signed exact-version repair contract, transactional activation/rollback, and frozen verifier proof before Phase 3 can begin.
-- The real RUNT-02 repair-consumer integration test is intentionally deferred to Phase 2 and must prove repair consumes the Phase 1 canonical inventory.
-- Release proof still requires physical CPU-only, NVIDIA, and AMD/Intel Windows machines plus fresh/upgraded and hostile-path evidence.
+- **Unidentified installed artifact.** CI builds with `--no-installer` and ISCC is not
+  installed locally, so no `Setup.exe` is produced anywhere visible. The owner's reported
+  ~800 MB / ~900 MB does not reconcile with the measured 841 MB / 1.9 GB. Resolve before
+  treating any size number as the baseline.
+- **Beta-6's "complete" certification is not trustworthy.** Its Phase 5 release gate never
+  measured size or launch time, names no physical machine, and cites beta-5 artifacts while
+  certifying beta-6. See `.planning/milestones/v0.9.0-beta.6/README.md`.
+- Physical clean-machine verification (CPU-only, NVIDIA, AMD/Intel) still outstanding from
+  beta 6 and not claimed by this phase.
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
+| Packaging | Aggressive Qt module allowlist (~600 MB potential) | Deferred — revisit if D-01 insufficient | 2026-07-30 |
+| Packaging | Trimming `PySide6/resources/` (102 MB) | Gated behind D-04 investigation | 2026-07-30 |
+| Release | Honest re-verification of beta-6 Phase 5 claims | Future beta-7 release gate phase | 2026-07-30 |
 | Repair | Offline repair-package import and per-file selection | Future (FUTR-01, FUTR-02) | 2026-07-27 |
 | Onboarding | Alternate tour modes and reduced-motion preference | Future (FUTR-03, FUTR-04) | 2026-07-27 |
-| Architecture | Unrelated detector and worker technical debt | Out of beta-6 scope | 2026-07-27 |
+| Architecture | Unrelated detector and worker technical debt | Out of scope | 2026-07-27 |
 
 ## Session Continuity
 
-Last session: 2026-07-28T19:59:32.807Z
-Stopped at: Completed 02-04 final re-audit corrections
-Resume file: None
+Last session: 2026-07-30
+Stopped at: Phase 1 context gathered
+Resume file: `.planning/phases/01-clean-device-footprint-first-launch/01-CONTEXT.md`
