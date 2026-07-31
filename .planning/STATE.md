@@ -5,16 +5,16 @@ milestone_name: Clean-Device Footprint and First Launch
 current_phase: 01
 current_phase_name: Clean-Device Footprint & First Launch
 status: executing
-stopped_at: Completed 01-01-PLAN.md Task 3 (amended)
-last_updated: "2026-07-31T04:45:27.283Z"
-last_activity: 2026-07-30
-last_activity_desc: Phase 01 execution started
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-07-31T00:00:00.000Z"
+last_activity: 2026-07-31
+last_activity_desc: Phase 01 Plan 03 executed (backend first-run checklist contract)
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 8
-  completed_plans: 1
-  percent: 0
+  completed_plans: 3
+  percent: 38
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 01 (Clean-Device Footprint & First Launch) — EXECUTING
-Plan: 2 of 8
-Status: Ready to execute
-Last activity: 2026-07-30 — Phase 01 execution started
+Plan: 3 of 8 complete (wave 1 done)
+Status: Ready to execute wave 2 (01-04, 01-05, 01-06)
+Last activity: 2026-07-31 — Plan 01-03 executed (backend first-run checklist contract)
 
-Milestone progress: [░░░░░░░░░░] 0%
+Milestone progress: [░░░░░░░░░░] 0% (phase-level; 3/8 plans complete within Phase 1)
 
 ## Branch
 
@@ -64,6 +64,10 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
   validation path.
 
 - [Phase 01 Plan 01]: D-23 (ISCC MAX_PATH normalization) discovered and fixed (commit 1b6059d); Task 3 (build fresh installer + record pre-cut baseline) executed and the pre-cut baseline recorded in 01-EVIDENCE.md (commit b0a326d), closing an earlier deferral of that task. Installed-size reconciliation is partially explained (torch/transformers/duplicate-model removal accounts for ~40% of the owner-vs-measured gap) and the residual ~455 MB is recorded as an explicit open question, not resolved.
+
+- [Phase 01 Plan 02]: D-22 implemented — release.yml additively restores Setup.exe/Portable.zip/SHA256SUMS.txt publication alongside the six existing signed runtime assets, with 10 contract tests bound to expected_asset_names().
+
+- [Phase 01 Plan 03]: D-16, D-13, D-14, D-10 implemented. `ConfigManager.setup_acknowledged()`/`persist_setup_acknowledged()` persist the first-run flag in `config.json` (D-16). New `lecturepack/services/first_run_checklist.py` exposes exactly five checklist items in canonical order with no remediation affordance (D-13/D-14), keyed to `canonical_inventory()`. `RuntimeBootstrapService._validate_full` now runs its three independent probes concurrently in a bounded thread pool, preserving the real staged whisper-cli transcription and every evidence field (D-10). No UI or bridge file touched; this is the fixed wire contract for Plans 01-06/01-07. Full suite: 912 passed, 7 failed (same 7 pre-existing failures documented in deferred-items.md; no new failures).
 
 ### Measured baseline (2026-07-30)
 
@@ -117,8 +121,8 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 
 ## Session Continuity
 
-Last session: 2026-07-31T04:45:27.273Z
-Stopped at: Completed 01-01-PLAN.md Task 3 (amended)
+Last session: 2026-07-31T00:00:00.000Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -126,3 +130,5 @@ Resume file: None
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 30min + follow-up | 3 tasks | 3 new + 4 amended files |
+| Phase 01 P02 | ~1h (interrupted, closed out) | 2 tasks | 2 new/modified files |
+| Phase 01 P03 | ~2.5h | 3 tasks | 2 new + 2 modified files |
