@@ -128,23 +128,110 @@ per Task 3's instruction (it is designed to fail pre-cut).
 
 ## Size — after cuts
 
-Filled by Plan 01-08, from one post-cut build. Do not fill from this plan.
+**Measured 2026-07-31 during Plan 01-04's D-24 verification build** (orchestrator-run, since
+`packaging/build.py` cannot survive an executor agent's context ending). One post-cut build,
+one artifact, one sitting — same discipline as the baseline above.
 
-| Figure | Value |
-|---|---|
-| `Setup.exe` own byte size | NOT YET MEASURED |
-| Expanded tree byte size | NOT YET MEASURED |
-| `app/dist/LecturePack/` built-tree byte size | NOT YET MEASURED |
-| Portable ZIP byte size | NOT YET MEASURED |
+**Build identity:** clean venv at `.venv`, created with `python -m venv` and populated from
+`app/requirements.txt` + `app/requirements-build.txt` **plus `tzdata` only** (see the note
+below). `torch`, `transformers`, and `sklearn` confirmed absent from the venv before building.
+Python 3.12.3, PyInstaller 6.21.0, PySide6 6.11.1, ISCC 6, commit `f7a24a0`,
+checkout `C:\Users\marsh\Documents\LecturePack-beta6-plan`.
+
+| Figure | Bytes | MiB | MB (decimal) |
+|---|---|---|---|
+| `Setup.exe` own byte size | 376,323,704 | 358.9 MiB | 376.3 MB |
+| `app/dist/LecturePack/` built-tree byte size | 1,081,124,808 | 1,031.0 MiB | 1,081.1 MB |
+| Portable ZIP byte size | 494,736,030 | 471.8 MiB | 494.7 MB |
+| Expanded tree byte size | NOT YET MEASURED | — | — |
+
+The expanded-tree figure requires a silent install/uninstall cycle of the post-cut
+`Setup.exe` (`measure_package_footprint.py --installer … --expand-to …`) and is left for
+Plan 01-08's physical session, alongside the launch-timing and icon evidence. Every other
+row above is machine-measured and recorded here rather than deferred, so the before/after
+comparison Success Criterion 1 requires is not held hostage to the human-verification gate.
+
+**Before → after:**
+
+| Figure | Pre-cut | Post-cut | Δ |
+|---|---|---|---|
+| `Setup.exe` | 686,684,565 B (654.9 MiB) | 376,323,704 B (358.9 MiB) | **−310,360,861 B / −45.2%** |
+| Built tree | 1,919,524,745 B (1,830.6 MiB) | 1,081,124,808 B (1,031.0 MiB) | **−838,399,937 B / −43.7%** |
+| Portable ZIP | 884,697,661 B (843.7 MiB) | 494,736,030 B (471.8 MiB) | **−389,961,631 B / −44.1%** |
+
+The built-tree reduction (−799.6 MiB) exceeds the ~658 MB the plan projected from D-01 + D-24
+alone. The surplus comes from the clean venv rather than from any additional deliberate cut:
+`sklearn` (11.9 MiB) disappeared because it was only ever a global-environment artifact, and
+`cv2` shrank because `app/requirements.txt` pins `opencv-python-headless` while the global
+environment had the heavier GUI-bearing `opencv-python`. This is D-24's clean-venv clause
+paying off beyond its stated scope — recorded as an observation, not claimed as planned work.
 
 **Top contributors (after cuts):**
 
-NOT YET MEASURED
+| Bytes | MiB | Path |
+|---|---|---|
+| 737,825,337 | 703.6 | `_internal` |
+| 204,828,984 | 195.3 | `_internal/PySide6/Qt6WebEngineCore.dll` |
+| 182,614,016 | 174.2 | `bin` |
+| 147,964,211 | 141.1 | `models` (now a single copy — was 2× pre-cut) |
+| 106,290,093 | 101.4 | `_internal/PySide6/resources` |
+| 86,481,920 | 82.5 | `bin/ffmpeg.exe` |
+| 86,319,616 | 82.3 | `bin/ffprobe.exe` |
+| 85,848,064 | 81.9 | `_internal/cv2/cv2.pyd` |
+| 75,843,536 | 72.3 | `_internal/PySide6/resources/qtwebengine_devtools_resources.debug.pak` |
+| 30,876,160 | 29.4 | `_internal/cv2/opencv_videoio_ffmpeg500_64.dll` |
+| 20,639,544 | 19.7 | `_internal/PySide6/opengl32sw.dll` (kept — D-02) |
 
-**Pruned-tree audit (after cuts) — all six D-01 targets expected absent, `opengl32sw.dll`
-expected present (D-02 keep), `ggml-base.en.bin` count expected exactly 1:**
+`Qt6WebEngineCore.dll` is now the largest single file, as CONTEXT's `<measured_baseline>`
+expected once `torch` was gone. Note that `qtwebengine_devtools_resources.debug.pak`
+(72.3 MiB) is 71% of the `resources/` directory D-04 gated — see `01-FINDINGS-resources.md`,
+which recommends keeping it for this phase.
 
-NOT YET MEASURED
+**Pruned-tree audit (after cuts)** — `scripts/measure_package_footprint.py --tree
+app/dist/LecturePack --assert-pruned`, **exit 0**:
+
+| Check | Expected | Observed |
+|---|---|---|
+| `_internal/PySide6/translations` | absent | absent ✓ |
+| `_internal/PySide6/qml` | absent | absent ✓ |
+| `_internal/PySide6/Qt6Qml.dll` | absent | absent ✓ |
+| `_internal/PySide6/Qt6Quick.dll` | absent | absent ✓ |
+| `_internal/PySide6/Qt6Quick3DRuntimeRender.dll` | absent | absent ✓ |
+| `_internal/PySide6/Qt6Pdf.dll` | absent | absent ✓ |
+| `cut_targets_present_count` | 0 | **0** ✓ |
+| `opengl32sw.dll` | **present** (D-02 keep) | present ✓ |
+| `ggml-base.en.bin` count | exactly 1 (D-05) | **1** ✓ |
+
+**D-24 runtime guards — both satisfied.** `LECTUREPACK_ONEDIR_FIXTURE` pointed at the
+post-cut tree, then `pytest tests/test_runtime_packaged_smoke.py tests/test_beta3_packaging.py
+tests/test_package_pruning.py` → **33 passed, 0 failed**.
+
+`test_real_packaged_smoke_uses_unicode_space_path_and_fresh_profile` is the load-bearing one
+and covers both of D-24's required guards in a single real run: it copies the packaged tree to
+`runtime 漢 copy` (a Unicode path containing a space), invokes
+`build.run_disposable_runtime_smoke()` against the real `bin/whisper-cli.exe`, asserts the
+actual argv shape (`-m <model> -f <wav> -t 1 -nt`) with both native paths ASCII-staged, then
+constructs `RuntimeBootstrapService(...).assess()` on a fresh profile and requires
+`state == "HEALTHY"` with per-component `argv`/`exit_code`/`duration_ms`/`stdout`/`stderr`
+evidence for `bin/whisper-cli.exe`, `models/ggml-base.en.bin`, and `smoke/runtime-smoke.wav`.
+
+So this one test is simultaneously: the packaged runtime smoke; **one real local
+transcription**; proof that D-05's surviving single model copy resolves; and proof that
+AD-18's ASCII native-staging boundary still holds after the cuts. Critically, admission
+reached `HEALTHY` with `torch` and `transformers` absent — **neither module is requested at
+runtime**, which is the condition D-24 said must hold or else stop and report the importer.
+Nothing needed reporting.
+
+**Note on `tzdata`.** The verification venv installed `app/requirements.txt` plus `tzdata`,
+not `app/requirements.txt` alone, because `app/requirements.txt` omits three dependencies the
+repo-root `requirements.txt` declares (`Send2Trash`, `tzdata`, `yt-dlp`) despite its header
+claiming to mirror it. `tzdata` **was** present in the pre-cut baseline, so building without
+it would have introduced a regression inside the very step meant to verify a size cut, and
+would have made the before/after comparison measure two different things. `Send2Trash` and
+`yt-dlp` were already absent from the baseline and were deliberately left absent, since
+adding them would change shipped behaviour (deletion semantics; a new UI affordance) rather
+than measure a cut. See `deferred-items.md` — the `Send2Trash` gap means packaged builds
+hard-delete user files where the source intends a recycle-bin move.
 
 ---
 

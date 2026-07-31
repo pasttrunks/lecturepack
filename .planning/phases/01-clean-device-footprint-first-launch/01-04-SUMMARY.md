@@ -196,3 +196,57 @@ None — no external service configuration required.
 - FOUND commit: 246f264 (Task 2)
 - FOUND commit: fa0faa6 (Task 3)
 - FOUND commit: 8d4d856 (Summary)
+
+---
+
+## Orchestrator addendum — D-24 build verification (2026-07-31)
+
+The plan was executed with its build-dependent criteria left explicitly unverified, because
+`packaging/build.py` takes ~15 minutes and three prior executor dispatches had builds die the
+instant their agent context ended. The orchestrator ran that step afterwards. **All previously
+unverified criteria now pass.** Results are recorded in `01-EVIDENCE.md` `## Size — after cuts`.
+
+**Clean venv (D-24 clause 2):** `.venv` created fresh with `python -m venv`, populated from
+`app/requirements.txt` + `app/requirements-build.txt` plus `tzdata`. `torch`, `transformers`,
+and `sklearn` confirmed absent from the venv *before* building.
+
+**Post-cut build:** exit 0, clean log, no ISCC failure (D-23 holding).
+
+| Figure | Pre-cut | Post-cut | Δ |
+|---|---|---|---|
+| `Setup.exe` | 686,684,565 B | 376,323,704 B | −45.2% |
+| Built tree | 1,919,524,745 B | 1,081,124,808 B | −43.7% (−799.6 MiB) |
+| Portable ZIP | 884,697,661 B | 494,736,030 B | −44.1% |
+
+**`--assert-pruned` against the real post-cut tree: exit 0.** All six D-01 targets absent;
+`opengl32sw.dll` present (D-02); `ggml-base.en.bin` count exactly 1 (D-05).
+
+**D-24 runtime guards: both satisfied.** 33/33 pass across
+`test_runtime_packaged_smoke.py`, `test_beta3_packaging.py`, `test_package_pruning.py` with
+`LECTUREPACK_ONEDIR_FIXTURE` pointed at the post-cut tree.
+`test_real_packaged_smoke_uses_unicode_space_path_and_fresh_profile` performs the real
+`whisper-cli.exe` transcription from a Unicode path and drives full admission to `HEALTHY` —
+so it is simultaneously the packaged smoke, the required real transcription, proof D-05's
+surviving model copy resolves, and proof AD-18's ASCII staging boundary holds after the cuts.
+**Admission reached `HEALTHY` with `torch`/`transformers` absent, so neither is requested at
+runtime** — D-24's stop-and-report condition did not trigger.
+
+**Actual cuts exceeded the plan's ~658 MB projection by ~180 MB.** The surplus is not
+additional deliberate cutting: `sklearn` (11.9 MiB) was only ever a global-env artifact, and
+`cv2` shrank because `app/requirements.txt` pins `opencv-python-headless` where the global env
+had the heavier `opencv-python`. Credit belongs to D-24's clean-venv clause, not to D-01.
+
+**Still unverified, correctly deferred to 01-08's physical session:** expanded-tree size (needs
+a silent install/uninstall of the post-cut `Setup.exe`), cold and warm launch timings, the
+two-process raise-and-focus proof, and the icon-visible proof.
+
+**Discovered during this step, logged not fixed:** `app/requirements.txt` does not mirror the
+repo-root `requirements.txt` despite claiming to — `Send2Trash`, `tzdata`, and `yt-dlp` are
+missing, and CI installs only `app/requirements.txt`. The `Send2Trash` gap means packaged
+builds hard-delete user files where `engine_adapter.py:1206` intends a recycle-bin move. See
+`deferred-items.md`.
+
+**One pre-existing failure retired:** `test_runtime_packaged_smoke.py::test_real_packaged_smoke_uses_unicode_space_path_and_fresh_profile`
+was counted among the 7 known failures only because it requires `LECTUREPACK_ONEDIR_FIXTURE`.
+Given a real fixture it passes. The genuine pre-existing count is **6**, all stale-fixture
+`manifest signature verification failed` cases.
