@@ -202,6 +202,19 @@ preserved" while this stands.
   suspect — but confirm on the packaged build rather than assuming.
 - **D-21:** Whatever the cause, the missing-icon path must stop failing silently.
 
+### Release assets and the updater
+
+- **D-22:** The `<updater_regression>` above is resolved **inside this phase**, not deferred.
+  `release.yml` restores publication of `LecturePack-<version>-Setup.exe`,
+  `LecturePack-<version>-Portable.zip`, and `LecturePack-<version>-SHA256SUMS.txt`
+  **additively** — the six signed runtime component assets published since `a6164b1` stay
+  exactly as they are. This is an add-back, never a re-swap; nothing about the AD-19
+  signed-manifest repair path may weaken. A test asserts that a release job publishes all
+  three names `expected_asset_names()` (`app/desktop/update_service.py:117-120`) requires,
+  so the regression cannot land silently a second time. Only with this in place may the
+  phase claim "beta-6 updater behavior preserved."
+  *(Owner decision recorded during planning, 2026-07-30.)*
+
 ### the agent's Discretion
 
 - The single-instance mechanism (`QLocalServer`/`QSharedMemory`/named mutex) and its
