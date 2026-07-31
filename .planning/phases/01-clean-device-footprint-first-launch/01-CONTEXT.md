@@ -33,6 +33,14 @@ worktree. These numbers replace estimates; planning must not re-derive them.
 | `app/dist/LecturePack/` (installed footprint) | **1.9 GB** |
 | └ `_internal/PySide6/` | **538 MB** |
 
+> **Superseded in part by execution-time measurement (2026-07-30).** A fresh full build
+> measured **884.7 MB** portable ZIP and **1,919,524,745 bytes (1.92 GB)** installed. The
+> 1.9 GB figure is confirmed against a fresh tree — it was **not** build residue. The ZIP
+> is 43.5 MB larger than recorded above. `Setup.exe` remains unmeasured pending D-23. The
+> authoritative, attributable numbers live in `01-EVIDENCE.md`; this table is retained as
+> the discussion-time baseline it was. See also D-23 and D-24 for two contributors this
+> table did not account for.
+
 Largest contributors inside `_internal/PySide6/`:
 
 | Item | Size | Disposition |
@@ -214,6 +222,49 @@ preserved" while this stands.
   so the regression cannot land silently a second time. Only with this in place may the
   phase claim "beta-6 updater behavior preserved."
   *(Owner decision recorded during planning, 2026-07-30.)*
+
+### Installer build path (discovered during execution, 2026-07-30)
+
+- **D-23:** `build.py` must hand ISCC a **normalized** path. `main()` currently passes
+  `str(PKG_DIR / "lecturepack.iss")` and the `.iss` resolves `..\dist\LecturePack\*`
+  relative to `app/packaging/`, so ISCC receives
+  `…\app\packaging\..\dist\LecturePack\…` — 13 characters longer than the normalized
+  `…\app\dist\LecturePack\…`. Three `torch` third-party licence files sit at 247–250
+  characters on disk, which that prefix pushes to 260–263, past Windows' 260-char
+  MAX_PATH. ISCC aborts with `The system cannot find the path specified` and **no
+  `Setup.exe` is produced at all**.
+  This corrects `<open_measurement>` above: its claim that a local
+  `python packaging/build.py` "does produce `LecturePack-<version>-Setup.exe`" holds in
+  `Documents\LecturePack` but **not** in `Documents\LecturePack-beta6-plan`, which is 12
+  characters longer — just enough to cross the limit. The conclusion was right for the
+  directory it was tested in and wrong here. Normalizing the path fixes every checkout
+  depth rather than this one, and protects CI. A test must assert `Setup.exe` is produced.
+
+### Undeclared packaged dependencies (discovered during execution, 2026-07-30)
+
+- **D-24:** `torch` (360.8 MB) and `transformers` (36.4 MB) — ~397 MB, more than D-01's
+  entire approved cut scope — are packaged although **neither appears in
+  `requirements.txt` and no project file imports either one**. They are present only
+  because they are installed in the build machine's global Python environment and the
+  spec's `excludes` list is just `["tkinter", "PySide6.QtQuick3D", "PySide6.Qt3DCore"]`.
+  Resolution, per owner decision:
+  1. Add explicit PyInstaller `excludes` for `torch` and `transformers`.
+  2. Build from a **fresh venv created only from the project's locked requirements**, so
+     undeclared global packages cannot be collected again. This addresses the class of
+     defect, not just this instance.
+  3. Guard with the **existing packaged runtime smoke** plus **one real local
+     transcription**.
+  4. **If either module is actually requested at runtime, STOP and report the exact
+     importer** — do not paper over it with a hidden import or a re-added dependency.
+  5. **No broader dependency audit in this phase.** `cv2` (111.8 MB — note
+     `opencv-python-headless` is not installed, so this is likely the heavier
+     `opencv-python`), `scipy` (51.0 MB) and `sklearn` (11.9 MB) are recorded here as
+     observations only and are explicitly out of scope.
+  This is scope beyond D-01, accepted deliberately because the evidence is far stronger
+  than the D-03 case it superficially resembles: D-03 rejected an aggressive Qt allowlist
+  because a missing Qt module surfaces only in a packaged build on a clean machine, whereas
+  here nothing in the project references the modules at all, and the venv change makes the
+  packaged build reproducible rather than dependent on developer-machine state.
 
 ### the agent's Discretion
 
