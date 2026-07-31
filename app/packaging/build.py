@@ -291,6 +291,34 @@ def run(cmd: list[str]) -> None:
     subprocess.run(cmd, cwd=APP_DIR, check=True)
 
 
+def build_iscc_argv(iscc: str, version: str) -> list[str]:
+    """Build the ISCC invocation with normalized, absolute source/output dirs.
+
+    D-23: the .iss's `[Files] Source: "..\\dist\\LecturePack\\*"` is resolved
+    by ISCC relative to the .iss file's own directory (`app/packaging/`),
+    so ISCC internally works with `...\\app\\packaging\\..\\dist\\LecturePack\\...`
+    -- 13 characters longer than the normalized `...\\app\\dist\\LecturePack\\...`.
+    Several bundled `torch` third-party licence files sit at 247-250 characters
+    on disk; that extra prefix pushes them past Windows' 260-char MAX_PATH and
+    ISCC aborts with "The system cannot find the path specified" -- silently
+    producing no Setup.exe at all. Passing already-collapsed absolute paths via
+    `/DSourceDir`/`/DOutputDir` means ISCC never has to concatenate a `..`
+    segment onto its own script directory, so no path grows past the limit
+    regardless of checkout depth.
+    """
+    source_dir = os.path.normpath(str(APP_DIR / "dist" / "LecturePack"))
+    output_dir = os.path.normpath(str(APP_DIR / "dist" / "installer"))
+    assert ".." not in Path(source_dir).parts, f"unnormalized source dir: {source_dir}"
+    assert ".." not in Path(output_dir).parts, f"unnormalized output dir: {output_dir}"
+    return [
+        iscc,
+        f"/DAppVersion={version}",
+        f"/DSourceDir={source_dir}",
+        f"/DOutputDir={output_dir}",
+        str(PKG_DIR / "lecturepack.iss"),
+    ]
+
+
 def validate_release_assets(version: str, require_installer: bool = True) -> None:
     """Release gate: fail the build if the updater's required assets are absent.
 
@@ -536,7 +564,7 @@ def main() -> None:
         write_sha256sums(version)
         return
 
-    run([iscc, f"/DAppVersion={version}", str(PKG_DIR / "lecturepack.iss")])
+    run(build_iscc_argv(iscc, version))
     print(f"Installer: dist/installer/LecturePack-{version}-Setup.exe")
 
     # Checksums last so they cover the installer + portable ZIP.

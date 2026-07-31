@@ -7,6 +7,20 @@
   #define AppVersion "0.9.0-beta.5"
 #endif
 
+; D-23: build.py passes /DSourceDir and /DOutputDir as already-normalized,
+; absolute paths so ISCC never has to concatenate a "..\" segment onto its
+; own script directory (app\packaging\) to find dist\LecturePack. That extra
+; 13-character prefix pushed several bundled torch licence files past
+; Windows' 260-char MAX_PATH and silently aborted the build with no
+; Setup.exe produced. The relative defaults below only apply when ISCC is
+; invoked manually without those defines.
+#ifndef SourceDir
+  #define SourceDir "..\dist\LecturePack"
+#endif
+#ifndef OutputDir
+  #define OutputDir "..\dist\installer"
+#endif
+
 #define AppName "LecturePack"
 #define AppPublisher "LecturePack"
 #define AppExeName "LecturePack.exe"
@@ -27,7 +41,7 @@ DisableProgramGroupPage=yes
 ; can replace files without elevation.
 PrivilegesRequiredOverridesAllowed=dialog
 PrivilegesRequired=lowest
-OutputDir=..\dist\installer
+OutputDir={#OutputDir}
 OutputBaseFilename=LecturePack-{#AppVersion}-Setup
 SetupIconFile=lecturepack.ico
 UninstallDisplayIcon={app}\{#AppExeName}
@@ -44,7 +58,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; PyInstaller onedir output → everything under dist\LecturePack.
-Source: "..\dist\LecturePack\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
