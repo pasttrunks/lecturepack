@@ -59,14 +59,17 @@ demo_datas = [
     (DEMO_THUMBNAIL, os.path.join("assets", "demo")),
 ]
 
-# The guided demo runs the real local pipeline, so its pinned fast base.en
-# model must be present in the PyInstaller payload as well as the post-build
-# runtime bundle.  This is deliberately an approved local input, not a source
-# artifact to commit.
+# D-01/D-05: the guided demo's pinned fast base.en model is bundled exactly
+# once, by bundle_engine() (build.py) copying it to the top-level models/
+# directory after PyInstaller runs -- not here. This guard stays because
+# bundle_engine() still needs REPO_ROOT/models/ggml-base.en.bin to exist as
+# its copy source; removing the guard would turn a loud build-time failure
+# into a silent runtime one. The frozen fallback chain in engine_adapter.py's
+# _bundled_demo_model_path() already resolves the surviving copy (proven by
+# tests/test_package_pruning.py) -- no new resolution code is needed here.
 DEMO_WHISPER_MODEL = os.path.join(REPO_ROOT, "models", "ggml-base.en.bin")
 if not os.path.isfile(DEMO_WHISPER_MODEL) or os.path.getsize(DEMO_WHISPER_MODEL) == 0:
     raise RuntimeError("missing required bundled guided-demo Whisper model")
-demo_model_datas = [(DEMO_WHISPER_MODEL, "models")]
 
 a = Analysis(
     # Enter through the package wrapper, not desktop/main.py directly: a
@@ -75,7 +78,7 @@ a = Analysis(
     [os.path.join(SPEC_DIR, "lecturepack_desktop.py")],
     pathex=[SPEC_DIR, REPO_ROOT],
     binaries=[],
-    datas=ui_datas + demo_datas + demo_model_datas + engine_datas + tzdata_datas,
+    datas=ui_datas + demo_datas + engine_datas + tzdata_datas,
     hiddenimports=[
         "PySide6.QtWebEngineWidgets",
         "PySide6.QtWebEngineCore",
@@ -84,7 +87,14 @@ a = Analysis(
     ] + engine_hiddenimports + ytdlp_hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter", "PySide6.QtQuick3D", "PySide6.Qt3DCore"],
+    # D-24: `torch` (360.8 MB) and `transformers` (36.4 MB) are collected only
+    # because they happen to be installed in the build machine's global Python
+    # environment -- neither is in requirements.txt and no project file under
+    # app/ or lecturepack/ imports either one. Unlike the Qt add-ons this spec
+    # cannot exclude (see prune_unused_qt_components() in build.py), these are
+    # genuine Python-importable top-level packages with no in-repo importer,
+    # so Analysis.excludes is the correct, effective lever here.
+    excludes=["tkinter", "PySide6.QtQuick3D", "PySide6.Qt3DCore", "torch", "transformers"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

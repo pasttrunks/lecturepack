@@ -95,24 +95,33 @@ def test_demo_asset_is_real_short_av_media_and_packaged():
     assert "demo_lecture.mp4" in spec and "demo_datas" in spec
 
 
-def test_packaging_spec_collects_validated_demo_model_and_frozen_lookup(monkeypatch, tmp_path):
-    """The build seam collects base.en under models/, where frozen lookup reads it."""
+def test_packaging_spec_validates_demo_model_source_and_frozen_lookup_falls_back(monkeypatch, tmp_path):
+    """D-01/D-05: the spec no longer double-bundles base.en via `datas` (that
+    was pure duplication -- bundle_engine() places the sole top-level copy),
+    but it still guards the source file's presence, and the frozen fallback
+    chain still resolves a real model when only the canonical copy exists.
+    See tests/test_package_pruning.py for the full dedupe/resolution matrix.
+    """
     datas = _load_packaging_spec(monkeypatch)
     model = ROOT / "models" / "ggml-base.en.bin"
-    assert (str(model), "models") in datas
+    assert model.is_file() and model.stat().st_size > 0
+    assert (str(model), "models") not in datas
     thumbnail = ROOT / "app" / "assets" / "demo" / "polar_bears_thumbnail.jpg"
     assert (str(thumbnail), os.path.join("assets", "demo")) in datas
 
     meipass = tmp_path / "_internal"
     (meipass / "ui").mkdir(parents=True)
-    frozen_model = meipass / "models" / "ggml-base.en.bin"
-    frozen_model.parent.mkdir()
-    frozen_model.write_bytes(b"approved model fixture")
+    # No _internal/models/ duplicate here -- this plan removes it. The
+    # fallback must reach config.resource_dir's canonical copy instead.
+    resource_root = tmp_path / "wrong-root"
+    canonical_model = resource_root / "models" / "ggml-base.en.bin"
+    canonical_model.parent.mkdir(parents=True)
+    canonical_model.write_bytes(b"approved model fixture")
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(meipass), raising=False)
     adapter = engine_adapter.LecturePackAdapter.__new__(engine_adapter.LecturePackAdapter)
-    adapter.config = SimpleNamespace(resource_dir=str(tmp_path / "wrong-root"))
-    assert adapter._bundled_demo_model_path(adapter.config) == str(frozen_model)
+    adapter.config = SimpleNamespace(resource_dir=str(resource_root))
+    assert adapter._bundled_demo_model_path(adapter.config) == str(canonical_model)
 
 
 def test_session_workspace_is_sentinel_owned_and_sweep_is_idempotent(isolated_temp):
