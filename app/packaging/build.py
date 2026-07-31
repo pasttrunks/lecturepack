@@ -438,6 +438,86 @@ def bundle_engine() -> None:
     print(f"Bundled canonical CPU runtime: {len(source_payload)} payload files")
 
 
+# D-01: these six, and only these six, are removed by post-build pruning.
+# PyInstaller's `Analysis.excludes` cannot remove them (01-RESEARCH.md "Pattern
+# 1" — this repo's `lecturepack.spec` has carried an `excludes` list since its
+# first commit and it has never removed any of these): the two directories and
+# `Qt6Qml.dll`/`Qt6Quick.dll` are native link-time dependencies of
+# Qt6WebEngineCore, and `Qt6Quick3DRuntimeRender.dll`/`Qt6Pdf.dll` have no
+# Python-importable module for `excludes` to name at all. D-03 explicitly
+# rejects widening this to an allowlist for this phase — do not add
+# Qt6Quick3D.dll, Qt63DCore.dll, Qt6Charts.dll, Qt6DataVisualization.dll, or
+# any other add-on DLL here.
+PRUNABLE_QT_COMPONENTS: dict[str, tuple[str, ...]] = {
+    "translations": ("translations",),
+    "qml": ("qml",),
+    "Qt6Qml.dll": ("Qt6Qml.dll",),
+    "Qt6Quick.dll": ("Qt6Quick.dll",),
+    "Qt6Quick3DRuntimeRender.dll": ("Qt6Quick3DRuntimeRender.dll",),
+    "Qt6Pdf.dll": ("Qt6Pdf.dll",),
+}
+
+
+def _path_size(path: Path) -> int:
+    """Return the byte size of a file, or the summed size of a directory tree."""
+    if path.is_file():
+        return path.stat().st_size
+    total = 0
+    for sub in path.rglob("*"):
+        if sub.is_file():
+            total += sub.stat().st_size
+    return total
+
+
+def prune_unused_qt_components(dist_app: Path) -> dict:
+    """Delete the six D-01 unused Qt components from a built onedir tree.
+
+    Every target is resolved relative to ``dist_app/_internal/PySide6`` with
+    fixed literal names — no globs, no traversal. An absent target is skipped
+    rather than raising, so this step is idempotent (a rerun, or a future
+    PySide6 version that stops shipping one of these, cannot break the build).
+
+    D-02: ``opengl32sw.dll`` — the software GL fallback that keeps the app
+    usable on VMs and old GPUs — must survive. This function asserts that and
+    aborts the build loudly if it does not, rather than letting a future edit
+    to ``PRUNABLE_QT_COMPONENTS`` silently remove it.
+
+    Returns a dict of ``{"removed": {name: bytes}, "reclaimed_bytes": int}``
+    so ``main()`` can report it and tests can assert on it, rather than only
+    printing.
+    """
+    dist_app = Path(dist_app)
+    pyside6 = dist_app / "_internal" / "PySide6"
+
+    removed: dict[str, int] = {}
+    reclaimed_bytes = 0
+    for name, rel_parts in PRUNABLE_QT_COMPONENTS.items():
+        target = pyside6.joinpath(*rel_parts)
+        if not target.exists():
+            continue
+        size = _path_size(target)
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+        removed[name] = size
+        reclaimed_bytes += size
+
+    opengl_fallback = pyside6 / "opengl32sw.dll"
+    if not opengl_fallback.exists():
+        sys.exit(
+            "QT PRUNE GATE FAILED — opengl32sw.dll is missing after pruning; "
+            "D-02 requires this software GL fallback survive (VMs and old GPUs "
+            "depend on it)."
+        )
+
+    print(
+        f"Pruned unused Qt components: {len(removed)}/{len(PRUNABLE_QT_COMPONENTS)} "
+        f"targets present, {reclaimed_bytes} bytes reclaimed"
+    )
+    return {"removed": removed, "reclaimed_bytes": reclaimed_bytes}
+
+
 def make_portable_zip(version: str) -> Path:
     """Zip the PyInstaller onedir output into a portable archive."""
     import zipfile
@@ -544,6 +624,11 @@ def main() -> None:
 
     # Bundle the core engine so the installed app transcribes out of the box.
     bundle_engine()
+
+    # D-01: prune the six provably-unused Qt components after bundle_engine()
+    # but before the clean-state gate, so that gate inspects the tree that
+    # actually ships and make_portable_zip() zips the pruned tree.
+    prune_unused_qt_components(APP_DIR / "dist" / "LecturePack")
 
     # Clean-state gate: fresh install must ship zero jobs/dev data, and the
     # engine payload must actually be present (beta.3 §3).
