@@ -34,6 +34,19 @@ class _RuntimeConfig:
     def get(self, key, default=None):
         return default
 
+    def resolve_data_dir(self):
+        # 01-06: Backend now probes data-directory writability off the main
+        # thread on every construction (D-13 host-only checklist item). Route
+        # this minimal stub at the shared OS temp dir -- never a real user
+        # data directory -- so the probe file it writes-and-deletes is
+        # harmless regardless of which test constructs a Backend with this
+        # stub.
+        import tempfile
+        return tempfile.gettempdir()
+
+    def setup_acknowledged(self):
+        return False
+
 APP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
@@ -90,7 +103,7 @@ def test_adapter_never_targets_real_data_dir(qapp, _temp_data_dir):
     assert os.path.abspath(adapter.config.data_dir) != os.path.abspath(real)
 
 
-def test_backend_admits_adapter_once_only_after_healthy_assessment(qapp, monkeypatch):
+def test_backend_admits_adapter_once_only_after_healthy_assessment(qapp, qtbot, monkeypatch):
     from desktop import bridge
 
     events = []
@@ -101,13 +114,17 @@ def test_backend_admits_adapter_once_only_after_healthy_assessment(qapp, monkeyp
     monkeypatch.setattr(bridge, "Updater", lambda backend: object())
 
     backend = bridge.Backend(None)
+    # 01-06: assess() now runs on a worker thread and the completion handler
+    # is marshalled onto the main thread (D-06/D-08); pump the event loop
+    # until that marshal has landed instead of asserting immediately.
+    qtbot.waitUntil(lambda: backend.runtime_health_result.state != bridge.ADMISSION_PENDING, timeout=2000)
 
     assert backend._adapter is adapter
     assert backend.runtime_health_result.state == "HEALTHY"
     assert events == ["config", "assess", "adapter"]
 
 
-def test_backend_blocks_normal_adapter_and_ready_event_until_healthy(qapp, monkeypatch):
+def test_backend_blocks_normal_adapter_and_ready_event_until_healthy(qapp, qtbot, monkeypatch):
     from desktop import bridge
 
     events = []
@@ -117,14 +134,17 @@ def test_backend_blocks_normal_adapter_and_ready_event_until_healthy(qapp, monke
     monkeypatch.setattr(bridge, "Updater", lambda backend: object())
 
     backend = bridge.Backend(None)
+    # ui_ready is no longer admission-guarded (T-01-06): it must be callable,
+    # and safely a no-op, at any point during the pending window.
     backend.ui_ready()
+    qtbot.waitUntil(lambda: backend.runtime_health_result.state != bridge.ADMISSION_PENDING, timeout=2000)
 
     assert backend._adapter is None
     assert events == ["assess"]
     assert backend.runtime_health_result.state == "SETUP_REQUIRED"
 
 
-def test_optional_fallback_is_post_health_and_distinct_from_ready(qapp, monkeypatch):
+def test_optional_fallback_is_post_health_and_distinct_from_ready(qapp, qtbot, monkeypatch):
     from desktop import bridge
 
     events = []
@@ -133,6 +153,8 @@ def test_optional_fallback_is_post_health_and_distinct_from_ready(qapp, monkeypa
     class _Adapter:
         def on_ui_ready(self):
             events.append("ready")
+        def attach_window(self, window, tray):
+            pass
 
     monkeypatch.setattr(bridge, "ConfigManager", _RuntimeConfig)
     monkeypatch.setattr(bridge, "RuntimeBootstrapService", lambda config: _BootstrapService(_BootstrapResult("HEALTHY", fallback), events))
@@ -142,16 +164,23 @@ def test_optional_fallback_is_post_health_and_distinct_from_ready(qapp, monkeypa
     backend = bridge.Backend(None)
     notices = []
     backend.diagnostics.connect(notices.append)
+    # ui_ready is called before completion here, on purpose: it must be
+    # recorded and dispatched once completion later promotes the adapter
+    # (T-01-06-06), which is exactly the ordering the real WebChannel
+    # handshake produces during a cold, deferred-assessment launch.
     backend.ui_ready()
+    qtbot.waitUntil(lambda: events == ["assess", "adapter", "ready"], timeout=2000)
 
-    assert events == ["assess", "adapter", "ready"]
     assert [__import__("json").loads(item) for item in notices] == [
         {"type": "runtime_fallback", "fallback": fallback}
     ]
 
 
 _GUARDED_BRIDGE_CALLS = (
-    ("ui_ready", ()), ("set_setting", ("theme", "light")), ("browse_model", ()),
+    # ui_ready is deliberately excluded (T-01-06): it is no longer admission-
+    # guarded, because it must always run to record readiness even while
+    # assessment is pending (see Backend.ui_ready).
+    ("set_setting", ("theme", "light")), ("browse_model", ()),
     ("test_endpoint", ()), ("validate_vulkan", ()), ("validate_cuda", ()),
     ("cuda_pack_status", ()), ("install_cuda_pack", ()), ("cancel_cuda_pack", ()),
     ("set_groq_key", ("key",)), ("remove_groq_key", ()), ("test_groq_key", ()),
@@ -209,7 +238,7 @@ def test_setup_required_guards_every_adapter_and_updater_bridge_call(qapp, monke
         assert backend._updater is None
 
 
-def test_setup_required_bootstrap_reuses_canonical_admission_snapshot(qapp, monkeypatch):
+def test_setup_required_bootstrap_reuses_canonical_admission_snapshot(qapp, qtbot, monkeypatch):
     from desktop import bridge
 
     snapshot = {"inventory_identity": "canonical", "admission_state": "SETUP_REQUIRED", "components": {}}
@@ -227,6 +256,9 @@ def test_setup_required_bootstrap_reuses_canonical_admission_snapshot(qapp, monk
     monkeypatch.setattr(bridge, "RuntimeDiagnosticsController", lambda service: _Controller())
 
     backend = bridge.Backend(None)
+    # 01-06: bootstrap_pending only becomes False once the deferred
+    # assessment has actually completed and been marshalled back.
+    qtbot.waitUntil(lambda: backend.runtime_health_result.state != bridge.ADMISSION_PENDING, timeout=2000)
 
     bootstrap = json.loads(backend.get_bootstrap())
     assert bootstrap == {
@@ -234,7 +266,13 @@ def test_setup_required_bootstrap_reuses_canonical_admission_snapshot(qapp, monk
         "version": bridge.version.__version__,
         "runtime_health_state": "SETUP_REQUIRED",
         "setup_required": snapshot,
+        "bootstrap_pending": False,
+        "validation_path": bootstrap["validation_path"],
+        "setup_acknowledged": False,
+        "checklist": bootstrap["checklist"],
     }
+    assert bootstrap["validation_path"] in ("full", "light")
+    assert [item["id"] for item in bootstrap["checklist"]] == list(bridge.FIRST_RUN_CHECKLIST_ITEMS)
     assert json.loads(backend.get_runtime_health_snapshot()) == snapshot
 
 

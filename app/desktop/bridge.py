@@ -15,8 +15,9 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import threading
 
-from PySide6.QtCore import QObject, QSettings, Signal, Slot
+from PySide6.QtCore import QObject, QSettings, QTimer, Signal, Slot
 from PySide6.QtGui import QGuiApplication
 
 from . import version
@@ -26,13 +27,41 @@ from .updater import Updater
 from .repair_worker import RuntimeRepairWorker
 from lecturepack.controllers.runtime_diagnostics_controller import RuntimeDiagnosticsController
 from lecturepack.infrastructure.config_manager import ConfigManager
-from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+from lecturepack.services.first_run_checklist import FIRST_RUN_CHECKLIST_ITEMS, build_first_run_checklist
+from lecturepack.services.runtime_bootstrap import RuntimeBootstrapResult, RuntimeBootstrapService
 from lecturepack.services.runtime_diagnostics import RuntimeDiagnosticsService
+
+# Runtime admission is deferred to a worker thread (D-06/D-08): Backend.__init__
+# must return without running any subprocess probe so the window can be shown
+# immediately. ADMISSION_PENDING is the fail-closed sentinel state assigned
+# before anything else in __init__ can observe self.runtime_health_result --
+# see Backend.__init__ and __getattribute__ for why the ordering matters.
+ADMISSION_PENDING = "PENDING"
+
+
+def _pending_result() -> RuntimeBootstrapResult:
+    """Fail-closed sentinel for Backend.runtime_health_result's first value.
+
+    Its state is deliberately never "HEALTHY", so __getattribute__ withholds
+    every _ADMISSION_GUARDED_OPERATIONS name for the whole pending window,
+    exactly as it already does for SETUP_REQUIRED.
+    """
+    return RuntimeBootstrapResult(ADMISSION_PENDING, "light", {})
+
+
+def _pending_checklist() -> list[dict]:
+    """Five placeholder rows so the UI can render all five checklist rows
+    from the first frame -- never a blank or partially-built panel -- before
+    assess() has returned anything to verdict them from (D-09)."""
+    return [
+        {"id": component_id, "verdict": "pending", "detail": ""}
+        for component_id in FIRST_RUN_CHECKLIST_ITEMS
+    ]
 
 
 class Backend(QObject):
     _ADMISSION_GUARDED_OPERATIONS = frozenset({
-        "ui_ready", "set_setting", "browse_model", "test_endpoint", "validate_vulkan", "validate_cuda",
+        "set_setting", "browse_model", "test_endpoint", "validate_vulkan", "validate_cuda",
         "cuda_pack_status", "install_cuda_pack", "cancel_cuda_pack", "set_groq_key", "remove_groq_key",
         "test_groq_key", "list_ollama_models", "smart_study_status", "set_study_preset",
         "install_smart_study", "cancel_smart_study", "launch_ollama_installer", "save_project",
@@ -50,6 +79,12 @@ class Backend(QObject):
         "open_release_page", "set_update_channel", "set_auto_check", "skip_update_version",
         "clear_skipped_version", "install_update", "whatsnew_seen",
     })
+    # ui_ready is deliberately NOT guarded (T-01-06 hazard): the window is
+    # shown and the WebChannel handshake completes while admission is still
+    # pending (D-08), so ui_ready() must always run to record readiness --
+    # see Backend.ui_ready. Being guarded like the engine-facing operations
+    # would silently swallow every call behind a setup_required diagnostics
+    # emission and self._ui_ready_seen would never be set.
     _RETURNING_GUARDED_OPERATIONS = frozenset({"get_updater_state"})
     # ---- signals consumed by ui/app.js (names must match bridge.js SIGNALS) ----
     jobs_changed = Signal(str)
@@ -110,13 +145,29 @@ class Backend(QObject):
     repair_event = Signal(str)
     # Runtime admission evidence is a dedicated transport boundary.  It is not
     # ordinary status text and a fallback never implies a second ready event.
+    # Per-component checking/resolved progress and the final bootstrap
+    # payload, emitted by the deferred assessment worker (D-06/D-08/D-09).
+    # Same JSON-string convention as every other signal above.
+    bootstrap_progress = Signal(str)
+    bootstrap_complete = Signal(str)
 
     def __init__(self, window):
         super().__init__()
         self._window = window
         self._settings = QSettings(version.ORG_NAME, version.APP_NAME)
         self._runtime_config = ConfigManager()
-        self.runtime_health_result = RuntimeBootstrapService(self._runtime_config).assess()
+        # Fail-closed (D-06/T-01-06-01): this MUST be the very next
+        # assignment, before _runtime_diagnostics or any other collaborator,
+        # because __getattribute__ withholds every
+        # _ADMISSION_GUARDED_OPERATIONS name only when this attribute is
+        # present and not HEALTHY. Deferring assess() to a worker thread
+        # (see _start_bootstrap_async below) means this attribute would
+        # otherwise sit unset for the whole pending window -- and an unset
+        # attribute makes the guard fall through, opening every guarded
+        # bridge operation before admission. Do not reorder this above
+        # anything, and do not remove it even though the assignment looks
+        # redundant with __getattribute__'s own None-check.
+        self.runtime_health_result = _pending_result()
         self._runtime_diagnostics = RuntimeDiagnosticsController(
             RuntimeDiagnosticsService(self._runtime_config, self.runtime_health_result)
         )
@@ -128,13 +179,165 @@ class Backend(QObject):
         self._repair_confirmed = False
         self._repair_terminal_seen = False
         self._last_repair_diagnostics = "[]"
-        if self.runtime_health_result.state == "HEALTHY":
+        # Deferred-bootstrap bookkeeping (D-08). ui_ready() is called by the
+        # UI right after the WebChannel handshake, which happens while
+        # assessment is still pending -- well before self._adapter exists.
+        # These two flags make the deferred "ready" work
+        # (on_ui_ready/startup_check/fallback_notice) run exactly once,
+        # regardless of whether ui_ready() or bootstrap completion happens
+        # first (T-01-06-06).
+        self._ui_ready_seen = False
+        self._ui_ready_dispatched = False
+        # Conservative default (D-07): until the worker predicts cheaply,
+        # assume the slow full path so the UI never silently suppresses the
+        # checking overlay on what turns out to be a genuinely slow cold
+        # start.
+        self.validation_path = "full"
+        self._start_bootstrap_async()
+
+    def _start_bootstrap_async(self) -> None:
+        """Kick off runtime admission on a worker thread (D-06/D-08): the
+        window can be shown and the WebChannel handshake can complete
+        without waiting for the (possibly ~90s worst case) full validation
+        path. Plan 01-03 already reduced that path's cost by parallelizing
+        its three independent probes; this is the sequencing half."""
+        threading.Thread(target=self._run_bootstrap_worker, daemon=True).start()
+
+    def _run_bootstrap_worker(self) -> None:
+        """Runs entirely off the main thread. Every UI-facing effect below is
+        marshalled back onto the main thread through QTimer.singleShot with
+        this Backend instance passed as the context object (the
+        three-argument form). Per BUG-09, the bare two-argument
+        QTimer.singleShot overload -- delay and callback only, no context --
+        starts the timer in the *calling* thread and silently never fires
+        from a plain ``threading.Thread`` with no Qt event loop of its own.
+
+        Progress reporting is deliberately best-effort and wrapped
+        separately from admission itself: a failure resolving the two
+        host-only checklist items (windows_version, data_directory) must
+        never prevent the real assess() call from running. A failure in
+        assess() itself must still resolve to a safe non-HEALTHY completion,
+        and bootstrap_complete must still be emitted, or the UI is left in
+        the pending state forever (T-01-06-03).
+        """
+        try:
+            for component_id in FIRST_RUN_CHECKLIST_ITEMS:
+                self._emit_progress(component_id, "checking")
+            self._emit_host_only_resolved()
+        except Exception:
+            pass
+
+        try:
+            bootstrap_service = RuntimeBootstrapService(self._runtime_config)
+            self.validation_path = self._predict_validation_path(bootstrap_service)
+            result = bootstrap_service.assess()
+        except Exception as error:
+            result = RuntimeBootstrapResult(
+                "SETUP_REQUIRED", "light",
+                {"bootstrap_worker": {"healthy": False, "reason": f"assessment worker failed: {error}"}},
+            )
+
+        try:
+            self._emit_dependent_resolved(result)
+        except Exception:
+            pass
+
+        QTimer.singleShot(0, self, lambda: self._on_bootstrap_complete(result))
+
+    def _predict_validation_path(self, bootstrap_service) -> str:
+        """Predict D-07's full-vs-light path using the exact ``_requires_full``
+        inputs, without running any probe -- so the UI can decide whether to
+        render the checking overlay before assess() (up to ~90s worst case)
+        returns anything. Falls back to the conservative "full" prediction:
+        rendering the overlay when it wasn't strictly needed is only a
+        cosmetic cost, but predicting "light" and then silently taking the
+        full path would reproduce exactly the D-08 defect this field exists
+        to prevent. This duplicates one identity-hash pass that assess()
+        will also perform -- see the plan Summary for that cost tradeoff.
+        """
+        try:
+            if bootstrap_service.runtime_root is None:
+                return "full"
+            paths = dict(bootstrap_service.inventory_resolver(bootstrap_service.runtime_root))
+            identity = bootstrap_service.identity_provider(bootstrap_service.runtime_root)
+            previous = self._runtime_config.get("runtime_health")
+            requires_full = bootstrap_service._requires_full(previous, identity, paths, "startup")
+            return "full" if requires_full else "light"
+        except Exception:
+            return "full"
+
+    def _emit_progress(self, component_id: str, state: str, detail: str = "") -> None:
+        """Marshal one bootstrap_progress emission onto the main thread.
+        Called from the worker thread; see _run_bootstrap_worker for why the
+        context object is required (BUG-09)."""
+        payload = json.dumps({"id": component_id, "state": state, "detail": detail})
+        QTimer.singleShot(0, self, lambda: self.bootstrap_progress.emit(payload))
+
+    def _emit_host_only_resolved(self) -> None:
+        """windows_version and data_directory never depend on assess() --
+        report them the moment they're known rather than waiting for the
+        (possibly ~90s) full validation to finish."""
+        data_directory = self._runtime_config.resolve_data_dir()
+        for item in build_first_run_checklist({}, data_dir=data_directory):
+            if item["id"] in ("windows_version", "data_directory"):
+                self._emit_progress(item["id"], "resolved", item["detail"])
+
+    def _emit_dependent_resolved(self, result) -> None:
+        """ffmpeg_ffprobe, whisper_runtime and bundled_model can only be
+        verdicted from assess()'s own result -- RuntimeBootstrapService
+        exposes no per-probe callback, so per D-09's honesty requirement
+        their resolved state is reported at assess() completion rather than
+        at an invented instant (see the plan Summary)."""
+        data_directory = self._runtime_config.resolve_data_dir()
+        for item in build_first_run_checklist(result, data_dir=data_directory):
+            if item["id"] in ("ffmpeg_ffprobe", "whisper_runtime", "bundled_model"):
+                self._emit_progress(item["id"], "resolved", item["detail"])
+
+    def _on_bootstrap_complete(self, result) -> None:
+        """Runs on the main thread via the _run_bootstrap_worker marshal.
+        Promotes admission exactly once, following the same shape
+        _on_repair_event's HEALTHY promotion already uses."""
+        self.runtime_health_result = result
+        self._runtime_diagnostics = RuntimeDiagnosticsController(
+            RuntimeDiagnosticsService(self._runtime_config, result)
+        )
+        if result.state == "HEALTHY" and self._adapter is None:
             self._adapter = make_adapter(
                 self,
                 runtime_health_result=self.runtime_health_result,
                 runtime_diagnostics_controller=self._runtime_diagnostics,
             )
             self._updater = Updater(self)
+            # main.py's own attach_window call (main.py:161-164) runs before
+            # this constructor path exists and is swallowed by its own bare
+            # except. This handler is marshalled through the event loop, so
+            # MainWindow.__init__ has already returned by the time it runs
+            # -- self._window.tray is guaranteed to exist.
+            try:
+                self._adapter.attach_window(self._window, getattr(self._window, "tray", None))
+            except Exception:
+                pass
+            if self._ui_ready_seen and not self._ui_ready_dispatched:
+                self._dispatch_ui_ready_work()
+        try:
+            payload = self.get_bootstrap()
+        except Exception:
+            payload = json.dumps({
+                "bootstrap_pending": False,
+                "runtime_health_state": self.runtime_health_result.state,
+            })
+        self.bootstrap_complete.emit(payload)
+
+    def _dispatch_ui_ready_work(self) -> None:
+        """Run the deferred `ui_ready` work exactly once (T-01-06-06)."""
+        self._ui_ready_dispatched = True
+        self._adapter.on_ui_ready()
+        self._updater.startup_check()
+        if self.runtime_health_result.fallback_notice:
+            self.diagnostics.emit(json.dumps({
+                "type": "runtime_fallback",
+                "fallback": dict(self.runtime_health_result.fallback_notice),
+            }))
 
     def __getattribute__(self, name):
         """Keep every normal bridge operation unreachable until admission succeeds."""
@@ -304,28 +507,48 @@ class Backend(QObject):
 
     @Slot()
     def ui_ready(self):
-        """Called once by the UI after the QWebChannel handshake."""
-        if self._adapter is None:
-            return
-        self._adapter.on_ui_ready()
-        self._updater.startup_check()
-        if self.runtime_health_result.fallback_notice:
-            self.diagnostics.emit(json.dumps({
-                "type": "runtime_fallback",
-                "fallback": dict(self.runtime_health_result.fallback_notice),
-            }))
+        """Called once by the UI after the QWebChannel handshake. Deliberately
+        NOT in _ADMISSION_GUARDED_OPERATIONS (T-01-06 hazard closed here):
+        the window is shown and the handshake completes while admission is
+        still pending (D-08), so this must always record readiness --
+        being guarded like the engine-facing operations would silently
+        swallow it behind a setup_required diagnostics emission and
+        self._ui_ready_seen would never be set."""
+        self._ui_ready_seen = True
+        if self._adapter is not None and not self._ui_ready_dispatched:
+            self._dispatch_ui_ready_work()
 
     @Slot(result=str)
     def get_bootstrap(self) -> str:
         snapshot = self._runtime_diagnostics.runtime_health_snapshot()
+        pending = self.runtime_health_result.state == ADMISSION_PENDING
+        checklist = (
+            _pending_checklist() if pending
+            else build_first_run_checklist(self.runtime_health_result, data_dir=self._runtime_config.resolve_data_dir())
+        )
         return json.dumps(
             {
                 "theme": self.initial_theme(),
                 "version": version.__version__,
                 "runtime_health_state": snapshot["admission_state"],
                 "setup_required": snapshot if snapshot["admission_state"] == "SETUP_REQUIRED" else None,
+                "bootstrap_pending": pending,
+                "validation_path": self.validation_path,
+                "setup_acknowledged": self._runtime_config.setup_acknowledged(),
+                "checklist": checklist,
             }
         )
+
+    @Slot(result=str)
+    def acknowledge_setup(self) -> str:
+        """Persist only a boolean (D-14: never a download/repair/reinstall of
+        any kind). Deliberately NOT in _ADMISSION_GUARDED_OPERATIONS: it
+        writes solely to the user's own config through ConfigManager and
+        touches no engine collaborator, and the checklist screen it
+        acknowledges is reachable in a HEALTHY-but-unacknowledged state --
+        guarding it is not required."""
+        self._runtime_config.persist_setup_acknowledged()
+        return self.get_bootstrap()
 
     def initial_theme(self) -> str:
         """Return the only valid persisted theme before the WebEngine is shown."""
