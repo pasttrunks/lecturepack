@@ -5,15 +5,15 @@ milestone_name: Clean-Device Footprint and First Launch
 current_phase: 01
 current_phase_name: Clean-Device Footprint & First Launch
 status: executing
-stopped_at: Completed 01-07-PLAN.md
-last_updated: "2026-07-31T13:55:57.682Z"
+stopped_at: Completed 01-05-PLAN.md
+last_updated: "2026-07-31T22:53:29.469Z"
 last_activity: 2026-07-31
-last_activity_desc: "Plan 01-04 executed (packaging size cuts: Qt pruning, model dedupe, D-24 excludes, D-04 resources/ report)"
+last_activity_desc: "Plan 01-05 executed (single-instance guard, AppUserModelID, non-silent icon path)"
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -29,11 +29,11 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 01 (Clean-Device Footprint & First Launch) — EXECUTING
-Plan: 6 of 8 complete (wave 2 in progress: 01-04 done, 01-05 pending)
-Status: Ready to continue wave 2 (01-05) / start wave 3
-Last activity: 2026-07-31 — Plan 01-04 executed (packaging size cuts: Qt pruning, model dedupe, D-24 excludes, D-04 resources/ report)
+Plan: 7 of 8 complete (01-01..01-07 done; only 01-08 remains)
+Status: Ready to run 01-08 (physical clean-machine evidence gate — autonomous: false, human at a Windows machine required)
+Last activity: 2026-07-31 — Plan 01-05 executed (single-instance guard, AppUserModelID, non-silent icon path)
 
-Milestone progress: [██░░░░░░░░] 0% (phase-level; 5/8 plans complete within Phase 1)
+Milestone progress: [████████░░] 88% (phase-level; 7/8 plans complete within Phase 1)
 
 ## Branch
 
@@ -71,6 +71,7 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 - [Phase 01 Plan 06]: D-06/D-07/D-08/D-09/D-14/D-16 implemented. Backend.__init__ no longer calls assess() synchronously; a fail-closed ADMISSION_PENDING sentinel is assigned before any collaborator, and assessment runs on a daemon worker thread with itemized bootstrap_progress signals per FIRST_RUN_CHECKLIST_ITEMS id, marshalled via the BUG-09-corrected QTimer.singleShot(0, self, ...) form. get_bootstrap() extended with bootstrap_pending/validation_path/setup_acknowledged/checklist for Plan 01-07 to consume; ui_ready removed from the admission guard so it can always record readiness during the pending window; new acknowledge_setup() slot persists only a boolean. Full suite: 944 passed, 7 failed (912 baseline + 32 new tests; same 7 pre-existing failures; no new failures).
 - [Phase 01 Plan 04]: D-01 Qt pruning (~101MB) + model dedupe (~148MB) implemented as post-build deletion in build.py; D-24 torch/transformers excludes (~416.5MB) added to lecturepack.spec; D-04 resources/ (106.3MB) investigated and reported, kept not cut. Full suite 964 passed/7 failed (baseline 944/7, zero new failures). Build-dependent verification (real post-cut build, packaged smoke, WebEngine render proof) explicitly left to the orchestrator.
 - [Phase ?]: [Phase 01 Plan 07]: D-08/D-09/D-11/D-12/D-13/D-14/D-16/D-17 implemented on the UI side. RuntimeSetupGateModel gains checking/checklist states routed off bootstrap_pending/validation_path/setup_acknowledged (never a runtime_health_state string), with all seven pre-existing states byte-identical. Row identity is always the fixed FIRST_RUN_ROWS array keyed to the backend's FIRST_RUN_CHECKLIST_ITEMS. Badge colour comes only from the audited .lp-state[data-state] class rule (app/ui/app.css untouched, net zero lines). syncDemoAdmission() now requires the acknowledged flag so the guided demo is reachable only after Continue/Skip. Full suite: 1006 passed, 7 failed (same 7 pre-existing failures; zero new failures). Four UI-SPEC backstop rows (reduced-motion timing, focus containment, real-width layout, whisper slow-notice text) deferred to Plan 01-08's packaged session.
+- [Phase ?]: [Phase 01 Plan 05]: D-18/D-19/D-20/D-21 implemented. SingleInstanceGuard (QLocalServer/QLocalSocket) runs right after QApplication(sys.argv) and before MainWindow()/Backend.__init__, raises the existing window via a shared raise_and_focus() rather than exiting silently, and fails open to primary on any IPC error or stale-endpoint reclaim. AppUserModelID declared as main()'s first statement (mechanism-justified per 01-FINDINGS-icon.md's Task 1 diagnosis, which ruled out setWindowIcon and did not reproduce the owner's symptom on this beta-7 build) and matched byte-for-byte in lecturepack.iss. Both icon-resolution guards now report a missing .ico instead of silently continuing. Full suite: 1036 passed, 9 failed (1006 baseline + 28 new tests; the 7 pre-existing failures are unchanged; 2 new failures are a pre-existing BUG-27 stale-test-fixture issue confirmed unrelated to this plan and logged to deferred-items.md). Installed-build two-process and icon-visible proofs remain backstop items owned by Plan 01-08.
 
 ### Measured baseline (2026-07-30)
 
@@ -126,20 +127,22 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 
 | Phase | State | Resume |
 |-------|-------|--------|
-| 1 | blocked_on_human_verification | `/gsd-execute-phase 1` (runs 01-05, then 01-08) |
+| 1 | blocked_on_human_verification | `/gsd-execute-phase 1` (runs 01-08) |
 
-Autonomous mode stopped here by design, not by failure. Six of eight plans are executed and
-committed; the two remaining (`01-05`, `01-08`) are `autonomous: false` and carry
-`checkpoint:human-verify` gates that require a person at a Windows machine. They were not
+Autonomous mode stopped here by design, not by failure. Seven of eight plans are now executed
+and committed; the one remaining (`01-08`) is `autonomous: false` and carries
+`checkpoint:human-verify` gates that require a person at a Windows machine. It was not
 attempted, skipped, or partially applied.
 
-**01-05 — single instance + taskbar icon.** D-20 forbids assuming the icon cause: it must be
-determined on a *packaged* build, choosing between (a) no
-`SetCurrentProcessExplicitAppUserModelID` call existing anywhere in `app/`, and (b)
-`setWindowIcon` at `app/desktop/main.py:107` being guarded by `os.path.exists` with no
-else-branch so a missing `.ico` fails silently. (a) is the stronger suspect — the `.ico` *is*
-present in the built output and *is* stamped into the exe — but D-20 requires confirming, not
-assuming. Findings go to `01-FINDINGS-icon.md`.
+**01-05 — single instance + taskbar icon (DONE, commits `253bc71`/`16f7a6c`).** Task 1's
+diagnosis (`01-FINDINGS-icon.md`) confirmed candidate (b) — the silently-guarded
+`setWindowIcon` — is ruled out on the installed build; candidate (a), the missing
+`SetCurrentProcessExplicitAppUserModelID` call, is the only remaining explanation, though
+the owner's blank-icon symptom did not reproduce during diagnosis. Tasks 2-3 implemented
+`SingleInstanceGuard` (D-18/D-19), the AUMID declaration matched byte-for-byte in
+`lecturepack.iss` (D-20), and non-silent icon-resolution guards (D-21) — see
+`01-05-SUMMARY.md`. The installed-build two-process raise-and-focus proof and the
+icon-visible proof remain `verification: backstop` items, owned by Plan 01-08.
 
 **01-08 — physical evidence gate.** Needs a silent install/uninstall of the post-cut
 `Setup.exe` for the expanded-tree figure, cold and warm launch timings on a clean profile
@@ -151,8 +154,8 @@ rebuild before using it.
 
 ## Session Continuity
 
-Last session: 2026-07-31T13:55:57.671Z
-Stopped at: Completed 01-07-PLAN.md
+Last session: 2026-07-31T22:53:29.452Z
+Stopped at: Completed 01-05-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -165,3 +168,4 @@ Resume file: None
 | Phase 01 P06 | ~2h30m | 3 tasks | 5 files |
 | Phase 01 P04 | ~45min | 3 tasks | 6 files |
 | Phase 01 P07 | ~50min | 3 tasks | 3 files |
+| Phase 01 P05 | ~45min | 3 tasks | 6 files |

@@ -106,3 +106,40 @@ root — or have CI install both files — and decide deliberately whether packa
 should ship `Send2Trash` (restoring recycle-bin deletion) and `yt-dlp`. Add a test
 asserting the two requirement sets agree, so the header's claim is enforced rather than
 aspirational.
+
+## Found during 01-05 full-suite verification (BUG-27 stale test fixture, not this plan's)
+
+**`tests/test_package_footprint.py` still hardcodes 6 cut targets; BUG-27's fix reduced the
+real list to 4.** Two failures, both new relative to the 7 pre-existing failures documented
+above:
+
+- `tests/test_package_footprint.py::test_audit_pruned_tree_reports_all_six_present` —
+  `assert audit["cut_targets_present_count"] == 6` fails with `4 == 6`.
+- `tests/test_package_footprint.py::test_cli_tree_and_assert_pruned_passes_on_pruned_synthetic_tree`
+  — the CLI's `--assert-pruned` now exits 1 (not 0) against a synthetic tree built with the
+  test's own `include_cut_targets=False` helper, because `BUG_LIST.md`'s BUG-27 entry
+  removed `Qt6Qml.dll`/`Qt6Quick.dll` from `PRUNABLE_QT_COMPONENTS` in
+  `app/packaging/build.py` (they are load-bearing link-time dependencies of
+  `Qt6WebEngineCore`/`Qt6WebChannel` — pruning them produced a packaged build that could
+  not start). `PRUNABLE_QT_COMPONENTS` is now four targets (`translations`, `qml`,
+  `Qt6Quick3DRuntimeRender.dll`, `Qt6Pdf.dll`), but `test_package_footprint.py`'s fixture
+  helper (`_make_pruned_tree`, `tests/test_package_footprint.py:20-40`) and its two
+  assertions above were never updated to match — they still construct and expect exactly
+  six.
+
+**Confirmed unrelated to Plan 01-05.** `tests/test_package_footprint.py`,
+`scripts/measure_package_footprint.py`, `app/packaging/build.py`, and
+`PRUNABLE_QT_COMPONENTS` are all outside Plan 01-05's `files_modified`
+(`app/desktop/single_instance.py`, `app/desktop/main.py`,
+`app/packaging/lecturepack.iss`, `tests/test_single_instance_identity.py`,
+`01-FINDINGS-icon.md`) — this plan touches none of the packaging-footprint or Qt-pruning
+code. The BUG-27 fix itself is recorded as `FIXED (verified)` in `BUG_LIST.md`; the stale
+test fixture is a follow-up its own fix left behind, not a regression this plan introduced.
+Full-suite result with this plan's changes: 1036 passed, 9 failed (1006 baseline + 28 new
+tests + 2 unrelated BUG-27-fixture failures; the previously-documented 7 pre-existing
+failures are unchanged; zero failures caused by this plan).
+
+**Not fixed here.** `tests/test_package_footprint.py` is not in Plan 01-05's file scope.
+**Recommended follow-up:** update `_make_pruned_tree`'s fixture and the two `== 6`
+assertions to `== 4` (or derive the expected count from `PRUNABLE_QT_COMPONENTS` itself, so
+a future change to the prune list can't silently desync the test again).
