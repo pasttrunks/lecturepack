@@ -53,9 +53,12 @@ jobs:
           python -m pip install cryptography==49.0.0
           python -m pip install -r app/requirements.txt -r app/requirements-build.txt
 
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
       - name: Build canonical disposable onedir
         working-directory: app
-        run: python packaging/build.py --no-installer
+        run: python packaging/build.py
 
       - name: Produce exactly six signed runtime assets
         shell: bash
@@ -72,10 +75,23 @@ jobs:
           assert manifest['app_version'] == __version__
           PY
 
+      - name: Assert updater assets exist
+        shell: bash
+        run: |
+          SETUP="app/dist/installer/LecturePack-${APP_VERSION}-Setup.exe"
+          PORTABLE="app/dist/installer/LecturePack-${APP_VERSION}-Portable.zip"
+          SUMS="app/dist/installer/LecturePack-${APP_VERSION}-SHA256SUMS.txt"
+          for f in "$SETUP" "$PORTABLE" "$SUMS"; do
+            test -s "$f" || { echo "::error::missing or empty updater asset: $f"; exit 1; }
+          done
+          grep -q "LecturePack-${APP_VERSION}-Setup.exe" "$SUMS" || { echo "::error::$SUMS does not list Setup.exe"; exit 1; }
+          grep -q "LecturePack-${APP_VERSION}-Portable.zip" "$SUMS" || { echo "::error::$SUMS does not list Portable.zip"; exit 1; }
+
       - name: Release exact signed assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.APP_VERSION }}
+          prerelease: ${{ contains(env.APP_VERSION, '-') }}
           files: |
             runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-RuntimeManifest-v1.json
             runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-RuntimeManifest-v1.json.sig
@@ -83,6 +99,9 @@ jobs:
             runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-Runtime-whisper-cpu.zip
             runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-Runtime-model-base-en.zip
             runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-Runtime-smoke-fixture.zip
+            app/dist/installer/LecturePack-${{ env.APP_VERSION }}-Setup.exe
+            app/dist/installer/LecturePack-${{ env.APP_VERSION }}-Portable.zip
+            app/dist/installer/LecturePack-${{ env.APP_VERSION }}-SHA256SUMS.txt
 
       - name: Retain signing audit evidence
         uses: actions/upload-artifact@v4
