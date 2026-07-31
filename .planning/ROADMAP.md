@@ -35,12 +35,12 @@ existing user data.
   5. A fresh profile shows the setup checklist with Ready / Needs Attention per requirement before the guided demo is offered, and offers the demo only after the user continues or deliberately skips. No component that is already bundled is downloaded or reinstalled.
   6. The LecturePack icon appears in the window title bar and the Windows taskbar for the installed build.
 
-**Plans:** 8 plans
+**Plans:** 1/8 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Footprint measurement script, seeded `01-EVIDENCE.md`, and the pre-cut baseline from one fresh installer (wave 1)
+- [x] 01-01-PLAN.md — Footprint measurement script, seeded `01-EVIDENCE.md`, and the pre-cut baseline from one fresh installer (wave 1)
 - [ ] 01-02-PLAN.md — Additively restore installer asset publication in `release.yml`, with a contract test derived from `expected_asset_names()` (wave 1, D-22)
 - [ ] 01-03-PLAN.md — Persisted setup-acknowledged flag, the five-item checklist verdict service, and parallelized full validation (wave 1)
 
@@ -74,4 +74,4 @@ Canonical references: `.planning/phases/01-clean-device-footprint-first-launch/0
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Clean-Device Footprint & First Launch | 0/8 | Not started | - |
+| 1. Clean-Device Footprint & First Launch | 1/8 | In Progress|  |

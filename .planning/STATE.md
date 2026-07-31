@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.9.0-beta.7
 milestone_name: Clean-Device Footprint and First Launch
-current_phase: 1
+current_phase: 01
 current_phase_name: Clean-Device Footprint & First Launch
-status: planned
-stopped_at: Phase 1 planned — 8 plans in 4 waves, plan-checker passed
-last_updated: "2026-07-31T00:17:09.958Z"
+status: executing
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-07-31T03:20:28.453Z"
 last_activity: 2026-07-30
-last_activity_desc: Phase 1 planned (8 plans, 4 waves); D-22 recorded
+last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 8
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: `.planning/PROJECT.md`
 
 **Core value:** Convert locally stored lecture videos into complete, reviewable, portable study packs entirely on-device.
-**Current focus:** Milestone v0.9.0-beta.7 — Phase 1 planned (8 plans, 4 waves), ready to execute.
+**Current focus:** Phase 01 — Clean-Device Footprint & First Launch
 
 ## Current Position
 
-Phase: 1 (Clean-Device Footprint & First Launch) — DISCUSSED
-Plan: none yet
-Status: Ready for `/gsd-plan-phase 1`
-Last activity: 2026-07-30 — Phase 1 context captured
+Phase: 01 (Clean-Device Footprint & First Launch) — EXECUTING
+Plan: 2 of 8
+Status: Ready to execute
+Last activity: 2026-07-30 — Phase 01 execution started
 
 Milestone progress: [░░░░░░░░░░] 0%
 
@@ -63,6 +63,8 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 - A second launch raises the existing window, and the guard runs before the slow
   validation path.
 
+- [Phase 01 Plan 01]: Task 3 (build fresh installer + record pre-cut baseline) deferred per orchestrator instruction to Plan 01-08's blocking human-verify checkpoint; 01-EVIDENCE.md baseline sections remain NOT YET MEASURED.
+
 ### Measured baseline (2026-07-30)
 
 | Artifact | Size |
@@ -93,6 +95,8 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 - Physical clean-machine verification (CPU-only, NVIDIA, AMD/Intel) still outstanding from
   beta 6 and not claimed by this phase.
 
+- 01-EVIDENCE.md pre-cut size baseline (installer bytes, expanded bytes, built-tree bytes, reconciliation) is still NOT YET MEASURED — Plan 01-01 Task 3 was deferred to Plan 01-08 per orchestrator instruction; must be gathered before Success Criterion 1 can be claimed, and before Plan 01-04 rebuilds app/dist/.
+
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
@@ -106,6 +110,12 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 
 ## Session Continuity
 
-Last session: 2026-07-31T00:17:09.945Z
-Stopped at: Phase 1 UI-SPEC approved
-Resume file: .planning/phases/01-clean-device-footprint-first-launch/01-UI-SPEC.md
+Last session: 2026-07-31T03:20:28.442Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None
+
+## Performance Metrics
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 30min | 2 tasks | 3 files |
