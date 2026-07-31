@@ -1995,17 +1995,37 @@
   /* ================= runtime setup gate =================
      The desktop bridge is the trust boundary.  This controller only renders
      its canonical admission/repair events; it never infers health or sizes. */
+  /* First-run checklist wire contract (D-13): five canonical backend ids, in
+     canonical order, with UI-owned friendly labels and live-region sentences.
+     The backend owns the ids and the verdicts; the UI owns only this copy.
+     Ids and order are locked to FIRST_RUN_CHECKLIST_ITEMS in
+     lecturepack/services/first_run_checklist.py -- a cross-file test asserts
+     the two lists match, so a sixth backend item fails loudly here instead of
+     rendering an unlabelled row. */
+  var FIRST_RUN_ROWS = [
+    { id: 'windows_version', label: 'Windows version', checking: 'Checking Windows version…' },
+    { id: 'ffmpeg_ffprobe', label: 'Media tools (FFmpeg)', checking: 'Checking FFmpeg & ffprobe…' },
+    { id: 'whisper_runtime', label: 'Speech engine (Whisper)', checking: 'Checking Whisper runtime…' },
+    { id: 'bundled_model', label: 'Speech model', checking: 'Checking speech model…' },
+    { id: 'data_directory', label: 'Storage folder', checking: 'Checking storage folder…' }
+  ];
+  /* Two-entry backend-verdict -> badge data-state mapping. Backend decides,
+     UI renders: an unrecognised verdict maps to no data-state at all, which
+     renders as a neutral badge rather than inventing a third colour. */
+  var FIRST_RUN_VERDICT_STATES = { ready: 'success', needs_attention: 'paused' };
   /* The one mutable lifecycle reducer used by the DOM controller and Node tests. */
   function RuntimeSetupGateModel() {
     var state = 'gate', returnState = 'gate', retryPending = false, cancelPending = false;
     var activeOperation = null, terminal = false, offer = null, bootstrapPending = true, healthy = false;
+    var validationPath = null, acknowledged = false, checklist = [], checkProgress = {};
     function valid(value) {
       return !!(value && value.operation_id === activeOperation && value.app_version && value.source &&
         value.affected_components && Number.isSafeInteger(value.download_size_bytes) && value.download_size_bytes >= 0);
     }
     function snapshot() {
       return { state: state, returnState: returnState, retryPending: retryPending, cancelPending: cancelPending,
-        activeOperation: activeOperation, terminal: terminal, offer: offer, bootstrapPending: bootstrapPending, healthy: healthy };
+        activeOperation: activeOperation, terminal: terminal, offer: offer, bootstrapPending: bootstrapPending, healthy: healthy,
+        validationPath: validationPath, acknowledged: acknowledged, checklist: checklist, checkProgress: checkProgress };
     }
     function accept(event) { return !!(event && event.operation_id === activeOperation && !terminal); }
     return {
@@ -2029,14 +2049,67 @@
       requestCancel: function () { if (activeOperation && !terminal) cancelPending = true; return snapshot(); },
       abandon: function () { if (activeOperation) terminal = true; offer = null; cancelPending = false; state = 'gate'; return snapshot(); },
       bootstrap: function (bootstrap) {
-        bootstrapPending = false;
+        // Read the extended payload defensively: an absent key yields the
+        // same falsy default the pre-01-07 reducer always had, so every
+        // existing caller and test is unaffected.
+        var pending = !!(bootstrap && bootstrap.bootstrap_pending);
+        bootstrapPending = pending;
+        validationPath = (bootstrap && bootstrap.validation_path) || null;
+        acknowledged = !!(bootstrap && bootstrap.setup_acknowledged === true);
+        checklist = (bootstrap && Array.isArray(bootstrap.checklist)) ? bootstrap.checklist : [];
+        if (pending) {
+          // A pending result carries no verdict yet: never set healthy or
+          // terminal here, so a later resolved result can still route
+          // freely. Full-path pending opens the checking overlay; light-path
+          // pending stays invisible, exactly as today's warm launch (D-07).
+          // An in-flight repair operation is never hijacked by a pending
+          // bootstrap arriving mid-repair.
+          if (validationPath === 'full' && !activeOperation) {
+            state = 'checking';
+            checkProgress = {};
+            FIRST_RUN_ROWS.forEach(function (row) { checkProgress[row.id] = 'pending'; });
+          }
+          return snapshot();
+        }
         if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') {
           healthy = false; terminal = true;
           if (!activeOperation) { state = 'gate'; terminal = false; offer = null; cancelPending = false; }
         } else if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY') {
           healthy = true;
           if (activeOperation && !terminal) this.event({ operation_id: activeOperation, kind: 'admitted' });
+          else if (!activeOperation && !acknowledged) {
+            // D-12: a first-ever healthy admission always shows the
+            // checklist; an already-acknowledged admission leaves the state
+            // exactly where the pre-01-07 reducer left it, so the
+            // controller's existing close path still closes the overlay.
+            state = 'checklist';
+          }
         }
+        return snapshot();
+      },
+      /* Per-component checking progress (D-08/D-09). Ignored outside the
+         checking state and for any id not in the canonical five -- pacing
+         and timers are the controller's job, this method holds neither. */
+      progress: function (payload) {
+        if (state !== 'checking' || !payload || !payload.id) return snapshot();
+        var known = FIRST_RUN_ROWS.some(function (row) { return row.id === payload.id; });
+        if (!known) return snapshot();
+        checkProgress[payload.id] = payload.state;
+        return snapshot();
+      },
+      /* The only write path for the acknowledged flag on the reducer side;
+         the bridge slot (acknowledge_setup) is the only write path on the
+         persistence side. The controller owns closing the overlay. */
+      acknowledge: function (bootstrap) {
+        acknowledged = true;
+        if (bootstrap && Array.isArray(bootstrap.checklist)) checklist = bootstrap.checklist;
+        return snapshot();
+      },
+      /* The seam a repair-recovered first-run admission uses: closeReady()
+         is not the only future caller, so the healthy/unacknowledged guard
+         lives here rather than at each call site. */
+      toChecklist: function () {
+        if (healthy && !acknowledged) state = 'checklist';
         return snapshot();
       },
       event: function (event) {
@@ -2051,6 +2124,11 @@
         return snapshot();
       },
       reset: function () {
+        // `acknowledged` is deliberately left untouched: it mirrors a value
+        // persisted in the user's config.json (D-16), not in-flight
+        // operation state -- clearing it here would re-show the checklist
+        // for the rest of the session even though the backend still
+        // considers setup acknowledged.
         state = 'gate'; returnState = 'gate'; retryPending = false; cancelPending = false;
         activeOperation = null; terminal = false; offer = null; healthy = false; return snapshot();
       },
@@ -2058,7 +2136,7 @@
     };
   }
   var RuntimeSetupGate = (function () {
-    var STATES = ['gate', 'diagnostics', 'confirm', 'repairing', 'offline', 'failed', 'ready'];
+    var STATES = ['gate', 'diagnostics', 'confirm', 'repairing', 'offline', 'failed', 'ready', 'checking', 'checklist'];
     var bootstrapSnapshot = null, restoreInert = [], inertCaptured = false, priorFocus = null;
     var eventModel = RuntimeSetupGateModel();
 
