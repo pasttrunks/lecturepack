@@ -5,16 +5,16 @@ milestone_name: Clean-Device Footprint and First Launch
 current_phase: 01
 current_phase_name: Clean-Device Footprint & First Launch
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-07-31T00:00:00.000Z"
+stopped_at: Completed 01-06-PLAN.md
+last_updated: "2026-07-31T12:54:12.557Z"
 last_activity: 2026-07-31
-last_activity_desc: Phase 01 Plan 03 executed (backend first-run checklist contract)
+last_activity_desc: Plan 01-03 executed (backend first-run checklist contract)
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 8
-  completed_plans: 3
-  percent: 38
+  completed_plans: 4
+  percent: 0
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 01 (Clean-Device Footprint & First Launch) — EXECUTING
-Plan: 3 of 8 complete (wave 1 done)
+Plan: 4 of 8 complete (wave 1 done)
 Status: Ready to execute wave 2 (01-04, 01-05, 01-06)
 Last activity: 2026-07-31 — Plan 01-03 executed (backend first-run checklist contract)
 
@@ -68,6 +68,7 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 - [Phase 01 Plan 02]: D-22 implemented — release.yml additively restores Setup.exe/Portable.zip/SHA256SUMS.txt publication alongside the six existing signed runtime assets, with 10 contract tests bound to expected_asset_names().
 
 - [Phase 01 Plan 03]: D-16, D-13, D-14, D-10 implemented. `ConfigManager.setup_acknowledged()`/`persist_setup_acknowledged()` persist the first-run flag in `config.json` (D-16). New `lecturepack/services/first_run_checklist.py` exposes exactly five checklist items in canonical order with no remediation affordance (D-13/D-14), keyed to `canonical_inventory()`. `RuntimeBootstrapService._validate_full` now runs its three independent probes concurrently in a bounded thread pool, preserving the real staged whisper-cli transcription and every evidence field (D-10). No UI or bridge file touched; this is the fixed wire contract for Plans 01-06/01-07. Full suite: 912 passed, 7 failed (same 7 pre-existing failures documented in deferred-items.md; no new failures).
+- [Phase 01 Plan 06]: D-06/D-07/D-08/D-09/D-14/D-16 implemented. Backend.__init__ no longer calls assess() synchronously; a fail-closed ADMISSION_PENDING sentinel is assigned before any collaborator, and assessment runs on a daemon worker thread with itemized bootstrap_progress signals per FIRST_RUN_CHECKLIST_ITEMS id, marshalled via the BUG-09-corrected QTimer.singleShot(0, self, ...) form. get_bootstrap() extended with bootstrap_pending/validation_path/setup_acknowledged/checklist for Plan 01-07 to consume; ui_ready removed from the admission guard so it can always record readiness during the pending window; new acknowledge_setup() slot persists only a boolean. Full suite: 944 passed, 7 failed (912 baseline + 32 new tests; same 7 pre-existing failures; no new failures).
 
 ### Measured baseline (2026-07-30)
 
@@ -121,8 +122,8 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 
 ## Session Continuity
 
-Last session: 2026-07-31T00:00:00.000Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-07-31T12:54:12.547Z
+Stopped at: Completed 01-06-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -132,3 +133,4 @@ Resume file: None
 | Phase 01 P01 | 30min + follow-up | 3 tasks | 3 new + 4 amended files |
 | Phase 01 P02 | ~1h (interrupted, closed out) | 2 tasks | 2 new/modified files |
 | Phase 01 P03 | ~2.5h | 3 tasks | 2 new + 2 modified files |
+| Phase 01 P06 | ~2h30m | 3 tasks | 5 files |

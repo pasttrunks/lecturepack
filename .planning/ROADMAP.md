@@ -35,7 +35,7 @@ existing user data.
   5. A fresh profile shows the setup checklist with Ready / Needs Attention per requirement before the guided demo is offered, and offers the demo only after the user continues or deliberately skips. No component that is already bundled is downloaded or reinstalled.
   6. The LecturePack icon appears in the window title bar and the Windows taskbar for the installed build.
 
-**Plans:** 3/8 plans executed
+**Plans:** 4/8 plans executed
 
 Plans:
 **Wave 1**
@@ -48,7 +48,7 @@ Plans:
 
 - [ ] 01-04-PLAN.md — Post-build Qt pruning, `ggml-base.en.bin` dedupe with a proven resolution chain, and the `resources/` findings report (wave 2)
 - [ ] 01-05-PLAN.md — Single-instance guard with a fixed raise sentinel, AppUserModelID process identity, and a non-silent icon path (wave 2)
-- [ ] 01-06-PLAN.md — Deferred bootstrap assessment on a worker thread with itemized progress, and the extended `get_bootstrap()` contract (wave 2)
+- [x] 01-06-PLAN.md — Deferred bootstrap assessment on a worker thread with itemized progress, and the extended `get_bootstrap()` contract (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -74,4 +74,4 @@ Canonical references: `.planning/phases/01-clean-device-footprint-first-launch/0
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Clean-Device Footprint & First Launch | 3/8 | In Progress|  |
+| 1. Clean-Device Footprint & First Launch | 4/8 | In Progress|  |
