@@ -49,6 +49,59 @@ from . import version
 from .assets import AssetResolver, install_asset_handler, register_asset_scheme
 from .bridge import Backend
 from .paths import data_dir, ui_dir
+from .single_instance import SingleInstanceGuard
+
+
+# D-20/D-21: Windows associates a taskbar button with an installed app's
+# identity via its Application User Model ID. No call to
+# SetCurrentProcessExplicitAppUserModelID existed anywhere in app/ before
+# this fix (confirmed by source search -- see 01-FINDINGS-icon.md). That
+# finding also ruled out the setWindowIcon guard below as the cause of the
+# owner's reported blank taskbar icon on the installed build, leaving the
+# missing AUMID as the only remaining explanation, even though the symptom
+# did not reproduce during diagnosis. Stable across versions -- changing
+# this string later orphans a pinned taskbar/Start icon. Must match
+# lecturepack.iss's AppUserModelID `[Icons]` parameter byte-for-byte.
+APP_USER_MODEL_ID = "LecturePack.LecturePack"
+
+
+def _set_app_user_model_id() -> None:
+    """Declare a stable Windows taskbar identity before any window is shown.
+
+    Follows win_integration.py's PowerRequester.set_awake() ctypes idiom:
+    lazy import, win32-only, and a bare except that degrades to a silent
+    no-op -- a shell-integration failure must never block startup.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except Exception:
+        pass  # degrade silently
+
+
+def _resolve_icon_path() -> str:
+    """Frozen EXE: the .ico sits next to LecturePack.exe (bundle_engine()
+    copies it there). Source run: resolve it from the packaging/ tree."""
+    if getattr(sys, "frozen", False):
+        return os.path.join(os.path.dirname(sys.executable), "lecturepack.ico")
+    return os.path.join(os.path.dirname(__file__), "..", "packaging", "lecturepack.ico")
+
+
+def _report_missing_icon(tag: str, path: str) -> None:
+    """D-21: the previous `os.path.exists` guard had no else-branch, so a
+    missing .ico disappeared without a trace. 01-FINDINGS-icon.md ruled this
+    out as beta.7's actual cause of the reported blank icon, but the guard
+    was still untested against a genuinely missing file -- a future
+    packaging regression that stops shipping the .ico would otherwise fail
+    silently again. Report, don't raise: a missing icon must never be
+    fatal. No project logger exists in this codebase yet; mirror
+    Backend.log_asset_error's own stderr sink so the message reaches the
+    same place other silent-failure guards in this file already use.
+    """
+    print(f"[{tag}] icon not found at resolved path: {path}", file=sys.stderr)
 
 
 class WebView(QWebEngineView):
@@ -98,13 +151,11 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(480, 560)
         self.resize(1360, 860)
 
-        if getattr(sys, "frozen", False):
-            # Frozen EXE: icon is next to LecturePack.exe
-            icon_path = os.path.join(os.path.dirname(sys.executable), "lecturepack.ico")
-        else:
-            icon_path = os.path.join(os.path.dirname(__file__), "..", "packaging", "lecturepack.ico")
+        icon_path = _resolve_icon_path()
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
+        else:
+            _report_missing_icon("window-icon", icon_path)
 
         self.backend = Backend(self)
         self.view = WebView(self.backend)
@@ -153,6 +204,8 @@ class MainWindow(QMainWindow):
                 self.tray = QSystemTrayIcon(self)
                 if os.path.exists(icon_path):
                     self.tray.setIcon(QIcon(icon_path))
+                else:
+                    _report_missing_icon("tray-icon", icon_path)
                 self.tray.setToolTip(version.APP_NAME)
                 self.tray.messageClicked.connect(self._on_notification_clicked)
                 self.tray.show()
@@ -209,6 +262,18 @@ class MainWindow(QMainWindow):
         except Exception:
             return ""
 
+    def raise_and_focus(self) -> None:
+        """Bring this window to the foreground and give it input focus.
+
+        D-18: reused by both the tray-notification click handler below and
+        the single-instance guard's raise signal in main(), so there is
+        exactly one focus mechanism in this file, not two.
+        """
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
     def _on_notification_clicked(self):
         """A tray balloon was clicked: raise the window and route to the target
         the last notification pointed at (open job / error / update)."""
@@ -216,13 +281,16 @@ class MainWindow(QMainWindow):
             route = self.backend._adapter.win.on_notification_clicked()
         except Exception:
             route = ""
-        self.raise_()
-        self.activateWindow()
+        self.raise_and_focus()
         if route:
             self.backend.notification_navigate.emit(route)
 
 
 def main() -> int:
+    # D-20: must run before any window/UI is presented, so it precedes even
+    # the custom URL scheme registration below.
+    _set_app_user_model_id()
+
     # Custom URL schemes must be registered before the QApplication is created.
     register_asset_scheme()
     QApplication.setHighDpiScaleFactorRoundingPolicy(
@@ -233,7 +301,23 @@ def main() -> int:
     app.setOrganizationName(version.ORG_NAME)
     app.setApplicationVersion(version.__version__)
 
+    # D-18/D-19: probe for an already-running instance before constructing
+    # MainWindow (and therefore before Backend.__init__ and its deferred
+    # assess() worker). A guard placed after MainWindow() would let a
+    # second process sit invisible for the whole pending-admission window,
+    # which is the exact symptom D-19 exists to prevent. QLocalSocket needs
+    # QCoreApplication machinery (01-RESEARCH.md Open Question 1), so this
+    # runs right after QApplication(sys.argv) rather than before it.
+    guard = SingleInstanceGuard()
+    if guard.acquire() == "secondary":
+        # Another instance owns the endpoint: ask it to raise and focus,
+        # then exit immediately rather than silently -- silent exit is
+        # indistinguishable from a failed launch (D-18).
+        guard.signal_existing()
+        return 0
+
     win = MainWindow()
+    guard.set_raise_handler(win.raise_and_focus)
     win.show_when_ready()
 
     # Focus-gate notifications: only fire when the app is not the active window.
@@ -250,6 +334,7 @@ def main() -> int:
             win.backend._adapter.win.on_shutdown()
         except Exception:
             pass
+        guard.release()
     app.aboutToQuit.connect(_on_quit)
 
     return app.exec()

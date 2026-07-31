@@ -25,6 +25,12 @@
 #define AppPublisher "LecturePack"
 #define AppExeName "LecturePack.exe"
 #define AppURL "https://github.com/pasttrunks/lecturepack"
+; D-20: must match APP_USER_MODEL_ID in app/desktop/main.py byte-for-byte,
+; and stay free of any version component -- a version bump must never
+; orphan a pinned taskbar or Start Menu icon. Defined once here and
+; referenced by both non-uninstall [Icons] entries below so the two
+; shortcut lines cannot drift from each other or from main.py's literal.
+#define AppUserModelID "LecturePack.LecturePack"
 
 [Setup]
 AppId={{9F5D2E31-7C4A-4B8E-9E1D-LECTUREPACK01}}
@@ -61,9 +67,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; AppUserModelID: "{#AppUserModelID}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon; AppUserModelID: "{#AppUserModelID}"
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
