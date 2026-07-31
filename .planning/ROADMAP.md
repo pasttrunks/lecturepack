@@ -38,13 +38,24 @@ existing user data.
 **Plans:** 8 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 01-01-PLAN.md — Footprint measurement script, seeded `01-EVIDENCE.md`, and the pre-cut baseline from one fresh installer (wave 1)
 - [ ] 01-02-PLAN.md — Additively restore installer asset publication in `release.yml`, with a contract test derived from `expected_asset_names()` (wave 1, D-22)
 - [ ] 01-03-PLAN.md — Persisted setup-acknowledged flag, the five-item checklist verdict service, and parallelized full validation (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 01-04-PLAN.md — Post-build Qt pruning, `ggml-base.en.bin` dedupe with a proven resolution chain, and the `resources/` findings report (wave 2)
 - [ ] 01-05-PLAN.md — Single-instance guard with a fixed raise sentinel, AppUserModelID process identity, and a non-silent icon path (wave 2)
 - [ ] 01-06-PLAN.md — Deferred bootstrap assessment on a worker thread with itemized progress, and the extended `get_bootstrap()` contract (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 01-07-PLAN.md — The `checking` and `checklist` overlay states in the existing WebEngine UI, with the acknowledgement and demo-gate wiring (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 01-08-PLAN.md — One post-cut build, the after-cuts size table and reconciliation, and the installed-build physical evidence gate (wave 4)
 
 **Known blocker carried in, not caused here:** commit `a6164b1` (beta-6 Phase 2 Plan 05) replaced the installer-publishing release job with one that publishes only six signed runtime assets. The in-app updater requires `Setup.exe` + `SHA256SUMS.txt`, which CI no longer produces, so the updater cannot consume a current-workflow release. Planning must decide whether restoring installer publication belongs in this phase or its own slice — and this phase may not claim "updater behavior preserved" while it stands. See `01-CONTEXT.md` `<updater_regression>`.

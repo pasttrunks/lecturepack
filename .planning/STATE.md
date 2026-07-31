@@ -4,15 +4,15 @@ milestone: v0.9.0-beta.7
 milestone_name: Clean-Device Footprint and First Launch
 current_phase: 1
 current_phase_name: Clean-Device Footprint & First Launch
-status: discussing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-07-30T00:00:00.000Z"
+status: planned
+stopped_at: Phase 1 planned — 8 plans in 4 waves, plan-checker passed
+last_updated: "2026-07-31T00:17:09.958Z"
 last_activity: 2026-07-30
-last_activity_desc: Phase 1 context captured; beta-6 milestone archived
+last_activity_desc: Phase 1 planned (8 plans, 4 waves); D-22 recorded
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
+  total_plans: 8
   completed_plans: 0
   percent: 0
 ---
@@ -24,7 +24,7 @@ progress:
 See: `.planning/PROJECT.md`
 
 **Core value:** Convert locally stored lecture videos into complete, reviewable, portable study packs entirely on-device.
-**Current focus:** Milestone v0.9.0-beta.7 — Phase 1 context gathered, ready for planning.
+**Current focus:** Milestone v0.9.0-beta.7 — Phase 1 planned (8 plans, 4 waves), ready to execute.
 
 ## Current Position
 
@@ -53,10 +53,13 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 
 - Size cuts are scoped to the model dedupe plus provably-unused Qt components; an
   aggressive allowlist was considered and rejected for this phase.
+
 - Startup is fixed on both axes — window-first with honest itemized progress, *and*
   reducing validation cost without weakening admission evidence.
+
 - The first-run setup checklist is a deliberate behavior change, not a bug fix; the
   existing gate correctly skips on a healthy first run.
+
 - A second launch raises the existing window, and the guard runs before the slow
   validation path.
 
@@ -76,14 +79,17 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
   assets. `expected_asset_names()` (`app/desktop/update_service.py:117-120`) requires
   `Setup.exe` + `SHA256SUMS.txt`, neither of which CI now publishes. Pre-existing, not
   caused by beta 7, but it contradicts the "preserve updater behavior" constraint.
+
 - **Size figures not yet reconciled.** ISCC *is* installed (`%LOCALAPPDATA%\Programs\Inno
   Setup 6\`) and `build.py` does produce `Setup.exe` locally — an earlier claim to the
   contrary was based on a PATH-only check and was wrong. What remains unexplained is the
   owner's ~900 MB extraction vs. the 1.9 GB measured dev tree. Build and measure one fresh
   artifact before adopting any baseline.
+
 - **Beta-6's "complete" certification is not trustworthy.** Its Phase 5 release gate never
   measured size or launch time, names no physical machine, and cites beta-5 artifacts while
   certifying beta-6. See `.planning/milestones/v0.9.0-beta.6/README.md`.
+
 - Physical clean-machine verification (CPU-only, NVIDIA, AMD/Intel) still outstanding from
   beta 6 and not claimed by this phase.
 
@@ -100,6 +106,6 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 
 ## Session Continuity
 
-Last session: 2026-07-30
-Stopped at: Phase 1 context gathered
-Resume file: `.planning/phases/01-clean-device-footprint-first-launch/01-CONTEXT.md`
+Last session: 2026-07-31T00:17:09.945Z
+Stopped at: Phase 1 UI-SPEC approved
+Resume file: .planning/phases/01-clean-device-footprint-first-launch/01-UI-SPEC.md
