@@ -347,7 +347,14 @@ Identical mechanism to `02-UI-SPEC.md` (non-dismissible modal, `topOverlay()`,
 
 ## UI Considerations
 
-Applicable state considerations resolved: 9 covered, 4 backstop, 2 unresolved.
+Applicable state considerations resolved: 15 covered, 4 backstop, 2 unresolved.
+
+> The rows marked *(probe, inherited)* were added by the `ui-consideration-probe` recall
+> pass run after checker approval. The probe classified both new surfaces as lists and
+> proposed the 8-category list set for each; `checklist` was already fully covered, but
+> `checking` was missing 6 categories. Each is resolved by direct inheritance from the
+> already-approved `checklist` equivalent or from a locked CONTEXT.md decision — no new
+> design decision is introduced by any of them.
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
@@ -360,6 +367,12 @@ Applicable state considerations resolved: 9 covered, 4 backstop, 2 unresolved.
 | overflow | narrow window (<820px) | ✅ covered | Identical existing 820px responsive rule (16px padding, full-width stacked actions, no horizontal dialog scroll) — no new breakpoint. |
 | populated | `checklist` all-Ready | ✅ covered | Calm heading, all-green badges, single Continue CTA — explicitly not styled as a warning screen (Ready-only vs. Mixed contract). |
 | loading | warm/light-path launch (no full validation) | ✅ covered | `checking` renders only when `_requires_full()` is true; the light path shows no overlay at all, preserving today's near-instant warm-launch experience. |
+| empty | `checking` before the first probe result arrives | ✅ covered *(probe, inherited)* | The overlay appears the moment the window shows (D-08), which is before any backend probe has returned. It must render all 5 component rows in the pending state immediately — never a blank or partially-built panel for a beat. Row identity comes from the fixed D-13 list, not from arriving data. |
+| populated | `checking` with all 5 rows resolved | ✅ covered *(probe, inherited)* | The terminal frame of `checking` is all-5-done; it is held only long enough to satisfy the per-row anti-flicker minimum, then hands off to `checklist` (first-ever healthy run) or the existing `gate` (not healthy). It is never a state the user is left sitting in. |
+| partial | `checking` mid-validation, some rows done | ✅ covered *(probe, inherited)* | This is `checking`'s normal state, not an exception: rows resolve independently and out of order as each backend probe returns. Done rows keep their resolved badge, pending rows stay pending, and no row is retroactively re-ordered — the list order is the fixed D-13 order throughout. |
+| zero-one-many | `checking` component rows | ✅ covered *(probe, inherited)* | Always exactly 5 rows per D-13 — same fixed cardinality as `checklist`, so no zero/one/many variance to design for and no plural-copy variance. |
+| long-text | `checking` row labels and the in-progress clause | ✅ covered *(probe, inherited)* | Reuses the same `renderComponents()` 2-line-clamp + `title`/`aria-label` truncation as `checklist` and the existing failure gate — no separate truncation behavior for this state. |
+| overflow | `checking` at narrow window (<820px) | ✅ covered *(probe, inherited)* | Identical existing 820px responsive rule as `checklist` (16px padding, no horizontal dialog scroll); the aggregate bar spans the available width and does not force a minimum. No new breakpoint. |
 | media | reduced-motion `checking`/`checklist` | 🧪 backstop | Visual/CDP test proves per-row color feedback resolves within `--motion-fast` (90ms, **not** instant) and the aggregate bar's `scaleX` width jumps immediately with no transition, per the deliberate override at `app.css:809-812` — no new un-audited animated property introduced. |
 | nav | focus/keyboard containment for the two new states | 🧪 backstop | Automated test proves Tab/Shift+Tab, Escape, and background pointer/scroll cannot reach the underlying app in `checking` or `checklist`, using the existing `topOverlay()`/`trapFocus()` mechanism. |
 | populated/long-text | checklist row rendering at real widths | 🧪 backstop | Packaged real-Qt-WebEngine screenshot proves the 5-row list, badges, and action row render without clipping/overflow at 1220px/820px/640px. |
