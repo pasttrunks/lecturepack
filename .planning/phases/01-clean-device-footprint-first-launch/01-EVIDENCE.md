@@ -143,13 +143,13 @@ checkout `C:\Users\marsh\Documents\LecturePack-beta6-plan`.
 | `Setup.exe` own byte size | 376,323,704 | 358.9 MiB | 376.3 MB |
 | `app/dist/LecturePack/` built-tree byte size | 1,081,124,808 | 1,031.0 MiB | 1,081.1 MB |
 | Portable ZIP byte size | 494,736,030 | 471.8 MiB | 494.7 MB |
-| Expanded tree byte size | NOT YET MEASURED | — | — |
+| Expanded tree byte size | 1,097,762,563 | 1,046.9 MiB | 1,097.8 MB |
 
-The expanded-tree figure requires a silent install/uninstall cycle of the post-cut
-`Setup.exe` (`measure_package_footprint.py --installer … --expand-to …`) and is left for
-Plan 01-08's physical session, alongside the launch-timing and icon evidence. Every other
-row above is machine-measured and recorded here rather than deferred, so the before/after
-comparison Success Criterion 1 requires is not held hostage to the human-verification gate.
+**Superseded 2026-07-31 by the BUG-27 correction.** The figures in the table above came from
+a build that pruned `Qt6Qml.dll`/`Qt6Quick.dll` and therefore **could not start at all** — the
+sizes were real but the artifact was unusable. The authoritative post-cut figures are in
+`## Size — after cuts (corrected, BUG-27)` below. The expanded-tree figure was measured from a
+real silent install/uninstall of the corrected `Setup.exe`.
 
 **Before → after:**
 
@@ -380,3 +380,110 @@ Per D-07, cold and warm launches take architecturally different paths
 
 - Exact pytest invocation: NOT YET MEASURED
 - Result: NOT YET MEASURED
+
+
+---
+
+## Size — after cuts (corrected, BUG-27)
+
+The build measured here is the authoritative post-cut artifact: built from a clean venv, from
+committed source at `73e93a9`, with `Qt6Qml.dll`/`Qt6Quick.dll` **restored** after physical
+verification proved the earlier build could not start (BUG-27). Verified to launch.
+
+| Figure | Bytes | MiB | MB (decimal) |
+|---|---|---|---|
+| `Setup.exe` own byte size | 379,849,962 | 362.3 | 379.8 |
+| Expanded tree byte size (real silent install) | 1,097,762,563 | 1,046.9 | 1,097.8 |
+| `app/dist/LecturePack/` built-tree byte size | 1,093,117,786 | 1,042.5 | 1,093.1 |
+| Portable ZIP byte size | 499,831,377 | 476.7 | 499.8 |
+
+Expanded minus built tree = 4,644,777 bytes (~4.4 MiB) — the uninstaller and install metadata.
+
+**Before → after (authoritative):**
+
+| Figure | Pre-cut | Post-cut | Δ |
+|---|---|---|---|
+| `Setup.exe` | 686,684,565 B (654.9 MiB) | 379,849,962 B (362.3 MiB) | **−306,834,603 B / −44.7%** |
+| Built tree | 1,919,524,745 B (1,830.6 MiB) | 1,093,117,786 B (1,042.5 MiB) | **−826,406,959 B / −43.1%** |
+| Portable ZIP | 884,697,661 B (843.7 MiB) | 499,831,377 B (476.7 MiB) | **−384,866,284 B / −43.5%** |
+
+Restoring the two load-bearing DLLs cost 11.4 MiB against ~826 MiB reclaimed — 1.4% of the win.
+
+**Pruned-tree audit — `--assert-pruned`, exit 0** (verified unmasked; a trailing pipe had
+previously hidden a non-zero exit):
+
+| Check | Expected | Observed |
+|---|---|---|
+| `translations`, `qml`, `Qt6Quick3DRuntimeRender.dll`, `Qt6Pdf.dll` | absent | all absent ✓ |
+| `Qt6Qml.dll`, `Qt6Quick.dll` | **present** (BUG-27) | both present ✓ |
+| `opengl32sw.dll` | present (D-02) | present ✓ |
+| `ggml-base.en.bin` count | exactly 1 (D-05) | 1 ✓ |
+
+---
+
+## Launch timing — measured 2026-07-31
+
+Three runs, all on the corrected build, all with a fresh `LECTUREPACK_DATA_DIR`. **The three
+numbers do not mean the same thing** and must not be averaged or quoted as one figure:
+
+| Run | Profile | Windows file cache | Time to window |
+|---|---|---|---|
+| first launch of a freshly built tree | fresh | **cold** | **9.43 s** |
+| later launch, fresh profile | fresh (full validation path) | warm | 2.58 s |
+| relaunch, same profile | acknowledged (light path) | warm | 2.38 s |
+| installed build, fresh profile | fresh | cold-ish | 10.87 s |
+
+**What this shows.** Cold-profile and warm-profile times are now nearly identical (2.58 vs
+2.38 s) — which is 01-06 working as designed. The window is shown *before* the validation
+work runs, so time-to-window no longer carries the validation cost, and D-07's sharp
+cold/warm split has moved out of the startup path and into the progress panel. The remaining
+spread between 9.43 s / 10.87 s and ~2.5 s is Windows' **file cache**, not validation: the
+first launch of a freshly written ~1 GB tree pages DLLs in from disk.
+
+**Still not measured — time to *ready*.** Every figure above is time-to-first-window
+(Success Criterion 3's "visible feedback"). Time-to-fully-validated is a different number and
+needs observing when the progress panel completes; it was not captured. Criterion 3's second
+half ("the remaining runtime validation reports honest itemized progress") is therefore
+recorded as observed-qualitatively, not timed.
+
+---
+
+## First-run behaviour — observed 2026-07-31 on the packaged build
+
+Verified by launching the corrected packaged build on a fresh profile:
+
+- **D-12** — the first-run checklist appeared automatically, titled "Runtime setup", heading
+  "You're ready to go", subtitle "LecturePack checked everything it needs on this device."
+- **D-13** — exactly five rows, no more: Windows version · Media tools (FFmpeg) · Speech
+  engine (Whisper) · Speech model · Storage folder. Each carried a **Ready** badge.
+- **D-14** — no download or install wording anywhere in the panel.
+- **D-17** — `Continue` and `Skip` offered; clicking `Continue` dismissed the checklist and
+  *then* revealed the guided-demo card ("Polar Bears 10s Demo.mp4 · 10 seconds · local only",
+  "Use demo video"). The demo was not offered before the checklist was cleared.
+- **D-16** — after `Continue`, `setup_acknowledged` was present in the profile's
+  `config.json`. The flag is in the data directory, not WebEngine `localStorage`.
+- **D-05** — the status bar read `whisper.cpp · CPU AVX2 · ggml-base.en.bin`, confirming the
+  single surviving model copy resolves in the real app.
+- Initial keyboard focus landed on `Continue` (`has_focused: 1` in the accessibility tree).
+
+Not verified: the four UI-SPEC backstop rows (reduced-motion timing, focus/keyboard
+containment under Tab cycling, real-width layout at other window sizes, whisper slow-notice
+text) — these need deliberate interaction beyond a single launch.
+
+---
+
+## Single instance — two-process proof
+
+NOT YET MEASURED — plan 01-05's single-instance guard is not yet implemented, so there is
+nothing to test. This is a genuine gap, not an oversight.
+
+---
+
+## D-20 taskbar icon diagnosis
+
+Complete — see `01-FINDINGS-icon.md`. Candidate (b) (`setWindowIcon` failing silently) is
+**ruled out** by Win32 icon-handle evidence on the installed build. Candidate (a) (missing
+`SetCurrentProcessExplicitAppUserModelID`, confirmed absent from source) is the only remaining
+explanation. **The blank-icon symptom did not reproduce** in either the direct or installed
+launch — both showed a correct icon in title bar and taskbar — so the fix is justified by
+mechanism, not by reproduction.
