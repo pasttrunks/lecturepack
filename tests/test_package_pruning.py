@@ -226,6 +226,52 @@ def test_pruned_components_are_not_imported_by_surviving_qt_dlls():
     )
 
 
+def test_audit_targets_match_build_prune_list():
+    """The measurement script's cut list must equal build.py's, exactly.
+
+    BUG-27's second half: the D-01 list existed in two places -- build.py's
+    PRUNABLE_QT_COMPONENTS and measure_package_footprint.py's PRUNABLE_QT_TARGETS.
+    Fixing only the first left a *correct* build failing its own --assert-pruned
+    audit, because the second still demanded Qt6Qml.dll/Qt6Quick.dll be absent.
+    Two sources of truth for one fact; this pins them together.
+    """
+    build_names = set(build.PRUNABLE_QT_COMPONENTS)
+    audit_names = {
+        name.rsplit("/", 1)[-1] for name in measure.PRUNABLE_QT_TARGETS
+    }
+    assert build_names == audit_names, (
+        "build.py and measure_package_footprint.py disagree on the D-01 cut list.\n"
+        f"  only in build.py: {sorted(build_names - audit_names)}\n"
+        f"  only in measure:  {sorted(audit_names - build_names)}"
+    )
+
+
+def test_audit_requires_webengine_deps_present():
+    """BUG-27: the audit must treat missing Qt6Qml/Qt6Quick as a violation."""
+    assert set(measure.REQUIRED_QT_WEBENGINE_DEPS) == {
+        "_internal/PySide6/Qt6Qml.dll",
+        "_internal/PySide6/Qt6Quick.dll",
+    }
+    # And they must never simultaneously appear as cut targets.
+    assert not (
+        set(measure.REQUIRED_QT_WEBENGINE_DEPS) & set(measure.PRUNABLE_QT_TARGETS)
+    )
+
+
+def test_assert_pruned_flags_missing_webengine_deps():
+    """A tree with the cuts done but Qt6Qml missing must FAIL the audit."""
+    audit = {
+        "cut_targets": {"_internal/PySide6/qml": False},
+        "cut_targets_present_count": 0,
+        "opengl32sw_present": True,
+        "ggml_base_en_bin_count": 1,
+        "required_webengine_deps": {"_internal/PySide6/Qt6Qml.dll": False},
+        "required_webengine_deps_missing": ["_internal/PySide6/Qt6Qml.dll"],
+    }
+    violations = measure._assert_pruned(audit)
+    assert any("MISSING REQUIRED" in v and "Qt6Qml.dll" in v for v in violations), violations
+
+
 def test_prune_target_names_disjoint_from_canonical_inventory():
     inventory = set(canonical_inventory(("ggml-cpu-haswell.dll",)))
     assert set(build.PRUNABLE_QT_COMPONENTS.keys()).isdisjoint(inventory)

@@ -36,17 +36,33 @@ from pathlib import Path
 # contributors (in addition to immediate subdirectory rollups).
 LARGE_FILE_THRESHOLD_BYTES = 1_000_000  # 1 MB
 
-# The six D-01 cut targets, relative to the measured tree root. Each is
-# looked up under `_internal/PySide6/` per CONTEXT.md's measured baseline.
+# The D-01 cut targets, relative to the measured tree root, each looked up under
+# `_internal/PySide6/`.
+#
+# BUG-27: this list previously also carried `Qt6Qml.dll` and `Qt6Quick.dll`, and it
+# was a *second* copy of the list in `app/packaging/build.py`. When those two were
+# removed from the build list (they are load-bearing for QtWebChannel and
+# QtWebEngineCore, so pruning them produced a build that could not start), this copy
+# still demanded their absence — so a correct build failed its own audit.
+#
+# `test_audit_targets_match_build_prune_list` in tests/test_package_pruning.py now
+# pins these two lists together, so they cannot drift again. If you change one,
+# change both; the test will tell you.
 PRUNABLE_QT_TARGETS = {
     "_internal/PySide6/translations": ("_internal", "PySide6", "translations"),
     "_internal/PySide6/qml": ("_internal", "PySide6", "qml"),
-    "_internal/PySide6/Qt6Qml.dll": ("_internal", "PySide6", "Qt6Qml.dll"),
-    "_internal/PySide6/Qt6Quick.dll": ("_internal", "PySide6", "Qt6Quick.dll"),
     "_internal/PySide6/Qt6Quick3DRuntimeRender.dll": (
         "_internal", "PySide6", "Qt6Quick3DRuntimeRender.dll",
     ),
     "_internal/PySide6/Qt6Pdf.dll": ("_internal", "PySide6", "Qt6Pdf.dll"),
+}
+
+# BUG-27: these must be PRESENT. Pruning them broke packaged startup outright —
+# Qt6WebChannel.dll imports Qt6Qml.dll, and Qt6WebEngineCore.dll imports both.
+# Audited explicitly so a regression is caught by measurement, not by a user.
+REQUIRED_QT_WEBENGINE_DEPS = {
+    "_internal/PySide6/Qt6Qml.dll": ("_internal", "PySide6", "Qt6Qml.dll"),
+    "_internal/PySide6/Qt6Quick.dll": ("_internal", "PySide6", "Qt6Quick.dll"),
 }
 
 # D-02: this one must stay. Present is correct, not a violation.
@@ -154,6 +170,15 @@ def audit_pruned_tree(dist_app) -> dict:
 
     opengl_present = root.joinpath(*OPENGL_SOFTWARE_FALLBACK).exists()
 
+    # BUG-27: absence here means the app cannot start at all.
+    webengine_deps_present = {
+        name: root.joinpath(*parts).exists()
+        for name, parts in REQUIRED_QT_WEBENGINE_DEPS.items()
+    }
+    webengine_deps_missing = sorted(
+        name for name, present in webengine_deps_present.items() if not present
+    )
+
     ggml_count = 0
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         for filename in filenames:
@@ -171,6 +196,9 @@ def audit_pruned_tree(dist_app) -> dict:
             else "absent"
         ),
         "ggml_base_en_bin_count": ggml_count,
+        # BUG-27: these must be present; missing means the packaged app cannot start.
+        "required_webengine_deps": webengine_deps_present,
+        "required_webengine_deps_missing": webengine_deps_missing,
     }
 
 
@@ -300,6 +328,13 @@ def _assert_pruned(audit: dict) -> list:
     if audit["ggml_base_en_bin_count"] != 1:
         violations.append(
             f"ggml-base.en.bin count is {audit['ggml_base_en_bin_count']}, expected exactly 1"
+        )
+    # BUG-27: the packaged app cannot start without these. Reported as a violation
+    # so a measurement run catches it, rather than a user discovering it on launch.
+    for name in audit.get("required_webengine_deps_missing", []):
+        violations.append(
+            f"MISSING REQUIRED {name} — QtWebChannel/QtWebEngineCore link against it; "
+            "the packaged app will fail to start (BUG-27)"
         )
     return violations
 
