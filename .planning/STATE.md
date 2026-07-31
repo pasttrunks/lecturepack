@@ -5,8 +5,8 @@ milestone_name: Clean-Device Footprint and First Launch
 current_phase: 01
 current_phase_name: Clean-Device Footprint & First Launch
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-07-31T03:20:28.453Z"
+stopped_at: Completed 01-01-PLAN.md Task 3 (amended)
+last_updated: "2026-07-31T04:45:27.283Z"
 last_activity: 2026-07-30
 last_activity_desc: Phase 01 execution started
 progress:
@@ -63,7 +63,7 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 - A second launch raises the existing window, and the guard runs before the slow
   validation path.
 
-- [Phase 01 Plan 01]: Task 3 (build fresh installer + record pre-cut baseline) deferred per orchestrator instruction to Plan 01-08's blocking human-verify checkpoint; 01-EVIDENCE.md baseline sections remain NOT YET MEASURED.
+- [Phase 01 Plan 01]: D-23 (ISCC MAX_PATH normalization) discovered and fixed (commit 1b6059d); Task 3 (build fresh installer + record pre-cut baseline) executed and the pre-cut baseline recorded in 01-EVIDENCE.md (commit b0a326d), closing an earlier deferral of that task. Installed-size reconciliation is partially explained (torch/transformers/duplicate-model removal accounts for ~40% of the owner-vs-measured gap) and the residual ~455 MB is recorded as an explicit open question, not resolved.
 
 ### Measured baseline (2026-07-30)
 
@@ -82,11 +82,18 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
   `Setup.exe` + `SHA256SUMS.txt`, neither of which CI now publishes. Pre-existing, not
   caused by beta 7, but it contradicts the "preserve updater behavior" constraint.
 
-- **Size figures not yet reconciled.** ISCC *is* installed (`%LOCALAPPDATA%\Programs\Inno
-  Setup 6\`) and `build.py` does produce `Setup.exe` locally — an earlier claim to the
-  contrary was based on a PATH-only check and was wrong. What remains unexplained is the
-  owner's ~900 MB extraction vs. the 1.9 GB measured dev tree. Build and measure one fresh
-  artifact before adopting any baseline.
+- **Size figures partially reconciled; a residual gap remains open.** ISCC *is* installed
+  (`%LOCALAPPDATA%\Programs\Inno Setup 6\`) and `build.py` does produce `Setup.exe` locally
+  (confirmed by a real build at commit `1b6059d`, after fixing D-23's MAX_PATH defect).
+  The pre-cut baseline is now measured and recorded in `01-EVIDENCE.md`: `Setup.exe`
+  686.7 MB, expanded install 1.93 GB, built tree 1.92 GB (exact match to the dev-tree figure
+  below, confirming it was not build residue), portable ZIP 884.7 MB. Neither the owner's
+  ~800 MB installer nor ~900 MB installed recollection closes under a MiB/MB
+  reinterpretation. Removing D-24's torch+transformers plus one duplicate model copy
+  explains ~40% of the installed-size gap (to ~1.36 GB) but leaves ~455 MB open — recorded
+  as an explicit open question (known / ruled-out / closing-evidence), not averaged or
+  asserted. The installer-size direction (owner recalled *more* than measured) has no
+  stated cause at all. See `01-EVIDENCE.md` `## Size — reconciliation` for full detail.
 
 - **Beta-6's "complete" certification is not trustworthy.** Its Phase 5 release gate never
   measured size or launch time, names no physical machine, and cites beta-5 artifacts while
@@ -95,7 +102,7 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 - Physical clean-machine verification (CPU-only, NVIDIA, AMD/Intel) still outstanding from
   beta 6 and not claimed by this phase.
 
-- 01-EVIDENCE.md pre-cut size baseline (installer bytes, expanded bytes, built-tree bytes, reconciliation) is still NOT YET MEASURED — Plan 01-01 Task 3 was deferred to Plan 01-08 per orchestrator instruction; must be gathered before Success Criterion 1 can be claimed, and before Plan 01-04 rebuilds app/dist/.
+- 01-EVIDENCE.md's pre-cut size baseline is now measured and recorded (Plan 01-01 Task 3, commit `b0a326d`), before Plan 01-04 rebuilds `app/dist/`. The residual ~455 MB installed-size gap and the unexplained installer-size direction remain open questions for Plan 01-08's reconciliation checkpoint or the owner directly — see `01-EVIDENCE.md` `## Size — reconciliation`.
 
 ## Deferred Items
 
@@ -110,12 +117,12 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 
 ## Session Continuity
 
-Last session: 2026-07-31T03:20:28.442Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-07-31T04:45:27.273Z
+Stopped at: Completed 01-01-PLAN.md Task 3 (amended)
 Resume file: None
 
 ## Performance Metrics
 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
-| Phase 01 P01 | 30min | 2 tasks | 3 files |
+| Phase 01 P01 | 30min + follow-up | 3 tasks | 3 new + 4 amended files |
