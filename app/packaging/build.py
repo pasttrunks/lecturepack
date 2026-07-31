@@ -33,6 +33,8 @@ if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
 from lecturepack.infrastructure.runtime_inventory import (
+    OPENGL_SOFTWARE_FALLBACK,
+    PRUNABLE_QT_COMPONENTS,
     RuntimeInventoryError,
     canonical_inventory,
     inventory_for_root,
@@ -469,14 +471,6 @@ def bundle_engine() -> None:
 # rejects widening this to an allowlist for this phase — do not add
 # Qt6Quick3D.dll, Qt63DCore.dll, Qt6Charts.dll, Qt6DataVisualization.dll, or
 # any other add-on DLL here.
-PRUNABLE_QT_COMPONENTS: dict[str, tuple[str, ...]] = {
-    "translations": ("translations",),
-    "qml": ("qml",),
-    "Qt6Quick3DRuntimeRender.dll": ("Qt6Quick3DRuntimeRender.dll",),
-    "Qt6Pdf.dll": ("Qt6Pdf.dll",),
-}
-
-
 def _path_size(path: Path) -> int:
     """Return the byte size of a file, or the summed size of a directory tree."""
     if path.is_file():
@@ -510,8 +504,8 @@ def prune_unused_qt_components(dist_app: Path) -> dict:
 
     removed: dict[str, int] = {}
     reclaimed_bytes = 0
-    for name, rel_parts in PRUNABLE_QT_COMPONENTS.items():
-        target = pyside6.joinpath(*rel_parts)
+    for name in PRUNABLE_QT_COMPONENTS:
+        target = pyside6 / name
         if not target.exists():
             continue
         size = _path_size(target)
@@ -522,7 +516,7 @@ def prune_unused_qt_components(dist_app: Path) -> dict:
         removed[name] = size
         reclaimed_bytes += size
 
-    opengl_fallback = pyside6 / "opengl32sw.dll"
+    opengl_fallback = pyside6 / OPENGL_SOFTWARE_FALLBACK
     if not opengl_fallback.exists():
         sys.exit(
             "QT PRUNE GATE FAILED — opengl32sw.dll is missing after pruning; "

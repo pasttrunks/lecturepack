@@ -39,7 +39,7 @@ from app.desktop import engine_adapter
 
 
 def _make_pruning_fixture(root: Path) -> Path:
-    """A synthetic onedir tree carrying all six D-01 targets plus survivors."""
+    """A synthetic onedir tree carrying the D-01 targets plus survivors."""
     app = root / "LecturePack"
     pyside6 = app / "_internal" / "PySide6"
     (pyside6 / "translations").mkdir(parents=True)
@@ -65,12 +65,6 @@ def _make_pruning_fixture(root: Path) -> Path:
     (app / "_internal" / "base_library.zip").write_bytes(b"x")
     return app
 
-
-def test_prunable_qt_components_has_exactly_four_targets():
-    """Four, not six: Qt6Qml.dll and Qt6Quick.dll were removed from the list on
-    2026-07-31 after a packaged build proved they are load-bearing. See
-    test_pruned_components_are_not_imported_by_surviving_qt_dlls below."""
-    assert len(build.PRUNABLE_QT_COMPONENTS) == 4
 
 
 def test_qml_and_quick_dlls_are_never_prunable():
@@ -226,36 +220,6 @@ def test_pruned_components_are_not_imported_by_surviving_qt_dlls():
     )
 
 
-def test_audit_targets_match_build_prune_list():
-    """The measurement script's cut list must equal build.py's, exactly.
-
-    BUG-27's second half: the D-01 list existed in two places -- build.py's
-    PRUNABLE_QT_COMPONENTS and measure_package_footprint.py's PRUNABLE_QT_TARGETS.
-    Fixing only the first left a *correct* build failing its own --assert-pruned
-    audit, because the second still demanded Qt6Qml.dll/Qt6Quick.dll be absent.
-    Two sources of truth for one fact; this pins them together.
-    """
-    build_names = set(build.PRUNABLE_QT_COMPONENTS)
-    audit_names = {
-        name.rsplit("/", 1)[-1] for name in measure.PRUNABLE_QT_TARGETS
-    }
-    assert build_names == audit_names, (
-        "build.py and measure_package_footprint.py disagree on the D-01 cut list.\n"
-        f"  only in build.py: {sorted(build_names - audit_names)}\n"
-        f"  only in measure:  {sorted(audit_names - build_names)}"
-    )
-
-
-def test_audit_requires_webengine_deps_present():
-    """BUG-27: the audit must treat missing Qt6Qml/Qt6Quick as a violation."""
-    assert set(measure.REQUIRED_QT_WEBENGINE_DEPS) == {
-        "_internal/PySide6/Qt6Qml.dll",
-        "_internal/PySide6/Qt6Quick.dll",
-    }
-    # And they must never simultaneously appear as cut targets.
-    assert not (
-        set(measure.REQUIRED_QT_WEBENGINE_DEPS) & set(measure.PRUNABLE_QT_TARGETS)
-    )
 
 
 def test_assert_pruned_flags_missing_webengine_deps():
@@ -274,7 +238,7 @@ def test_assert_pruned_flags_missing_webengine_deps():
 
 def test_prune_target_names_disjoint_from_canonical_inventory():
     inventory = set(canonical_inventory(("ggml-cpu-haswell.dll",)))
-    assert set(build.PRUNABLE_QT_COMPONENTS.keys()).isdisjoint(inventory)
+    assert set(build.PRUNABLE_QT_COMPONENTS).isdisjoint(inventory)
 
 
 def test_prune_returns_inspectable_record(tmp_path):
@@ -282,7 +246,7 @@ def test_prune_returns_inspectable_record(tmp_path):
     result = build.prune_unused_qt_components(app)
     assert isinstance(result, dict)
     assert "removed" in result and "reclaimed_bytes" in result
-    assert set(result["removed"].keys()) == set(build.PRUNABLE_QT_COMPONENTS.keys())
+    assert set(result["removed"].keys()) == set(build.PRUNABLE_QT_COMPONENTS)
 
 
 def test_main_calls_prune_between_bundle_engine_and_validate_clean_state():

@@ -7,6 +7,27 @@ from typing import Iterable
 class RuntimeInventoryError(ValueError):
     """Raised when a runtime payload entry is unsafe or unavailable."""
 
+
+# Names under `_internal/PySide6/` in a packaged onedir tree. Single source of truth
+# for both the pruner (app/packaging/build.py) and the auditor
+# (scripts/measure_package_footprint.py) -- these lists were duplicated in both and
+# drifted, so a correct build failed its own audit (BUG-27).
+
+#: D-01 components deleted post-build. Provably unreachable from the app's Qt imports.
+PRUNABLE_QT_COMPONENTS: tuple[str, ...] = (
+    "translations",
+    "qml",
+    "Qt6Quick3DRuntimeRender.dll",
+    "Qt6Pdf.dll",
+)
+
+#: Must be PRESENT. Qt6WebChannel.dll imports Qt6Qml.dll; Qt6WebEngineCore.dll imports
+#: both. Pruning them yielded a build that could not start at all (BUG-27).
+REQUIRED_QT_WEBENGINE_DEPS: tuple[str, ...] = ("Qt6Qml.dll", "Qt6Quick.dll")
+
+#: D-02: software GL fallback. Present is correct, never a violation.
+OPENGL_SOFTWARE_FALLBACK = "opengl32sw.dll"
+
 _STATIC_ENTRIES = ("bin/ffmpeg.exe", "bin/ffprobe.exe", "bin/ggml-base.dll", "bin/ggml.dll", "bin/whisper-cli.exe", "bin/whisper.dll", "models/ggml-base.en.bin", "smoke/runtime-smoke.wav")
 
 def _validate_entries(entries: Iterable[str]) -> tuple[str, ...]:

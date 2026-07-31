@@ -36,37 +36,25 @@ from pathlib import Path
 # contributors (in addition to immediate subdirectory rollups).
 LARGE_FILE_THRESHOLD_BYTES = 1_000_000  # 1 MB
 
-# The D-01 cut targets, relative to the measured tree root, each looked up under
-# `_internal/PySide6/`.
-#
-# BUG-27: this list previously also carried `Qt6Qml.dll` and `Qt6Quick.dll`, and it
-# was a *second* copy of the list in `app/packaging/build.py`. When those two were
-# removed from the build list (they are load-bearing for QtWebChannel and
-# QtWebEngineCore, so pruning them produced a build that could not start), this copy
-# still demanded their absence — so a correct build failed its own audit.
-#
-# `test_audit_targets_match_build_prune_list` in tests/test_package_pruning.py now
-# pins these two lists together, so they cannot drift again. If you change one,
-# change both; the test will tell you.
-PRUNABLE_QT_TARGETS = {
-    "_internal/PySide6/translations": ("_internal", "PySide6", "translations"),
-    "_internal/PySide6/qml": ("_internal", "PySide6", "qml"),
-    "_internal/PySide6/Qt6Quick3DRuntimeRender.dll": (
-        "_internal", "PySide6", "Qt6Quick3DRuntimeRender.dll",
-    ),
-    "_internal/PySide6/Qt6Pdf.dll": ("_internal", "PySide6", "Qt6Pdf.dll"),
-}
+REPO_DIR = Path(__file__).resolve().parents[1]
+if str(REPO_DIR) not in sys.path:
+    sys.path.insert(0, str(REPO_DIR))
 
-# BUG-27: these must be PRESENT. Pruning them broke packaged startup outright —
-# Qt6WebChannel.dll imports Qt6Qml.dll, and Qt6WebEngineCore.dll imports both.
-# Audited explicitly so a regression is caught by measurement, not by a user.
-REQUIRED_QT_WEBENGINE_DEPS = {
-    "_internal/PySide6/Qt6Qml.dll": ("_internal", "PySide6", "Qt6Qml.dll"),
-    "_internal/PySide6/Qt6Quick.dll": ("_internal", "PySide6", "Qt6Quick.dll"),
-}
+# Single source of truth, shared with app/packaging/build.py. These were duplicated
+# in both files and drifted, so a correct build failed its own audit (BUG-27).
+from lecturepack.infrastructure.runtime_inventory import (  # noqa: E402
+    OPENGL_SOFTWARE_FALLBACK,
+    PRUNABLE_QT_COMPONENTS,
+    REQUIRED_QT_WEBENGINE_DEPS,
+)
 
-# D-02: this one must stay. Present is correct, not a violation.
-OPENGL_SOFTWARE_FALLBACK = ("_internal", "PySide6", "opengl32sw.dll")
+PYSIDE6_DIR = ("_internal", "PySide6")
+
+
+def _pyside6_targets(names):
+    """Map bare PySide6 names to {tree-relative label: path parts}."""
+    return {"/".join(PYSIDE6_DIR + (n,)): PYSIDE6_DIR + (n,) for n in names}
+
 
 GGML_MODEL_FILENAME = "ggml-base.en.bin"
 
@@ -164,16 +152,16 @@ def audit_pruned_tree(dist_app) -> dict:
 
     cut_targets_present = {
         name: root.joinpath(*parts).exists()
-        for name, parts in PRUNABLE_QT_TARGETS.items()
+        for name, parts in _pyside6_targets(PRUNABLE_QT_COMPONENTS).items()
     }
     cut_targets_present_count = sum(1 for present in cut_targets_present.values() if present)
 
-    opengl_present = root.joinpath(*OPENGL_SOFTWARE_FALLBACK).exists()
+    opengl_present = root.joinpath(*PYSIDE6_DIR, OPENGL_SOFTWARE_FALLBACK).exists()
 
     # BUG-27: absence here means the app cannot start at all.
     webengine_deps_present = {
         name: root.joinpath(*parts).exists()
-        for name, parts in REQUIRED_QT_WEBENGINE_DEPS.items()
+        for name, parts in _pyside6_targets(REQUIRED_QT_WEBENGINE_DEPS).items()
     }
     webengine_deps_missing = sorted(
         name for name, present in webengine_deps_present.items() if not present
