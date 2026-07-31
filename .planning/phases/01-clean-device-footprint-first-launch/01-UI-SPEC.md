@@ -1,7 +1,8 @@
 ---
 phase: 01
 slug: clean-device-footprint-first-launch
-status: draft
+status: approved
+reviewed_at: 2026-07-30
 shadcn_initialized: false
 preset: none
 created: 2026-07-30
@@ -195,13 +196,13 @@ flashing an itemized checklist on every ordinary warm launch.
 | Current state | Visible content and permitted actions | Transition |
 |---|---|---|
 | `checking` (NEW) | 5 rows in canonical backend order, each pending/checking/done (not yet Ready/Needs Attention); one aggregate `.lp-fill` bar (`completed / 5`); one `aria-live="polite"` line naming the active check, e.g. "Checking Whisper runtime…"; **Exit** only | On first canonical bootstrap result for this launch: `runtime_health_state === 'SETUP_REQUIRED'` → `gate` (existing failure gate, entirely unchanged, per D-11). `runtime_health_state === 'HEALTHY'` AND `setup_acknowledged === false` → `checklist`. `runtime_health_state === 'HEALTHY'` AND `setup_acknowledged === true` → close (`setUnderlyingInert(false)`), proceed exactly as today's `admit()` healthy path. |
-| `checklist` (NEW) | 5 rows, each resolved Ready or Needs Attention (see Ready-only vs. Mixed below); **Continue** primary; **Skip** secondary; **Exit** removed from this state (see Open Question 1 below — this is the one place `Exit` may legitimately not be needed, since the runtime is already healthy and there is nothing to protect against) | **Continue** or **Skip** → bridge call persists `setup_acknowledged: true` in `config.json` alongside `runtime_health` (D-16) → close overlay (`setUnderlyingInert(false)`) → identical `syncDemoAdmission()` call already used by the existing healthy path, i.e. the guided-demo offer becomes reachable only now (D-17). |
+| `checklist` (NEW) | 5 rows, each resolved Ready or Needs Attention (see Ready-only vs. Mixed below); **Continue** primary; **Skip** secondary; **Exit** removed from this state (**owner-resolved 2026-07-30, Open Question 1** — this is the one place `Exit` is not needed, since the runtime is already healthy and Skip already serves as the low-commitment path) | **Continue** or **Skip** → bridge call persists `setup_acknowledged: true` in `config.json` alongside `runtime_health` (D-16) → close overlay (`setUnderlyingInert(false)`) → identical `syncDemoAdmission()` call already used by the existing healthy path, i.e. the guided-demo offer becomes reachable only now (D-17). |
 
 Existing states `gate`/`diagnostics`/`confirm`/`repairing`/`offline`/`failed`/`ready` and
 their transitions, focus targets, and copy are **unchanged** — see `02-UI-SPEC.md`.
 
-**Repair-then-first-healthy interaction (explicit design decision, not re-asked — see
-Open Question 2 for the one part of this that is genuinely unresolved):** the existing
+**Repair-then-first-healthy interaction (owner-resolved 2026-07-30, Open Question 2 —
+confirmed as written below):** the existing
 `ready` state (post-repair success, "You're ready") still renders and auto-closes exactly
 as today (800ms, or immediately under reduced motion). If `setup_acknowledged` is still
 `false` at that point (a first-ever launch that happened to need repair before reaching
@@ -347,7 +348,7 @@ Identical mechanism to `02-UI-SPEC.md` (non-dismissible modal, `topOverlay()`,
 
 ## UI Considerations
 
-Applicable state considerations resolved: 15 covered, 4 backstop, 2 unresolved.
+Applicable state considerations resolved: 18 covered, 4 backstop, 0 unresolved.
 
 > The rows marked *(probe, inherited)* were added by the `ui-consideration-probe` recall
 > pass run after checker approval. The probe classified both new surfaces as lists and
@@ -377,8 +378,9 @@ Applicable state considerations resolved: 15 covered, 4 backstop, 2 unresolved.
 | nav | focus/keyboard containment for the two new states | 🧪 backstop | Automated test proves Tab/Shift+Tab, Escape, and background pointer/scroll cannot reach the underlying app in `checking` or `checklist`, using the existing `topOverlay()`/`trapFocus()` mechanism. |
 | populated/long-text | checklist row rendering at real widths | 🧪 backstop | Packaged real-Qt-WebEngine screenshot proves the 5-row list, badges, and action row render without clipping/overflow at 1220px/820px/640px. |
 | loading | whisper-runtime check exceeding ~5s | 🧪 backstop | Packaged run with a deliberately slow smoke transcription proves the "this can take a few seconds" clause appears and the row does not look stuck/frozen. |
-| — | checklist `Exit` omission | ⚠ unresolved | See Open Question 1 — whether `checklist` needs an `Exit` affordance at all is not settled by CONTEXT.md; this document's working assumption (no Exit needed, since the runtime is already healthy) is recorded as an assumption, not a silent decision. |
-| — | repair-then-first-checklist ordering | ⚠ unresolved | See Open Question 2 — whether a repair-recovered first-ever-healthy admission must show the checklist immediately after `ready` closes (this document's assumption) or whether repair implicitly counts as "setup already handled" is not settled by CONTEXT.md. |
+| nav | checklist `Exit` omission | ✅ covered | **Owner-resolved 2026-07-30 (Open Question 1): no Exit.** `checklist` shows exactly two actions — Continue (primary) and Skip (secondary). Every other state in this overlay, including `checking`, keeps `Exit`. Rationale: at `checklist` the runtime is already `HEALTHY`, so there is nothing to exit *from*, and Skip already serves as the low-commitment path. |
+| nav | repair-then-first-checklist ordering | ✅ covered | **Owner-resolved 2026-07-30 (Open Question 2): show the checklist.** It is keyed purely to the persisted `setup_acknowledged` flag (D-16), never to which path reached `HEALTHY`, so a first-ever healthy admission shows the checklist exactly once whether it came from a clean pass or a successful signed repair. Decisive reason: the checklist is the gateway to the demo offer (D-17) — suppressing it post-repair would silently drop the demo offer for the users with the roughest install. |
+| nav | `Continue` vs. `Skip` effect | ✅ covered | **Owner-resolved 2026-07-30 (Open Question 3): byte-identical in effect, different label only.** Both persist `setup_acknowledged: true` and proceed to the same `syncDemoAdmission()` demo-offer sync. Neither suppresses the demo. This is the literal reading of D-17. |
 
 ---
 
@@ -430,7 +432,21 @@ real cold launch.
 
 ---
 
-## Open Questions (not silently resolved — surface to the owner)
+## Open Questions — RESOLVED BY OWNER 2026-07-30
+
+All three were put to the owner during `/gsd-ui-phase 1` and answered. **Each was confirmed
+in favour of this document's working assumption**, so no contract text below changes — the
+assumptions are now owner decisions and are binding on the planner, not open items.
+
+| # | Question | Owner decision |
+|---|----------|----------------|
+| 1 | `Exit` affordance on `checklist`? | **No Exit.** Omit from `checklist` only; keep it everywhere else including `checking`. |
+| 2 | Show the checklist after a repair-recovered first-ever-healthy admission? | **Yes, show it.** Flag-keyed design as written stands: the checklist is keyed to `setup_acknowledged` (D-16), not to which path reached `HEALTHY`. Decisive reason: the checklist is the gateway to the demo offer (D-17), so skipping it post-repair would silently drop the demo offer for exactly the users who had the roughest install. |
+| 3 | Is `Continue` vs. `Skip` a real behavioral distinction? | **Identical in effect, different label.** Both persist `setup_acknowledged: true` and proceed to demo-offer sync. This is the literal reading of D-17. |
+
+The original question text is retained below for the reasoning behind each recommendation.
+
+---
 
 1. **Does the `checklist` state need its own `Exit` affordance?** Every other reducer
    state in this overlay (including the newly added `checking`) always shows `Exit`. This
