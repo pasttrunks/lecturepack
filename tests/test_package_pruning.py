@@ -8,6 +8,7 @@ launches a real build.
 
 import importlib.util
 import os
+import re
 import runpy
 import sys
 from pathlib import Path
@@ -65,20 +66,39 @@ def _make_pruning_fixture(root: Path) -> Path:
     return app
 
 
-def test_prunable_qt_components_has_exactly_six_targets():
-    assert len(build.PRUNABLE_QT_COMPONENTS) == 6
+def test_prunable_qt_components_has_exactly_four_targets():
+    """Four, not six: Qt6Qml.dll and Qt6Quick.dll were removed from the list on
+    2026-07-31 after a packaged build proved they are load-bearing. See
+    test_pruned_components_are_not_imported_by_surviving_qt_dlls below."""
+    assert len(build.PRUNABLE_QT_COMPONENTS) == 4
 
 
-def test_prune_removes_all_six_targets(tmp_path):
+def test_qml_and_quick_dlls_are_never_prunable():
+    """Regression guard for the 2026-07-31 startup break.
+
+    Pruning these two produced a build that died before showing a window:
+    `DLL load failed while importing QtWebChannel` then `... QtWebEngineCore`.
+    Their absence is invisible to every unit test and to the packaged runtime
+    smoke (which exercises ffmpeg/ffprobe/whisper-cli, not the Qt import chain),
+    so it is pinned by name here as well as structurally below.
+    """
+    assert "Qt6Qml.dll" not in build.PRUNABLE_QT_COMPONENTS
+    assert "Qt6Quick.dll" not in build.PRUNABLE_QT_COMPONENTS
+
+
+def test_prune_removes_all_four_targets(tmp_path):
     app = _make_pruning_fixture(tmp_path)
     pyside6 = app / "_internal" / "PySide6"
     result = build.prune_unused_qt_components(app)
 
     assert not (pyside6 / "translations").exists()
     assert not (pyside6 / "qml").exists()
-    for dll in ("Qt6Qml.dll", "Qt6Quick.dll", "Qt6Quick3DRuntimeRender.dll", "Qt6Pdf.dll"):
+    for dll in ("Qt6Quick3DRuntimeRender.dll", "Qt6Pdf.dll"):
         assert not (pyside6 / dll).exists()
-    assert len(result["removed"]) == 6
+    # Load-bearing: must survive pruning.
+    for dll in ("Qt6Qml.dll", "Qt6Quick.dll"):
+        assert (pyside6 / dll).exists()
+    assert len(result["removed"]) == 4
     assert result["reclaimed_bytes"] > 0
 
 
@@ -102,7 +122,7 @@ def test_prune_is_idempotent_when_targets_already_absent(tmp_path):
 def test_prune_second_run_reports_zero_removals(tmp_path):
     app = _make_pruning_fixture(tmp_path)
     first = build.prune_unused_qt_components(app)
-    assert len(first["removed"]) == 6
+    assert len(first["removed"]) == 4
     second = build.prune_unused_qt_components(app)
     assert second["removed"] == {}
     assert second["reclaimed_bytes"] == 0
@@ -125,6 +145,85 @@ def test_prune_does_not_remove_required_qt_components(tmp_path):
     for dll in ("Qt6WebEngineCore.dll", "Qt6WebEngineWidgets.dll", "Qt6Core.dll",
                 "Qt6Gui.dll", "Qt6Widgets.dll"):
         assert (pyside6 / dll).exists()
+
+
+def _qt_dll_dependency_names(dll_path: Path) -> set[str]:
+    """Return the Qt6*.dll names referenced inside a PE binary.
+
+    Scans the raw bytes for `Qt6<Name>.dll` rather than parsing the PE import
+    directory. That over-approximates (a name in any string table counts), which
+    is the safe direction for this guard: it can only ever be too cautious about
+    deleting something, never too permissive.
+    """
+    raw = dll_path.read_bytes()
+    text = raw.decode("ascii", errors="ignore")
+    return set(re.findall(r"Qt6[A-Za-z0-9]+\.dll", text))
+
+
+@pytest.mark.skipif(
+    not (Path(os.environ.get("LECTUREPACK_ONEDIR_FIXTURE", "")) / "_internal" / "PySide6").is_dir(),
+    reason="needs a real packaged tree: set LECTUREPACK_ONEDIR_FIXTURE",
+)
+def test_pruned_components_are_not_imported_by_surviving_qt_dlls():
+    """No pruned DLL may appear in a surviving Qt DLL's dependency list.
+
+    This is the structural lesson of the 2026-07-31 startup break. The pre-existing
+    `test_prune_does_not_remove_required_qt_components` passed throughout, because it
+    compared against a hand-written idea of which DLLs are "required" — and that list
+    did not mention Qt6Qml.dll or Qt6Quick.dll. Meanwhile the binaries themselves said
+    plainly that Qt6WebChannel.dll imports Qt6Qml.dll and Qt6WebEngineCore.dll imports
+    both Qt6Qml.dll and Qt6Quick.dll.
+
+    So this test asks the binaries instead of asking a human's list. Any future entry
+    added to PRUNABLE_QT_COMPONENTS that something still links against fails here.
+
+    The check is a transitive closure from what `app/desktop/main.py` actually imports,
+    not a flat scan of every DLL present. A flat scan is wrong in a way worth recording:
+    `Qt6PdfQuick.dll` references `Qt6Pdf.dll`, and five `Qt6Quick3D*.dll` reference
+    `Qt6Quick3DRuntimeRender.dll` -- yet pruning both those targets is fine, because
+    nothing the app loads ever reaches those referencing DLLs. Only reachability from
+    the real entry points distinguishes "genuinely unused" from "load-bearing".
+    """
+    pyside6 = Path(os.environ["LECTUREPACK_ONEDIR_FIXTURE"]) / "_internal" / "PySide6"
+    prunable_dlls = {
+        name for name in build.PRUNABLE_QT_COMPONENTS if name.lower().endswith(".dll")
+    }
+
+    # The Qt modules app/desktop/main.py imports (QtCore, QtGui, QtWidgets,
+    # QtWebEngineCore, QtWebEngineWidgets, QtWebChannel), as DLL names.
+    entry_points = [
+        "Qt6Core.dll",
+        "Qt6Gui.dll",
+        "Qt6Widgets.dll",
+        "Qt6Network.dll",
+        "Qt6WebChannel.dll",
+        "Qt6WebEngineCore.dll",
+        "Qt6WebEngineWidgets.dll",
+    ]
+
+    reachable: set[str] = set()
+    frontier = [n for n in entry_points if (pyside6 / n).is_file()]
+    assert frontier, f"no Qt entry-point DLLs found in {pyside6} — wrong fixture?"
+    while frontier:
+        current = frontier.pop()
+        if current in reachable:
+            continue
+        reachable.add(current)
+        path = pyside6 / current
+        if not path.is_file():
+            continue
+        for dep in _qt_dll_dependency_names(path):
+            if dep not in reachable:
+                frontier.append(dep)
+
+    violations = sorted(reachable & prunable_dlls)
+    assert not violations, (
+        "PRUNABLE_QT_COMPONENTS lists DLLs reachable from the app's own Qt imports. "
+        "Pruning these yields a build that cannot start:\n  "
+        + "\n  ".join(violations)
+        + f"\n\nReachable closure was {len(reachable)} DLLs from entry points "
+        + ", ".join(entry_points)
+    )
 
 
 def test_prune_target_names_disjoint_from_canonical_inventory():

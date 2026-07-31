@@ -438,12 +438,33 @@ def bundle_engine() -> None:
     print(f"Bundled canonical CPU runtime: {len(source_payload)} payload files")
 
 
-# D-01: these six, and only these six, are removed by post-build pruning.
-# PyInstaller's `Analysis.excludes` cannot remove them (01-RESEARCH.md "Pattern
-# 1" — this repo's `lecturepack.spec` has carried an `excludes` list since its
-# first commit and it has never removed any of these): the two directories and
-# `Qt6Qml.dll`/`Qt6Quick.dll` are native link-time dependencies of
-# Qt6WebEngineCore, and `Qt6Quick3DRuntimeRender.dll`/`Qt6Pdf.dll` have no
+# D-01, as corrected by physical verification on 2026-07-31: these four, and
+# only these four, are removed by post-build pruning.
+#
+# `Qt6Qml.dll` and `Qt6Quick.dll` were originally on this list and MUST NOT be.
+# Removing them produced a packaged build that could not start at all:
+#
+#     ImportError: DLL load failed while importing QtWebChannel:
+#     The specified module could not be found.        (desktop/main.py:43)
+#     ImportError: DLL load failed while importing QtWebEngineCore:
+#     The specified module could not be found.        (desktop/main.py:44)
+#
+# Their PE import tables are unambiguous: `Qt6WebChannel.dll` imports
+# `Qt6Qml.dll`, and `Qt6WebEngineCore.dll` imports both `Qt6Qml.dll` and
+# `Qt6Quick.dll`. Being a *native link-time dependency of Qt6WebEngineCore* is
+# precisely the reason they must stay — the earlier version of this comment
+# named that fact and then pruned them anyway. Restoring both costs 11.4 MiB
+# against ~800 MiB reclaimed, so correctness here is nearly free.
+#
+# `test_pruned_components_are_not_imported_by_surviving_qt_dlls` in
+# tests/test_package_pruning.py now enforces this structurally by reading the
+# import tables, so a future addition to this dict cannot reintroduce the class
+# of bug regardless of what a comment claims.
+#
+# PyInstaller's `Analysis.excludes` cannot remove the survivors (01-RESEARCH.md
+# "Pattern 1" — this repo's `lecturepack.spec` has carried an `excludes` list
+# since its first commit and it has never removed any of these): the two
+# directories are data, and `Qt6Quick3DRuntimeRender.dll`/`Qt6Pdf.dll` have no
 # Python-importable module for `excludes` to name at all. D-03 explicitly
 # rejects widening this to an allowlist for this phase — do not add
 # Qt6Quick3D.dll, Qt63DCore.dll, Qt6Charts.dll, Qt6DataVisualization.dll, or
@@ -451,8 +472,6 @@ def bundle_engine() -> None:
 PRUNABLE_QT_COMPONENTS: dict[str, tuple[str, ...]] = {
     "translations": ("translations",),
     "qml": ("qml",),
-    "Qt6Qml.dll": ("Qt6Qml.dll",),
-    "Qt6Quick.dll": ("Qt6Quick.dll",),
     "Qt6Quick3DRuntimeRender.dll": ("Qt6Quick3DRuntimeRender.dll",),
     "Qt6Pdf.dll": ("Qt6Pdf.dll",),
 }

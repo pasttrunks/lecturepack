@@ -77,6 +77,67 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### BUG-27 - Size cuts produced a packaged build that could not start at all   FIXED (verified)
+
+**Symptom.** The beta-7 Phase 1 post-cut packaged build died before showing a window. PyInstaller's
+"Unhandled exception in script" dialog, twice in sequence as each blocker was cleared:
+
+```
+ImportError: DLL load failed while importing QtWebChannel: The specified module
+             could not be found.                       (app/desktop/main.py:43)
+ImportError: DLL load failed while importing QtWebEngineCore: The specified module
+             could not be found.                       (app/desktop/main.py:44)
+```
+
+**Root cause.** `PRUNABLE_QT_COMPONENTS` in `app/packaging/build.py` listed `Qt6Qml.dll` and
+`Qt6Quick.dll` as D-01 "provably unused" cut targets. They are not unused. Their PE import
+tables say so plainly: `Qt6WebChannel.dll` imports `Qt6Qml.dll`, and `Qt6WebEngineCore.dll`
+imports both `Qt6Qml.dll` and `Qt6Quick.dll`. The whole UI is WebEngine, so removing them
+removes the app.
+
+The reasoning error is worth preserving. The code comment above the list *already stated* that
+these two "are native link-time dependencies of Qt6WebEngineCore" - it used that fact to explain
+why PyInstaller's `Analysis.excludes` could not remove them, and then pruned them post-build
+anyway. Being a link-time dependency is precisely the reason a file must stay.
+
+**Why every gate missed it.**
+- Unit tests passed: `test_prune_does_not_remove_required_qt_components` compared against a
+  hand-written list of "required" DLLs that never mentioned Qt6Qml/Qt6Quick.
+- The packaged runtime smoke passed: it exercises ffmpeg, ffprobe, and whisper-cli, not the Qt
+  import chain. A packaged app can pass its runtime smoke and still be unable to start.
+- `--assert-pruned` passed: it asserts the cut targets are *absent*, which they were. That is
+  the goal, not the safety property.
+- CONTEXT.md D-03 predicted exactly this shape: "a missing module surfaces only in the packaged
+  build on a clean machine, which is the slowest environment available to iterate in." D-03
+  rejected an aggressive Qt allowlist for that reason; the six-item list inherited the same risk
+  and nobody re-applied the reasoning to it.
+
+**Fix.** Both DLLs removed from `PRUNABLE_QT_COMPONENTS` (now four targets: `translations`, `qml`,
+`Qt6Quick3DRuntimeRender.dll`, `Qt6Pdf.dll`). Cost of correctness: 11.4 MiB against ~800 MiB
+reclaimed - 1.4% of the win.
+
+**Structural guard (the part that matters).**
+`test_pruned_components_are_not_imported_by_surviving_qt_dlls` in `tests/test_package_pruning.py`
+computes the **transitive closure** of Qt DLLs reachable from what `app/desktop/main.py` actually
+imports, and fails if any pruned target lands inside it. It asks the binaries instead of asking a
+human's list, so a future addition to the prune list cannot reintroduce this class of bug.
+
+A flat "is it referenced anywhere" scan was tried first and was wrong: `Qt6PdfQuick.dll`
+references `Qt6Pdf.dll` and five `Qt6Quick3D*.dll` reference `Qt6Quick3DRuntimeRender.dll`, yet
+pruning both those targets is fine because nothing the app loads reaches the referencing DLLs.
+Only reachability from the real entry points separates "genuinely unused" from "load-bearing".
+Requires `LECTUREPACK_ONEDIR_FIXTURE`; skips cleanly without a real packaged tree.
+
+**Verified.** With both DLLs restored the packaged app launches: window titled "LecturePack" at
+9.43 s on a cold fresh profile, status bar reporting `whisper.cpp - CPU AVX2 - ggml-base.en.bin`
+(which also confirms D-05's deduplicated single model copy resolves in the real app). 22/22
+`test_package_pruning.py` pass with the closure guard active against the real tree.
+
+**Lesson.** A size cut is not verified by proving bytes are gone. It is verified by starting the
+program. Add "launch the packaged build" to any packaging change, and never accept a component
+inventory that was authored rather than derived from the binaries.
+
+
 ### BUG-25 — two `AssetResolver` instances could tear the same poster file   ✅ FIXED (unit-verified)
 - **Area:** `app/desktop/assets.py`, `app/desktop/engine_adapter.py::_kick_poster`.
 - **Found:** second independent pre-release review, 2026-07-27, on the same-session change
