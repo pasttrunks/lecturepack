@@ -270,3 +270,181 @@ def test_no_pending_no_path_no_acknowledged_no_checklist_key_defaults_safely() -
         '''
     )
     assert result.returncode == 0, result.stderr
+
+
+# ------------------------------------------------------------------ Task 2 --
+
+
+def overlay_block() -> str:
+    return read_ui("index.html").split('id="runtime-setup-overlay"', 1)[1]
+
+
+def gate_controller_source() -> str:
+    app = read_ui("app.js")
+    return app.split("var RuntimeSetupGate =", 1)[1].split("/* Clears", 1)[0]
+
+
+def test_markup_has_exactly_one_checking_and_one_checklist_section() -> None:
+    block = overlay_block()
+    assert block.count('data-runtime-state="checking"') == 1
+    assert block.count('data-runtime-state="checklist"') == 1
+
+
+def test_markup_contains_every_new_element_id_exactly_once() -> None:
+    block = overlay_block()
+    for element_id in (
+        "runtime-checking-heading", "runtime-checking-rows", "runtime-checking-progress",
+        "runtime-checking-counter", "runtime-checklist-heading", "runtime-checklist-body",
+        "runtime-checklist-rows", "runtime-checklist-empty", "btn-runtime-continue", "btn-runtime-skip",
+    ):
+        assert block.count(f'id="{element_id}"') == 1, element_id
+
+
+def test_every_overlay_id_has_a_writer_in_app_js_except_the_static_label() -> None:
+    """The BUG-04 lesson, enforced as an automated test: an id shipped with no
+    writer anywhere in app.js is a permanent hardcoded value. Exactly one
+    allowlisted id exists -- the overlay's static aria-labelledby target,
+    which has no dynamic value -- and the allowlist itself is asserted to
+    have exactly one member so it cannot quietly grow."""
+    allow = {"runtime-setup-title"}
+    assert len(allow) == 1
+    block = overlay_block()
+    app = read_ui("app.js")
+    ids = set(re.findall(r'id="([a-z0-9-]+)"', block)) - allow
+    missing = sorted(i for i in ids if i not in app)
+    assert not missing, f"overlay ids with no writer in app.js: {missing}"
+
+
+def test_checking_section_has_exactly_one_progressbar_and_one_fill() -> None:
+    block = overlay_block()
+    checking_section = block.split('data-runtime-state="checking"', 1)[1].split("</section>", 1)[0]
+    assert checking_section.count('role="progressbar"') == 1
+    assert checking_section.count("lp-fill") == 1
+
+
+def test_app_js_defines_the_three_new_renderer_functions_and_render_calls_them() -> None:
+    app = read_ui("app.js")
+    assert "function firstRunRow(" in app
+    assert "function renderChecking(" in app
+    assert "function renderChecklist(" in app
+    controller = gate_controller_source()
+    assert "renderChecking();" in controller
+    assert "renderChecklist();" in controller
+
+
+def test_first_run_row_badge_declares_only_the_allowed_inline_properties() -> None:
+    app = read_ui("app.js")
+    body = app.split("function firstRunRow(", 1)[1].split("\n    }", 1)[0]
+    badge_style = body.split("badge.style.cssText = ", 1)[1].split(";\n", 1)[0]
+    declared = set(re.findall(r"([a-zA-Z-]+)\s*:", badge_style))
+    allowed = {"border-width", "border-style", "border-radius", "padding", "font", "white-space", "flex"}
+    assert declared == allowed, declared
+
+
+def test_reduced_motion_block_still_clamps_lp_state_stage_fill_to_fast_token() -> None:
+    css = (UI / "app.css").read_text(encoding="utf-8")
+    assert re.search(
+        r"\.lp-state,\.lp-stage,\.lp-fill\{\s*transition-duration:var\(--motion-fast\)\s*!important;",
+        css,
+    )
+
+
+def test_app_css_has_a_net_change_of_zero_lines() -> None:
+    result = subprocess.run(
+        ["git", "diff", "--numstat", "--", "app/ui/app.css"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+
+
+def test_targets_focus_map_routes_checking_to_exit_and_checklist_to_continue() -> None:
+    controller = gate_controller_source()
+    targets_block = controller.split("var targets = {", 1)[1].split("};", 1)[0]
+    assert "checking: 'btn-runtime-exit'" in targets_block
+    assert "checklist: 'btn-runtime-continue'" in targets_block
+
+
+def test_render_hides_exit_control_only_for_checklist_state() -> None:
+    controller = gate_controller_source()
+    render_body = controller.split("function render() {", 1)[1].split("\n    }", 1)[0]
+    assert "exitButton.hidden = next === 'checklist'" in render_body
+
+
+def test_anti_flicker_constant_reads_motion_normal_token_with_documented_fallback() -> None:
+    app = read_ui("app.js")
+    assert "getPropertyValue('--motion-normal')" in app
+    assert "Number.isFinite(parsed) ? parsed : 160" in app
+    assert "WHISPER_SLOW_NOTICE_MS = 5000" in app
+    # No other new millisecond literal is introduced into the gate section by
+    # this plan -- 160 (the documented anti-flicker fallback) and 5000 (the
+    # whisper slow-notice threshold) are the only two.
+    gate = read_ui("app.js").split("/* ================= runtime setup gate", 1)[1]
+    gate = gate.split("/* Clears the design-time placeholder", 1)[0]
+    ms_literals = set(re.findall(r"\b(\d{2,5})\b", gate))
+    # 800 (ready()'s pre-existing auto-close delay), 100/0/2 (percentages,
+    # clamp/line-clamp counts) and similar are pre-existing; only assert the
+    # two new pacing literals are present -- this is a presence check, not an
+    # exhaustive diff against pre-plan history.
+    assert "160" in ms_literals
+    assert "5000" in ms_literals
+
+
+def test_resolving_fourth_id_before_second_leaves_canonical_order_and_marks_correct() -> None:
+    items = json.dumps(list(FIRST_RUN_CHECKLIST_ITEMS))
+    result = run_node(
+        r'''
+        const ids = ''' + items + r''';
+        const gate = RuntimeSetupGateModel();
+        gate.bootstrap({bootstrap_pending: true, validation_path: 'full'});
+        // Resolve the fourth canonical id before the second.
+        let view = gate.progress({id: ids[3], state: 'resolved'});
+        view = gate.progress({id: ids[1], state: 'resolved'});
+        // FIRST_RUN_ROWS (fixed, canonical order) is what a renderer must
+        // iterate over -- prove the marks are addressable by that same fixed
+        // order regardless of arrival sequence, and that the untouched ids
+        // are unaffected.
+        if (view.checkProgress[ids[3]] !== 'resolved') process.exit(1);
+        if (view.checkProgress[ids[1]] !== 'resolved') process.exit(2);
+        if (view.checkProgress[ids[0]] !== 'pending') process.exit(3);
+        if (view.checkProgress[ids[2]] !== 'pending') process.exit(4);
+        if (view.checkProgress[ids[4]] !== 'pending') process.exit(5);
+        if (JSON.stringify(Object.keys(FIRST_RUN_ROWS.reduce((acc, r) => { acc[r.id] = 1; return acc; }, {}))) !== JSON.stringify(ids)) process.exit(6);
+        '''
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_render_checking_iterates_the_fixed_canonical_array_not_progress_keys() -> None:
+    """Structural guarantee that DOM row order can never depend on arrival
+    order: renderChecking() must iterate FIRST_RUN_ROWS (fixed), never
+    Object.keys/values of the progress map."""
+    app = read_ui("app.js")
+    body = app.split("function renderChecking() {", 1)[1].split("\n    }", 1)[0]
+    assert "FIRST_RUN_ROWS.forEach(" in body
+    assert "progress).forEach(" not in body
+    assert "Object.keys(progress)" not in body
+
+
+def test_checklist_heading_and_body_are_never_rewritten_by_js() -> None:
+    """The Ready-only and Mixed fixtures must render byte-identical
+    heading/body/Continue copy -- proven structurally by showing renderChecklist()
+    never targets those static ids, so their only source is the markup's own
+    (identical, unconditional) production text."""
+    app = read_ui("app.js")
+    body = app.split("function renderChecklist() {", 1)[1].split("\n    }", 1)[0]
+    assert "runtime-checklist-heading" not in body
+    assert "runtime-checklist-body" not in body
+    assert "btn-runtime-continue" not in body
+
+
+def test_no_regression_in_adjacent_webview_and_content_suites() -> None:
+    result = subprocess.run(
+        [
+            "python", "-m", "pytest",
+            "tests/test_webview_beta3.py", "tests/test_webview_ui_fixes.py", "tests/test_content_hygiene.py",
+            "-q",
+        ],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

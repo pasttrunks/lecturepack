@@ -2013,6 +2013,25 @@
      UI renders: an unrecognised verdict maps to no data-state at all, which
      renders as a neutral badge rather than inventing a third colour. */
   var FIRST_RUN_VERDICT_STATES = { ready: 'success', needs_attention: 'paused' };
+  /* Anti-flicker pacing (UI-SPEC "Startup Progress Semantics"): resolved
+     once, lazily, from the real --motion-normal token rather than a new
+     one-off duration. Applied in both normal and reduced-motion mode -- the
+     hold exists to prevent a visible flash, which is a STRONGER requirement
+     for a reduced-motion user, not a weaker one, so it is never skipped
+     under prefers-reduced-motion. */
+  var ANTI_FLICKER_HOLD_MS = null;
+  function antiFlickerHoldMs() {
+    if (ANTI_FLICKER_HOLD_MS !== null) return ANTI_FLICKER_HOLD_MS;
+    var raw = (typeof window !== 'undefined' && window.getComputedStyle)
+      ? window.getComputedStyle(document.documentElement).getPropertyValue('--motion-normal') : '';
+    var parsed = parseFloat(raw);
+    ANTI_FLICKER_HOLD_MS = Number.isFinite(parsed) ? parsed : 160;
+    return ANTI_FLICKER_HOLD_MS;
+  }
+  /* UI-SPEC "Startup Progress Semantics": the whisper-runtime check can
+     legitimately run for several real seconds; past this threshold its
+     live-region text gains a bounded reassurance clause. */
+  var WHISPER_SLOW_NOTICE_MS = 5000;
   /* The one mutable lifecycle reducer used by the DOM controller and Node tests. */
   function RuntimeSetupGateModel() {
     var state = 'gate', returnState = 'gate', retryPending = false, cancelPending = false;
@@ -2205,6 +2224,84 @@
         line.textContent = label; line.title = label; line.setAttribute('aria-label', label); host.appendChild(line);
       });
     }
+    /* Builds one first-run row (checking or checklist). The badge's inline
+       style is deliberately restricted to layout-only longhands -- no border
+       shorthand, no colour -- so the `.lp-state[data-state]` class rule
+       (app.css:625-632) supplies the Ready/Needs-Attention/neutral colour.
+       An inline colour declaration would beat that class rule regardless of
+       specificity and silently erase it (the first Known Trap). */
+    function firstRunRow(label, badgeText, dataState) {
+      var row = document.createElement('div');
+      // flex-wrap is required so a checklist advisory sentence (a third,
+      // full-width child appended only for a needs-attention row) wraps
+      // below the label/badge pair instead of squeezing into one line.
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:8px 10px;border-radius:9px;min-width:0';
+      var labelEl = document.createElement('div');
+      // flex:1;min-width:0 make the two-line clamp actually take effect
+      // inside this flex row instead of overflowing the badge (the row
+      // container's own min-width:0 alone is not sufficient for a flex
+      // child); the clamp declarations themselves are renderComponents()'s
+      // exact truncation pattern, reused verbatim per the UI-SPEC.
+      labelEl.style.cssText = 'flex:1;min-width:0;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden';
+      labelEl.textContent = label; labelEl.title = label; labelEl.setAttribute('aria-label', label);
+      var badge = document.createElement('span');
+      badge.className = 'lp-state';
+      if (dataState) badge.setAttribute('data-state', dataState);
+      badge.style.cssText = "border-width:2px;border-style:solid;border-radius:9px;padding:4px 10px;font:700 14px 'Space Grotesk';white-space:nowrap;flex:0 0 auto";
+      badge.textContent = badgeText;
+      row.appendChild(labelEl); row.appendChild(badge);
+      return row;
+    }
+    var FIRST_RUN_CHECKING_BADGE_TEXT = { pending: 'Pending', checking: 'Checking…', resolved: 'Done' };
+    function renderChecking() {
+      var host = $('runtime-checking-rows'); if (!host) return;
+      host.textContent = '';
+      var progress = eventModel.snapshot().checkProgress || {};
+      var resolvedCount = 0;
+      // Row identity comes from the fixed FIRST_RUN_ROWS array, never from
+      // progress's own keys, so all five rows exist on the first frame and
+      // never change position regardless of resolution order (D-08).
+      FIRST_RUN_ROWS.forEach(function (row) {
+        var mark = progress[row.id] || 'pending';
+        if (mark === 'resolved') resolvedCount++;
+        host.appendChild(firstRunRow(row.label, FIRST_RUN_CHECKING_BADGE_TEXT[mark] || 'Pending', null));
+      });
+      var total = FIRST_RUN_ROWS.length, fraction = resolvedCount / total;
+      var bar = $('runtime-checking-progress'), fill = bar && bar.querySelector('.lp-fill');
+      if (fill) fill.style.transform = 'scaleX(' + fraction + ')';
+      if (bar) bar.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
+      text('runtime-checking-counter', resolvedCount + ' of ' + total + ' checked');
+    }
+    // btn-runtime-continue and btn-runtime-skip are byte-identical in effect
+    // (UI-SPEC "Continue vs Skip effect", owner-resolved) and share one
+    // acknowledge() handler wired to both in wire().
+    var CHECKLIST_WINDOWS_ADVISORY = "Your Windows version isn't fully tested with LecturePack. Everything checked above works, so you can continue — reliability on this exact version isn't guaranteed.";
+    function renderChecklist() {
+      var host = $('runtime-checklist-rows'), empty = $('runtime-checklist-empty');
+      if (!host || !empty) return;
+      host.textContent = '';
+      // Read only id/verdict/detail -- no health arithmetic of our own on
+      // component evidence (backend decides, UI renders).
+      var items = eventModel.snapshot().checklist;
+      var complete = Array.isArray(items) && items.length === FIRST_RUN_ROWS.length;
+      empty.hidden = complete;
+      if (!complete) return;
+      items.forEach(function (item) {
+        var meta = null;
+        for (var i = 0; i < FIRST_RUN_ROWS.length; i++) { if (FIRST_RUN_ROWS[i].id === item.id) { meta = FIRST_RUN_ROWS[i]; break; } }
+        var label = meta ? meta.label : String(item.id);
+        var dataState = FIRST_RUN_VERDICT_STATES[item.verdict] || null;
+        var badgeText = item.verdict === 'needs_attention' ? 'Needs Attention' : 'Ready';
+        var row = firstRunRow(label, badgeText, dataState);
+        if (item.verdict === 'needs_attention') {
+          var advisory = document.createElement('div');
+          advisory.style.cssText = 'flex-basis:100%;font-size:12px;line-height:1.4;overflow-wrap:anywhere';
+          advisory.textContent = CHECKLIST_WINDOWS_ADVISORY; advisory.title = CHECKLIST_WINDOWS_ADVISORY;
+          row.appendChild(advisory);
+        }
+        host.appendChild(row);
+      });
+    }
     function renderOffer() {
       var value = eventModel.snapshot().offer, enabled = validOffer(value);
       text('runtime-offer-source', enabled ? value.source : '');
@@ -2232,8 +2329,26 @@
       var el = overlay(); if (!el) return;
       el.hidden = false; el.classList.remove('out'); setUnderlyingInert(true);
       Array.prototype.forEach.call(el.querySelectorAll('[data-runtime-state]'), function (panel) { panel.hidden = panel.dataset.runtimeState !== next; });
-      renderComponents(); renderOffer();
-      var targets = { gate: 'btn-runtime-repair', confirm: 'btn-runtime-confirm', repairing: 'btn-runtime-cancel', offline: 'btn-runtime-offline-retry', failed: 'btn-runtime-failed-retry', diagnostics: 'runtime-diagnostics-heading', ready: 'runtime-ready-heading' };
+      renderComponents(); renderOffer(); renderChecking(); renderChecklist();
+      // Per the UI-SPEC nav contract, checklist is the one state in this
+      // overlay with no Exit affordance -- Continue and Skip already cover
+      // the low-commitment path; every other state (including checking)
+      // restores it. The focus helper already filters out zero-size
+      // elements, so hiding Exit here removes it from the trap cleanly and
+      // Continue/Skip remain the two focusable controls in checklist.
+      var exitButton = $('btn-runtime-exit');
+      if (exitButton) exitButton.hidden = next === 'checklist';
+      // runtime-checking-heading and runtime-checklist-heading carry
+      // tabindex="-1" for markup consistency with every other overlay
+      // heading, but per the UI-SPEC Focal Point rule neither is this
+      // state's initial focus target below -- checking focuses the Exit
+      // control (nothing else competes for attention) and checklist
+      // focuses Continue (the single focal action). runtime-checklist-body
+      // is likewise never rewritten by JS: the Ready-only and Mixed
+      // fixtures must render byte-identical heading/body copy, differing
+      // only in one row's badge.
+      var targets = { gate: 'btn-runtime-repair', confirm: 'btn-runtime-confirm', repairing: 'btn-runtime-cancel', offline: 'btn-runtime-offline-retry', failed: 'btn-runtime-failed-retry', diagnostics: 'runtime-diagnostics-heading', ready: 'runtime-ready-heading',
+        checking: 'btn-runtime-exit', checklist: 'btn-runtime-continue' };
       var target = $(targets[next]); if (target) target.focus();
     }
     function closeReady() {
