@@ -183,3 +183,16 @@ None — no external service configuration required.
 ---
 *Phase: 01-clean-device-footprint-first-launch*
 *Completed: 2026-07-31*
+
+## Self-Check: PASSED
+
+- FOUND: app/packaging/build.py
+- FOUND: app/packaging/lecturepack.spec
+- FOUND: tests/test_package_pruning.py
+- FOUND: tests/test_demo_session_isolation.py
+- FOUND: .planning/phases/01-clean-device-footprint-first-launch/01-FINDINGS-resources.md
+- FOUND: .planning/phases/01-clean-device-footprint-first-launch/01-04-SUMMARY.md
+- FOUND commit: e3c2992 (Task 1)
+- FOUND commit: 246f264 (Task 2)
+- FOUND commit: fa0faa6 (Task 3)
+- FOUND commit: 8d4d856 (Summary)
