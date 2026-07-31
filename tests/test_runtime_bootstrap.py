@@ -446,3 +446,228 @@ def test_runner_times_out_the_exact_hang_fixture():
     assert evidence.timed_out is True
     assert evidence.reason == "timeout"
     assert evidence.duration_ms >= 100
+
+
+# ---------------------------------------------------------------------------
+# Task 3: parallelized `_validate_full` (D-10) — three independent probes run
+# concurrently in a bounded thread pool, with every evidence field, the real
+# staged whisper-cli transcription, and the 30s-per-probe bound unchanged.
+# ---------------------------------------------------------------------------
+
+
+def _write_dummy_payload(tmp_path, *, with_ffmpeg=True):
+    model = tmp_path / "models" / "ggml-base.en.bin"
+    smoke = tmp_path / "smoke" / "runtime-smoke.wav"
+    whisper = tmp_path / "bin" / "whisper-cli.exe"
+    ffmpeg = tmp_path / "bin" / "ffmpeg.exe"
+    ffprobe = tmp_path / "bin" / "ffprobe.exe"
+    files = [model, smoke, whisper] + ([ffmpeg, ffprobe] if with_ffmpeg else [])
+    for path in files:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"dummy payload")
+    paths = {
+        "bin/whisper-cli.exe": whisper,
+        "models/ggml-base.en.bin": model,
+        "smoke/runtime-smoke.wav": smoke,
+    }
+    if with_ffmpeg:
+        paths["bin/ffmpeg.exe"] = ffmpeg
+        paths["bin/ffprobe.exe"] = ffprobe
+    return paths
+
+
+def test_validate_full_uses_bounded_thread_pool_of_three():
+    import inspect
+
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    source = inspect.getsource(RuntimeBootstrapService._validate_full)
+    assert "ThreadPoolExecutor(max_workers=3)" in source
+
+
+def test_validate_full_shares_one_validator_with_default_thirty_second_bound(tmp_path, monkeypatch):
+    """Exactly one RuntimeValidator() is constructed (shared, not per-worker), with no
+    args overriding the default 30s timeout_ms bound."""
+    import lecturepack.services.runtime_bootstrap as runtime_bootstrap
+    from lecturepack.infrastructure.runtime_validation import SmokeEvidence
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    paths = _write_dummy_payload(tmp_path, with_ffmpeg=False)
+    construction_calls = []
+
+    class RecordingValidator:
+        def __init__(self, *args, **kwargs):
+            construction_calls.append((args, kwargs))
+
+        def run(self, program, args):
+            return SmokeEvidence([program, *args], 0, "", "", 1, "success", False)
+
+    monkeypatch.setattr(runtime_bootstrap, "RuntimeValidator", RecordingValidator)
+
+    RuntimeBootstrapService._validate_full(paths)
+
+    assert construction_calls == [((), {})]
+
+
+def test_validate_full_probes_overlap_and_bound_peak_concurrency(tmp_path, monkeypatch):
+    """A fake validator that records call order and sleeps proves real overlap:
+    elapsed time is materially below the serial sum, and peak concurrency
+    never exceeds 3."""
+    import threading
+    import time as time_module
+
+    import lecturepack.services.runtime_bootstrap as runtime_bootstrap
+    from lecturepack.infrastructure.runtime_validation import SmokeEvidence
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    paths = _write_dummy_payload(tmp_path, with_ffmpeg=True)
+    lock = threading.Lock()
+    state = {"active": 0, "peak": 0}
+    sleep_s = 0.2
+
+    class SlowValidator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self, program, args):
+            with lock:
+                state["active"] += 1
+                state["peak"] = max(state["peak"], state["active"])
+            time_module.sleep(sleep_s)
+            with lock:
+                state["active"] -= 1
+            return SmokeEvidence([program, *args], 0, "", "", int(sleep_s * 1000), "success", False)
+
+    monkeypatch.setattr(runtime_bootstrap, "RuntimeValidator", SlowValidator)
+
+    started = time_module.monotonic()
+    results = RuntimeBootstrapService._validate_full(paths)
+    elapsed = time_module.monotonic() - started
+
+    assert elapsed < sleep_s * 3 * 0.75  # materially below the serial sum of 3 sleeps
+    assert 2 <= state["peak"] <= 3  # real overlap happened, and pool is bounded at 3
+    assert set(results) == set(paths)
+
+
+def test_validate_full_version_probe_worker_exception_propagates(tmp_path, monkeypatch):
+    """An exception raised inside a worker propagates out of `_validate_full`
+    via `future.result()` rather than vanishing into an unexamined future."""
+    import lecturepack.services.runtime_bootstrap as runtime_bootstrap
+    from lecturepack.infrastructure.runtime_validation import SmokeEvidence
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    paths = _write_dummy_payload(tmp_path, with_ffmpeg=True)
+    ffmpeg_str = str(paths["bin/ffmpeg.exe"])
+
+    class ExplodingValidator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self, program, args):
+            if program == ffmpeg_str:
+                raise RuntimeError("ffmpeg worker exploded")
+            return SmokeEvidence([program, *args], 0, "", "", 1, "success", False)
+
+    monkeypatch.setattr(runtime_bootstrap, "RuntimeValidator", ExplodingValidator)
+
+    with pytest.raises(RuntimeError, match="ffmpeg worker exploded"):
+        RuntimeBootstrapService._validate_full(paths)
+
+
+def test_validate_full_cleanup_runs_when_whisper_probe_raises(tmp_path, monkeypatch):
+    """`staging.cleanup()` runs exactly once even when the whisper probe itself
+    raises, and the caught exception still synthesizes complete failed evidence."""
+    import lecturepack.services.runtime_bootstrap as runtime_bootstrap
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    paths = _write_dummy_payload(tmp_path, with_ffmpeg=False)
+    cleanup_calls = []
+    real_staging_cls = runtime_bootstrap.WhisperPathStaging
+
+    class TrackingStaging(real_staging_cls):
+        def cleanup(self):
+            cleanup_calls.append(True)
+            super().cleanup()
+
+    class RaisingValidator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self, program, args):
+            raise RuntimeError("whisper probe exploded")
+
+    monkeypatch.setattr(runtime_bootstrap, "RuntimeValidator", RaisingValidator)
+    monkeypatch.setattr(runtime_bootstrap, "WhisperPathStaging", TrackingStaging)
+
+    results = RuntimeBootstrapService._validate_full(paths)
+
+    assert cleanup_calls == [True]
+    assert results["models/ggml-base.en.bin"]["healthy"] is False
+    assert results["models/ggml-base.en.bin"]["reason"] == "admission preparation failed"
+    assert results["smoke/runtime-smoke.wav"]["reason"] == "admission preparation failed"
+
+
+def test_validate_full_ffprobe_failure_reason_preserved_verbatim(tmp_path, monkeypatch):
+    import lecturepack.services.runtime_bootstrap as runtime_bootstrap
+    from lecturepack.infrastructure.runtime_validation import SmokeEvidence
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    paths = _write_dummy_payload(tmp_path, with_ffmpeg=True)
+    ffprobe_str = str(paths["bin/ffprobe.exe"])
+
+    class MixedValidator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self, program, args):
+            if program == ffprobe_str:
+                return SmokeEvidence([program, *args], 3, "", "ffprobe broke", 5, "nonzero exit", False)
+            return SmokeEvidence([program, *args], 0, "", "", 5, "success", False)
+
+    monkeypatch.setattr(runtime_bootstrap, "RuntimeValidator", MixedValidator)
+
+    results = RuntimeBootstrapService._validate_full(paths)
+
+    assert results["bin/ffprobe.exe"]["healthy"] is False
+    assert results["bin/ffprobe.exe"]["reason"] == "nonzero exit"
+    assert results["bin/ffprobe.exe"]["stderr"] == "ffprobe broke"
+    assert results["bin/ffmpeg.exe"]["healthy"] is True
+
+
+def test_validate_full_returns_complete_evidence_fields_and_real_transcription_argv(tmp_path, monkeypatch):
+    """Every returned component carries all eight `_FULL_SUCCESS_EVIDENCE_FIELDS`
+    keys, and the whisper probe argv is the real staged transcription — model
+    flag, file flag, thread count, and no-timestamps flag — never a lighter
+    liveness check (D-10)."""
+    import lecturepack.services.runtime_bootstrap as runtime_bootstrap
+    from lecturepack.infrastructure.runtime_validation import SmokeEvidence
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    paths = _write_dummy_payload(tmp_path, with_ffmpeg=True)
+    whisper_str = str(paths["bin/whisper-cli.exe"])
+    captured_whisper_argv = []
+
+    class RecordingValidator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self, program, args):
+            argv = [program, *args]
+            if program == whisper_str:
+                captured_whisper_argv.append(argv)
+            return SmokeEvidence(argv, 0, "", "", 5, "success", False)
+
+    monkeypatch.setattr(runtime_bootstrap, "RuntimeValidator", RecordingValidator)
+
+    results = RuntimeBootstrapService._validate_full(paths)
+
+    for record in results.values():
+        assert RuntimeBootstrapService._FULL_SUCCESS_EVIDENCE_FIELDS <= record.keys()
+    assert set(results) == set(paths)
+
+    assert captured_whisper_argv, "whisper probe never ran"
+    whisper_argv = captured_whisper_argv[0]
+    assert "-m" in whisper_argv
+    assert "-f" in whisper_argv
+    assert "-t" in whisper_argv and "1" in whisper_argv
+    assert "-nt" in whisper_argv

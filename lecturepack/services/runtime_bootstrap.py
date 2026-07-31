@@ -1,6 +1,7 @@
 """CPU-first bootstrap admission policy for the bundled runtime contract."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -127,7 +128,18 @@ class RuntimeBootstrapService:
 
     @staticmethod
     def _validate_full(paths: Mapping[str, Path]) -> Mapping[str, Mapping[str, Any]]:
-        """Prove canonical CPU usability with one bounded staged transcription."""
+        """Prove canonical CPU usability with one bounded staged transcription.
+
+        Per D-10, the three independent probes (ffmpeg -version, ffprobe
+        -version, and the staged whisper transcription) run concurrently in
+        a ``ThreadPoolExecutor(max_workers=3)`` — parallelization only, never
+        a weaker liveness check in place of the real staged transcription.
+        ``RuntimeValidator.run()`` is stateless per call (a fresh
+        ``subprocess.Popen`` plus local variables only, no shared mutable
+        state), so a single instance is constructed once and shared across
+        workers rather than one per worker. Every field of the ``evidence()``
+        closure and the exact per-probe 30s bound are unchanged.
+        """
         validator = RuntimeValidator()
         results: dict[str, Mapping[str, Any]] = {}
 
@@ -143,31 +155,45 @@ class RuntimeBootstrapService:
                 "timed_out": smoke.timed_out,
             }
 
-        for name, path in paths.items():
-            if name == "bin/ffmpeg.exe" or name == "bin/ffprobe.exe":
-                smoke = validator.run(str(path), ["-version"])
-                results[name] = evidence(smoke)
+        def _probe_version(path: Path):
+            return validator.run(str(path), ["-version"])
 
-        try:
-            staging = WhisperPathStaging(
-                paths["models/ggml-base.en.bin"],
-                paths["smoke/runtime-smoke.wav"],
-                paths["smoke/runtime-smoke.wav"].parent / "admission-output" / "transcript",
-            )
-            staged_model, staged_wav, _ = staging.prepare()
+        def _probe_whisper():
             try:
-                whisper_smoke = validator.run(
-                    str(paths["bin/whisper-cli.exe"]),
-                    ["-m", staged_model, "-f", staged_wav, "-t", "1", "-nt"],
+                staging = WhisperPathStaging(
+                    paths["models/ggml-base.en.bin"],
+                    paths["smoke/runtime-smoke.wav"],
+                    paths["smoke/runtime-smoke.wav"].parent / "admission-output" / "transcript",
                 )
-            finally:
-                staging.cleanup()
-        except Exception as error:
-            # ``assess`` will reject this complete failed evidence; do not turn a
-            # readable model or WAV into a health claim when staging cannot run.
-            from lecturepack.infrastructure.runtime_validation import SmokeEvidence
+                staged_model, staged_wav, _ = staging.prepare()
+                try:
+                    return validator.run(
+                        str(paths["bin/whisper-cli.exe"]),
+                        ["-m", staged_model, "-f", staged_wav, "-t", "1", "-nt"],
+                    )
+                finally:
+                    staging.cleanup()
+            except Exception as error:
+                # ``assess`` will reject this complete failed evidence; do not turn a
+                # readable model or WAV into a health claim when staging cannot run.
+                from lecturepack.infrastructure.runtime_validation import SmokeEvidence
 
-            whisper_smoke = SmokeEvidence([], None, "", str(error), 0, "admission preparation failed", False)
+                return SmokeEvidence([], None, "", str(error), 0, "admission preparation failed", False)
+
+        version_probe_names = [name for name in ("bin/ffmpeg.exe", "bin/ffprobe.exe") if name in paths]
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            version_futures = {
+                pool.submit(_probe_version, paths[name]): name for name in version_probe_names
+            }
+            whisper_future = pool.submit(_probe_whisper)
+
+            # ``future.result()`` re-raises any exception the worker raised,
+            # rather than letting it vanish into an unexamined future.
+            for future, name in version_futures.items():
+                results[name] = evidence(future.result())
+
+            whisper_smoke = whisper_future.result()
 
         for name in paths:
             if name not in results:
