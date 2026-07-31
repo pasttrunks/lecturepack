@@ -2351,24 +2351,134 @@
         checking: 'btn-runtime-exit', checklist: 'btn-runtime-continue' };
       var target = $(targets[next]); if (target) target.focus();
     }
-    function closeReady() {
-      var el = overlay(); if (!el || eventModel.snapshot().state !== 'ready') return;
+    // Shared close sequence: restore the underlying app from inert, hide the
+    // overlay, reset the reducer, and return focus. closeReady() and
+    // acknowledge() both fully close the overlay this same way.
+    function closeOverlay() {
+      var el = overlay(); if (!el) return;
       setUnderlyingInert(false); el.hidden = true; eventModel.reset();
       var target = isNormalFocusable(priorFocus) ? priorFocus : fallbackFocus();
       if (isNormalFocusable(target)) target.focus();
     }
+    function closeReady() {
+      var snap = eventModel.snapshot();
+      if (snap.state !== 'ready') return;
+      // Repair-recovered first run (UI-SPEC Open Question 2, owner-resolved):
+      // keyed purely to the persisted acknowledged flag, never to which path
+      // reached HEALTHY, so a first-ever healthy admission that needed a
+      // repair still shows the checklist exactly once, right after this
+      // existing success state closes -- the checklist is the gateway to
+      // the demo offer (D-17), so skipping it here would silently drop the
+      // demo offer for the users with the roughest install.
+      if (snap.healthy && !snap.acknowledged) {
+        eventModel.toChecklist();
+        announce('runtime-live-assertive', "You're ready to go.");
+        render();
+        return;
+      }
+      closeOverlay();
+    }
+    // Per-row anti-flicker pacing state (D-08/D-09, BUG-21 stale-timer
+    // lesson): every hold timer and the slow-notice timer are cleared when
+    // the corresponding row resolves and when the state leaves checking, so
+    // no superseded timer can ever write to a row that has moved on.
+    var checkingHoldTimers = {}, checkingStartedAt = {}, whisperSlowTimer = null;
+    function clearCheckingTimers() {
+      Object.keys(checkingHoldTimers).forEach(function (id) { clearTimeout(checkingHoldTimers[id]); });
+      checkingHoldTimers = {}; checkingStartedAt = {};
+      if (whisperSlowTimer) { clearTimeout(whisperSlowTimer); whisperSlowTimer = null; }
+    }
+    function checkingRowSentence(id) {
+      var row = FIRST_RUN_ROWS.filter(function (r) { return r.id === id; })[0];
+      return row ? row.checking : '';
+    }
     function admit(bootstrap) {
       bootstrapSnapshot = bootstrap && bootstrap.setup_required || bootstrap || bootstrapSnapshot;
       var before = eventModel.snapshot(), view = eventModel.bootstrap(bootstrap);
+      if (before.state === 'checking' && view.state !== 'checking') clearCheckingTimers();
       syncDemoAdmission(view);
+      // The overlay is already inert from the boot-time beginBootstrap()
+      // call, so this is simply the first frame the user sees.
+      if (view.state === 'checking') { render(); return; }
+      // D-11: the existing failure gate, entirely unchanged.
       if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') { render(); return; }
+      // D-12: a first-ever healthy admission always shows the checklist.
+      // The assertive live region announces the state change itself, not
+      // per-row chatter (that stays on the polite region during checking).
+      if (view.state === 'checklist') { announce('runtime-live-assertive', "You're ready to go."); render(); return; }
       if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !before.activeOperation) { setUnderlyingInert(false); return; }
       if (view.state === 'ready') ready();
     }
+    var acknowledgeInFlight = false;
+    // Continue and Skip are byte-identical in effect (UI-SPEC "Continue vs
+    // Skip effect", owner-resolved) -- both call this one handler.
+    function acknowledge() {
+      var snap = eventModel.snapshot();
+      if (snap.state !== 'checklist' || acknowledgeInFlight) return; // idempotent
+      acknowledgeInFlight = true;
+      var continueBtn = $('btn-runtime-continue'), skipBtn = $('btn-runtime-skip');
+      if (continueBtn) continueBtn.disabled = true;
+      if (skipBtn) skipBtn.disabled = true;
+      lpBridge.call('acknowledge_setup').then(function (json) {
+        var refreshed = null;
+        // A bridge hiccup (json resolves empty/null) must not trap the user
+        // behind a modal: the reducer's acknowledge() transition advances
+        // the flag locally even when the payload is empty.
+        if (json) { try { refreshed = JSON.parse(json); } catch (e) { refreshed = null; } }
+        var view = eventModel.acknowledge(refreshed);
+        syncDemoAdmission(view);
+        closeOverlay();
+        if (continueBtn) continueBtn.disabled = false;
+        if (skipBtn) skipBtn.disabled = false;
+        acknowledgeInFlight = false;
+      });
+    }
+    // Per-component checking progress (D-08/D-09). The reducer records the
+    // raw mark immediately; only the re-render of a flip TO resolved is
+    // paced, by the anti-flicker hold, so a fast check never reads as a
+    // flash. Nothing else re-renders the checking rows while in the
+    // checking state, so a paced re-render can never be pre-empted by a
+    // premature one.
+    function progress(payload) {
+      var record = typeof payload === 'string'
+        ? (function () { try { return JSON.parse(payload); } catch (e) { return null; } })()
+        : payload;
+      if (!record || typeof record !== 'object' || !record.id) return;
+      if (eventModel.snapshot().state !== 'checking') return;
+      var id = record.id, mark = record.state;
+      eventModel.progress(record);
+      if (mark === 'checking') {
+        checkingStartedAt[id] = Date.now();
+        announce('runtime-live-polite', checkingRowSentence(id));
+        if (id === 'whisper_runtime') {
+          if (whisperSlowTimer) clearTimeout(whisperSlowTimer);
+          whisperSlowTimer = setTimeout(function () {
+            announce('runtime-live-polite', checkingRowSentence('whisper_runtime') + ' this can take a few seconds.');
+          }, WHISPER_SLOW_NOTICE_MS);
+        }
+        render();
+        return;
+      }
+      if (mark === 'resolved') {
+        if (id === 'whisper_runtime' && whisperSlowTimer) { clearTimeout(whisperSlowTimer); whisperSlowTimer = null; }
+        if (checkingHoldTimers[id]) clearTimeout(checkingHoldTimers[id]);
+        var elapsed = Date.now() - (checkingStartedAt[id] || Date.now());
+        var remaining = Math.max(0, antiFlickerHoldMs() - elapsed);
+        if (remaining <= 0) { delete checkingHoldTimers[id]; render(); }
+        else checkingHoldTimers[id] = setTimeout(function () { delete checkingHoldTimers[id]; render(); }, remaining);
+        return;
+      }
+      render();
+    }
     // The guided demo is available only after this authoritative setup gate
     // admits the runtime. Its controller owns both initial and repair paths.
+    // D-17: the demo is reachable only after the user continues past the
+    // checklist or deliberately skips it -- extending this one boolean with
+    // the acknowledged term is what makes every existing caller (initial
+    // admit, retry path, repair-admitted event) inherit that gate for free,
+    // rather than adding a second, parallel gating mechanism.
     function syncDemoAdmission(view) {
-      setDemoAdmissionAvailable(!!(view && view.healthy && !view.bootstrapPending &&
+      setDemoAdmissionAvailable(!!(view && view.healthy && !view.bootstrapPending && view.acknowledged &&
         (view.state === 'ready' || !view.activeOperation)));
     }
     function beginOffer() {
@@ -2460,6 +2570,8 @@
       $('btn-runtime-failed-retry').addEventListener('click', beginNewRepair);
       $('btn-runtime-cancel').addEventListener('click', cancel);
       $('btn-runtime-exit').addEventListener('click', function () { lpBridge.call('exit_application'); window.close(); });
+      $('btn-runtime-continue').addEventListener('click', acknowledge);
+      $('btn-runtime-skip').addEventListener('click', acknowledge);
       Array.prototype.forEach.call(document.querySelectorAll('[data-runtime-diagnostics]'), function (button) { button.addEventListener('click', function () { diagnostics(button); }); });
       $('btn-runtime-diagnostics-back').addEventListener('click', back);
       function diagnosticFeedback(promise, ok, bad) { promise.then(function (json) { var r; try { r = JSON.parse(json); } catch (e) {} announce('runtime-live-polite', r && /copied|saved/.test(r.type || '') ? ok : bad); }, function () { announce('runtime-live-polite', bad); }); }
@@ -2469,7 +2581,7 @@
       document.addEventListener('wheel', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true, passive: false });
       document.addEventListener('pointerdown', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
     }
-    return { admit: admit, event: event, wire: wire, beginBootstrap: function () { setUnderlyingInert(true); }, isOpen: isOpen, state: function () { return eventModel.snapshot().state; }, _diagnosticsInvoker: null };
+    return { admit: admit, event: event, progress: progress, acknowledge: acknowledge, wire: wire, beginBootstrap: function () { setUnderlyingInert(true); }, isOpen: isOpen, state: function () { return eventModel.snapshot().state; }, _diagnosticsInvoker: null };
   })();
 
   /* Clears the design-time placeholder chrome shipped in index.html so a fresh
@@ -3811,7 +3923,32 @@
   /* ======================= backend hookup ======================= */
 
   function wireBridge() {
+    // Shared with the lpBridge.ready() bootstrap consumer below: normal
+    // bridge activity must start exactly once per launch, from whichever of
+    // the two admission paths (this signal, or the initial get_bootstrap()
+    // call) resolves first. Both of its calls are admission-guarded on the
+    // Python side (_ADMISSION_GUARDED_OPERATIONS); lpBridge.call() already
+    // resolves null safely when a slot is missing, so a browser preview and
+    // an older backend both still work with no extra guard here.
+    var normalBridgeActivityStarted = false;
+    function startNormalBridgeActivity() {
+      if (normalBridgeActivityStarted) return;
+      normalBridgeActivityStarted = true;
+      lpBridge.call('list_ollama_models');
+      // Ask whether link import exists in this build; the button stays hidden
+      // until the backend says yes.
+      lpBridge.call('media_link_support');
+    }
     lpBridge.on('repair_event', function (json) { RuntimeSetupGate.event(json); });
+    lpBridge.on('bootstrap_progress', function (json) { RuntimeSetupGate.progress(json); });
+    lpBridge.on('bootstrap_complete', function (json) {
+      var b; try { b = JSON.parse(json); } catch (e) { b = null; }
+      if (!b) return;
+      // One routing implementation, not two: completion routes through the
+      // same admit() the initial bootstrap uses.
+      RuntimeSetupGate.admit(b);
+      if (!b.bootstrap_pending && b.runtime_health_state !== 'SETUP_REQUIRED') startNormalBridgeActivity();
+    });
     lpBridge.on('demo_event', receiveDemoEvent);
     lpBridge.on('queue_changed', function (json) {
       try { LP.data.queue = JSON.parse(json); } catch (e) { return; }
@@ -4204,12 +4341,6 @@
     });
 
     lpBridge.ready(function (backend) {
-      function startNormalBridgeActivity() {
-        if (backend && backend.list_ollama_models) lpBridge.call('list_ollama_models');
-        // Ask whether link import exists in this build; the button stays hidden
-        // until the backend says yes.
-        if (backend && backend.media_link_support) lpBridge.call('media_link_support');
-      }
       if (backend && backend.get_bootstrap) {
         lpBridge.call('get_bootstrap').then(function (json) {
           if (!json) { startNormalBridgeActivity(); return; }
@@ -4218,7 +4349,13 @@
             if (b.theme) applyTheme(b.theme, false);
             if (b.version) { LP.data.version = b.version; $('app-version').textContent = b.version; }
             RuntimeSetupGate.admit(b);
-            if (b.runtime_health_state !== 'SETUP_REQUIRED') {
+            // Gate on bootstrap_pending, never on a runtime_health_state
+            // string comparison (that string legitimately reads "PENDING"
+            // during the checking window). Both of startNormalBridgeActivity()'s
+            // calls are admission-guarded on the Python side, so starting
+            // them while pending would surface a spurious setup-required
+            // diagnostics payload behind the honest progress panel.
+            if (!b.bootstrap_pending && b.runtime_health_state !== 'SETUP_REQUIRED') {
               startNormalBridgeActivity();
             }
           } catch (e) { console.error('bootstrap parse', e); }

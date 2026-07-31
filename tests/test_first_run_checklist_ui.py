@@ -448,3 +448,144 @@ def test_no_regression_in_adjacent_webview_and_content_suites() -> None:
         cwd=ROOT, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# ------------------------------------------------------------------ Task 3 --
+
+
+def wire_bridge_source() -> str:
+    app = read_ui("app.js")
+    start = app.index("function wireBridge() {")
+    end = app.index("\n  /* ======================= boot", start)
+    return app[start:end]
+
+
+def test_wire_bridge_subscribes_bootstrap_progress_and_complete_and_bridge_js_registers_both() -> None:
+    wb = wire_bridge_source()
+    assert "lpBridge.on('bootstrap_progress'" in wb
+    assert "lpBridge.on('bootstrap_complete'" in wb
+    bridge_js = read_ui("bridge.js")
+    assert "'bootstrap_progress'" in bridge_js
+    assert "'bootstrap_complete'" in bridge_js
+
+
+def test_runtime_setup_gate_public_surface_exposes_progress_and_acknowledge() -> None:
+    controller = gate_controller_source()
+    return_line = controller.split("return {", 1)[1].split("};", 1)[0]
+    assert "progress: progress" in return_line
+    assert "acknowledge: acknowledge" in return_line
+
+
+def test_acknowledge_setup_is_called_through_lp_bridge_exactly_once() -> None:
+    app = read_ui("app.js")
+    assert app.count("lpBridge.call('acknowledge_setup')") == 1
+
+
+def test_continue_and_skip_are_wired_to_the_same_handler() -> None:
+    controller = gate_controller_source()
+    wire_body = controller.split("function wire() {", 1)[1].split("\n    }", 1)[0]
+    assert "$('btn-runtime-continue').addEventListener('click', acknowledge);" in wire_body
+    assert "$('btn-runtime-skip').addEventListener('click', acknowledge);" in wire_body
+
+
+def test_sync_demo_admission_boolean_includes_acknowledged_term() -> None:
+    controller = gate_controller_source()
+    body = controller.split("function syncDemoAdmission(view) {", 1)[1].split("\n    }", 1)[0]
+    assert "view.acknowledged" in body
+
+
+def test_healthy_unacknowledged_snapshot_demo_availability_false_then_true_after_acknowledge() -> None:
+    result = run_node(
+        r'''
+        function syncDemoAdmissionBool(view) {
+          return !!(view && view.healthy && !view.bootstrapPending && view.acknowledged &&
+            (view.state === 'ready' || !view.activeOperation));
+        }
+        const gate = RuntimeSetupGateModel();
+        const before = gate.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false});
+        if (syncDemoAdmissionBool(before) !== false) process.exit(1);
+        const after = gate.acknowledge(null);
+        if (syncDemoAdmissionBool(after) !== true) process.exit(2);
+        '''
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_close_ready_diverts_to_checklist_for_healthy_unacknowledged_snapshot() -> None:
+    controller = gate_controller_source()
+    body = controller.split("function closeReady() {", 1)[1].split("\n    }", 1)[0]
+    assert "snap.healthy && !snap.acknowledged" in body
+    assert "eventModel.toChecklist();" in body
+
+    result = run_node(
+        r'''
+        const gate = RuntimeSetupGateModel();
+        gate.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false});
+        gate.begin('repair-op', 'repairing');
+        gate.event({operation_id: 'repair-op', kind: 'admitted'});
+        let snap = gate.snapshot();
+        if (snap.state !== 'ready') process.exit(1);
+        if (snap.acknowledged !== false) process.exit(2);
+        // Simulate closeReady()'s new branch directly on the reducer.
+        const view = gate.toChecklist();
+        if (view.state !== 'checklist') process.exit(3);
+        if (view.healthy !== true) process.exit(4);
+        '''
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_bootstrap_consumer_guards_start_normal_bridge_activity_behind_once_flag_and_not_pending() -> None:
+    app = read_ui("app.js")
+    wb = wire_bridge_source()
+    assert "var normalBridgeActivityStarted = false;" in wb
+    assert "if (normalBridgeActivityStarted) return;" in wb
+    assert "normalBridgeActivityStarted = true;" in wb
+    assert "!b.bootstrap_pending && b.runtime_health_state !== 'SETUP_REQUIRED'" in app
+    # Fallbacks: no-payload and no-slot paths both still call it.
+    ready_block = app.split("lpBridge.ready(function (backend) {", 1)[1].split("\n    });", 1)[0]
+    assert "if (!json) { startNormalBridgeActivity(); return; }" in ready_block
+    assert "else startNormalBridgeActivity();" in ready_block
+
+
+def test_admission_guarded_operations_includes_list_ollama_models_and_media_link_support() -> None:
+    bridge_py = (ROOT / "app" / "desktop" / "bridge.py").read_text(encoding="utf-8")
+    guarded_block = bridge_py.split("_ADMISSION_GUARDED_OPERATIONS = frozenset({", 1)[1].split("})", 1)[0]
+    assert "list_ollama_models" in guarded_block
+    assert "media_link_support" in guarded_block
+
+
+def test_no_third_browser_storage_call_site_is_added_for_the_setup_flag() -> None:
+    app = read_ui("app.js")
+    assert app.count("window.localStorage") == 2
+
+
+def test_checklist_row_building_slice_reads_only_id_verdict_and_detail() -> None:
+    app = read_ui("app.js")
+    body = app.split("function renderChecklist() {", 1)[1].split("\n    }", 1)[0]
+    assert "item.id" in body
+    assert "item.verdict" in body
+    # detail is read (per the plan) even though this row rendering does not
+    # currently surface it visually beyond the fixed advisory sentence; it
+    # must never read any other item key (no health arithmetic in JS).
+    for forbidden in ("item.remediation", "item.action", "item.url", "item.download", "item.repair", "item.healthy", "item.components"):
+        assert forbidden not in body
+
+
+def test_progress_returns_early_on_invalid_json_without_touching_reducer() -> None:
+    controller = gate_controller_source()
+    body = controller.split("function progress(payload) {", 1)[1].split("\n    }", 1)[0]
+    assert "catch (e) { return null; }" in body
+    assert "if (!record || typeof record !== 'object' || !record.id) return;" in body
+
+
+def test_no_regression_in_settings_bridge_demo_isolation_and_gate_suites() -> None:
+    result = subprocess.run(
+        [
+            "python", "-m", "pytest",
+            "tests/test_webview_settings_bridge.py", "tests/test_demo_session_isolation.py", "tests/test_setup_gate_repair.py",
+            "-q",
+        ],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
