@@ -63,3 +63,46 @@ Recommend a follow-up task (outside 01-02's scope) to regenerate
 Ed25519 key set in `lecturepack/infrastructure/release_trust.py`, and to update
 `test_release_trust.py`'s hash-pin assertion to match the current `release.yml`
 dependency-install step.
+
+## Found during 01-04 D-24 verification (orchestrator-owned build step)
+
+**`app/requirements.txt` does not mirror the repo root `requirements.txt`, despite its own
+header claiming it does.** Its comment reads "The engine deps below mirror the repo root
+requirements.txt so `app/` can be installed on its own," but three declared root
+dependencies are missing from it: `Send2Trash`, `tzdata`, and `yt-dlp`.
+
+This is load-bearing because `.github/workflows/release.yml` installs
+`-r app/requirements.txt -r app/requirements-build.txt` — so **CI builds have never
+contained these three packages**. Local builds happened to contain `tzdata` only because
+the developer's global Python environment had the root requirements installed. This is the
+same class of defect as D-24 (packaged contents depending on developer-machine state)
+but in the opposite direction: declared dependencies going *missing* rather than
+undeclared ones being *collected*.
+
+Per-package impact, measured against the pre-cut baseline tree:
+
+| Package | Source usage | In baseline build | Consequence when absent |
+|---|---|---|---|
+| `Send2Trash` | `app/desktop/engine_adapter.py:1206` | **absent** | **Files are hard-deleted instead of sent to the recycle bin** |
+| `tzdata` | `lecturepack/services/job_queue.py:18` (`from zoneinfo import ZoneInfo`) | bundled | Silent fallback to system-local time (`job_queue.py:186`), losing tz-aware scheduling |
+| `yt-dlp` | `lecturepack/services/media_fetch.py:50` | absent | "Import from a link" hidden — **explicitly optional by design**, not a defect |
+
+**`Send2Trash` is a user-data concern, not just a packaging one.** The guard at
+`engine_adapter.py:1202` reads "Only a genuinely absent send2trash justifies a hard delete
+now" — and in packaged builds it *is* genuinely absent, so the fallback path is the only
+path. Packaged LecturePack permanently deletes user files where the source intends a
+recoverable recycle-bin move. Root `requirements.txt` declares `Send2Trash>=1.8.0`, so the
+intent is unambiguous; only the packaging path lost it.
+
+**Not fixed here.** D-24 explicitly scoped out a broader dependency audit, and adding
+`Send2Trash`/`yt-dlp` to the packaged set would change shipped behavior (deletion
+semantics; a newly-appearing UI affordance) — a product decision, not a size cut. The
+D-24 verification build therefore installed the locked `app/` requirements **plus `tzdata`
+only**, so the post-cut tree matches the baseline's actual contents minus the intended
+cuts and the before/after size comparison stays apples-to-apples.
+
+**Recommended follow-up (its own slice):** make `app/requirements.txt` genuinely mirror
+root — or have CI install both files — and decide deliberately whether packaged builds
+should ship `Send2Trash` (restoring recycle-bin deletion) and `yt-dlp`. Add a test
+asserting the two requirement sets agree, so the header's claim is enforced rather than
+aspirational.
