@@ -487,3 +487,65 @@ Complete — see `01-FINDINGS-icon.md`. Candidate (b) (`setWindowIcon` failing s
 explanation. **The blank-icon symptom did not reproduce** in either the direct or installed
 launch — both showed a correct icon in title bar and taskbar — so the fix is justified by
 mechanism, not by reproduction.
+
+
+---
+
+## Plan 01-08 — final artifact evidence (2026-07-31)
+
+Build: clean venv, committed source `79225df`, first artifact containing the single-instance
+guard, the AppUserModelID call, and the checklist UI together. `--assert-pruned` exit 0.
+
+| Figure | Bytes | MiB |
+|---|---|---|
+| `Setup.exe` | 379,799,777 | 362.2 |
+| Expanded tree (real silent install) | 1,097,778,827 | 1,046.9 |
+| Portable ZIP | 499,838,479 | 476.7 |
+
+### Single instance (D-18 / D-19) — PASS
+
+| Check | Result |
+|---|---|
+| Second launch starts a second process | No — PID exited code 0, one process remained |
+| Minimized existing window restored | Yes — `IsIconic` True → False |
+| Existing window focused | Yes — foreground became the target handle |
+
+First attempt showed foreground unchanged, but the window was already visible so nothing needed
+to change, and Windows withholds focus changes without recent user input. Minimized is the real
+scenario (it is *why* a user clicks again) and it passes.
+
+### Icon (D-20 / D-21) — PASS, symptom never reproduced
+
+| Launch path | Icon |
+|---|---|
+| onedir exe directly | present (title bar + taskbar) |
+| installed build | present |
+| installed via Start Menu shortcut (AUMID declared) | present — `ICON_BIG 0x355D064B`, taskbar `LecturePack - 1 running window` |
+
+Shortcut carries `AppUserModelID: "LecturePack.LecturePack"` (`lecturepack.iss:70`), matching
+`main.py:80`. The blank icon was **not reproduced on any path**, including the Start Menu route
+that was the leading hypothesis. The fix stands on mechanism, not on a reproduction.
+
+### Launch timing
+
+| Run | Time to window |
+|---|---|
+| fresh tree, cold file cache | 9.43 s |
+| fresh profile, warm cache | 2.58 s |
+| acknowledged profile, warm cache | 2.38 s |
+| installed build, fresh profile | 10.87 s |
+| installed via Start Menu shortcut | 9.27 s |
+
+Cold and warm profiles are now nearly identical on a warm cache — validation moved off the
+startup path (01-06), so time-to-window no longer carries it. The 9–11 s figures are file-cache
+cost on a freshly written ~1 GB tree.
+
+### Not measured — remaining gaps
+
+1. **Clean machine.** Every number above came from the developer box: `torch`/`transformers`
+   installed globally, warm file cache, prior LecturePack history. Not clean-device evidence.
+2. **Time to *ready*.** All timings are time-to-first-window. Time-to-fully-validated was
+   never captured, so Criterion 3's "honest itemized progress" half is qualitative only.
+3. **Four UI-SPEC backstops** — reduced-motion timing, Tab focus containment, layout at other
+   window sizes, whisper slow-notice text. Need deliberate interaction.
+4. **~455 MB of the owner-vs-measured size gap** remains unexplained (see reconciliation above).
