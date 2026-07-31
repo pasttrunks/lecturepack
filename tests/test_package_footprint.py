@@ -29,13 +29,16 @@ def _make_pruned_tree(root: Path, *, include_cut_targets: bool, ggml_copies: int
 
     # opengl32sw.dll is always present in this fixture — D-02 keep.
     (pyside6 / "opengl32sw.dll").write_bytes(b"x" * 20)
+    # BUG-27: load-bearing for QtWebChannel/QtWebEngineCore — always present.
+    for dll in ("Qt6Qml.dll", "Qt6Quick.dll"):
+        (pyside6 / dll).write_bytes(b"x" * 30)
 
     if include_cut_targets:
         (pyside6 / "translations").mkdir()
         (pyside6 / "translations" / "qtbase_fr.qm").write_bytes(b"x" * 5)
         (pyside6 / "qml").mkdir()
         (pyside6 / "qml" / "propertyGroups.json").write_text("{}")
-        for dll in ("Qt6Qml.dll", "Qt6Quick.dll", "Qt6Quick3DRuntimeRender.dll", "Qt6Pdf.dll"):
+        for dll in ("Qt6Quick3DRuntimeRender.dll", "Qt6Pdf.dll"):
             (pyside6 / dll).write_bytes(b"x" * 30)
 
     for i in range(ggml_copies):
@@ -81,10 +84,10 @@ def test_top_contributors_sorted_descending_and_limited(tmp_path):
     assert "big" in names
 
 
-def test_audit_pruned_tree_reports_all_six_present(tmp_path):
+def test_audit_pruned_tree_reports_all_cut_targets_present(tmp_path):
     app = _make_pruned_tree(tmp_path, include_cut_targets=True, ggml_copies=1)
     audit = measure.audit_pruned_tree(app)
-    assert audit["cut_targets_present_count"] == 6
+    assert audit["cut_targets_present_count"] == 4
     assert all(audit["cut_targets"].values())
 
 
