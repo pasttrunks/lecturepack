@@ -122,6 +122,33 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 | Onboarding | Alternate tour modes and reduced-motion preference | Future (FUTR-03, FUTR-04) | 2026-07-27 |
 | Architecture | Unrelated detector and worker technical debt | Out of scope | 2026-07-27 |
 
+## Deferred Verification
+
+| Phase | State | Resume |
+|-------|-------|--------|
+| 1 | blocked_on_human_verification | `/gsd-execute-phase 1` (runs 01-05, then 01-08) |
+
+Autonomous mode stopped here by design, not by failure. Six of eight plans are executed and
+committed; the two remaining (`01-05`, `01-08`) are `autonomous: false` and carry
+`checkpoint:human-verify` gates that require a person at a Windows machine. They were not
+attempted, skipped, or partially applied.
+
+**01-05 — single instance + taskbar icon.** D-20 forbids assuming the icon cause: it must be
+determined on a *packaged* build, choosing between (a) no
+`SetCurrentProcessExplicitAppUserModelID` call existing anywhere in `app/`, and (b)
+`setWindowIcon` at `app/desktop/main.py:107` being guarded by `os.path.exists` with no
+else-branch so a missing `.ico` fails silently. (a) is the stronger suspect — the `.ico` *is*
+present in the built output and *is* stamped into the exe — but D-20 requires confirming, not
+assuming. Findings go to `01-FINDINGS-icon.md`.
+
+**01-08 — physical evidence gate.** Needs a silent install/uninstall of the post-cut
+`Setup.exe` for the expanded-tree figure, cold and warm launch timings on a clean profile
+(D-07: architecturally different paths, measured separately), the two-process
+raise-and-focus proof, the icon-visible proof, and the four UI-SPEC backstop rows deferred by
+01-07 (reduced-motion timing, focus/keyboard containment, real-width layout, whisper
+slow-notice text). A verified post-cut build is already sitting in `app/dist/` — do not
+rebuild before using it.
+
 ## Session Continuity
 
 Last session: 2026-07-31T13:55:57.671Z
