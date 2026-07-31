@@ -49,6 +49,7 @@ class ConfigManager:
         # first-launch experience; users can switch to light in Settings.
         "dark_theme": True,
         "ollama": {},
+        "setup_acknowledged": False,
     }
 
     def __init__(self, data_dir=None):
@@ -130,6 +131,25 @@ class ConfigManager:
 
         self.settings["migration_versions"] = migration_versions
         self.settings["runtime_health"] = runtime_health
+        self.save()
+
+    def setup_acknowledged(self) -> bool:
+        """Return True only when the persisted flag is a literal boolean True.
+
+        A corrupted or hand-edited ``config.json`` (non-boolean value) must
+        degrade to "show the checklist again" — never to a crash, and never
+        to a truthy-string bypass (D-16).
+        """
+        return self.settings.get("setup_acknowledged") is True
+
+    def persist_setup_acknowledged(self) -> None:
+        """Atomically persist the first-run checklist acknowledgement.
+
+        Per D-16 this rides the same ``config.json`` atomic-write transport as
+        ``persist_runtime_health()`` — never WebEngine ``localStorage`` and
+        never ``QSettings`` — so the flag survives a WebEngine profile reset.
+        """
+        self.settings["setup_acknowledged"] = True
         self.save()
 
     def resolve_data_dir(self):
