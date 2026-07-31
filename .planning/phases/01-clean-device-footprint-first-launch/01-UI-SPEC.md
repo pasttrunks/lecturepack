@@ -298,6 +298,7 @@ different primary CTA label, and different color role for its primary action ent
 | Primary CTA (`checklist`) | Continue |
 | Secondary CTA (`checklist`) | Skip |
 | Empty state (checklist items missing/unparseable) | LecturePack finished setup, but couldn't list every check. You can continue safely. *(mirrors `02-UI-SPEC.md`'s equivalent fallback; Continue remains enabled)* |
+| Single-word CTA convention | `Continue` and `Skip` are deliberately single words with no noun, matching the inherited `02-UI-SPEC.md` house vocabulary (`Retry`, `Back`, `Exit`) — not an oversight. Do not add a trailing noun to these labels. |
 | Error state (`checking` never resolves to a valid canonical result — e.g. bridge exception) | No new copy — the backend's contract guarantees every `assess()` outcome maps to either `HEALTHY` or `SETUP_REQUIRED` (or a repair terminal state); an unrecoverable exception is required to still resolve to `SETUP_REQUIRED`, which routes to the unchanged, existing `gate` failure copy. This phase adds no new error copy. |
 | Destructive actions in this phase | None. `checking` and `checklist` contain no destructive action; `Exit` (identical wording/behavior to the existing gate's Exit) is the only irreversible action available in `checking`, and it already has no confirmation step in the existing contract — unchanged. |
 
@@ -319,13 +320,23 @@ Identical mechanism to `02-UI-SPEC.md` (non-dismissible modal, `topOverlay()`,
   the visible row text includes the word "Ready" or "Needs Attention" (not just a colored
   border), matching the existing WCAG-driven pattern already used for job-status badges
   elsewhere in the app.
-- Reduced motion: `checking`'s per-row status flip and the aggregate bar fill must resolve
-  to their final state instantly under `prefers-reduced-motion: reduce`, exactly per the
-  existing global rule (`transition-duration:.001ms !important` block already in
-  `app.css:756`) — no new reduced-motion carve-out needed since this reuses `.lp-fill`
-  and `.lp-state`, both already covered by that blanket rule. This directly closes the
-  class of gap BUG-20 found (a rule set covering N states needs a reduce override for all
-  N, not the obvious ones) by not introducing any new un-audited animated property.
+- Reduced motion: `checking`'s per-row status badge (`.lp-state`) and the aggregate bar
+  (`.lp-fill`) do **not** go fully instant under `prefers-reduced-motion: reduce` — the
+  blanket `.001ms` rule (`app.css:752-757`) is deliberately overridden for exactly these
+  classes by the more specific rule at `app.css:809-812`
+  (`.lp-state,.lp-stage,.lp-fill{transition-duration:var(--motion-fast) !important;
+  transition-property:opacity,background-color,border-color,color !important;}`), so a
+  row's opacity/background-color/border-color/color feedback resolves within
+  `--motion-fast` (90ms) — perceivable, not merely present, per the comment at
+  `app.css:765-776` — rather than truly instantly. `.lp-fill`'s `scaleX` progress value is
+  excluded from that transitioned-property list (`app.css:798-800`), so the aggregate
+  bar's width **jumps** immediately with no animation while its color still takes 90ms.
+  No new reduced-motion carve-out is needed, and none may be added — this phase reuses
+  `.lp-fill`/`.lp-state` precisely because their reduced-motion behavior is already
+  correct and audited. This directly closes the class of gap BUG-20 found (a rule set
+  covering N states needs a reduce override for all N, not the obvious ones) by not
+  introducing any new un-audited animated property, and by stating the *actual* existing
+  behavior rather than an assumed "instant" that the code does not implement.
 - Contrast: `.lp-state[data-state="success"]`/`[data-state="paused"]` and `--on-signal`
   on `--orange` are the exact token pairs already verified AA-compliant under BUG-05's
   fix (green fill 5.91/8.87, yellow-soft as a background only — text stays `--ink`, never
@@ -387,7 +398,7 @@ real cold launch.
 | Ready-only vs. Mixed heading/CTA identity (must not look like a warning screen) | Headless — visual/DOM snapshot test at both fixture states | Can be proven by rendering both fixture payloads and asserting identical heading/CTA markup with only the one row's class differing — no Qt needed for this specific claim. |
 | Failure gate (`gate`) visually and behaviorally unchanged | Headless — regression test against `02-UI-SPEC.md`'s existing test fixtures | Re-run the existing `02` gate fixtures unmodified; any diff is a regression. |
 | Focus trap / keyboard containment for `checking` and `checklist` | 🧪 backstop, **packaged run recommended** | Automated coverage per the Verification Contract pattern already established in `02-UI-SPEC.md`; a headless test can drive most of it, but the definitive proof (per BUG-20/21/22, all "verified in real Qt") is a real-Qt CDP pass. |
-| Reduced-motion instant resolution for the two new states | 🧪 backstop, **packaged run recommended** | Same rationale as above — the existing blanket CSS rule is reused, but BUG-20's lesson is that reduce-block coverage claims must be re-verified per new state, not assumed. |
+| Reduced-motion resolves within 90ms (not instant) for the two new states, with no visible flash | 🧪 backstop, **packaged run recommended** | `.lp-state`/`.lp-fill` color feedback is clamped to `--motion-fast` (90ms) by the deliberate override at `app.css:809-812`, and `.lp-fill`'s `scaleX` jumps with no transition; the assertion is "resolves within 90ms, no visible flash," never "instant" — BUG-20's lesson is that reduce-block coverage claims must be re-verified per new state against the actual CSS, not assumed. |
 | Contrast of reused `.lp-state`/`--on-signal` pairings in the new context | Headless — token-value contrast test | No new token pairing is introduced; the existing BUG-05 contrast-regression test suite already recomputes these ratios from shipped values and will catch any future palette drift. |
 | Panel does not overflow / clip at 1220px, 820px, 640px with 5 real rows | **Packaged Qt WebEngine run required** | Layout-at-real-widths claims for this specific new content are not provably safe from a headless assertion alone per the project's own BUG-03 history. |
 
