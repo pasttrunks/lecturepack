@@ -1747,13 +1747,21 @@ class LecturePackAdapter(EngineAdapter):
             return
         try:
             job = Job(self.config.data_dir, video_path=path)
-            self._kick_poster(job)
             self.controller.set_job(job)
             self._pending_job = job
             self._set_active_job(job)
             meta_str = f"{_human_size(os.path.getsize(path))}"
+            # detect_binaries() is the only thing that seeds ffmpeg_exe in
+            # config on a fresh session; run it (own try so a failure here
+            # cannot skip the poster kick or the metadata inspection below)
+            # BEFORE _kick_poster reads config.get("ffmpeg_exe", None) — see
+            # BUG-25 and BUG-26 for why the poster path is fragile.
             try:
                 self.controller.ffmpeg_wrapper.detect_binaries()
+            except Exception as exc:
+                self._log("[inspect]", f"binary detection unavailable: {exc}", "error")
+            self._kick_poster(job)
+            try:
                 meta = self.controller.ffmpeg_wrapper.inspect_video(path)
                 job.source.update(meta)
                 job.save()
@@ -1823,10 +1831,19 @@ class LecturePackAdapter(EngineAdapter):
         job.save()
         self._set_active_job(job)
 
-        # Validate whisper availability for modes that need it.
+        # Validate whisper availability for modes that need it. Ask the
+        # EngineRegistry (same resolution used by the transcription backend
+        # itself) instead of reading the raw whisper_exe config value: its
+        # _cpu_exe() fallback finds the bundled binary under app_root()/bin
+        # even when config is empty on a clean install (D-01). The
+        # whisper_model check stays a plain config read — persist_runtime_health
+        # reliably populates it already.
         needs_whisper = product_mode != constants.PRODUCT_MODE_SLIDES_ONLY
-        w_exe = self.config.get("whisper_exe", "")
-        if needs_whisper and (not w_exe or not os.path.exists(w_exe)
+        if needs_whisper:
+            resolved_engine = self.controller.engine_registry.resolve(
+                self.config.get("engine", "auto"))
+        if needs_whisper and (not resolved_engine.exe_path
+                              or not resolved_engine.available
                               or not w_model or not os.path.exists(w_model)):
             self._emit("status_changed", {
                 "label": "Setup needed", "pct": 0,
