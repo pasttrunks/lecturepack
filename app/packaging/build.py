@@ -612,10 +612,23 @@ def ensure_bundled_engine_binaries() -> None:
     print("Extracted bundled engine binaries.")
 
 
+def _warn_if_global_env() -> None:
+    if sys.prefix == sys.base_prefix and not os.environ.get("CI"):
+        print(
+            "WARNING: running outside a virtual environment. PyInstaller will "
+            "collect every package in the global site-packages, including "
+            "undeclared ones (torch, transformers, etc). Use "
+            "scripts/release_build.py for a clean build.",
+            file=sys.stderr,
+        )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-installer", action="store_true", help="build the exe but skip Inno Setup")
     args = ap.parse_args()
+
+    _warn_if_global_env()
 
     version = read_version()
     print(f"Building LecturePack {version}")
