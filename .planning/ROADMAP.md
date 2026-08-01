@@ -123,6 +123,18 @@ Cross-cutting constraints: preserve existing user data; do not break demo proces
 
 Canonical references: `app/desktop/engine_adapter.py`, `app/desktop/bridge.py`, `app/ui/app.js`, `lecturepack/infrastructure/runtime_inventory.py`, `lecturepack/services/first_run_checklist.py`, `BUG_LIST.md`.
 
+**Plans:** 3 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Runtime path auto-population: seed exe paths via persist_runtime_health, fix start_processing gate to use EngineRegistry.resolve, fix _kick_poster ordering (SC-01, SC-04, SC-05, SC-06, SC-07, SC-08)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — Job lifecycle verification: regression tests for normal-import lifecycle, Source retention, active job indicator, failed job persistence (SC-02, SC-03, SC-09)
+- [ ] 02-03-PLAN.md — Settings lock + Paste Link: lock slide sensitivity during normal processing, verify Paste Link end-to-end wiring (SC-10, SC-11)
+
 **Approval/evidence gate**: All three output modes completing on a real local video in the packaged build; job lifecycle visible throughout; demo still passing; Paste Link creating a persisted job.
 
 **UI hint**: yes
@@ -134,4 +146,4 @@ Canonical references: `app/desktop/engine_adapter.py`, `app/desktop/bridge.py`, 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Clean-Device Footprint & First Launch | 8/8 | In Progress |  |
-| 2. Real Lecture Import & Processing | 0/0 | Not Started |  |
+| 2. Real Lecture Import & Processing | 0/3 | Not Started |  |
