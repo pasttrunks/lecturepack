@@ -418,6 +418,161 @@ def test_unexpected_full_validator_failure_stays_setup_required_without_persiste
     assert optional_calls == []
 
 
+# ---------------------------------------------------------------------------
+# Plan 02-01, Task 1 (D-01/D-02): persist_runtime_health(exe_paths=...) seeds
+# whisper_exe/ffmpeg_exe/ffprobe_exe from the resolved bootstrap inventory on
+# a clean install, without ever overwriting a user-set path that is real.
+# ---------------------------------------------------------------------------
+
+
+def test_persist_runtime_health_seeds_exe_paths_from_empty_config(tmp_path):
+    """(a) A clean-install config (empty exe keys) is populated on first boot."""
+    from lecturepack.infrastructure.config_manager import ConfigManager
+
+    cfg = ConfigManager(str(tmp_path / "profile"))
+    assert cfg.get("whisper_exe", "") == ""
+    assert cfg.get("ffmpeg_exe", "") == ""
+    assert cfg.get("ffprobe_exe", "") == ""
+
+    exe_paths = {
+        "whisper_exe": str(tmp_path / "bin" / "whisper-cli.exe"),
+        "ffmpeg_exe": str(tmp_path / "bin" / "ffmpeg.exe"),
+        "ffprobe_exe": str(tmp_path / "bin" / "ffprobe.exe"),
+    }
+    cfg.persist_runtime_health(
+        {"components": {"x": {"healthy": True}}},
+        bundled_model=str(tmp_path / "models" / "ggml-base.en.bin"),
+        exe_paths=exe_paths,
+    )
+
+    assert cfg.get("whisper_exe") == exe_paths["whisper_exe"]
+    assert cfg.get("ffmpeg_exe") == exe_paths["ffmpeg_exe"]
+    assert cfg.get("ffprobe_exe") == exe_paths["ffprobe_exe"]
+
+
+def test_persist_runtime_health_never_overwrites_a_real_user_set_exe_path(tmp_path):
+    """(b) A user-set path that os.path.isfile() confirms real is preserved."""
+    from lecturepack.infrastructure.config_manager import ConfigManager
+
+    user_whisper = tmp_path / "custom" / "my-whisper.exe"
+    user_whisper.parent.mkdir(parents=True, exist_ok=True)
+    user_whisper.write_bytes(b"user binary")
+
+    cfg = ConfigManager(str(tmp_path / "profile"))
+    cfg.settings["whisper_exe"] = str(user_whisper)
+
+    bundled_whisper = tmp_path / "bin" / "whisper-cli.exe"
+    cfg.persist_runtime_health(
+        {"components": {"x": {"healthy": True}}},
+        bundled_model=str(tmp_path / "models" / "ggml-base.en.bin"),
+        exe_paths={"whisper_exe": str(bundled_whisper), "ffmpeg_exe": str(tmp_path / "ffmpeg.exe")},
+    )
+
+    assert cfg.get("whisper_exe") == str(user_whisper)
+    # ffmpeg_exe had no prior real file, so it IS seeded.
+    assert cfg.get("ffmpeg_exe") == str(tmp_path / "ffmpeg.exe")
+
+
+def test_persist_runtime_health_exe_paths_none_is_backward_compatible(tmp_path):
+    """(c) Existing callers passing no exe_paths keep working — no exe keys touched."""
+    from lecturepack.infrastructure.config_manager import ConfigManager
+
+    cfg = ConfigManager(str(tmp_path / "profile"))
+    cfg.persist_runtime_health(
+        {"components": {"x": {"healthy": True}}},
+        bundled_model=str(tmp_path / "models" / "ggml-base.en.bin"),
+    )
+
+    assert cfg.get("whisper_exe", "") == ""
+    assert cfg.get("ffmpeg_exe", "") == ""
+    assert cfg.get("ffprobe_exe", "") == ""
+    assert cfg.get("migration_versions")["runtime_contract"] == 1
+
+
+def test_persist_runtime_health_second_call_never_reseeds_empty_exe_paths(tmp_path):
+    """(d) Once the migration guard has run, a second call with empty exe
+    values does not re-seed them — the migration block is skipped entirely."""
+    from lecturepack.infrastructure.config_manager import ConfigManager
+
+    cfg = ConfigManager(str(tmp_path / "profile"))
+    cfg.persist_runtime_health(
+        {"components": {"x": {"healthy": True}}},
+        bundled_model=str(tmp_path / "models" / "ggml-base.en.bin"),
+        exe_paths={"whisper_exe": str(tmp_path / "bin" / "whisper-cli.exe")},
+    )
+    assert cfg.get("whisper_exe") == str(tmp_path / "bin" / "whisper-cli.exe")
+
+    # Simulate the user clearing the setting by hand between boots.
+    cfg.settings["whisper_exe"] = ""
+    cfg.persist_runtime_health(
+        {"components": {"x": {"healthy": True}}},
+        bundled_model=str(tmp_path / "models" / "ggml-base.en.bin"),
+        exe_paths={"whisper_exe": str(tmp_path / "bin" / "whisper-cli.exe")},
+    )
+
+    assert cfg.get("whisper_exe") == ""
+
+
+def test_bootstrap_assess_passes_exe_paths_through_to_persist_runtime_health(tmp_path, monkeypatch):
+    """assess() constructs exe_paths from the resolved inventory and forwards
+    them to persist_runtime_health — end-to-end wiring for D-01."""
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    cfg = ConfigManager(str(tmp_path / "profile"))
+    whisper = tmp_path / "bin" / "whisper-cli.exe"
+    ffmpeg = tmp_path / "bin" / "ffmpeg.exe"
+    ffprobe = tmp_path / "bin" / "ffprobe.exe"
+    for p in (whisper, ffmpeg, ffprobe):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"x")
+
+    service = RuntimeBootstrapService(
+        cfg,
+        runtime_root=tmp_path,
+        inventory_resolver=lambda root: {
+            "bin/whisper-cli.exe": whisper,
+            "bin/ffmpeg.exe": ffmpeg,
+            "bin/ffprobe.exe": ffprobe,
+        },
+        identity_provider=lambda root: "payload-v1",
+        full_validator=lambda components: _complete_success_evidence(components),
+    )
+
+    result = service.assess()
+
+    assert result.state == "HEALTHY"
+    assert cfg.get("whisper_exe") == str(whisper)
+    assert cfg.get("ffmpeg_exe") == str(ffmpeg)
+    assert cfg.get("ffprobe_exe") == str(ffprobe)
+
+
+def test_bootstrap_assess_missing_inventory_entry_does_not_crash(tmp_path):
+    """A missing inventory entry (e.g. no ffprobe key resolved) must not crash
+    the whole assessment — the guarded .get()-style lookup skips it."""
+    from lecturepack.infrastructure.config_manager import ConfigManager
+    from lecturepack.services.runtime_bootstrap import RuntimeBootstrapService
+
+    cfg = ConfigManager(str(tmp_path / "profile"))
+    whisper = tmp_path / "bin" / "whisper-cli.exe"
+    whisper.parent.mkdir(parents=True, exist_ok=True)
+    whisper.write_bytes(b"x")
+
+    service = RuntimeBootstrapService(
+        cfg,
+        runtime_root=tmp_path,
+        inventory_resolver=lambda root: {"bin/whisper-cli.exe": whisper},
+        identity_provider=lambda root: "payload-v1",
+        full_validator=lambda components: _complete_success_evidence(components),
+    )
+
+    result = service.assess()
+
+    assert result.state == "HEALTHY"
+    assert cfg.get("whisper_exe") == str(whisper)
+    assert cfg.get("ffmpeg_exe", "") == ""
+
+
 def test_runner_captures_success_evidence_with_argument_array(tmp_path):
     script = tmp_path / "echo.py"
     script.write_text("print('backend model WAV processing')", encoding="utf-8")

@@ -102,8 +102,22 @@ class RuntimeBootstrapService:
                 return RuntimeBootstrapResult("SETUP_REQUIRED", mode, evidence)
 
         bundled_model = str(paths["models/ggml-base.en.bin"]) if "models/ggml-base.en.bin" in paths else ""
+        # D-01: seed the exe paths ConfigManager needs for normal processing
+        # (start_processing()'s whisper gate, _kick_poster's ffmpeg lookup) from
+        # this same resolved+validated inventory. Guarded individually so a
+        # missing inventory entry never aborts the whole assessment.
+        exe_paths = {}
+        _exe_key_map = (
+            ("whisper_exe", "bin/whisper-cli.exe"),
+            ("ffmpeg_exe", "bin/ffmpeg.exe"),
+            ("ffprobe_exe", "bin/ffprobe.exe"),
+        )
+        for config_key, inventory_key in _exe_key_map:
+            candidate = paths.get(inventory_key)
+            if candidate is not None:
+                exe_paths[config_key] = str(candidate)
         runtime_health = {"identity": identity, "components": evidence, "validation_mode": mode}
-        self.config.persist_runtime_health(runtime_health, bundled_model=bundled_model)
+        self.config.persist_runtime_health(runtime_health, bundled_model=bundled_model, exe_paths=exe_paths)
         notice = self._resolve_post_health_optional()
         return RuntimeBootstrapResult("HEALTHY", mode, evidence, notice)
 

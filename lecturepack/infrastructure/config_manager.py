@@ -104,11 +104,19 @@ class ConfigManager:
         self.settings[key] = value
         self.save()
 
-    def persist_runtime_health(self, runtime_health, *, bundled_model):
+    def persist_runtime_health(self, runtime_health, *, bundled_model, exe_paths=None):
         """Atomically persist a complete, validated runtime-health snapshot.
 
         The beta-6 migration is deliberately guarded by an explicit marker so
         later manual model choices are never overwritten on subsequent starts.
+
+        ``exe_paths`` (D-01/D-02) is an optional dict mapping config key names
+        (``whisper_exe``, ``ffmpeg_exe``, ``ffprobe_exe``) to resolved absolute
+        path strings. It is seeded into ``config.json`` ONLY inside the same
+        one-time migration guard used for ``whisper_model`` above, and ONLY when
+        the current value for that key is empty or does not point at an
+        existing file — so a manually configured path is never overwritten,
+        on first boot or any later one.
         """
         if not isinstance(runtime_health, dict) or not runtime_health.get("components"):
             raise ValueError("runtime health must contain complete component facts")
@@ -128,6 +136,14 @@ class ConfigManager:
                 self.settings["known_whisper_models"] = known_models
             self.settings["whisper_model"] = bundled_model
             migration_versions["runtime_contract"] = 1
+
+            if isinstance(exe_paths, dict):
+                for key in ("whisper_exe", "ffmpeg_exe", "ffprobe_exe"):
+                    if key not in exe_paths:
+                        continue
+                    current = self.settings.get(key, "")
+                    if not current or not os.path.isfile(current):
+                        self.settings[key] = exe_paths[key]
 
         self.settings["migration_versions"] = migration_versions
         self.settings["runtime_health"] = runtime_health
