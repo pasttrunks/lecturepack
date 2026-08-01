@@ -4,16 +4,16 @@ milestone: v0.9.0-beta.7
 milestone_name: Clean-Device Footprint and First Launch
 current_phase: 01
 current_phase_name: Clean-Device Footprint & First Launch
-status: executing
-stopped_at: Completed 01-05-PLAN.md
+status: verifying
+stopped_at: Phase 1 executed — verification gaps_found (4/6), 5 human items
 last_updated: "2026-07-31T22:53:29.469Z"
 last_activity: 2026-07-31
-last_activity_desc: "Plan 01-05 executed (single-instance guard, AppUserModelID, non-silent icon path)"
+last_activity_desc: "Phase 1 all 8 plans executed; verifier returned gaps_found"
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
