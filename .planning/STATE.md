@@ -5,15 +5,15 @@ milestone_name: Clean-Device Footprint and First Launch
 current_phase: 02
 current_phase_name: real-lecture-import-processing
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-08-01T11:42:43.739Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-08-01T11:57:50.269Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 12
-  completed_plans: 9
+  completed_plans: 10
   percent: 50
 ---
 
@@ -29,7 +29,7 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 02 (real-lecture-import-processing) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-08-01 — Phase 02 execution started
 
@@ -73,6 +73,7 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 - [Phase ?]: [Phase 01 Plan 07]: D-08/D-09/D-11/D-12/D-13/D-14/D-16/D-17 implemented on the UI side. RuntimeSetupGateModel gains checking/checklist states routed off bootstrap_pending/validation_path/setup_acknowledged (never a runtime_health_state string), with all seven pre-existing states byte-identical. Row identity is always the fixed FIRST_RUN_ROWS array keyed to the backend's FIRST_RUN_CHECKLIST_ITEMS. Badge colour comes only from the audited .lp-state[data-state] class rule (app/ui/app.css untouched, net zero lines). syncDemoAdmission() now requires the acknowledged flag so the guided demo is reachable only after Continue/Skip. Full suite: 1006 passed, 7 failed (same 7 pre-existing failures; zero new failures). Four UI-SPEC backstop rows (reduced-motion timing, focus containment, real-width layout, whisper slow-notice text) deferred to Plan 01-08's packaged session.
 - [Phase ?]: [Phase 01 Plan 05]: D-18/D-19/D-20/D-21 implemented. SingleInstanceGuard (QLocalServer/QLocalSocket) runs right after QApplication(sys.argv) and before MainWindow()/Backend.__init__, raises the existing window via a shared raise_and_focus() rather than exiting silently, and fails open to primary on any IPC error or stale-endpoint reclaim. AppUserModelID declared as main()'s first statement (mechanism-justified per 01-FINDINGS-icon.md's Task 1 diagnosis, which ruled out setWindowIcon and did not reproduce the owner's symptom on this beta-7 build) and matched byte-for-byte in lecturepack.iss. Both icon-resolution guards now report a missing .ico instead of silently continuing. Full suite: 1036 passed, 9 failed (1006 baseline + 28 new tests; the 7 pre-existing failures are unchanged; 2 new failures are a pre-existing BUG-27 stale-test-fixture issue confirmed unrelated to this plan and logged to deferred-items.md). Installed-build two-process and icon-visible proofs remain backstop items owned by Plan 01-08.
 - [Phase ?]: [Phase 02 Plan 01]: D-01/D-02 implemented — ConfigManager.persist_runtime_health(exe_paths=...) seeds whisper_exe/ffmpeg_exe/ffprobe_exe from the bootstrap's resolved inventory inside the existing one-time migration guard, never overwriting a real user-set path; start_processing()'s whisper gate now resolves via EngineRegistry.resolve() (Slides Only unaffected); import_video() runs detect_binaries() before _kick_poster() so the first import in a session gets a real poster. Full suite: 1044 passed, 7 failed (same 7 pre-existing release_trust failures; zero new failures).
+- [Phase ?]: [Phase 02 Plan 02]: 9 regression tests added in tests/test_phase2_job_lifecycle.py proving the normal-import job lifecycle (NEW->QUEUED->RUNNING->COMPLETED/FAILED) works end-to-end on a clean install (no manual whisper_exe/ffmpeg_exe/ffprobe_exe config mocking), relying on the dev tree's own bin/Release/whisper-cli.exe and bin/ffmpeg.exe/ffprobe.exe fallback discovery plus persist_runtime_health(bundled_model=...) for whisper_model seeding. No changes to job_lifecycle.py or job_queue.py (D-05). Full suite: 1053 passed, 7 failed (1044 baseline + 9 new tests; same 7 pre-existing release_trust failures; zero new failures).
 
 ### Measured baseline (2026-07-30)
 
@@ -155,8 +156,8 @@ rebuild before using it.
 
 ## Session Continuity
 
-Last session: 2026-08-01T11:42:35.147Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-08-01T11:57:50.258Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -171,3 +172,4 @@ Resume file: None
 | Phase 01 P07 | ~50min | 3 tasks | 3 files |
 | Phase 01 P05 | ~45min | 3 tasks | 6 files |
 | Phase 02 P01 | ~35min | 2 tasks | 4 files |
+| Phase 02 P02 | ~45min | 2 tasks | 1 files |

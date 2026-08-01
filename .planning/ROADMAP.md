@@ -123,7 +123,7 @@ Cross-cutting constraints: preserve existing user data; do not break demo proces
 
 Canonical references: `app/desktop/engine_adapter.py`, `app/desktop/bridge.py`, `app/ui/app.js`, `lecturepack/infrastructure/runtime_inventory.py`, `lecturepack/services/first_run_checklist.py`, `BUG_LIST.md`.
 
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
 **Wave 1**
@@ -132,7 +132,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 02-02-PLAN.md — Job lifecycle verification: regression tests for normal-import lifecycle, Source retention, active job indicator, failed job persistence (SC-02, SC-03, SC-09)
+- [x] 02-02-PLAN.md — Job lifecycle verification: regression tests for normal-import lifecycle, Source retention, active job indicator, failed job persistence (SC-02, SC-03, SC-09)
 - [ ] 02-03-PLAN.md — Settings lock + Paste Link: lock slide sensitivity during normal processing, verify Paste Link end-to-end wiring (SC-10, SC-11)
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -152,4 +152,4 @@ Cross-cutting constraints: preserve existing user data; do not break demo proces
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Clean-Device Footprint & First Launch | 8/8 | In Progress |  |
-| 2. Real Lecture Import & Processing | 1/4 | In Progress|  |
+| 2. Real Lecture Import & Processing | 2/4 | In Progress|  |
