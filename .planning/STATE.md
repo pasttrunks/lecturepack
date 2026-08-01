@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.9.0-beta.7
 milestone_name: Clean-Device Footprint and First Launch
-current_phase: 01
-current_phase_name: Clean-Device Footprint & First Launch
-status: verifying
-stopped_at: Phase 2 context gathered
-last_updated: "2026-08-01T05:24:59.832Z"
-last_activity: 2026-07-31
-last_activity_desc: Plan 01-05 executed (single-instance guard, AppUserModelID, non-silent icon path)
+current_phase: 02
+current_phase_name: real-lecture-import-processing
+status: executing
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-08-01T11:42:43.739Z"
+last_activity: 2026-08-01
+last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 12
+  completed_plans: 9
   percent: 50
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: `.planning/PROJECT.md`
 
 **Core value:** Convert locally stored lecture videos into complete, reviewable, portable study packs entirely on-device.
-**Current focus:** Phase 01 — Clean-Device Footprint & First Launch
+**Current focus:** Phase 02 — real-lecture-import-processing
 
 ## Current Position
 
-Phase: 01 (Clean-Device Footprint & First Launch) — EXECUTING
-Plan: 7 of 8 complete (01-01..01-07 done; only 01-08 remains)
-Status: Ready to run 01-08 (physical clean-machine evidence gate — autonomous: false, human at a Windows machine required)
-Last activity: 2026-07-31 — Plan 01-05 executed (single-instance guard, AppUserModelID, non-silent icon path)
+Phase: 02 (real-lecture-import-processing) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-08-01 — Phase 02 execution started
 
 Milestone progress: [████████░░] 88% (phase-level; 7/8 plans complete within Phase 1)
 
@@ -72,6 +72,7 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 - [Phase 01 Plan 04]: D-01 Qt pruning (~101MB) + model dedupe (~148MB) implemented as post-build deletion in build.py; D-24 torch/transformers excludes (~416.5MB) added to lecturepack.spec; D-04 resources/ (106.3MB) investigated and reported, kept not cut. Full suite 964 passed/7 failed (baseline 944/7, zero new failures). Build-dependent verification (real post-cut build, packaged smoke, WebEngine render proof) explicitly left to the orchestrator.
 - [Phase ?]: [Phase 01 Plan 07]: D-08/D-09/D-11/D-12/D-13/D-14/D-16/D-17 implemented on the UI side. RuntimeSetupGateModel gains checking/checklist states routed off bootstrap_pending/validation_path/setup_acknowledged (never a runtime_health_state string), with all seven pre-existing states byte-identical. Row identity is always the fixed FIRST_RUN_ROWS array keyed to the backend's FIRST_RUN_CHECKLIST_ITEMS. Badge colour comes only from the audited .lp-state[data-state] class rule (app/ui/app.css untouched, net zero lines). syncDemoAdmission() now requires the acknowledged flag so the guided demo is reachable only after Continue/Skip. Full suite: 1006 passed, 7 failed (same 7 pre-existing failures; zero new failures). Four UI-SPEC backstop rows (reduced-motion timing, focus containment, real-width layout, whisper slow-notice text) deferred to Plan 01-08's packaged session.
 - [Phase ?]: [Phase 01 Plan 05]: D-18/D-19/D-20/D-21 implemented. SingleInstanceGuard (QLocalServer/QLocalSocket) runs right after QApplication(sys.argv) and before MainWindow()/Backend.__init__, raises the existing window via a shared raise_and_focus() rather than exiting silently, and fails open to primary on any IPC error or stale-endpoint reclaim. AppUserModelID declared as main()'s first statement (mechanism-justified per 01-FINDINGS-icon.md's Task 1 diagnosis, which ruled out setWindowIcon and did not reproduce the owner's symptom on this beta-7 build) and matched byte-for-byte in lecturepack.iss. Both icon-resolution guards now report a missing .ico instead of silently continuing. Full suite: 1036 passed, 9 failed (1006 baseline + 28 new tests; the 7 pre-existing failures are unchanged; 2 new failures are a pre-existing BUG-27 stale-test-fixture issue confirmed unrelated to this plan and logged to deferred-items.md). Installed-build two-process and icon-visible proofs remain backstop items owned by Plan 01-08.
+- [Phase ?]: [Phase 02 Plan 01]: D-01/D-02 implemented — ConfigManager.persist_runtime_health(exe_paths=...) seeds whisper_exe/ffmpeg_exe/ffprobe_exe from the bootstrap's resolved inventory inside the existing one-time migration guard, never overwriting a real user-set path; start_processing()'s whisper gate now resolves via EngineRegistry.resolve() (Slides Only unaffected); import_video() runs detect_binaries() before _kick_poster() so the first import in a session gets a real poster. Full suite: 1044 passed, 7 failed (same 7 pre-existing release_trust failures; zero new failures).
 
 ### Measured baseline (2026-07-30)
 
@@ -154,9 +155,9 @@ rebuild before using it.
 
 ## Session Continuity
 
-Last session: 2026-08-01T05:24:59.821Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-real-lecture-import-processing/02-CONTEXT.md
+Last session: 2026-08-01T11:42:35.147Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
 
 ## Performance Metrics
 
@@ -169,3 +170,4 @@ Resume file: .planning/phases/02-real-lecture-import-processing/02-CONTEXT.md
 | Phase 01 P04 | ~45min | 3 tasks | 6 files |
 | Phase 01 P07 | ~50min | 3 tasks | 3 files |
 | Phase 01 P05 | ~45min | 3 tasks | 6 files |
+| Phase 02 P01 | ~35min | 2 tasks | 4 files |

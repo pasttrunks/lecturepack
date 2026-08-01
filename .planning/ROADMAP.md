@@ -123,12 +123,12 @@ Cross-cutting constraints: preserve existing user data; do not break demo proces
 
 Canonical references: `app/desktop/engine_adapter.py`, `app/desktop/bridge.py`, `app/ui/app.js`, `lecturepack/infrastructure/runtime_inventory.py`, `lecturepack/services/first_run_checklist.py`, `BUG_LIST.md`.
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Runtime path auto-population: seed exe paths via persist_runtime_health, fix start_processing gate to use EngineRegistry.resolve, fix _kick_poster ordering (SC-01, SC-04, SC-05, SC-06, SC-07, SC-08)
+- [x] 02-01-PLAN.md — Runtime path auto-population: seed exe paths via persist_runtime_health, fix start_processing gate to use EngineRegistry.resolve, fix _kick_poster ordering (SC-01, SC-04, SC-05, SC-06, SC-07, SC-08)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -152,4 +152,4 @@ Cross-cutting constraints: preserve existing user data; do not break demo proces
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Clean-Device Footprint & First Launch | 8/8 | In Progress |  |
-| 2. Real Lecture Import & Processing | 0/4 | Planned |  |
+| 2. Real Lecture Import & Processing | 1/4 | In Progress|  |
