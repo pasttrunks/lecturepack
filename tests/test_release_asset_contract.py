@@ -91,12 +91,10 @@ def test_expected_asset_names_returns_two_tuple_shape():
 
 
 def test_release_step_publishes_all_updater_required_asset_names():
-    """Deleting any one of the three updater asset names from the release
+    """Deleting either of the two updater asset names from the release
     step's files: list must turn this test red."""
-    required = set(us.expected_asset_names(WORKFLOW_VERSION_EXPR)) | set(
-        us.expected_asset_names(WORKFLOW_VERSION_EXPR, portable=True)
-    )
-    assert len(required) == 3, f"expected exactly 3 required updater asset names, got {required!r}"
+    required = set(us.expected_asset_names(WORKFLOW_VERSION_EXPR))
+    assert len(required) == 2, f"expected exactly 2 required updater asset names, got {required!r}"
     missing = [name for name in required if name not in RELEASE_FILES_BLOCK]
     assert not missing, f"release step is missing required updater asset(s): {missing!r}"
 

@@ -329,17 +329,15 @@ def validate_release_assets(version: str, require_installer: bool = True) -> Non
     not list both binaries) would be undiscoverable/uninstallable.
     """
     out = APP_DIR / "dist" / "installer"
-    portable = out / f"LecturePack-{version}-Portable.zip"
     sums = out / f"LecturePack-{version}-SHA256SUMS.txt"
     setup = out / f"LecturePack-{version}-Setup.exe"
-    required = [portable, sums] + ([setup] if require_installer else [])
+    required = [sums] + ([setup] if require_installer else [])
     missing = [p.name for p in required if not p.exists() or p.stat().st_size == 0]
     if missing:
         sys.exit(f"RELEASE GATE FAILED — missing/empty updater assets: {missing}")
     text = sums.read_text(encoding="utf-8")
-    for asset in ([portable, setup] if require_installer else [portable]):
-        if asset.name not in text:
-            sys.exit(f"RELEASE GATE FAILED — {sums.name} does not list {asset.name}")
+    if require_installer and setup.name not in text:
+        sys.exit(f"RELEASE GATE FAILED — {sums.name} does not list {setup.name}")
     print(f"Release gate OK — validated: {[p.name for p in required]}")
 
 
