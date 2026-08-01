@@ -342,44 +342,27 @@ Pointer to `01-FINDINGS-icon.md` (Plan 01-05). NOT YET MEASURED — not produced
 
 ---
 
-## Launch timing — cold
+## Launch timing — cold / warm
 
-Per D-07, cold and warm launches take architecturally different paths
-(`RuntimeBootstrapService._requires_full()`) and must be measured and recorded separately.
-
-- Time to first visible on-screen feedback: NOT YET MEASURED
-- Time to ready (fully validated, usable): NOT YET MEASURED
-- Which validation path ran (full / light): NOT YET MEASURED
-
----
-
-## Launch timing — warm
-
-- Time to first visible on-screen feedback: NOT YET MEASURED
-- Time to ready (fully validated, usable): NOT YET MEASURED
-- Which validation path ran (full / light): NOT YET MEASURED
+Measured — see `## Launch timing — measured 2026-07-31` and `## Plan 01-08` below.
 
 ---
 
 ## Single instance — two-process proof
 
-- Process count observed after a second launch attempt: NOT YET MEASURED
-- Which window received focus: NOT YET MEASURED
+Measured — see `## Plan 01-08` below.
 
 ---
 
 ## Packaged clean-profile launch
 
-- Icon visible in title bar: NOT YET MEASURED
-- Icon visible in taskbar: NOT YET MEASURED
-- Rendered WebEngine content observed: NOT YET MEASURED
+Measured — see `## First-run behaviour — observed 2026-07-31` and `## Plan 01-08` below.
 
 ---
 
 ## Packaged runtime smoke after the cuts
 
-- Exact pytest invocation: NOT YET MEASURED
-- Result: NOT YET MEASURED
+Measured — see `## Size — after cuts` D-24 runtime guards section above.
 
 
 ---
@@ -472,10 +455,11 @@ text) — these need deliberate interaction beyond a single launch.
 
 ---
 
-## Single instance — two-process proof
+## Single instance — two-process proof (superseded)
 
-NOT YET MEASURED — plan 01-05's single-instance guard is not yet implemented, so there is
-nothing to test. This is a genuine gap, not an oversight.
+Measured in Plan 01-08 — see `## Plan 01-08` section below. The guard was implemented in
+commit `79225df` and verified to pass: second launch exits, minimized window restores and
+focuses.
 
 ---
 
