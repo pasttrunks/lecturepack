@@ -50,7 +50,7 @@ def test_accent_swatches_removed():
 def test_theme_bootstrap_defaults_to_light_without_persisting_a_bootstrap_event():
     assert 'data-theme="light"' in HTML
     assert 'self._settings.value("theme", "light")' in BRIDGE
-    assert "applyTheme('light', false);" in JS
+    assert "applyTheme($('app').dataset.theme || 'light', false);" in JS
     assert "if (persist) lpBridge.call('set_setting', 'theme', theme);" in JS
     assert "def initial_theme(self) -> str:" in BRIDGE
 
