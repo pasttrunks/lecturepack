@@ -5,15 +5,15 @@ milestone_name: Clean-Device Footprint and First Launch
 current_phase: 02
 current_phase_name: real-lecture-import-processing
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-08-01T11:57:50.269Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-08-01T12:10:50.815Z"
 last_activity: 2026-08-01
 last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
   percent: 50
 ---
 
@@ -29,7 +29,7 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 02 (real-lecture-import-processing) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-08-01 — Phase 02 execution started
 
@@ -74,6 +74,7 @@ Beta-7 Phase 1 decisions D-01..D-21 are in
 - [Phase ?]: [Phase 01 Plan 05]: D-18/D-19/D-20/D-21 implemented. SingleInstanceGuard (QLocalServer/QLocalSocket) runs right after QApplication(sys.argv) and before MainWindow()/Backend.__init__, raises the existing window via a shared raise_and_focus() rather than exiting silently, and fails open to primary on any IPC error or stale-endpoint reclaim. AppUserModelID declared as main()'s first statement (mechanism-justified per 01-FINDINGS-icon.md's Task 1 diagnosis, which ruled out setWindowIcon and did not reproduce the owner's symptom on this beta-7 build) and matched byte-for-byte in lecturepack.iss. Both icon-resolution guards now report a missing .ico instead of silently continuing. Full suite: 1036 passed, 9 failed (1006 baseline + 28 new tests; the 7 pre-existing failures are unchanged; 2 new failures are a pre-existing BUG-27 stale-test-fixture issue confirmed unrelated to this plan and logged to deferred-items.md). Installed-build two-process and icon-visible proofs remain backstop items owned by Plan 01-08.
 - [Phase ?]: [Phase 02 Plan 01]: D-01/D-02 implemented — ConfigManager.persist_runtime_health(exe_paths=...) seeds whisper_exe/ffmpeg_exe/ffprobe_exe from the bootstrap's resolved inventory inside the existing one-time migration guard, never overwriting a real user-set path; start_processing()'s whisper gate now resolves via EngineRegistry.resolve() (Slides Only unaffected); import_video() runs detect_binaries() before _kick_poster() so the first import in a session gets a real poster. Full suite: 1044 passed, 7 failed (same 7 pre-existing release_trust failures; zero new failures).
 - [Phase ?]: [Phase 02 Plan 02]: 9 regression tests added in tests/test_phase2_job_lifecycle.py proving the normal-import job lifecycle (NEW->QUEUED->RUNNING->COMPLETED/FAILED) works end-to-end on a clean install (no manual whisper_exe/ffmpeg_exe/ffprobe_exe config mocking), relying on the dev tree's own bin/Release/whisper-cli.exe and bin/ffmpeg.exe/ffprobe.exe fallback discovery plus persist_runtime_health(bundled_model=...) for whisper_model seeding. No changes to job_lifecycle.py or job_queue.py (D-05). Full suite: 1053 passed, 7 failed (1044 baseline + 9 new tests; same 7 pre-existing release_trust failures; zero new failures).
+- [Phase ?]: [Phase 02 Plan 03]: D-08/D-09 verified. LP.state.pipelineRunning locks slide-sensitivity preset during normal processing (not just guided demo), set from pipeline_changed stage states and cleared on status_changed's terminal Done/Failed label since the Python failure path never re-emits pipeline_changed with the failed stage cleared. Output mode confirmed non-editable mid-run by omission (no Process-screen control). 10 new regression tests (9 pass, 1 environment-skip for missing yt_dlp) prove the lock structure and the already-wired Paste Link probe/download/import/cancel chain (BUG-18 guard). Full suite: 1062 passed, 7 failed (same 7 pre-existing failures), 2 skipped.
 
 ### Measured baseline (2026-07-30)
 
@@ -156,8 +157,8 @@ rebuild before using it.
 
 ## Session Continuity
 
-Last session: 2026-08-01T11:57:50.258Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-08-01T12:10:50.804Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -173,3 +174,4 @@ Resume file: None
 | Phase 01 P05 | ~45min | 3 tasks | 6 files |
 | Phase 02 P01 | ~35min | 2 tasks | 4 files |
 | Phase 02 P02 | ~45min | 2 tasks | 1 files |
+| Phase 02 P03 | ~15min | 2 tasks | 2 files |
