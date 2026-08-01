@@ -4437,7 +4437,7 @@
     renderDemoCard();
     renderSlideDetectionPreset();
     setScreen('home');
-    applyTheme('light', false);
+    applyTheme($('app').dataset.theme || 'light', false);
     setStudyTab('chat');
     RuntimeSetupGate.wire();
     RuntimeSetupGate.beginBootstrap();

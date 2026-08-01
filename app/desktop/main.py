@@ -39,7 +39,7 @@ if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
                 pass
 
 from PySide6.QtCore import QUrl, Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -159,6 +159,13 @@ class MainWindow(QMainWindow):
 
         self.backend = Backend(self)
         self.view = WebView(self.backend)
+
+        # Match the Qt widget background to the saved theme so no white
+        # bleeds through before the web page paints its first frame.
+        saved = self.backend.initial_theme()
+        qt_bg = QColor("#16191F") if saved == "dark" else QColor("#F3F0E8")
+        self.view.page().setBackgroundColor(qt_bg)
+
         self.channel = QWebChannel(self)
         self.channel.registerObject("backend", self.backend)
         self.view.page().setWebChannel(self.channel)

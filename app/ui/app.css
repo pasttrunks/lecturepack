@@ -2,7 +2,7 @@
    Do not "improve" values here: colors, borders, shadows and animations are the design. */
 
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;overflow-x:hidden}
+html,body{margin:0;padding:0;overflow-x:hidden;background:var(--bg)}
 body{width:100vw;height:100vh;overflow-y:auto}
 #app{min-width:0;min-height:100vh}
 [hidden]{display:none !important}
