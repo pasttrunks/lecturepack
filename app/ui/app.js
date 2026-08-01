@@ -207,7 +207,14 @@
       updateInfo: null,
       smartStudy: null,   // last smart_study payload
       ssPreset: null,     // user-chosen preset (defaults to recommendation)
-      ssDismissed: false  // user chose "Continue with Built-in Study"
+      ssDismissed: false, // user chose "Continue with Built-in Study"
+
+      // D-08: true while a NORMAL (non-demo) job is actively processing. Set
+      // from pipeline_changed (a stage is not yet done), cleared on the
+      // terminal status_changed label (Done/Failed). Sibling to the guided
+      // demo's own lock so a running job's snapshotted settings can never be
+      // changed out from under it mid-run.
+      pipelineRunning: false
     },
     data: {
       version: '0.0.0',
@@ -2695,16 +2702,29 @@
   function guidedDemoSensitivityLocked() {
     return guidedTour.snapshot().active && demoFlowPhase() !== 'idle';
   }
+  // D-08: the sensitivity preset must also be locked during NORMAL (non-demo)
+  // processing, not just the guided demo -- otherwise a user can click a
+  // different preset while a job runs, see it render "active", but the
+  // already-running job silently ignores it because its preset was
+  // snapshotted at start_processing() time. LP.state.pipelineRunning is the
+  // sibling flag for that case (set/cleared via the pipeline_changed and
+  // status_changed handlers). Output mode has no Process-screen control at
+  // all (onboarding sets LP.state.onbMode once; start_processing reads it
+  // once), so it is already non-editable mid-run by omission -- no code
+  // change needed for that half of D-08.
   function renderSlideDetectionPreset() {
     var group = $('proc-sensitivity'), note = $('proc-sensitivity-note');
     if (!group) return;
-    var state = slideDetectionPreset.snapshot(), locked = guidedDemoSensitivityLocked();
+    var state = slideDetectionPreset.snapshot(),
+        demoLocked = guidedDemoSensitivityLocked(),
+        locked = demoLocked || LP.state.pipelineRunning;
     Array.prototype.forEach.call(group.querySelectorAll('button[data-sens]'), function (button) {
       var active = button.dataset.sens === state.label;
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
       button.disabled = locked;
-      button.title = locked ? 'Guided demo uses its fixed reliable setting.' : '';
+      button.title = demoLocked ? 'Guided demo uses its fixed reliable setting.' :
+        (locked ? 'Setting is locked while processing runs.' : '');
       button.style.fontWeight = active ? '700' : '500';
       button.style.borderColor = active ? 'var(--secondary-border)' : 'transparent';
       button.style.background = active ? 'var(--secondary-surface)' : 'transparent';
@@ -2714,7 +2734,7 @@
     if (note) note.hidden = !locked;
   }
   function setSlideDetectionPreset(label) {
-    if (guidedDemoSensitivityLocked()) return;
+    if (guidedDemoSensitivityLocked() || LP.state.pipelineRunning) return;
     var state = slideDetectionPreset.select(label);
     renderSlideDetectionPreset();
     lpBridge.call('set_setting', 'slide_detection_preset', state.preset);
@@ -4094,7 +4114,16 @@
       LP.data.pipeline.title = p.title || LP.data.pipeline.title;
       LP.data.pipeline.meta = p.meta || LP.data.pipeline.meta;
       LP.data.pipeline.stages = p.stages || LP.data.pipeline.stages;
+      // D-08: pipeline_changed only ever reaches here for a NORMAL job
+      // (demo signals are filtered by _forward_normal on the Python side),
+      // so any non-"done" stage means a real job is actively running.
+      // _on_pipeline_completed sets every stage to "done" before its final
+      // emit, so this naturally clears on success too; the failure path
+      // clears via the terminal status_changed label below.
+      LP.state.pipelineRunning = Array.isArray(LP.data.pipeline.stages) &&
+        LP.data.pipeline.stages.some(function (st) { return st && st.state !== 'done'; });
       renderPipeline();
+      renderSlideDetectionPreset();
     });
     lpBridge.on('log_line', function (json) {
       if (!LP.state.jobId) return;      // no lecture owns this log yet
@@ -4112,6 +4141,15 @@
         $('side-job-name').textContent = s.job; $('crumb-job').textContent = s.job;
       }
       if (s.side !== undefined) $('side-job-status').innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>' + esc(s.side);
+      // D-08: _on_pipeline_failed (Python) never re-emits pipeline_changed
+      // with the failed stage cleared, so pipelineRunning must be released
+      // explicitly on the terminal "Failed" status label. "Done" is handled
+      // here too as a redundant safety net -- the all-"done" stages payload
+      // already clears it above.
+      if (s.label === 'Failed' || s.label === 'Done') {
+        LP.state.pipelineRunning = false;
+        renderSlideDetectionPreset();
+      }
     });
     lpBridge.on('slides_changed', function (json) {
       var d = JSON.parse(json);
