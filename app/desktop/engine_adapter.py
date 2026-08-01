@@ -1819,6 +1819,8 @@ class LecturePackAdapter(EngineAdapter):
         product_mode = _MODE_MAP.get(mode, constants.PRODUCT_MODE_STUDY_PACK)
         job.settings["product_mode"] = product_mode
         w_model = self.config.get("whisper_model", "")
+        if not w_model or not os.path.isfile(w_model):
+            w_model = self._bundled_demo_model_path(self.config)
         if w_model:
             job.settings.setdefault("whisper", {})["model"] = w_model
         # Apply the compute-engine choice (cpu/vulkan/auto) so a Vulkan
@@ -1831,13 +1833,10 @@ class LecturePackAdapter(EngineAdapter):
         job.save()
         self._set_active_job(job)
 
-        # Validate whisper availability for modes that need it. Ask the
-        # EngineRegistry (same resolution used by the transcription backend
-        # itself) instead of reading the raw whisper_exe config value: its
-        # _cpu_exe() fallback finds the bundled binary under app_root()/bin
-        # even when config is empty on a clean install (D-01). The
-        # whisper_model check stays a plain config read — persist_runtime_health
-        # reliably populates it already.
+        # Validate whisper availability for modes that need it. Both exe and
+        # model now have bundled-binary fallbacks that work on a clean install
+        # even when config is empty: EngineRegistry.resolve() finds the exe
+        # via _cpu_exe(), and w_model falls back to _bundled_demo_model_path().
         needs_whisper = product_mode != constants.PRODUCT_MODE_SLIDES_ONLY
         if needs_whisper:
             resolved_engine = self.controller.engine_registry.resolve(
