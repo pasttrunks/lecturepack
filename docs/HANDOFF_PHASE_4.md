@@ -1,8 +1,56 @@
 # Phase 4 Handoff — Visual Artifact Reliability
 
 **Date:** July 29, 2026  
-**Status:** Complete & Verified  
+**Status:** Beta 9 follow-up — package built; full packaged visual matrix pending
 **Milestone:** v0.9.0-beta.6 (Phase 4 of 5)
+
+---
+
+## Beta 9 Follow-up — 2026-08-01
+
+The two supplied flashing reports were compared and are content-identical. The
+follow-up is limited to the high-confidence Phase 4 reliability fixes: root
+theme/compositor synchronization, startup/load ordering, setup-gate in-place
+updates, coalesced/deduplicated pipeline updates, and stable status indicators.
+
+Focused command:
+
+```text
+pytest.exe -q tests/test_ui_tokens_motion_responsive.py tests/test_webview_theme.py tests/test_guided_tour.py tests/test_first_run_checklist_ui.py tests/test_flashing_reliability.py
+99 passed in 7.21s
+```
+
+Full command:
+
+```text
+pytest.exe -q --durations=20
+1069 passed, 1 skipped, 5 failed in 276.15s (0:04:36)
+```
+
+The five remaining full-suite failures are existing beta-6 release-trust
+fixture/workflow contract mismatches; they do not touch the beta 9 change set.
+The packaged repair and smoke tests passed with the fresh onedir fixture. A
+fresh package build completed successfully:
+
+```text
+python app/packaging/build.py --no-installer
+Built app/dist/LecturePack/LecturePack.exe
+Portable: dist/installer/LecturePack-0.9.0-beta.9-Portable.zip
+Release gate OK — validated: LecturePack-0.9.0-beta.9-SHA256SUMS.txt
+```
+
+Packaged smoke command (using the fresh onedir as
+`LECTUREPACK_ONEDIR_FIXTURE`):
+
+```text
+pytest.exe -q tests/test_runtime_packaged_repair.py tests/test_runtime_packaged_smoke.py
+5 passed in 88.41s (0:01:28)
+```
+
+A limited physical launch opened the fresh executable to the dark setup
+checklist with all five checks visible and no observable light-frame flash; the
+full theme, resize/DPI, navigation, tour, and beta-5 comparison matrix remains
+the blocking human verification gate.
 
 ---
 

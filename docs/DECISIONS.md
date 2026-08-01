@@ -4,6 +4,33 @@ Record of major technical decisions. Newest entries at the top.
 
 ---
 
+## AD-19: Beta 9 WebView Compositor and Live-Update Reliability Follow-up (Phase 4)
+
+**Date:** 2026-08-01
+**Status:** Accepted for the beta 9 diagnosis-only release
+
+**Context:** Beta 8 still showed first-frame theme flashes, startup scrollbar
+artifacts, repeated setup-gate DOM construction, and pipeline/status strobing
+under rapid backend updates. Two supplied diagnosis reports were compared and
+were content-identical.
+
+**Decision:** Keep one theme authority on `document.documentElement`, synchronize
+the QWebEngine and native window backgrounds from the saved theme, install the
+central widget before loading the page, and leave document scrolling to CSS
+containers. Guard unchanged setup-gate frames, update checklist rows in place,
+coalesce pipeline renders to animation frames, suppress duplicate integer stage
+progress, and update status labels without replacing their animated dot nodes.
+
+**Alternatives considered:** GPU/DPI flags, locale/debug-payload changes,
+transcript-log policy changes, and a renderer rewrite are deferred until a
+reproducible beta 9 package still demonstrates those separate symptoms.
+
+**Rationale:** These are the smallest source-local fixes that address the
+reported flashes without changing the engine, data boundaries, approved visual
+language, or dependency set.
+
+---
+
 ## AD-18: ASCII Staging Boundary for whisper.cpp v1.9.1 Native Arguments (Phase 1)
 
 **Date:** 2026-07-28

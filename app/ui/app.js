@@ -594,6 +594,28 @@
     el.style.transform = 'scaleX(' + (p / 100) + ')';
   }
 
+  // Keep animated status dots alive while only their adjacent text changes.
+  // Replacing the whole status container restarts lpblink on every backend
+  // tick, which makes a steady 1 Hz indicator look like a strobe.
+  function setStatusDotText(el, value, color, blink) {
+    if (!el) return;
+    var dot = el.querySelector('[data-status-dot]');
+    var label = el.querySelector('[data-status-label]');
+    if (!dot || !label) {
+      el.textContent = '';
+      dot = document.createElement('span');
+      dot.setAttribute('data-status-dot', 'true');
+      dot.style.cssText = 'width:6px;height:6px;border-radius:50%;flex:none';
+      label = document.createElement('span');
+      label.setAttribute('data-status-label', 'true');
+      el.appendChild(dot);
+      el.appendChild(label);
+    }
+    dot.style.background = color;
+    dot.style.animation = blink ? 'lpblink 1s infinite' : 'none';
+    label.textContent = value == null ? '' : String(value);
+  }
+
   // `.lp-toast`'s CSS entrance is opacity-only (reuses `lpsupport`), so it cannot
   // conflict with this singleton's inline `transform:translateX(-50%)`
   // centering. Re-trigger the entrance on every show by toggling the class
@@ -1149,10 +1171,13 @@
     if (stagesEl.innerHTML !== stageHtml) { stagesEl.innerHTML = stageHtml; }
     var logEl = $('proc-log');
     var stick = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8;
-    logEl.innerHTML = p.log.map(function (l) {
+    var logHtml = p.log.map(function (l) {
       return '<div><span style="color:' + l.color + '">' + esc(l.tag) + '</span> ' + esc(l.text) + '</div>';
     }).join('');
-    if (stick) logEl.scrollTop = logEl.scrollHeight;
+    if (logEl.innerHTML !== logHtml) {
+      logEl.innerHTML = logHtml;
+      if (stick) logEl.scrollTop = logEl.scrollHeight;
+    }
   }
 
   // Main slide preview: fills the canvas at Fit (preserving aspect ratio) and
@@ -1894,9 +1919,9 @@
   }
 
   function applyTheme(theme, persist) {
-    if (LP.state.theme === theme && $('app').dataset.theme === theme) return;
+    if (LP.state.theme === theme && document.documentElement.dataset.theme === theme) return;
     LP.state.theme = theme;
-    $('app').dataset.theme = theme;
+    document.documentElement.dataset.theme = theme;
     $('theme-label').textContent = theme === 'light' ? 'DARK' : 'LIGHT';
     $('theme-icon').setAttribute('d', theme === 'light'
       ? 'M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M3 12h2M19 12h2M5.6 18.4 7 17M17 7l1.4-1.4'
@@ -2164,6 +2189,7 @@
   var RuntimeSetupGate = (function () {
     var STATES = ['gate', 'diagnostics', 'confirm', 'repairing', 'offline', 'failed', 'ready', 'checking', 'checklist'];
     var bootstrapSnapshot = null, restoreInert = [], inertCaptured = false, priorFocus = null;
+    var lastRenderedState = null, closeInFlight = false;
     var eventModel = RuntimeSetupGateModel();
 
     function overlay() { return $('runtime-setup-overlay'); }
@@ -2198,7 +2224,7 @@
           try { child.inert = true; } catch (e) {}
           child.setAttribute('aria-hidden', 'true'); child.style.pointerEvents = 'none';
         });
-        inertCaptured = true; document.documentElement.style.overflow = 'hidden';
+        inertCaptured = true;
       } else {
         if (!inertCaptured) return;
         restoreInert.forEach(function (saved) {
@@ -2206,7 +2232,7 @@
           if (saved.aria === null) saved.el.removeAttribute('aria-hidden'); else saved.el.setAttribute('aria-hidden', saved.aria);
           saved.el.style.pointerEvents = saved.pointer;
         });
-        restoreInert = []; inertCaptured = false; document.documentElement.style.overflow = '';
+        restoreInert = []; inertCaptured = false;
       }
     }
     function isNormalFocusable(candidate) {
@@ -2237,13 +2263,15 @@
        (app.css:625-632) supplies the Ready/Needs-Attention/neutral colour.
        An inline colour declaration would beat that class rule regardless of
        specificity and silently erase it (the first Known Trap). */
-    function firstRunRow(label, badgeText, dataState) {
+    function firstRunRow(label, badgeText, dataState, rowId) {
       var row = document.createElement('div');
+      row.setAttribute('data-runtime-row-id', rowId || '');
       // flex-wrap is required so a checklist advisory sentence (a third,
       // full-width child appended only for a needs-attention row) wraps
       // below the label/badge pair instead of squeezing into one line.
       row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:8px 10px;border-radius:9px;min-width:0';
       var labelEl = document.createElement('div');
+      labelEl.setAttribute('data-runtime-label', 'true');
       // flex:1;min-width:0 make the two-line clamp actually take effect
       // inside this flex row instead of overflowing the badge (the row
       // container's own min-width:0 alone is not sufficient for a flex
@@ -2252,6 +2280,7 @@
       labelEl.style.cssText = 'flex:1;min-width:0;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden';
       labelEl.textContent = label; labelEl.title = label; labelEl.setAttribute('aria-label', label);
       var badge = document.createElement('span');
+      badge.setAttribute('data-runtime-badge', 'true');
       badge.className = 'lp-state';
       if (dataState) badge.setAttribute('data-state', dataState);
       badge.style.cssText = "border-width:2px;border-style:solid;border-radius:9px;padding:4px 10px;font:700 14px 'Space Grotesk';white-space:nowrap;flex:0 0 auto";
@@ -2259,20 +2288,49 @@
       row.appendChild(labelEl); row.appendChild(badge);
       return row;
     }
+    function updateFirstRunRow(host, index, rowId, label, badgeText, dataState, advisoryText) {
+      var row = host.children[index];
+      if (!row || row.getAttribute('data-runtime-row-id') !== rowId) {
+        row = firstRunRow(label, badgeText, dataState, rowId);
+        if (host.children[index]) host.replaceChild(row, host.children[index]);
+        else host.appendChild(row);
+      }
+      var labelEl = row.querySelector('[data-runtime-label]');
+      var badge = row.querySelector('[data-runtime-badge]');
+      if (labelEl) { labelEl.textContent = label; labelEl.title = label; labelEl.setAttribute('aria-label', label); }
+      if (badge) {
+        if (dataState) badge.setAttribute('data-state', dataState); else badge.removeAttribute('data-state');
+        badge.textContent = badgeText;
+      }
+      var advisory = row.querySelector('[data-runtime-advisory]');
+      if (advisoryText) {
+        if (!advisory) {
+          advisory = document.createElement('div');
+          advisory.setAttribute('data-runtime-advisory', 'true');
+          advisory.style.cssText = 'flex-basis:100%;font-size:12px;line-height:1.4;overflow-wrap:anywhere';
+          row.appendChild(advisory);
+        }
+        advisory.textContent = advisoryText; advisory.title = advisoryText;
+      } else if (advisory) {
+        advisory.remove();
+      }
+    }
     var FIRST_RUN_CHECKING_BADGE_TEXT = { pending: 'Pending', checking: 'Checking…', resolved: 'Done' };
     function renderChecking() {
       var host = $('runtime-checking-rows'); if (!host) return;
-      host.textContent = '';
       var progress = eventModel.snapshot().checkProgress || {};
       var resolvedCount = 0;
       // Row identity comes from the fixed FIRST_RUN_ROWS array, never from
       // progress's own keys, so all five rows exist on the first frame and
       // never change position regardless of resolution order (D-08).
+      var rowIndex = 0;
       FIRST_RUN_ROWS.forEach(function (row) {
         var mark = progress[row.id] || 'pending';
         if (mark === 'resolved') resolvedCount++;
-        host.appendChild(firstRunRow(row.label, FIRST_RUN_CHECKING_BADGE_TEXT[mark] || 'Pending', null));
+        updateFirstRunRow(host, rowIndex++, row.id, row.label,
+          FIRST_RUN_CHECKING_BADGE_TEXT[mark] || 'Pending', null, '');
       });
+      while (host.children.length > rowIndex) host.lastElementChild.remove();
       var total = FIRST_RUN_ROWS.length, fraction = resolvedCount / total;
       var bar = $('runtime-checking-progress'), fill = bar && bar.querySelector('.lp-fill');
       if (fill) fill.style.transform = 'scaleX(' + fraction + ')';
@@ -2286,28 +2344,26 @@
     function renderChecklist() {
       var host = $('runtime-checklist-rows'), empty = $('runtime-checklist-empty');
       if (!host || !empty) return;
-      host.textContent = '';
       // Read only id/verdict/detail -- no health arithmetic of our own on
       // component evidence (backend decides, UI renders).
       var items = eventModel.snapshot().checklist;
       var complete = Array.isArray(items) && items.length === FIRST_RUN_ROWS.length;
       empty.hidden = complete;
-      if (!complete) return;
+      if (!complete) {
+        while (host.firstElementChild) host.firstElementChild.remove();
+        return;
+      }
+      var rowIndex = 0;
       items.forEach(function (item) {
         var meta = null;
         for (var i = 0; i < FIRST_RUN_ROWS.length; i++) { if (FIRST_RUN_ROWS[i].id === item.id) { meta = FIRST_RUN_ROWS[i]; break; } }
         var label = meta ? meta.label : String(item.id);
         var dataState = FIRST_RUN_VERDICT_STATES[item.verdict] || null;
         var badgeText = item.verdict === 'needs_attention' ? 'Needs Attention' : 'Ready';
-        var row = firstRunRow(label, badgeText, dataState);
-        if (item.verdict === 'needs_attention') {
-          var advisory = document.createElement('div');
-          advisory.style.cssText = 'flex-basis:100%;font-size:12px;line-height:1.4;overflow-wrap:anywhere';
-          advisory.textContent = CHECKLIST_WINDOWS_ADVISORY; advisory.title = CHECKLIST_WINDOWS_ADVISORY;
-          row.appendChild(advisory);
-        }
-        host.appendChild(row);
+        updateFirstRunRow(host, rowIndex++, item.id, label, badgeText, dataState,
+          item.verdict === 'needs_attention' ? CHECKLIST_WINDOWS_ADVISORY : '');
       });
+      while (host.children.length > rowIndex) host.lastElementChild.remove();
     }
     function renderOffer() {
       var value = eventModel.snapshot().offer, enabled = validOffer(value);
@@ -2330,12 +2386,17 @@
       // offer. Formatting it here never estimates or recomputes the total.
       return Number(bytes).toLocaleString('en-US') + ' bytes';
     }
-    function render() {
+    function render(dataChanged) {
       var view = eventModel.snapshot(), next = view.state;
       if (STATES.indexOf(next) < 0) return;
       var el = overlay(); if (!el) return;
-      el.hidden = false; el.classList.remove('out'); setUnderlyingInert(true);
-      Array.prototype.forEach.call(el.querySelectorAll('[data-runtime-state]'), function (panel) { panel.hidden = panel.dataset.runtimeState !== next; });
+      if (closeInFlight) return;
+      var stateChanged = next !== lastRenderedState;
+      if (!stateChanged && !dataChanged) return;
+      if (stateChanged) {
+        el.hidden = false; el.classList.remove('out'); setUnderlyingInert(true);
+        Array.prototype.forEach.call(el.querySelectorAll('[data-runtime-state]'), function (panel) { panel.hidden = panel.dataset.runtimeState !== next; });
+      }
       renderComponents(); renderOffer(); renderChecking(); renderChecklist();
       // Per the UI-SPEC nav contract, checklist is the one state in this
       // overlay with no Exit affordance -- Continue and Skip already cover
@@ -2343,8 +2404,10 @@
       // restores it. The focus helper already filters out zero-size
       // elements, so hiding Exit here removes it from the trap cleanly and
       // Continue/Skip remain the two focusable controls in checklist.
-      var exitButton = $('btn-runtime-exit');
-      if (exitButton) exitButton.hidden = next === 'checklist';
+      if (stateChanged) {
+        var exitButton = $('btn-runtime-exit');
+        if (exitButton) exitButton.hidden = next === 'checklist';
+      }
       // runtime-checking-heading and runtime-checklist-heading carry
       // tabindex="-1" for markup consistency with every other overlay
       // heading, but per the UI-SPEC Focal Point rule neither is this
@@ -2356,16 +2419,25 @@
       // only in one row's badge.
       var targets = { gate: 'btn-runtime-repair', confirm: 'btn-runtime-confirm', repairing: 'btn-runtime-cancel', offline: 'btn-runtime-offline-retry', failed: 'btn-runtime-failed-retry', diagnostics: 'runtime-diagnostics-heading', ready: 'runtime-ready-heading',
         checking: 'btn-runtime-exit', checklist: 'btn-runtime-continue' };
-      var target = $(targets[next]); if (target) target.focus();
+      if (stateChanged) {
+        var target = $(targets[next]); if (target) target.focus();
+      }
+      lastRenderedState = next;
     }
     // Shared close sequence: restore the underlying app from inert, hide the
     // overlay, reset the reducer, and return focus. closeReady() and
     // acknowledge() both fully close the overlay this same way.
     function closeOverlay() {
-      var el = overlay(); if (!el) return;
-      setUnderlyingInert(false); el.hidden = true; eventModel.reset();
-      var target = isNormalFocusable(priorFocus) ? priorFocus : fallbackFocus();
-      if (isNormalFocusable(target)) target.focus();
+      var el = overlay(); if (!el || el.hidden || closeInFlight) return;
+      closeInFlight = true;
+      function finish() {
+        closeInFlight = false;
+        setUnderlyingInert(false); el.hidden = true; eventModel.reset();
+        lastRenderedState = null;
+        var target = isNormalFocusable(priorFocus) ? priorFocus : fallbackFocus();
+        if (isNormalFocusable(target)) target.focus();
+      }
+      try { LP.motion.close(el, finish); } catch (e) { finish(); }
     }
     function closeReady() {
       var snap = eventModel.snapshot();
@@ -2406,13 +2478,13 @@
       syncDemoAdmission(view);
       // The overlay is already inert from the boot-time beginBootstrap()
       // call, so this is simply the first frame the user sees.
-      if (view.state === 'checking') { render(); return; }
+      if (view.state === 'checking') { render(true); return; }
       // D-11: the existing failure gate, entirely unchanged.
-      if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') { render(); return; }
+      if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') { render(true); return; }
       // D-12: a first-ever healthy admission always shows the checklist.
       // The assertive live region announces the state change itself, not
       // per-row chatter (that stays on the polite region during checking).
-      if (view.state === 'checklist') { announce('runtime-live-assertive', "You're ready to go."); render(); return; }
+      if (view.state === 'checklist') { announce('runtime-live-assertive', "You're ready to go."); render(true); return; }
       if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !before.activeOperation) { setUnderlyingInert(false); return; }
       if (view.state === 'ready') ready();
     }
@@ -2463,7 +2535,7 @@
             announce('runtime-live-polite', checkingRowSentence('whisper_runtime') + ' this can take a few seconds.');
           }, WHISPER_SLOW_NOTICE_MS);
         }
-        render();
+        render(true);
         return;
       }
       if (mark === 'resolved') {
@@ -2471,11 +2543,11 @@
         if (checkingHoldTimers[id]) clearTimeout(checkingHoldTimers[id]);
         var elapsed = Date.now() - (checkingStartedAt[id] || Date.now());
         var remaining = Math.max(0, antiFlickerHoldMs() - elapsed);
-        if (remaining <= 0) { delete checkingHoldTimers[id]; render(); }
-        else checkingHoldTimers[id] = setTimeout(function () { delete checkingHoldTimers[id]; render(); }, remaining);
+        if (remaining <= 0) { delete checkingHoldTimers[id]; render(true); }
+        else checkingHoldTimers[id] = setTimeout(function () { delete checkingHoldTimers[id]; render(true); }, remaining);
         return;
       }
-      render();
+      render(true);
     }
     // The guided demo is available only after this authoritative setup gate
     // admits the runtime. Its controller owns both initial and repair paths.
@@ -2507,7 +2579,7 @@
         bootstrapSnapshot = bootstrap && bootstrap.setup_required || bootstrap || bootstrapSnapshot;
         var view = eventModel.retryResult(bootstrap); $('btn-runtime-retry').disabled = false;
         syncDemoAdmission(view);
-        if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !view.activeOperation) setUnderlyingInert(false); else render();
+        if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !view.activeOperation) setUnderlyingInert(false); else render(true);
       });
     }
     function beginNewRepair() {
@@ -2548,7 +2620,7 @@
         var offered = eventModel.event({ operation_id: d.operation_id, kind: 'metadata_ready', offer: normalizedOffer });
         if (offered.state !== 'confirm' || !validOffer(offered.offer)) announce('runtime-live-assertive', 'Repair could not be completed.');
         else $('btn-runtime-repair').disabled = false;
-        render(); return;
+        render(true); return;
       }
       var view = eventModel.event(d);
       if (kind === 'started') { render(); return; }
@@ -4122,7 +4194,7 @@
       // clears via the terminal status_changed label below.
       LP.state.pipelineRunning = Array.isArray(LP.data.pipeline.stages) &&
         LP.data.pipeline.stages.some(function (st) { return st && st.state !== 'done'; });
-      renderPipeline();
+      schedulePipelineRender();
       renderSlideDetectionPreset();
     });
     lpBridge.on('log_line', function (json) {
@@ -4140,7 +4212,7 @@
       if (s.job !== undefined && LP.state.jobId) {
         $('side-job-name').textContent = s.job; $('crumb-job').textContent = s.job;
       }
-      if (s.side !== undefined) $('side-job-status').innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>' + esc(s.side);
+      if (s.side !== undefined) setStatusDotText($('side-job-status'), s.side, 'var(--orange)', true);
       // D-08: _on_pipeline_failed (Python) never re-emits pipeline_changed
       // with the failed stage cleared, so pipelineRunning must be released
       // explicitly on the terminal "Failed" status label. "Done" is handled
@@ -4284,7 +4356,7 @@
       var txt = lbl + (s.model && s.model !== '—' && !builtin ? ' · ' + s.model : '');
       var col = builtin ? 'var(--secondary-text)' : (err ? 'var(--muted)' : 'var(--green)');
       $('ai-status').style.color = col; $('ai-status').style.borderColor = col;
-      $('ai-status').innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:' + col + '"></span>' + esc(txt);
+      setStatusDotText($('ai-status'), txt, col, false);
       if (s.model) setModelValue(s.model);
     });
     lpBridge.on('smart_study', function (json) {
@@ -4437,7 +4509,7 @@
     renderDemoCard();
     renderSlideDetectionPreset();
     setScreen('home');
-    applyTheme($('app').dataset.theme || 'light', false);
+    applyTheme(document.documentElement.dataset.theme || 'light', false);
     setStudyTab('chat');
     RuntimeSetupGate.wire();
     RuntimeSetupGate.beginBootstrap();

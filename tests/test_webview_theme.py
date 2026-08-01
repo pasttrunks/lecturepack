@@ -48,21 +48,26 @@ def test_accent_swatches_removed():
 
 
 def test_theme_bootstrap_defaults_to_light_without_persisting_a_bootstrap_event():
-    assert 'data-theme="light"' in HTML
+    assert '<html lang="en" data-theme="light">' in HTML
+    assert 'id="app" data-theme=' not in HTML
     assert 'self._settings.value("theme", "light")' in BRIDGE
-    assert "applyTheme($('app').dataset.theme || 'light', false);" in JS
+    assert "applyTheme(document.documentElement.dataset.theme || 'light', false);" in JS
     assert "if (persist) lpBridge.call('set_setting', 'theme', theme);" in JS
     assert "def initial_theme(self) -> str:" in BRIDGE
 
 
 def test_theme_notifications_are_idempotent_and_do_not_echo_to_settings():
-    assert "if (LP.state.theme === theme && $('app').dataset.theme === theme) return;" in JS
+    assert "if (LP.state.theme === theme && document.documentElement.dataset.theme === theme) return;" in JS
     assert "if (s.theme) applyTheme(s.theme, false);" in JS
     assert "if (b.theme) applyTheme(b.theme, false);" in JS
 
 
 def test_main_injects_sanitized_saved_theme_before_first_show():
     assert "self.view.loadFinished.connect(self._apply_initial_theme_before_show)" in MAIN
+    assert "self.backend.settings_changed.connect(self._sync_page_background)" in MAIN
+    assert "self.view.page().setBackgroundColor(QColor(color))" in MAIN
+    assert "document.documentElement.dataset.theme = " in MAIN
+    assert "document.getElementById('app').dataset.theme" not in MAIN
     assert "theme = json.dumps(self.backend.initial_theme())" in MAIN
     assert "runJavaScript(script, self._finish_initial_theme)" in MAIN
     assert "win.show_when_ready()" in MAIN

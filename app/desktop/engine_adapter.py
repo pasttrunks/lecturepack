@@ -749,6 +749,8 @@ class LecturePackAdapter(EngineAdapter):
         self._stages: list[dict] = []
         self._pipeline_start = 0.0
         self._stage_timings: dict = {}   # stage name -> {start, duration, cached}
+        self._last_pipeline_payload: str | None = None
+        self._last_stage_progress: dict[str, int] = {}
         self._slide_frames: list[int] = []      # emit-order -> candidate frame_number
         self._review_ids: list[int] = []        # emit-order -> working segment id
         self._chat_history: list[dict] = []
@@ -1465,6 +1467,8 @@ class LecturePackAdapter(EngineAdapter):
                 "stages": deepcopy(self._stages),
                 "pipeline_start": self._pipeline_start,
                 "stage_timings": deepcopy(self._stage_timings),
+                "last_pipeline_payload": self._last_pipeline_payload,
+                "last_stage_progress": deepcopy(self._last_stage_progress),
             },
         }
         self._wire_demo_controller(controller, session_id, operation_id)
@@ -1475,6 +1479,8 @@ class LecturePackAdapter(EngineAdapter):
             for name, label, color in _STAGE_META
         ]
         self._pipeline_start = time.time()
+        self._last_pipeline_payload = None
+        self._last_stage_progress = {}
         self._emit_demo_event("started", stage="prepare", progress=0)
         self._emit("status_changed", {
             "label": "Guided demo", "pct": 0,
@@ -1554,6 +1560,8 @@ class LecturePackAdapter(EngineAdapter):
         self._stages = prior["stages"]
         self._pipeline_start = prior["pipeline_start"]
         self._stage_timings = prior["stage_timings"]
+        self._last_pipeline_payload = prior["last_pipeline_payload"]
+        self._last_stage_progress = prior["last_stage_progress"]
         self._set_active_job(prior["current_job"])
         self._emit("status_changed", {
             "label": "Guided demo ended", "pct": 0, "detail": reason,
@@ -1860,6 +1868,8 @@ class LecturePackAdapter(EngineAdapter):
                 "name": name, "label": label, "color": color,
                 "state": "pending", "pct": 0})
         self._pipeline_start = time.time()
+        self._last_pipeline_payload = None
+        self._last_stage_progress = {}
         self._emit("status_changed", {"job": job.manifest.get("title", "Job")})
         self._render_pipeline(title="Starting…", meta="preparing")
         self._log("[engine]", f"Product mode: "
@@ -1941,10 +1951,20 @@ class LecturePackAdapter(EngineAdapter):
                    **({"pct": s["pct"], "color": s["color"]}
                       if s["state"] == "active" else {})}
                   for s in self._stages]
-        self._emit("pipeline_changed", {"title": title, "meta": meta, "stages": stages})
+        payload = {"title": title, "meta": meta, "stages": stages}
+        serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        if serialized == getattr(self, "_last_pipeline_payload", None):
+            return
+        self._last_pipeline_payload = serialized
+        self._emit("pipeline_changed", payload)
 
     def _on_stage_started(self, name: str):
         self._stage_timings[name] = {"start": time.time(), "cached": False}
+        progress = getattr(self, "_last_stage_progress", None)
+        if not isinstance(progress, dict):
+            progress = {}
+            self._last_stage_progress = progress
+        progress[name] = 0
         s = self._stage_by_name(name)
         if s:
             s["state"] = "active"
@@ -1958,21 +1978,29 @@ class LecturePackAdapter(EngineAdapter):
             self._emit_demo_event("running", stage=name, progress=0)
 
     def _on_stage_progress(self, name: str, pct: int):
+        pct_int = int(pct)
+        progress = getattr(self, "_last_stage_progress", None)
+        if not isinstance(progress, dict):
+            progress = {}
+            self._last_stage_progress = progress
+        if progress.get(name) == pct_int:
+            return
+        progress[name] = pct_int
         s = self._stage_by_name(name)
         if s:
             s["state"] = "active"
-            s["pct"] = int(pct)
+            s["pct"] = pct_int
         # Reflect overall pipeline progress on the taskbar button.
         done = sum(1 for st in self._stages if st["state"] == "done")
         total = len(self._stages) or 1
-        self.win.on_progress(int((done + int(pct) / 100.0) / total * 100))
+        self.win.on_progress(int((done + pct_int / 100.0) / total * 100))
         self._render_pipeline()
         label = s["label"] if s else name
         self._emit("status_changed", {
-            "label": label, "pct": int(pct),
-            "detail": f"{int(pct)}% · {label}", "side": f"{label} {int(pct)}%"})
+            "label": label, "pct": pct_int,
+            "detail": f"{pct_int}% · {label}", "side": f"{label} {pct_int}%"})
         if getattr(self, "_demo_session", None) is not None:
-            self._emit_demo_event("running", stage=name, progress=int(pct))
+            self._emit_demo_event("running", stage=name, progress=pct_int)
 
     def _on_stage_log(self, name: str, text: str):
         key = name.split()[0].lower()

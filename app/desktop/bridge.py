@@ -566,6 +566,11 @@ class Backend(QObject):
     def set_setting(self, key: str, value: str):
         self._settings.setValue(key, value)
         self._adapter.on_setting_changed(key, value)
+        if key == "theme":
+            # The native WebEngine surface has its own compositor background.
+            # Re-emit the saved value so MainWindow can update that surface in
+            # the same user-triggered theme transaction as the DOM.
+            self.settings_changed.emit(json.dumps({"theme": self.initial_theme()}))
 
     @Slot()
     def browse_model(self):

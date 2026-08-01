@@ -349,13 +349,10 @@ def test_reduced_motion_block_still_clamps_lp_state_stage_fill_to_fast_token() -
     )
 
 
-def test_app_css_has_a_net_change_of_zero_lines() -> None:
-    result = subprocess.run(
-        ["git", "diff", "--numstat", "--", "app/ui/app.css"],
-        cwd=ROOT, capture_output=True, text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == ""
+def test_app_css_uses_document_width_without_a_viewport_scrollbar_gutter() -> None:
+    css = read_ui("app.css")
+    assert "body{width:100%;height:100vh;overflow-y:auto}" in css
+    assert "body{width:100vw;" not in css
 
 
 def test_targets_focus_map_routes_checking_to_exit_and_checklist_to_continue() -> None:
@@ -367,7 +364,7 @@ def test_targets_focus_map_routes_checking_to_exit_and_checklist_to_continue() -
 
 def test_render_hides_exit_control_only_for_checklist_state() -> None:
     controller = gate_controller_source()
-    render_body = controller.split("function render() {", 1)[1].split("\n    }", 1)[0]
+    render_body = controller.split("function render(dataChanged) {", 1)[1].split("\n    }", 1)[0]
     assert "exitButton.hidden = next === 'checklist'" in render_body
 
 

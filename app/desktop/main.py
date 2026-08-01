@@ -162,9 +162,8 @@ class MainWindow(QMainWindow):
 
         # Match the Qt widget background to the saved theme so no white
         # bleeds through before the web page paints its first frame.
-        saved = self.backend.initial_theme()
-        qt_bg = QColor("#16191F") if saved == "dark" else QColor("#F3F0E8")
-        self.view.page().setBackgroundColor(qt_bg)
+        self.backend.settings_changed.connect(self._sync_page_background)
+        self._sync_page_background()
 
         self.channel = QWebChannel(self)
         self.channel.registerObject("backend", self.backend)
@@ -192,8 +191,8 @@ class MainWindow(QMainWindow):
         self._show_requested = False
         self._theme_ready = False
         self.view.loadFinished.connect(self._apply_initial_theme_before_show)
-        self.view.load(QUrl.fromLocalFile(index))
         self.setCentralWidget(self.view)
+        self.view.load(QUrl.fromLocalFile(index))
 
         # Windows integration: a tray icon carries local notifications; the
         # window HWND drives taskbar progress. Both degrade to no-ops if the
@@ -236,13 +235,20 @@ class MainWindow(QMainWindow):
                 self.show()
             return
         theme = json.dumps(self.backend.initial_theme())
-        script = "document.getElementById('app').dataset.theme = " + theme + ";"
+        script = "document.documentElement.dataset.theme = " + theme + ";"
         self.view.page().runJavaScript(script, self._finish_initial_theme)
 
     def _finish_initial_theme(self, _result=None) -> None:
         self._theme_ready = True
         if self._show_requested:
             self.show()
+
+    def _sync_page_background(self, _payload: str = "") -> None:
+        """Keep the Qt compositor and native window brush on the DOM theme."""
+        theme = self.backend.initial_theme()
+        color = "#16191F" if theme == "dark" else "#F3F0E8"
+        self.view.page().setBackgroundColor(QColor(color))
+        self.setStyleSheet(f"QMainWindow{{background:{color};}}")
 
     def _prewarm_posters(self, payload: str) -> None:
         """Kick off poster generation for every job in a jobs_changed payload."""

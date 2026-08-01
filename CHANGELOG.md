@@ -2,6 +2,18 @@
 
 All notable changes to Lecture Pack are documented here.
 
+## [0.9.0-beta.9] — 2026-08-01
+
+### Fixed
+- **Theme and startup flashing:** theme state now applies at the document root,
+  synchronizes the native/WebEngine backgrounds, installs the view before page
+  load, and avoids a document-level scrollbar toggle.
+- **Runtime setup overlay:** unchanged frames reuse their DOM rows and exit
+  through the existing motion helper instead of rebuilding/focusing repeatedly.
+- **Processing updates:** pipeline renders coalesce to animation frames,
+  duplicate integer progress is suppressed, and live status dots keep their
+  animated DOM nodes while labels change.
+
 ## [Unreleased]
 
 ### Changed
