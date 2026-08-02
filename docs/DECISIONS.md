@@ -2,6 +2,33 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-20: Beta 10 Automated Window Acceptance Gate (Phase 4)
+
+**Date:** 2026-08-02
+**Status:** Accepted for local beta.10 preparation; publication remains gated
+
+**Context:** Three consecutive packaged-app runs were required to verify that
+the beta.9 visual fixes held during the full user sequence, including native
+video import, real processing, resizing, five-minute idle, and reopen. DOM-only
+evidence could not prove a WebEngine surface flash or a resize surface loss.
+
+**Decision:** Keep the gate as one small Windows-only script using the packaged
+executable, disposable data/WebEngine profiles, Win32 window capture, a real
+desktop recording, raw CDP telemetry, and a native Win32 file-dialog seam.
+Use short intent windows only around known navigation/theme transitions. Fix
+only confirmed causes: remeasure the processing Demo spotlight after pipeline
+DOM growth, and close a stale runtime checking overlay after acknowledged
+healthy bootstrap.
+
+**Alternatives considered:** a general UI test framework, DOM screenshots as
+the sole evidence, disabling animations, broad GPU flags, `will-change`
+changes, and framework migration. All were rejected as broader than the
+confirmed causes or unable to prove the native-window symptoms.
+
+**Rationale:** The resulting evidence is reproducible and release-sized while
+preserving the existing UI, motion, renderer, security checks, and dependency
+boundary.
+
 ---
 
 ## AD-19: Beta 9 WebView Compositor and Live-Update Reliability Follow-up (Phase 4)

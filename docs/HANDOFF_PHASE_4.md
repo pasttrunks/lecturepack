@@ -54,6 +54,16 @@ the blocking human verification gate.
 
 ---
 
+## Beta 10 Automated Visual Acceptance Handoff — 2026-08-02
+
+The packaged visual gate is complete from beta.9 commit `8a06718`: three
+consecutive five-minute Windows runs passed with zero visual error flags,
+packaged processing passed, and the full suite passed (`1077 passed, 1
+skipped`). Beta.10 is prepared locally but not published. The detailed
+implementation, root-cause evidence, commands, output paths, and remaining
+authorization gate are in
+`docs/BETA10_AUTOMATED_VISUAL_ACCEPTANCE_IMPLEMENTATION.md`.
+
 ## 1. Summary of Completed Deliverables
 
 Phase 4 eliminates confirmed rendering and layout artifacts while preserving beta 5's visual character:

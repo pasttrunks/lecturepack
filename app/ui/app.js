@@ -1178,6 +1178,10 @@
       logEl.innerHTML = logHtml;
       if (stick) logEl.scrollTop = logEl.scrollHeight;
     }
+    // The guided-tour processing spotlight is measured before the live stage
+    // list fills in. Re-measure after that DOM growth so the border and arrow
+    // continue to describe the actual target instead of the initial skeleton.
+    if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') positionTourSpotlight();
   }
 
   // Main slide preview: fills the canvas at Fit (preserving aspect ratio) and
@@ -2478,6 +2482,7 @@
       syncDemoAdmission(view);
       // The overlay is already inert from the boot-time beginBootstrap()
       // call, so this is simply the first frame the user sees.
+      if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && bootstrap.setup_acknowledged === true && !before.activeOperation) { closeOverlay(); return; }
       if (view.state === 'checking') { render(true); return; }
       // D-11: the existing failure gate, entirely unchanged.
       if (bootstrap && bootstrap.runtime_health_state === 'SETUP_REQUIRED') { render(true); return; }
@@ -2485,7 +2490,6 @@
       // The assertive live region announces the state change itself, not
       // per-row chatter (that stays on the polite region during checking).
       if (view.state === 'checklist') { announce('runtime-live-assertive', "You're ready to go."); render(true); return; }
-      if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !before.activeOperation) { setUnderlyingInert(false); return; }
       if (view.state === 'ready') ready();
     }
     var acknowledgeInFlight = false;

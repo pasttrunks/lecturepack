@@ -15,6 +15,9 @@ import pytest
 from lecturepack.infrastructure.release_trust import ReleaseTrustVerifier, official_release_urls
 
 
+FIXTURE_PUBLIC_KEY_HEX = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+
+
 class _Transport:
     def __init__(self, values):
         self.values, self.requests = values, []
@@ -114,7 +117,7 @@ def test_offer_authenticates_only_manifest_and_signature_before_confirmation():
     service = RuntimeRepairService(
         version,
         _Transport({manifest_url: fixture.joinpath("manifest.json").read_bytes(), signature_url: fixture.joinpath("manifest.sig").read_bytes()}),
-        verifier=ReleaseTrustVerifier(version),
+        verifier=ReleaseTrustVerifier(version, FIXTURE_PUBLIC_KEY_HEX),
         admission_evidence={"bin/ffmpeg.exe": "Media tools", "models/ggml-base.en.bin": "Speech model"},
     )
 

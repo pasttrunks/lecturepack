@@ -56,6 +56,30 @@ def test_pipeline_and_status_handlers_preserve_live_dom_nodes():
     assert "setStatusDotText($('ai-status'), txt, col, false)" in js
 
 
+def test_guided_processing_spotlight_remeasures_after_pipeline_dom_growth():
+    js = read_ui("app.js")
+    pipeline = js.split("function renderPipeline()", 1)[1].split("// Main slide preview", 1)[0]
+
+    assert "if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') positionTourSpotlight();" in pipeline
+
+
+def test_acknowledged_healthy_bootstrap_closes_a_pending_runtime_overlay():
+    js = read_ui("app.js")
+    gate = js.split("var RuntimeSetupGate = (function ()", 1)[1].split("var acknowledgeInFlight", 1)[0]
+
+    healthy_close = "bootstrap.runtime_health_state === 'HEALTHY' && bootstrap.setup_acknowledged === true && !before.activeOperation) { closeOverlay(); return; }"
+    assert healthy_close in gate
+    assert gate.index(healthy_close) < gate.index("if (view.state === 'checking')")
+
+
+def test_packaged_visual_gate_handles_modal_file_dialog_outside_synchronous_cdp():
+    script = (ROOT / "scripts" / "packaged_visual_acceptance.py").read_text(encoding="utf-8")
+
+    assert "def click_file_dialog(self, selector: str)" in script
+    assert "name=\"lp-open-file-dialog\"" in script
+    assert "self.click_file_dialog(\"#btn-browse\")" in script
+
+
 def test_backend_ignores_duplicate_progress_and_identical_pipeline_payloads():
     adapter = LecturePackAdapter.__new__(LecturePackAdapter)
     adapter._stages = [{

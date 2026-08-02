@@ -2,6 +2,20 @@
 
 All notable changes to Lecture Pack are documented here.
 
+## [0.9.0-beta.10] — 2026-08-02
+
+### Fixed
+- **Packaged visual reliability:** added a real Windows-window acceptance gate
+  covering cold launch, setup, Demo overlays, navigation, resize, themes, real
+  video processing, idle, and reopen.
+- **Demo processing spotlight:** remeasure the guided-tour border after live
+  pipeline DOM growth so its border and arrow remain aligned.
+- **Runtime reopen overlay:** close the stale checking overlay after an
+  acknowledged healthy bootstrap without changing the first-run checklist or
+  motion behavior.
+- **Release trust fixtures:** update stale test fixtures and verify the pinned
+  cryptography wheel hash without weakening signature or archive checks.
+
 ## [0.9.0-beta.9] — 2026-08-01
 
 ### Fixed
