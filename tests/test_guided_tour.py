@@ -349,8 +349,8 @@ def test_demo_retry_attempt_generation_ignores_old_callbacks_and_stop_results():
     assert result["staleStop"]["attempt"] > result["firstAttempt"]
 
 
-def test_css_spotlight_is_pointer_transparent_and_has_no_svg_mask():
-    """QtWebEngine-safe spotlight: CSS box-shadow dimmer, never an SVG hit surface."""
+def test_css_spotlight_is_pointer_transparent_and_uses_a_static_scrim():
+    """QtWebEngine-safe spotlight: static scrim, cheap geometry, no SVG hit surface."""
     html = HTML.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
 
@@ -358,9 +358,13 @@ def test_css_spotlight_is_pointer_transparent_and_has_no_svg_mask():
     assert 'id="tour-spotlight-box"' in html
     assert "<mask" not in html.lower()
     assert "<svg id=\"tour" not in html.lower()
-    assert "#guided-tour-overlay{position:fixed;inset:0;z-index:170;pointer-events:none}" in css
+    assert "#guided-tour-overlay{position:fixed;inset:0;z-index:170;pointer-events:none;background:rgba(8,10,14,.65)}" in css
     assert "#tour-spotlight-box" in css
-    assert "box-shadow:0 0 0 9999px rgba(8,10,14,.65)" in css
+    spotlight = css.split("#guided-tour-overlay", 1)[1].split("#guided-tour-card", 1)[0]
+    assert "9999px" not in spotlight
+    assert "filter:drop-shadow" not in spotlight
+    assert "transition:" not in spotlight
+    assert "will-change" not in spotlight
     assert "#guided-tour-card" in css and "pointer-events:auto" in css
     assert "#glowing-demo-card.lp-demo-tour-lifted" in css
     assert "pointer-events:auto!important" in css

@@ -2,6 +2,18 @@
 
 All notable changes to Lecture Pack are documented here.
 
+## [0.9.0-beta.11] — 2026-08-02
+
+### Fixed
+- **Cross-device rendering reliability:** keep the Qt window, WebEngine view,
+  WebEngine page, and DOM surfaces on one fully opaque active-theme background.
+- **Demo spotlight cost:** use one static translucent scrim with separately
+  positioned border and arrow geometry; retain the existing tour motion and
+  card design without animated full-window effects.
+- **Processing repaint pressure:** throttle visible stage, status, progress, and
+  log updates to at most four batches per second, skip identical snapshots, and
+  update existing stage/log nodes in place.
+
 ## [0.9.0-beta.10] — 2026-08-02
 
 ### Fixed

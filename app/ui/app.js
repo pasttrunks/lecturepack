@@ -1132,15 +1132,44 @@
      cost was one full render PER LINE, not per frame.
      Batching keeps the same visible output -- a frame is the fastest anything
      can be seen -- while collapsing N renders per frame into one. */
-  var _pipeRaf = 0;
-  function schedulePipelineRender() {
-    if (_pipeRaf) return;
-    _pipeRaf = (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(function () {
-      _pipeRaf = 0;
-      renderPipeline();
-    });
-  }
-  function renderPipeline() {
+   /* Processing state may arrive much faster than a clean-install WebEngine
+      can paint. Keep engine state live, but cap visible processing writes at
+      four per second and commit each batch in one animation frame. */
+   var PROCESSING_RENDER_INTERVAL = 250;
+   var processingRenderTimer = null, processingRenderRaf = null;
+   var processingRenderLastAt = 0;
+   var pipelineRenderDirty = false, statusRenderDirty = false;
+   var pendingProcessingStatus = {};
+   var lastPipelineRenderKey = null, lastStatusRenderKey = null;
+
+   function processingRaf(fn) {
+     return (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(fn);
+   }
+
+   function scheduleProcessingRender(kind) {
+     if (kind === 'pipeline') pipelineRenderDirty = true;
+     if (kind === 'status') statusRenderDirty = true;
+     if (processingRenderTimer !== null || processingRenderRaf !== null) return;
+     var elapsed = Date.now() - processingRenderLastAt;
+     var delay = Math.max(0, PROCESSING_RENDER_INTERVAL - elapsed);
+     processingRenderTimer = setTimeout(function () {
+       processingRenderTimer = null;
+       processingRenderRaf = processingRaf(function () {
+         processingRenderRaf = null;
+         var shouldRenderPipeline = pipelineRenderDirty;
+         var shouldRenderStatus = statusRenderDirty;
+         pipelineRenderDirty = false;
+         statusRenderDirty = false;
+         if (shouldRenderPipeline) renderPipeline();
+         if (shouldRenderStatus) renderProcessingStatus();
+         processingRenderLastAt = Date.now();
+         if (pipelineRenderDirty || statusRenderDirty) scheduleProcessingRender();
+       });
+     }, delay);
+   }
+
+   function schedulePipelineRender() { scheduleProcessingRender('pipeline'); }
+   function renderPipelineLegacy() {
     var p = LP.data.pipeline;
     $('proc-status-title').textContent = p.title;
     $('proc-status-meta').textContent = p.meta;
@@ -1181,10 +1210,157 @@
     // The guided-tour processing spotlight is measured before the live stage
     // list fills in. Re-measure after that DOM growth so the border and arrow
     // continue to describe the actual target instead of the initial skeleton.
-    if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') positionTourSpotlight();
+    if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') scheduleTourGeometry();
   }
 
-  // Main slide preview: fills the canvas at Fit (preserving aspect ratio) and
+   function pipelineStageNode() {
+     var row = document.createElement('div');
+     row.className = 'lp-stage';
+     row.style.cssText = 'display:flex;align-items:center;gap:13px';
+     var labelWrap = document.createElement('span');
+     labelWrap.className = 'lp-stage-label-wrap';
+     labelWrap.style.cssText = 'width:120px;flex:none;display:flex;align-items:center;gap:8px';
+     var marker = document.createElement('span');
+     marker.className = 'lp-stage-marker';
+     marker.style.cssText = 'width:19px;height:19px;display:flex;align-items:center;justify-content:center;flex:none';
+     var check = document.createElement('span');
+     check.className = 'lp-stage-check';
+     check.textContent = '✓';
+     check.style.cssText = 'font:700 14px/1 system-ui;color:var(--on-signal)';
+     marker.appendChild(check);
+     var label = document.createElement('span');
+     label.className = 'lp-stage-label';
+     labelWrap.appendChild(marker);
+     labelWrap.appendChild(label);
+     var bar = document.createElement('div');
+     bar.className = 'lp-stage-bar';
+     bar.style.cssText = 'flex:1;height:9px;border-radius:6px;overflow:hidden';
+     var fill = document.createElement('div');
+     fill.className = 'lp-stage-fill';
+     fill.style.cssText = 'width:100%;height:100%;transform-origin:left center';
+     bar.appendChild(fill);
+     var pct = document.createElement('span');
+     pct.className = 'lp-stage-pct';
+     pct.style.cssText = 'width:38px;text-align:right;font:700 11px \'JetBrains Mono\'';
+     row.appendChild(labelWrap);
+     row.appendChild(bar);
+     row.appendChild(pct);
+     return row;
+   }
+
+   function applyPipelineStage(row, st) {
+     var ds = st.state === 'done' ? 'complete' : st.state === 'active' ? 'running' :
+       st.state === 'error' ? 'failed' : 'idle';
+     var labelWrap = row.querySelector('.lp-stage-label-wrap');
+     var marker = row.querySelector('.lp-stage-marker');
+     var check = row.querySelector('.lp-stage-check');
+     var label = row.querySelector('.lp-stage-label');
+     var bar = row.querySelector('.lp-stage-bar');
+     var fill = row.querySelector('.lp-stage-fill');
+     var pct = row.querySelector('.lp-stage-pct');
+     var color = st.color === 'blue' ? 'var(--blue)' : 'var(--orange)';
+     row.dataset.state = ds;
+     row.dataset.stageLabel = st.label || '';
+     label.textContent = st.label || '';
+     check.hidden = st.state !== 'done';
+     pct.hidden = st.state !== 'active';
+     if (st.state === 'done') {
+       row.style.opacity = '1';
+       labelWrap.style.fontWeight = '600';
+       marker.style.cssText = 'width:19px;height:19px;background:var(--green-fill);border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none';
+       bar.style.background = 'var(--green-soft)';
+       fill.style.background = 'var(--green)';
+       fill.style.backgroundImage = 'none';
+       fill.style.transform = 'scaleX(1)';
+       fill.style.animation = 'none';
+     } else if (st.state === 'active') {
+       var value = Math.max(0, Math.min(100, Number(st.pct) || 0));
+       row.style.opacity = '1';
+       labelWrap.style.fontWeight = '700';
+       marker.style.cssText = 'width:19px;height:19px;border:2px solid ' + color + ';border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;animation:lpblink ' + (st.color === 'blue' ? '1.3s' : '1s') + ' infinite';
+       bar.style.background = 'var(--sunk)';
+       fill.style.background = color;
+       fill.style.backgroundImage = 'repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.32) 6px,rgba(255,255,255,.32) 13px)';
+       fill.style.transform = 'scaleX(' + (value / 100) + ')';
+       fill.style.animation = 'lpbar 1s linear infinite';
+       pct.textContent = Math.round(value) + '%';
+       pct.style.color = st.color === 'blue' ? 'var(--blue-ink)' : '';
+     } else {
+       row.style.opacity = '.45';
+       labelWrap.style.fontWeight = '400';
+       marker.style.cssText = 'width:19px;height:19px;border:2px solid var(--muted);border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none';
+       bar.style.background = 'var(--sunk)';
+       fill.style.background = 'transparent';
+       fill.style.backgroundImage = 'none';
+       fill.style.transform = 'scaleX(0)';
+       fill.style.animation = 'none';
+       pct.textContent = '';
+       pct.style.color = '';
+     }
+   }
+
+   function renderPipelineLog(logEl, logs) {
+     var keys = logs.map(function (entry) {
+       return [entry.tag || '', entry.color || '', entry.text || ''].join('\\u001f');
+     });
+     var rows = Array.prototype.slice.call(logEl.children);
+     var samePrefix = rows.every(function (row, index) { return row.dataset.logKey === keys[index]; });
+     var stick = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8;
+     if (!samePrefix || rows.length > keys.length) {
+       while (logEl.firstChild) logEl.removeChild(logEl.firstChild);
+       rows = [];
+     }
+     var fragment = document.createDocumentFragment();
+     for (var i = rows.length; i < logs.length; i += 1) {
+       var entry = logs[i], row = document.createElement('div');
+       row.dataset.logKey = keys[i];
+       var tag = document.createElement('span');
+       tag.style.color = entry.color || 'var(--muted)';
+       tag.textContent = entry.tag || '';
+       row.appendChild(tag);
+       row.appendChild(document.createTextNode(' ' + (entry.text || '')));
+       fragment.appendChild(row);
+     }
+     if (fragment.childNodes.length) logEl.appendChild(fragment);
+     if (stick) logEl.scrollTop = logEl.scrollHeight;
+   }
+
+   function renderPipeline() {
+     var p = LP.data.pipeline || { title: '', meta: '', stages: [], log: [] };
+     var stages = Array.isArray(p.stages) ? p.stages : [];
+     var logs = Array.isArray(p.log) ? p.log : [];
+     var key = JSON.stringify({ title: p.title || '', meta: p.meta || '', stages: stages, log: logs });
+     if (key === lastPipelineRenderKey) return;
+     lastPipelineRenderKey = key;
+     $('proc-status-title').textContent = p.title || '';
+     $('proc-status-meta').textContent = p.meta || '';
+     var hasJob = !!(p.title && stages.length);
+     $('proc-source-name').textContent = hasJob ? p.title : 'No lecture loaded';
+     $('proc-source-meta').textContent = hasJob ? (p.meta || '') : '';
+     var stagesEl = $('pipeline-stages');
+     while (stagesEl.children.length > stages.length) stagesEl.lastElementChild.remove();
+     while (stagesEl.children.length < stages.length) stagesEl.appendChild(pipelineStageNode());
+     stages.forEach(function (st, index) { applyPipelineStage(stagesEl.children[index], st); });
+     renderPipelineLog($('proc-log'), logs);
+     if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') scheduleTourGeometry();
+   }
+
+   function renderProcessingStatus() {
+     var s = pendingProcessingStatus;
+     var key = JSON.stringify(s);
+     if (key === lastStatusRenderKey) return;
+     lastStatusRenderKey = key;
+     if (s.label !== undefined) $('status-label').textContent = s.label;
+     if (s.pct !== undefined) setFill('status-bar', s.pct);
+     if (s.detail !== undefined) $('status-pct').textContent = s.detail;
+     if (s.right !== undefined) $('status-right').textContent = s.right;
+     if (s.job !== undefined && LP.state.jobId) {
+       $('side-job-name').textContent = s.job; $('crumb-job').textContent = s.job;
+     }
+     if (s.side !== undefined) setStatusDotText($('side-job-status'), s.side, 'var(--orange)', true);
+   }
+
+   // Main slide preview: fills the canvas at Fit (preserving aspect ratio) and
   // supports zoom/pan. Uses the full-resolution candidate image (cur.img), NOT
   // the small thumbnail box. scale is natural-pixel -> CSS-pixel (100% = 1:1).
   var previewCtl = (function () {
@@ -4209,14 +4385,8 @@
     });
     lpBridge.on('status_changed', function (json) {
       var s = JSON.parse(json);
-      if (s.label !== undefined) $('status-label').textContent = s.label;
-      if (s.pct !== undefined) setFill('status-bar', s.pct);
-      if (s.detail !== undefined) $('status-pct').textContent = s.detail;
-      if (s.right !== undefined) $('status-right').textContent = s.right;
-      if (s.job !== undefined && LP.state.jobId) {
-        $('side-job-name').textContent = s.job; $('crumb-job').textContent = s.job;
-      }
-      if (s.side !== undefined) setStatusDotText($('side-job-status'), s.side, 'var(--orange)', true);
+      pendingProcessingStatus = Object.assign({}, pendingProcessingStatus, s);
+      scheduleProcessingRender('status');
       // D-08: _on_pipeline_failed (Python) never re-emits pipeline_changed
       // with the failed stage cleared, so pipelineRunning must be released
       // explicitly on the terminal "Failed" status label. "Done" is handled

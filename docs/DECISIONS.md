@@ -638,3 +638,38 @@ self-test before the later repair phase.
 keeps the release trust boundary reviewable without pretending that an
 unapproved dependency or personal accountability already exists. It also
 preserves D-11's fail-closed Phase 2 gate.
+
+---
+
+## AD-20: Beta.11 Cross-Device Rendering Hotfix
+
+**Date:** 2026-08-02
+**Status:** Accepted for beta.11 candidate
+
+**Context:** Beta.10 was smooth on the development computer but flickered and
+felt laggy on a separate clean-install Windows computer. Starting the affected
+packaged app with `--disable-gpu` did not change the symptom, so a GPU-specific
+compatibility mode would not be a confirmed fix.
+
+**Decision:** Keep the native window, `QWebEngineView`, `QWebEnginePage`,
+`html`, `body`, and `#app` on the same fully opaque active-theme background.
+Replace the Demo spotlight's large spread shadow and geometry transitions with
+one static translucent scrim plus independently positioned border and arrow.
+Throttle only visible processing renders to a 250 ms cadence, coalesce status
+and pipeline signals, skip identical snapshots, preserve existing stage/log
+nodes where possible, and batch new log rows in a `DocumentFragment` before a
+`requestAnimationFrame` DOM write.
+
+**Alternatives considered:**
+- GPU flags or runtime graphics detection: rejected because `--disable-gpu`
+  did not reproduce a useful improvement and the cause was not confirmed.
+- Disabling all animations or adding `will-change` broadly: rejected because it
+  changes the product's intentional motion and does not address the confirmed
+  expensive spotlight/update paths.
+- A visual-testing framework or framework migration: rejected because the
+  smallest reliable candidate is a targeted renderer change plus existing
+  acceptance tests.
+
+**Rationale:** The fix removes the two confirmed sources of avoidable compositor
+and repaint work while preserving the existing design, normal animations,
+processing timing, and persistence behavior.

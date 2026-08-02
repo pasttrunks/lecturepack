@@ -351,7 +351,7 @@ def test_reduced_motion_block_still_clamps_lp_state_stage_fill_to_fast_token() -
 
 def test_app_css_uses_document_width_without_a_viewport_scrollbar_gutter() -> None:
     css = read_ui("app.css")
-    assert "body{width:100%;height:100vh;overflow-y:auto}" in css
+    assert "body{width:100%;height:100vh;overflow-y:auto;background-color:var(--bg)}" in css
     assert "body{width:100vw;" not in css
 
 

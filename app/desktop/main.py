@@ -39,7 +39,7 @@ if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
                 pass
 
 from PySide6.QtCore import QUrl, Qt
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtGui import QColor, QIcon, QPalette
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -147,6 +147,11 @@ class WebView(QWebEngineView):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        # Keep both native surfaces opaque. WebEngine can otherwise expose a
+        # compositor clear colour during a resize or first paint, which is
+        # especially visible on slower clean-install machines.
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAutoFillBackground(True)
         self.setWindowTitle(version.APP_NAME)
         self.setMinimumSize(480, 560)
         self.resize(1360, 860)
@@ -159,6 +164,8 @@ class MainWindow(QMainWindow):
 
         self.backend = Backend(self)
         self.view = WebView(self.backend)
+        self.view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.view.setAutoFillBackground(True)
 
         # Match the Qt widget background to the saved theme so no white
         # bleeds through before the web page paints its first frame.
@@ -244,11 +251,18 @@ class MainWindow(QMainWindow):
             self.show()
 
     def _sync_page_background(self, _payload: str = "") -> None:
-        """Keep the Qt compositor and native window brush on the DOM theme."""
+        """Keep every native/WebEngine surface on the active opaque theme."""
         theme = self.backend.initial_theme()
         color = "#16191F" if theme == "dark" else "#F3F0E8"
-        self.view.page().setBackgroundColor(QColor(color))
-        self.setStyleSheet(f"QMainWindow{{background:{color};}}")
+        qcolor = QColor(color)
+        for widget in (self, self.view):
+            palette = widget.palette()
+            palette.setColor(QPalette.ColorRole.Window, qcolor)
+            palette.setColor(QPalette.ColorRole.Base, qcolor)
+            widget.setPalette(palette)
+        self.setStyleSheet(f"QMainWindow{{background-color:{color};}}")
+        self.view.setStyleSheet(f"QWebEngineView{{background-color:{color};}}")
+        self.view.page().setBackgroundColor(qcolor)
 
     def _prewarm_posters(self, payload: str) -> None:
         """Kick off poster generation for every job in a jobs_changed payload."""

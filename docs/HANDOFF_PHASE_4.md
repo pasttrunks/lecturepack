@@ -91,3 +91,54 @@ Phase 4 eliminates confirmed rendering and layout artifacts while preserving bet
 
 - **Next Phase:** Phase 5 — Packaged & Physical Release Gate
 - **Focus:** Prove the assembled release package offline, under component corruption/damage conditions, and across physical machine targets before public beta-6 distribution.
+
+---
+
+## Beta.11 Cross-Device Rendering Hotfix — 2026-08-02
+
+Work is based on the immutable beta.10 release commit
+`dd2b6337d277c97dbdf25daa12485851489f4090` in the dedicated branch
+`codex/beta11-rendering-hotfix`.
+
+The candidate changes are intentionally narrow:
+
+- Qt window, WebEngine view/page, and DOM surfaces use matching opaque light or
+  dark backgrounds.
+- The Demo spotlight uses a static scrim and independently positioned border
+  and arrow; the prior large spread shadow, filter, and geometry transitions are
+  removed while normal product animations remain.
+- Processing status, stage, progress, and log paints are coalesced and capped
+  at four visible batches per second. Existing rows are updated in place and
+  new log rows are appended as a fragment.
+
+The beta.11 source and package validation completed:
+
+```text
+pytest -q --durations=20
+1079 passed, 1 skipped, 1 warning in 276.47s (0:04:36)
+
+pytest -q tests/test_runtime_packaged_repair.py tests/test_runtime_packaged_smoke.py
+5 passed in 82.97s
+
+packaged_visual_acceptance.py --idle-seconds 0 --runs 1
+PASS; 191 real-window frames; zero error flags; zero top-level DOM replacements;
+zero Demo remounts; sidebar visible through four resize cycles.
+```
+
+The local visual evidence is in
+`C:\Users\marsh\AppData\Local\Temp\lecturepack-visual-beta11-gate-20260802`.
+The generated artifacts are:
+
+- `LecturePack-0.9.0-beta.11-Setup.exe` — SHA-256
+  `2375424b4c147fab44674cfb7a1a05c13db5016b8ec26ed9b53826bf290ced4d`
+- `LecturePack-0.9.0-beta.11-Portable.zip` — SHA-256
+  `4d430ab548df8ef08b63ff3ad3cdb743439dc2460ba110801c7335fa45de8a41`
+- `LecturePack-0.9.0-beta.11-SHA256SUMS.txt`
+
+The separate clean-install machine still needs the tester's three-run,
+five-minute-idle confirmation. No GPU flag, animation-wide disable, framework
+migration, or design redesign is in scope.
+
+The detailed implementation record is
+`docs/BETA11_RENDERING_HOTFIX_IMPLEMENTATION.md`. The GitHub pre-release URL
+and immutable tag commit must be added here immediately after publication.

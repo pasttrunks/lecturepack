@@ -27,9 +27,14 @@ def test_theme_and_startup_surfaces_share_one_root_and_background_transaction():
     assert "document.documentElement.dataset.theme || 'light'" in js
     assert "document.documentElement.dataset.theme = " in main
     assert "document.getElementById('app').dataset.theme" not in main
-    assert "body{width:100%;height:100vh;overflow-y:auto}" in css
+    assert "body{width:100%;height:100vh;overflow-y:auto;background-color:var(--bg)}" in css
     assert "self.backend.settings_changed.connect(self._sync_page_background)" in main
-    assert "self.view.page().setBackgroundColor(QColor(color))" in main
+    assert "self.view.page().setBackgroundColor(qcolor)" in main
+    assert "self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)" in main
+    assert "self.view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)" in main
+    assert "self.setAutoFillBackground(True)" in main
+    assert "self.view.setAutoFillBackground(True)" in main
+    assert "self.view.setStyleSheet(f\"QWebEngineView{{background-color:{color};}}\")" in main
     assert main.index("self.setCentralWidget(self.view)") < main.index("self.view.load(QUrl.fromLocalFile(index))")
 
 
@@ -51,7 +56,13 @@ def test_pipeline_and_status_handlers_preserve_live_dom_nodes():
 
     assert "schedulePipelineRender();" in pipeline
     assert "renderPipeline();" not in pipeline
-    assert "if (logEl.innerHTML !== logHtml)" in js
+    assert "PROCESSING_RENDER_INTERVAL = 250" in js
+    assert "scheduleProcessingRender('status')" in js
+    renderer = js.split("function pipelineStageNode()", 1)[1].split("// Main slide preview", 1)[0]
+    assert "document.createElement('div')" in renderer
+    assert "document.createDocumentFragment()" in renderer
+    assert "stagesEl.innerHTML" not in renderer
+    assert "logEl.innerHTML" not in renderer
     assert "setStatusDotText($('side-job-status'), s.side" in js
     assert "setStatusDotText($('ai-status'), txt, col, false)" in js
 
@@ -60,7 +71,18 @@ def test_guided_processing_spotlight_remeasures_after_pipeline_dom_growth():
     js = read_ui("app.js")
     pipeline = js.split("function renderPipeline()", 1)[1].split("// Main slide preview", 1)[0]
 
-    assert "if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') positionTourSpotlight();" in pipeline
+    assert "if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') scheduleTourGeometry();" in pipeline
+
+
+def test_spotlight_uses_static_scrim_and_geometry_without_expensive_effects():
+    css = read_ui("app.css")
+    spotlight = css.split("#guided-tour-overlay", 1)[1].split("#guided-tour-card", 1)[0]
+
+    assert "background:rgba(8,10,14,.65)" in spotlight
+    assert "9999px" not in spotlight
+    assert "filter:drop-shadow" not in spotlight
+    assert "transition:" not in spotlight
+    assert "will-change" not in spotlight
 
 
 def test_acknowledged_healthy_bootstrap_closes_a_pending_runtime_overlay():

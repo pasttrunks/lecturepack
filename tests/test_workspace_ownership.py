@@ -227,7 +227,7 @@ def test_log_lines_are_dropped_when_no_lecture_is_loaded():
 
 
 def test_status_changed_cannot_name_a_lecture_when_none_is_loaded():
-    block = JS.split("lpBridge.on('status_changed'", 1)[1][:900]
+    block = JS.split("function renderProcessingStatus()", 1)[1].split("// Main slide preview", 1)[0]
     assert "s.job !== undefined && LP.state.jobId" in block
 
 

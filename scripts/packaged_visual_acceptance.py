@@ -64,6 +64,22 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_EXE = ROOT / "app" / "dist" / "LecturePack" / "LecturePack.exe"
 DEFAULT_VIDEO = ROOT / "app" / "assets" / "demo" / "demo_lecture.mp4"
 APP_NAME = "LecturePack"
+
+
+def current_git_commit() -> str:
+    """Return the source revision recorded in the visual evidence report."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+VISUAL_BASELINE_COMMIT = current_git_commit()
 WM_CLOSE = 0x0010
 WM_SETTEXT = 0x000C
 WM_COMMAND = 0x0111
@@ -1274,7 +1290,7 @@ def run_one(exe: Path, video: Path, output_dir: Path, idle_seconds: float, keep_
     run = VisualRun(exe, video, output_dir, idle_seconds, keep_profile)
     result: dict[str, Any] = {
         "started_at": iso_now(),
-        "baseline_commit": "8a0671810e235b24aab9ad0805cfa6fed30fcb00",
+        "baseline_commit": VISUAL_BASELINE_COMMIT,
         "executable": str(exe),
         "video": str(video),
         "ok": False,
@@ -1385,7 +1401,7 @@ def main() -> int:
     original_theme = _read_saved_theme()
     aggregate: dict[str, Any] = {
         "started_at": iso_now(),
-        "baseline_commit": "8a0671810e235b24aab9ad0805cfa6fed30fcb00",
+        "baseline_commit": VISUAL_BASELINE_COMMIT,
         "requested_runs": args.runs,
         "idle_seconds": args.idle_seconds,
         "output": str(output),

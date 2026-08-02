@@ -2,9 +2,9 @@
    Do not "improve" values here: colors, borders, shadows and animations are the design. */
 
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;overflow-x:hidden;background:var(--bg)}
-body{width:100%;height:100vh;overflow-y:auto}
-#app{min-width:0;min-height:100vh}
+html,body{margin:0;padding:0;overflow-x:hidden;background-color:var(--bg);background-image:none}
+body{width:100%;height:100vh;overflow-y:auto;background-color:var(--bg)}
+#app{min-width:0;min-height:100vh;background-color:var(--bg)}
 [hidden]{display:none !important}
 
 /* thin glowing scrollbars */
@@ -716,12 +716,12 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 
 /* --- 3.8a guided tour -----------------------------------------------------
    QtWebEngine on Windows can hit-test a full-viewport SVG mask even when its
-   parent says pointer-events:none.  The tour therefore uses one small CSS box
-   with an oversized shadow for the dimmer.  The full-viewport wrapper is also
-   pointer-transparent; only the compact instruction card can receive input. */
-#guided-tour-overlay{position:fixed;inset:0;z-index:170;pointer-events:none}
-#tour-spotlight-box{position:fixed;left:0;top:0;width:0;height:0;border:2px solid var(--orange);border-radius:12px;box-shadow:0 0 0 9999px rgba(8,10,14,.65),0 0 25px rgba(255,122,0,.6);pointer-events:none;transition:left var(--motion-seat) var(--motion-spring),top var(--motion-seat) var(--motion-spring),width var(--motion-seat) var(--motion-spring),height var(--motion-seat) var(--motion-spring);will-change:left,top,width,height}
-#tour-arrow{position:fixed;width:13px;height:13px;border-right:3px solid var(--orange);border-bottom:3px solid var(--orange);transform:rotate(45deg);pointer-events:none;filter:drop-shadow(0 0 5px rgba(255,122,0,.7));transition:left var(--motion-seat) var(--motion-spring),top var(--motion-seat) var(--motion-spring)}
+   parent says pointer-events:none.  The tour therefore uses one static,
+   pointer-transparent scrim plus separate fixed geometry for the border and
+   arrow.  Only the compact instruction card can receive input. */
+#guided-tour-overlay{position:fixed;inset:0;z-index:170;pointer-events:none;background:rgba(8,10,14,.65)}
+#tour-spotlight-box{position:fixed;left:0;top:0;width:0;height:0;border:2px solid var(--orange);border-radius:12px;pointer-events:none;background:transparent}
+#tour-arrow{position:fixed;width:13px;height:13px;border-right:3px solid var(--orange);border-bottom:3px solid var(--orange);transform:rotate(45deg);pointer-events:none}
 #guided-tour-card{position:fixed;right:24px;bottom:24px;z-index:2;width:min(360px,calc(100vw - 32px));box-sizing:border-box;background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);padding:18px;pointer-events:auto}
 #tour-step-label{font:600 10px 'JetBrains Mono';letter-spacing:.14em;color:var(--orange-ink);text-transform:uppercase;margin-bottom:7px}
 #tour-title{font:700 19px 'Space Grotesk';letter-spacing:-.02em;margin:0 0 7px}

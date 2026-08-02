@@ -65,7 +65,7 @@ def test_theme_notifications_are_idempotent_and_do_not_echo_to_settings():
 def test_main_injects_sanitized_saved_theme_before_first_show():
     assert "self.view.loadFinished.connect(self._apply_initial_theme_before_show)" in MAIN
     assert "self.backend.settings_changed.connect(self._sync_page_background)" in MAIN
-    assert "self.view.page().setBackgroundColor(QColor(color))" in MAIN
+    assert "self.view.page().setBackgroundColor(qcolor)" in MAIN
     assert "document.documentElement.dataset.theme = " in MAIN
     assert "document.getElementById('app').dataset.theme" not in MAIN
     assert "theme = json.dumps(self.backend.initial_theme())" in MAIN
