@@ -194,8 +194,17 @@ failed because its offline wheel directory omitted `cffi`, a transitive
 dependency of the pinned `cryptography==49.0.0` verifier. The workflow is now
 corrected to verify and install the pinned cffi and pycparser wheels as well.
 The existing `v0.9.0-beta.12` tag still points at the pre-correction commit;
-GitHub cannot produce the installer until that tag is deliberately corrected
-or a replacement release tag is chosen.
+the corrected workflow was dispatched from `fix/beta12-startup` while keeping
+that immutable source tag. The release completed successfully:
+
+- **GitHub pre-release:**
+  `https://github.com/pasttrunks/lecturepack/releases/tag/v0.9.0-beta.12`
+- **Workflow run:**
+  `https://github.com/pasttrunks/lecturepack/actions/runs/30781784765`
+- **Immutable peeled tag commit:** `124eefad998763f925baeaaa6489d4c315f4b604`
+- **Published updater asset:**
+  `LecturePack-0.9.0-beta.12-Setup.exe` plus its
+  `LecturePack-0.9.0-beta.12-SHA256SUMS.txt` checksum file.
 
 The manual laptop gates remain pending. The laptop sequence must still run
 both beta.11 flicker experiments before any CSS diagnosis, then verify
