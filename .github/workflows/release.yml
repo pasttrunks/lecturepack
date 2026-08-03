@@ -51,17 +51,22 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           mkdir -p verified-wheels
-          python -m pip download --only-binary=:all: --no-deps --dest verified-wheels cryptography==49.0.0
+          python -m pip download --only-binary=:all: --no-deps --dest verified-wheels cryptography==49.0.0 cffi==2.0.0 pycparser==2.22
           python - <<'PY'
           import hashlib
           from pathlib import Path
-          wheel = next(Path('verified-wheels').glob('cryptography-49.0.0-*.whl'))
-          digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
-          expected = 'e5dfc1e64de5677cec922ffa8da89c546d0415bf6efdf081842e5d44c84e1f0e'
-          assert digest == expected, f'cryptography wheel hash mismatch: {digest}'
-          print(f'verified {wheel.name}: {digest}')
+          expected = {
+              'cryptography-49.0.0-*.whl': 'e5dfc1e64de5677cec922ffa8da89c546d0415bf6efdf081842e5d44c84e1f0e',
+              'cffi-2.0.0-cp312-cp312-win_amd64.whl': 'da68248800ad6320861f129cd9c1bf96ca849a2771a59e0344e88681905916f5',
+              'pycparser-2.22-py3-none-any.whl': 'c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc',
+          }
+          for pattern, expected_digest in expected.items():
+              wheel = next(Path('verified-wheels').glob(pattern))
+              digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+              assert digest == expected_digest, f'{wheel.name} hash mismatch: {digest}'
+              print(f'verified {wheel.name}: {digest}')
           PY
-          python -m pip install --no-index --find-links verified-wheels cryptography==49.0.0
+          python -m pip install --no-index --find-links verified-wheels pycparser==2.22 cffi==2.0.0 cryptography==49.0.0
           python -m pip install -r app/requirements.txt -r app/requirements-build.txt
 
       - name: Install Inno Setup
