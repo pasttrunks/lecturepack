@@ -149,6 +149,9 @@ This release candidate is on branch `fix/beta12-startup`, based directly on
 `v0.9.0-beta.11` / commit `0207f084` (`codex/beta11-rendering-hotfix`). The
 beta.10 Claude branch was not used.
 
+The detailed implementation record is
+[`docs/BETA12_STARTUP_RELIABILITY_IMPLEMENTATION.md`](BETA12_STARTUP_RELIABILITY_IMPLEMENTATION.md).
+
 ### Completed in this phase
 
 - **Item A:** `closeOverlay()` now releases underlying inert state when the
