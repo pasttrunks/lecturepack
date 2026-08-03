@@ -213,5 +213,9 @@ def test_release_workflow_binds_both_triggers_to_the_peeled_tag_before_signing()
     assert "LECTUREPACK_RELEASE_ED25519_PRIVATE_KEY_HEX" in workflow
     assert "cryptography==49.0.0" in workflow
     assert "e5dfc1e64de5677cec922ffa8da89c546d0415bf6efdf081842e5d44c84e1f0e" in workflow
+    assert "cffi==2.0.0" in workflow
+    assert "da68248800ad6320861f129cd9c1bf96ca849a2771a59e0344e88681905916f5" in workflow
+    assert "pycparser==2.22" in workflow
+    assert "c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc" in workflow
     assert "softprops/action-gh-release" in workflow
     assert "LecturePack-*-" not in workflow

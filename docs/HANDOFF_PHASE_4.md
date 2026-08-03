@@ -189,6 +189,14 @@ their first-run-suite wrapper), two package-pruning checks, three phase-2 job
 lifecycle checks, and two packaged-runtime fixture checks. The new beta12
 bootstrap field and guided-tour assertions pass.
 
+The first GitHub beta.12 release run reached dependency installation but
+failed because its offline wheel directory omitted `cffi`, a transitive
+dependency of the pinned `cryptography==49.0.0` verifier. The workflow is now
+corrected to verify and install the pinned cffi and pycparser wheels as well.
+The existing `v0.9.0-beta.12` tag still points at the pre-correction commit;
+GitHub cannot produce the installer until that tag is deliberately corrected
+or a replacement release tag is chosen.
+
 The manual laptop gates remain pending. The laptop sequence must still run
 both beta.11 flicker experiments before any CSS diagnosis, then verify
 first-run progress beyond 0 of 5, warm relaunch interactivity, and the

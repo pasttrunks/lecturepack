@@ -734,3 +734,30 @@ nodes where possible, and batch new log rows in a `DocumentFragment` before a
 **Rationale:** The fix removes the two confirmed sources of avoidable compositor
 and repaint work while preserving the existing design, normal animations,
 processing timing, and persistence behavior.
+
+---
+
+## AD-23: Verify the Offline Release Dependency Closure
+
+**Date:** 2026-08-02
+**Status:** Accepted for beta.12 release workflow
+
+**Context:** The beta.12 release workflow verifies and installs
+`cryptography==49.0.0` from an offline wheel directory. That wheel now requires
+`cffi>=2.0.0`, and cffi in turn requires pycparser, so verifying only the
+cryptography wheel leaves the Windows build without its dependency closure.
+
+**Decision:** Pin `cffi==2.0.0` and `pycparser==2.22` in the release workflow's
+verified wheel set, check the exact Windows CPython 3.12 cffi wheel and the
+pycparser wheel hashes, and install all three dependencies from that directory
+before installing the application requirements.
+
+**Alternatives considered:**
+- Allowing pip to resolve cffi online: rejected because the release build must
+  remain reproducible and offline after the verified downloads.
+- Downloading cffi without a version or hash: rejected because it would weaken
+  the existing release trust boundary.
+
+**Rationale:** The workflow now verifies the full dependency closure required by
+the pinned cryptography verifier while keeping the release's offline and
+hash-checked installation contract intact.

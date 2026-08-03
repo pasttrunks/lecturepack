@@ -21,6 +21,9 @@ All notable changes to Lecture Pack are documented here.
   `LECTUREPACK_TOUR_TRACE=1`, routed through the local stderr/log sink. The
   trace records overlay hidden writes, overlay mutations, and frame timestamps;
   it does not change overlay CSS or claim a compositing fix.
+- **Release reproducibility:** verify and install the complete pinned
+  `cryptography`/`cffi`/`pycparser` wheel closure before the offline Windows
+  build.
 
 ## [0.9.0-beta.11] — 2026-08-02
 
