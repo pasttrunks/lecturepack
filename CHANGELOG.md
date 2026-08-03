@@ -2,6 +2,21 @@
 
 All notable changes to Lecture Pack are documented here.
 
+## [0.9.0-beta.12] — 2026-08-02
+
+### Fixed
+- **Warm-start interactivity:** release the app from inert mode when the
+  acknowledged runtime overlay was never opened.
+- **Startup progress recovery:** replay the newest bootstrap state for each
+  checklist component when the UI becomes ready, so late subscribers do not
+  remain at 0 of 5.
+
+### Diagnostics
+- Add opt-in guided-tour flicker tracing with
+  `LECTUREPACK_TOUR_TRACE=1`, routed through the local stderr/log sink. The
+  trace records overlay hidden writes, overlay mutations, and frame timestamps;
+  it does not change overlay CSS or claim a compositing fix.
+
 ## [0.9.0-beta.11] — 2026-08-02
 
 ### Fixed

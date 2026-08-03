@@ -94,6 +94,39 @@ def test_acknowledged_healthy_bootstrap_closes_a_pending_runtime_overlay():
     assert gate.index(healthy_close) < gate.index("if (view.state === 'checking')")
 
 
+def test_hidden_runtime_overlay_close_releases_underlying_inert_state():
+    js = read_ui("app.js")
+    gate = js.split("var RuntimeSetupGate = (function ()", 1)[1].split("var acknowledgeInFlight", 1)[0]
+    close = gate.split("function closeOverlay() {", 1)[1].split("function closeReady", 1)[0]
+
+    assert "if (!el || el.hidden || closeInFlight) return;" not in close
+    assert "if (!el || closeInFlight) return;" in close
+    hidden = close.split("if (el.hidden) {", 1)[1].split("return;", 1)[0]
+    assert "setUnderlyingInert(false);" in hidden
+    assert "eventModel.reset();" in hidden
+    assert "lastRenderedState = null;" in hidden
+    assert "setUnderlyingInert(false); el.hidden = true; eventModel.reset();" in close
+
+
+def test_guided_tour_trace_is_opt_in_and_covers_state_mutations_and_frames():
+    js = read_ui("app.js")
+    bridge = (ROOT / "app" / "desktop" / "bridge.py").read_text(encoding="utf-8")
+    render = js.split("function renderGuidedTour()", 1)[1].split("function offerGuidedTour", 1)[0]
+
+    assert 'TOUR_TRACE_ENV = "LECTUREPACK_TOUR_TRACE"' in bridge
+    assert 'self._tour_trace_enabled = os.environ.get(TOUR_TRACE_ENV, "").strip() == "1"' in bridge
+    assert '"tour_trace_enabled": self._tour_trace_enabled' in bridge
+    assert "def log_tour_trace" in bridge
+    assert "if (!tourTraceEnabled) return;" in js
+    assert "function setTourOverlayHidden(next)" in js
+    assert "setTourOverlayHidden(" in render
+    assert "overlay.hidden =" not in render
+    assert "MutationObserver" in js
+    assert "attributeOldValue: true" in js
+    assert "function traceTourFrame(timestamp)" in js
+    assert "traceTour('requestAnimationFrame', { timestamp: timestamp })" in js
+
+
 def test_packaged_visual_gate_handles_modal_file_dialog_outside_synchronous_cdp():
     script = (ROOT / "scripts" / "packaged_visual_acceptance.py").read_text(encoding="utf-8")
 

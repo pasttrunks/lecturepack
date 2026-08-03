@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import threading
 
 from PySide6.QtCore import QObject, QSettings, QTimer, Signal, Slot
@@ -37,6 +38,7 @@ from lecturepack.services.runtime_diagnostics import RuntimeDiagnosticsService
 # before anything else in __init__ can observe self.runtime_health_result --
 # see Backend.__init__ and __getattribute__ for why the ordering matters.
 ADMISSION_PENDING = "PENDING"
+TOUR_TRACE_ENV = "LECTUREPACK_TOUR_TRACE"
 
 
 def _pending_result() -> RuntimeBootstrapResult:
@@ -193,6 +195,9 @@ class Backend(QObject):
         # checking overlay on what turns out to be a genuinely slow cold
         # start.
         self.validation_path = "full"
+        self._tour_trace_enabled = os.environ.get(TOUR_TRACE_ENV, "").strip() == "1"
+        self._bootstrap_progress_state: dict[str, tuple[str, str]] = {}
+        self._bootstrap_progress_lock = threading.Lock()
         self._start_bootstrap_async()
 
     def _start_bootstrap_async(self) -> None:
@@ -270,8 +275,25 @@ class Backend(QObject):
         """Marshal one bootstrap_progress emission onto the main thread.
         Called from the worker thread; see _run_bootstrap_worker for why the
         context object is required (BUG-09)."""
+        with self._bootstrap_progress_lock:
+            self._bootstrap_progress_state[component_id] = (state, detail)
         payload = json.dumps({"id": component_id, "state": state, "detail": detail})
         QTimer.singleShot(0, self, lambda: self.bootstrap_progress.emit(payload))
+
+    def _replay_bootstrap_progress(self) -> None:
+        """Re-emit the latest known state per component for late subscribers.
+
+        The bootstrap worker can finish emitting before the WebChannel
+        handshake creates a UI subscriber. The UI reducer stores one state per
+        component, so replaying this newest-per-id snapshot reconstructs the
+        visible checklist without duplicating the historical event stream.
+        """
+        with self._bootstrap_progress_lock:
+            snapshot = list(self._bootstrap_progress_state.items())
+        for component_id, (state, detail) in snapshot:
+            self.bootstrap_progress.emit(
+                json.dumps({"id": component_id, "state": state, "detail": detail})
+            )
 
     def _emit_host_only_resolved(self) -> None:
         """windows_version and data_directory never depend on assess() --
@@ -498,10 +520,19 @@ class Backend(QObject):
     def log_asset_error(self, tag: str, text: str, level: str = "error"):
         """Diagnostics hook for the asset resolver (see main.py). Surfaces a
         missing/blocked slide asset in the UI log instead of failing silently."""
-        import sys
         print(f"[{tag}] {text}", file=sys.stderr)
         self.log_line.emit(json.dumps(
             {"tag": f"[{tag}]", "color": "var(--red)", "text": str(text)}))
+
+    @Slot(str)
+    def log_tour_trace(self, payload: str):
+        """Write opt-in guided-tour diagnostics to the local stderr/log sink."""
+        if not self._tour_trace_enabled:
+            return
+        text = str(payload)
+        print(f"[tour-trace] {text}", file=sys.stderr, flush=True)
+        self.log_line.emit(json.dumps(
+            {"tag": "[tour-trace]", "color": "var(--muted)", "text": text}))
 
     # ------------------------------------------------------------- lifecycle
 
@@ -515,6 +546,7 @@ class Backend(QObject):
         swallow it behind a setup_required diagnostics emission and
         self._ui_ready_seen would never be set."""
         self._ui_ready_seen = True
+        self._replay_bootstrap_progress()
         if self._adapter is not None and not self._ui_ready_dispatched:
             self._dispatch_ui_ready_work()
 
@@ -535,6 +567,7 @@ class Backend(QObject):
                 "bootstrap_pending": pending,
                 "validation_path": self.validation_path,
                 "setup_acknowledged": self._runtime_config.setup_acknowledged(),
+                "tour_trace_enabled": self._tour_trace_enabled,
                 "checklist": checklist,
             }
         )

@@ -2,6 +2,36 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-21: Beta 12 Opt-In Guided-Tour Trace Transport (Phase 4)
+
+**Date:** 2026-08-02
+**Status:** Accepted for beta.12 diagnosis; no flicker fix inferred
+
+**Context:** Beta.11 still showed an unexplained guided-tour flicker on the
+affected laptop, but the available evidence did not distinguish a hidden-state
+write from a missed composited presentation. Applying another CSS or Chromium
+change without that distinction would repeat the prior speculative fixes.
+
+**Decision:** Gate the diagnostic on `LECTUREPACK_TOUR_TRACE=1` in the desktop
+bridge and expose that boolean through `get_bootstrap()`. The UI batches
+overlay hidden writes, overlay `MutationObserver` records, and
+`requestAnimationFrame` callback timestamps, then sends each batch through one
+narrow local `log_tour_trace` bridge slot. The slot writes to stderr and the
+existing `log_line` signal. The default path starts no observer, heartbeat, or
+trace timer, and beta.12 does not modify overlay CSS.
+
+**Alternatives considered:** a new file/network logging service, always-on
+tracing, more Chromium flags, and a speculative compositing change. The first
+two broadened runtime cost or transport surface; the latter two would not
+identify whether the overlay was hidden or merely missed by presentation.
+
+**Rationale:** The local sink makes a filmed laptop run correlatable with
+visible timestamps while preserving the existing no-network diagnostics
+boundary. The trace evidence will determine whether a later CSS change is
+warranted.
+
+---
+
 ## AD-20: Beta 10 Automated Window Acceptance Gate (Phase 4)
 
 **Date:** 2026-08-02

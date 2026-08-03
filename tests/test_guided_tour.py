@@ -408,7 +408,7 @@ def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
     assert "renderDemoHomeAvailability();" in admission_block
     assert "onboarding.hidden = !next" in admission_block
     assert "if (!wasAvailable) offerGuidedTour();" in admission_block
-    assert "overlay.hidden = !demoAdmissionAvailable" in js
+    assert "setTourOverlayHidden(!demoAdmissionAvailable ||" in js
     start_tour = js[js.index("function startGuidedTour"):js.index("function exitGuidedTour")]
     start_demo = js[js.index("function startGuidedDemo"):js.index("function endGuidedDemo")]
     assert "if (!demoAdmissionAvailable) return;" in start_tour

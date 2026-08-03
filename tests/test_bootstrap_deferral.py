@@ -333,6 +333,29 @@ def test_bootstrap_progress_emits_checking_then_resolved_for_all_five_ids(qapp, 
     assert sorted(resolved_ids) == sorted(bridge.FIRST_RUN_CHECKLIST_ITEMS)
 
 
+def test_ui_ready_replays_latest_bootstrap_progress_to_late_subscriber(qapp, qtbot, monkeypatch):
+    from desktop import bridge
+
+    monkeypatch.setattr(bridge, "ConfigManager", _Config)
+    monkeypatch.setattr(bridge, "RuntimeBootstrapService", lambda config: _BootstrapService(_BootstrapResult("HEALTHY")))
+    monkeypatch.setattr(bridge, "make_adapter", lambda backend, **kwargs: _RecordingAdapter())
+    monkeypatch.setattr(bridge, "Updater", lambda backend: _RecordingUpdater())
+
+    backend = bridge.Backend(None)
+    _wait_for_completion(qtbot, bridge, backend)
+
+    late_events = []
+    backend.bootstrap_progress.connect(lambda payload: late_events.append(json.loads(payload)))
+    assert late_events == []
+
+    backend.ui_ready()
+    qtbot.waitUntil(lambda: len(late_events) == len(bridge.FIRST_RUN_CHECKLIST_ITEMS), timeout=2000)
+
+    assert len(late_events) == 5
+    assert [event["id"] for event in late_events] == list(bridge.FIRST_RUN_CHECKLIST_ITEMS)
+    assert {event["state"] for event in late_events} == {"resolved"}
+
+
 def test_every_bootstrap_progress_payload_is_json_with_a_known_component_id(qapp, qtbot, monkeypatch):
     from desktop import bridge
 
@@ -504,7 +527,7 @@ def test_fallback_notice_is_emitted_through_diagnostics_after_ready(qapp, qtbot,
 
 # --------------------------------------------------- Task 3: get_bootstrap
 
-def test_get_bootstrap_has_exactly_the_eight_documented_keys(qapp, qtbot, monkeypatch):
+def test_get_bootstrap_has_exactly_the_nine_documented_keys(qapp, qtbot, monkeypatch):
     from desktop import bridge
 
     monkeypatch.setattr(bridge, "ConfigManager", _Config)
@@ -518,7 +541,8 @@ def test_get_bootstrap_has_exactly_the_eight_documented_keys(qapp, qtbot, monkey
     payload = json.loads(backend.get_bootstrap())
     assert set(payload) == {
         "theme", "version", "runtime_health_state", "setup_required",
-        "bootstrap_pending", "validation_path", "setup_acknowledged", "checklist",
+        "bootstrap_pending", "validation_path", "setup_acknowledged",
+        "tour_trace_enabled", "checklist",
     }
 
 

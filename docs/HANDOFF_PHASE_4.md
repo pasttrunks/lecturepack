@@ -142,3 +142,52 @@ migration, or design redesign is in scope.
 The detailed implementation record is
 `docs/BETA11_RENDERING_HOTFIX_IMPLEMENTATION.md`. The GitHub pre-release URL
 and immutable tag commit must be added here immediately after publication.
+
+## Beta 12 Startup/Reliability Handoff — 2026-08-02
+
+This release candidate is on branch `fix/beta12-startup`, based directly on
+`v0.9.0-beta.11` / commit `0207f084` (`codex/beta11-rendering-hotfix`). The
+beta.10 Claude branch was not used.
+
+### Completed in this phase
+
+- **Item A:** `closeOverlay()` now releases underlying inert state when the
+  runtime overlay is still hidden, while preserving the animated close path.
+- **Item B:** bootstrap progress stores the newest state per component under a
+  lock and replays one state per component from `ui_ready()` for late UI
+  subscribers.
+- **Item C:** opt-in guided-tour tracing is exposed through `get_bootstrap()`
+  and records hidden writes, overlay mutations, and rAF callback timestamps
+  through the local stderr/`log_line` sink. It is disabled unless
+  `LECTUREPACK_TOUR_TRACE=1` is set.
+- **Deferred by authorization:** Item D's grace timer and Item E's startup
+  placeholder.
+- No overlay CSS, compositing flag, original lecture video, user data, or
+  network transport was changed.
+
+### Verification status
+
+The focused reliability suite passed on the clean beta.11-derived worktree:
+
+```text
+python -m pytest -q tests/test_flashing_reliability.py tests/test_bootstrap_deferral.py
+43 passed
+```
+
+The required pre-tag suite completed with the documented baseline unchanged:
+
+```text
+python -m pytest -q --ignore=tests/test_release_trust.py --ignore=tests/test_runtime_repair.py --ignore=tests/test_signing_adr_contract.py
+1014 passed, 1 skipped, 19 failed in 207.59s
+```
+
+The 19 failures are the known local gaps: the 11 demo-session checks (and
+their first-run-suite wrapper), two package-pruning checks, three phase-2 job
+lifecycle checks, and two packaged-runtime fixture checks. The new beta12
+bootstrap field and guided-tour assertions pass.
+
+The manual laptop gates remain pending. The laptop sequence must still run
+both beta.11 flicker experiments before any CSS diagnosis, then verify
+first-run progress beyond 0 of 5, warm relaunch interactivity, and the
+complete lecture workflow. If tracing is enabled, correlate its local log
+with phone footage and visible timestamps.

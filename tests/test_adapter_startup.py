@@ -269,6 +269,7 @@ def test_setup_required_bootstrap_reuses_canonical_admission_snapshot(qapp, qtbo
         "bootstrap_pending": False,
         "validation_path": bootstrap["validation_path"],
         "setup_acknowledged": False,
+        "tour_trace_enabled": False,
         "checklist": bootstrap["checklist"],
     }
     assert bootstrap["validation_path"] in ("full", "light")

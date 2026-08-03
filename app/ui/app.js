@@ -2608,7 +2608,16 @@
     // overlay, reset the reducer, and return focus. closeReady() and
     // acknowledge() both fully close the overlay this same way.
     function closeOverlay() {
-      var el = overlay(); if (!el || el.hidden || closeInFlight) return;
+      var el = overlay(); if (!el || closeInFlight) return;
+      if (el.hidden) {
+        // beginBootstrap() always captured the underlying app as inert. Warm
+        // starts can skip opening this overlay entirely, so release that
+        // capture even though there is no animated overlay to close.
+        setUnderlyingInert(false);
+        eventModel.reset();
+        lastRenderedState = null;
+        return;
+      }
       closeInFlight = true;
       function finish() {
         closeInFlight = false;
@@ -2652,6 +2661,9 @@
       return row ? row.checking : '';
     }
     function admit(bootstrap) {
+      if (bootstrap && Object.prototype.hasOwnProperty.call(bootstrap, 'tour_trace_enabled')) {
+        setTourTraceEnabled(bootstrap.tour_trace_enabled === true);
+      }
       bootstrapSnapshot = bootstrap && bootstrap.setup_required || bootstrap || bootstrapSnapshot;
       var before = eventModel.snapshot(), view = eventModel.bootstrap(bootstrap);
       if (before.state === 'checking' && view.state !== 'checking') clearCheckingTimers();
@@ -2912,6 +2924,89 @@
   function markTourSeen() {
     try { window.localStorage.setItem(TOUR_STORAGE_KEY, '1'); } catch (e) {}
   }
+  var tourTraceEnabled = false;
+  var tourTraceQueue = [], tourTraceFlushTimer = null, tourTraceFrame = null;
+  var tourTraceObserver = null;
+
+  function flushTourTrace() {
+    tourTraceFlushTimer = null;
+    if (!tourTraceQueue.length || !lpBridge.connected()) return;
+    var batch = tourTraceQueue.splice(0, tourTraceQueue.length);
+    lpBridge.call('log_tour_trace', JSON.stringify(batch));
+  }
+
+  function traceTour(kind, detail) {
+    if (!tourTraceEnabled) return;
+    var flow = guidedDemoFlow.snapshot();
+    var record = {
+      event: kind,
+      at: performance.now(),
+      guidedTour: guidedTour.snapshot(),
+      demoPhase: flow.phase,
+      demoAdmissionAvailable: demoAdmissionAvailable
+    };
+    if (detail) record.detail = detail;
+    tourTraceQueue.push(record);
+    if (tourTraceFlushTimer === null) tourTraceFlushTimer = setTimeout(flushTourTrace, 100);
+  }
+
+  function traceTourFrame(timestamp) {
+    tourTraceFrame = null;
+    if (!tourTraceEnabled) return;
+    traceTour('requestAnimationFrame', { timestamp: timestamp });
+    tourTraceFrame = requestAnimationFrame(traceTourFrame);
+  }
+
+  function installTourTraceObserver() {
+    var overlay = $('guided-tour-overlay');
+    if (!tourTraceEnabled || !overlay || tourTraceObserver) return;
+    tourTraceObserver = new MutationObserver(function (mutations) {
+      mutations.forEach(function (mutation) {
+        traceTour('mutation', {
+          type: mutation.type,
+          attributeName: mutation.attributeName,
+          oldValue: mutation.oldValue,
+          addedNodes: mutation.addedNodes.length,
+          removedNodes: mutation.removedNodes.length
+        });
+      });
+    });
+    tourTraceObserver.observe(overlay, {
+      attributes: true,
+      childList: true,
+      attributeOldValue: true
+    });
+  }
+
+  function setTourTraceEnabled(enabled) {
+    var next = enabled === true;
+    if (next === tourTraceEnabled) {
+      if (next) installTourTraceObserver();
+      return;
+    }
+    tourTraceEnabled = next;
+    if (!next) {
+      if (tourTraceObserver) tourTraceObserver.disconnect();
+      tourTraceObserver = null;
+      if (tourTraceFrame !== null) cancelAnimationFrame(tourTraceFrame);
+      tourTraceFrame = null;
+      if (tourTraceFlushTimer !== null) clearTimeout(tourTraceFlushTimer);
+      tourTraceFlushTimer = null;
+      tourTraceQueue = [];
+      return;
+    }
+    installTourTraceObserver();
+    tourTraceFrame = requestAnimationFrame(traceTourFrame);
+  }
+
+  function setTourOverlayHidden(next) {
+    var overlay = $('guided-tour-overlay');
+    if (!overlay) return;
+    var previous = overlay.hidden;
+    overlay.hidden = !!next;
+    traceTour('overlay.hidden', { previous: previous, next: overlay.hidden });
+  }
+
   var guidedTour = GuidedTourModel(tourSeen());
   var guidedDemo = GuidedDemoSessionModel();
   var guidedDemoFlow = GuidedDemoFlowModel();
@@ -3134,7 +3229,8 @@
   function renderGuidedTour() {
     var state = guidedTour.snapshot(), overlay = $('guided-tour-overlay');
     if (!overlay) return;
-    overlay.hidden = !demoAdmissionAvailable || (!state.active && !state.prompt);
+    installTourTraceObserver();
+    setTourOverlayHidden(!demoAdmissionAvailable || (!state.active && !state.prompt));
     if (overlay.hidden) { setDemoTourInteraction(false); return; }
     var isPrompt = state.prompt, phase = state.active ? currentTourPhase() : null, flow = guidedDemoFlow.snapshot();
     $('tour-step-label').textContent = isPrompt ? 'WELCOME' : 'DEMO · ' + flow.phase.toUpperCase();
