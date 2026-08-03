@@ -10,6 +10,11 @@ All notable changes to Lecture Pack are documented here.
 - **Startup progress recovery:** replay the newest bootstrap state for each
   checklist component when the UI becomes ready, so late subscribers do not
   remain at 0 of 5.
+- **Runtime setup flash:** keep a hidden checking state off-screen for 600 ms
+  before opening the setup overlay, while preserving the full overlay for
+  genuinely slow checks.
+- **Empty startup surface:** show a themed native “LecturePack · starting…”
+  placeholder until the WebChannel UI is ready to accept input.
 
 ### Diagnostics
 - Add opt-in guided-tour flicker tracing with

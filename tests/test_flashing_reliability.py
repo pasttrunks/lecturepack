@@ -35,13 +35,46 @@ def test_theme_and_startup_surfaces_share_one_root_and_background_transaction():
     assert "self.setAutoFillBackground(True)" in main
     assert "self.view.setAutoFillBackground(True)" in main
     assert "self.view.setStyleSheet(f\"QWebEngineView{{background-color:{color};}}\")" in main
-    assert main.index("self.setCentralWidget(self.view)") < main.index("self.view.load(QUrl.fromLocalFile(index))")
+    assert main.index("self.setCentralWidget(self._startup_stack)") < main.index("self.view.load(QUrl.fromLocalFile(index))")
+
+
+def test_startup_placeholder_is_themed_and_released_by_the_first_ui_ready_signal():
+    main = (ROOT / "app" / "desktop" / "main.py").read_text(encoding="utf-8")
+    bridge = (ROOT / "app" / "desktop" / "bridge.py").read_text(encoding="utf-8")
+
+    assert "QStackedWidget" in main
+    assert 'QLabel("LecturePack · starting…", self._startup_placeholder)' in main
+    assert "self._startup_stack.setCurrentWidget(self._startup_placeholder)" in main
+    assert "self.backend.ui_ready_signal.connect(self._show_startup_content)" in main
+    assert "self._startup_stack.setCurrentWidget(self.view)" in main
+    assert "self._startup_placeholder.setStyleSheet" in main
+    assert "ui_ready_signal = Signal()" in bridge
+    assert "first_ui_ready = not self._ui_ready_seen" in bridge
+    assert "if first_ui_ready:" in bridge
+    assert "self.ui_ready_signal.emit()" in bridge
+
+
+def test_runtime_setup_grace_defers_a_short_checking_overlay_and_clears_its_timer():
+    js = read_ui("app.js")
+    gate = js.split("var RuntimeSetupGate = (function ()", 1)[1].split("var acknowledgeInFlight", 1)[0]
+    render = gate.split("function render(dataChanged, forceCheckingOpen) {", 1)[1].split("function closeOverlay", 1)[0]
+    schedule = gate.split("function scheduleCheckingOpen() {", 1)[1].split("function clearCheckingTimers", 1)[0]
+    close = gate.split("function closeOverlay() {", 1)[1].split("function closeReady", 1)[0]
+
+    assert "var CHECKING_GRACE_MS = 600;" in gate
+    assert "if (next === 'checking' && el.hidden && !forceCheckingOpen)" in render
+    assert "scheduleCheckingOpen();" in render
+    assert "checkingOpenTimer = setTimeout" in schedule
+    assert "view.state === 'checking' && current && current.hidden" in schedule
+    assert "render(true, true);" in schedule
+    assert "clearTimeout(checkingOpenTimer)" in gate
+    assert "clearCheckingTimers();" in close
 
 
 def test_setup_gate_does_not_toggle_document_scroll_or_rebuild_unchanged_frames():
     js = read_ui("app.js")
     gate = js.split("var RuntimeSetupGate =", 1)[1].split("/* Clears", 1)[0]
-    render = gate.split("function render(dataChanged) {", 1)[1].split("function closeOverlay", 1)[0]
+    render = gate.split("function render(dataChanged, forceCheckingOpen) {", 1)[1].split("function closeOverlay", 1)[0]
 
     assert "document.documentElement.style.overflow" not in gate
     assert "if (!stateChanged && !dataChanged) return;" in render

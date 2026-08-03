@@ -160,8 +160,11 @@ beta.10 Claude branch was not used.
   and records hidden writes, overlay mutations, and rAF callback timestamps
   through the local stderr/`log_line` sink. It is disabled unless
   `LECTUREPACK_TOUR_TRACE=1` is set.
-- **Deferred by authorization:** Item D's grace timer and Item E's startup
-  placeholder.
+- **Item D:** hidden checking states wait 600 ms before opening the existing
+  setup overlay; the timer is cancelled when checking ends or the gate closes.
+- **Item E:** a native, theme-synchronized “LecturePack · starting…” surface
+  remains visible until the first `ui_ready()` signal switches in the
+  WebEngine view.
 - No overlay CSS, compositing flag, original lecture video, user data, or
   network transport was changed.
 
@@ -171,14 +174,14 @@ The focused reliability suite passed on the clean beta.11-derived worktree:
 
 ```text
 python -m pytest -q tests/test_flashing_reliability.py tests/test_bootstrap_deferral.py
-43 passed
+45 passed
 ```
 
 The required pre-tag suite completed with the documented baseline unchanged:
 
 ```text
 python -m pytest -q --ignore=tests/test_release_trust.py --ignore=tests/test_runtime_repair.py --ignore=tests/test_signing_adr_contract.py
-1014 passed, 1 skipped, 19 failed in 207.59s
+1016 passed, 1 skipped, 19 failed in 208.16s
 ```
 
 The 19 failures are the known local gaps: the 11 demo-session checks (and

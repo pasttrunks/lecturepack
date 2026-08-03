@@ -364,7 +364,7 @@ def test_targets_focus_map_routes_checking_to_exit_and_checklist_to_continue() -
 
 def test_render_hides_exit_control_only_for_checklist_state() -> None:
     controller = gate_controller_source()
-    render_body = controller.split("function render(dataChanged) {", 1)[1].split("\n    }", 1)[0]
+    render_body = controller.split("function render(dataChanged, forceCheckingOpen) {", 1)[1].split("\n    }", 1)[0]
     assert "exitButton.hidden = next === 'checklist'" in render_body
 
 

@@ -2566,11 +2566,15 @@
       // offer. Formatting it here never estimates or recomputes the total.
       return Number(bytes).toLocaleString('en-US') + ' bytes';
     }
-    function render(dataChanged) {
+    function render(dataChanged, forceCheckingOpen) {
       var view = eventModel.snapshot(), next = view.state;
       if (STATES.indexOf(next) < 0) return;
       var el = overlay(); if (!el) return;
       if (closeInFlight) return;
+      if (next === 'checking' && el.hidden && !forceCheckingOpen) {
+        scheduleCheckingOpen();
+        return;
+      }
       var stateChanged = next !== lastRenderedState;
       if (!stateChanged && !dataChanged) return;
       if (stateChanged) {
@@ -2609,6 +2613,7 @@
     // acknowledge() both fully close the overlay this same way.
     function closeOverlay() {
       var el = overlay(); if (!el || closeInFlight) return;
+      clearCheckingTimers();
       if (el.hidden) {
         // beginBootstrap() always captured the underlying app as inert. Warm
         // starts can skip opening this overlay entirely, so release that
@@ -2650,11 +2655,22 @@
     // lesson): every hold timer and the slow-notice timer are cleared when
     // the corresponding row resolves and when the state leaves checking, so
     // no superseded timer can ever write to a row that has moved on.
-    var checkingHoldTimers = {}, checkingStartedAt = {}, whisperSlowTimer = null;
+    var CHECKING_GRACE_MS = 600;
+    var checkingHoldTimers = {}, checkingStartedAt = {}, whisperSlowTimer = null, checkingOpenTimer = null;
+    function scheduleCheckingOpen() {
+      var el = overlay();
+      if (!el || !el.hidden || checkingOpenTimer !== null) return;
+      checkingOpenTimer = setTimeout(function () {
+        checkingOpenTimer = null;
+        var current = overlay(), view = eventModel.snapshot();
+        if (view.state === 'checking' && current && current.hidden) render(true, true);
+      }, CHECKING_GRACE_MS);
+    }
     function clearCheckingTimers() {
       Object.keys(checkingHoldTimers).forEach(function (id) { clearTimeout(checkingHoldTimers[id]); });
       checkingHoldTimers = {}; checkingStartedAt = {};
       if (whisperSlowTimer) { clearTimeout(whisperSlowTimer); whisperSlowTimer = null; }
+      if (checkingOpenTimer !== null) { clearTimeout(checkingOpenTimer); checkingOpenTimer = null; }
     }
     function checkingRowSentence(id) {
       var row = FIRST_RUN_ROWS.filter(function (r) { return r.id === id; })[0];

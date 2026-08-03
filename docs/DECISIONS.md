@@ -2,6 +2,37 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-22: Beta 12 Startup Grace and Native Placeholder (Phase 4)
+
+**Date:** 2026-08-02
+**Status:** Accepted for beta.12 startup reliability
+
+**Context:** A fast runtime assessment can produce a sub-second checking
+overlay that reads as a startup flash, while the first WebEngine frame can
+leave a newly shown native window visually empty for roughly the duration of
+Chromium startup. The two symptoms have different lifetimes and need not be
+solved by changing the renderer or delaying the window.
+
+**Decision:** When the runtime gate enters hidden `checking`, wait 600 ms and
+open the existing overlay only if the state is still checking; clear that
+timer on every state exit and close path. Show a native, theme-synchronized
+`QStackedWidget` startup surface containing “LecturePack · starting…” until
+the first `ui_ready()` call, then switch to the existing QWebEngine view.
+
+**Alternatives considered:** suppressing the checking overlay unconditionally,
+delaying `show()` until the WebEngine page is fully interactive, adding a DOM
+placeholder, and changing WebEngine compositing or CSS. Unconditional
+suppression would hide useful progress on slow installs; delaying the window
+would make startup feel slower; a DOM placeholder cannot cover the native
+pre-first-frame gap; renderer changes remain outside the confirmed evidence.
+
+**Rationale:** The grace timer removes only transient modal noise while
+preserving honest progress, and the native placeholder gives immediate,
+theme-correct feedback without changing the WebEngine surface or startup
+latency.
+
+---
+
 ## AD-21: Beta 12 Opt-In Guided-Tour Trace Transport (Phase 4)
 
 **Date:** 2026-08-02

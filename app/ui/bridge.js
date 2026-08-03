@@ -28,7 +28,7 @@ window.lpBridge = (function () {
     'diagnostics', 'job_completed', 'post_completion',
     'media_link_state', 'media_probe', 'media_progress', 'media_done',
     'active_job', 'storage_changed', 'repair_event', 'demo_event',
-    'bootstrap_progress', 'bootstrap_complete'
+    'bootstrap_progress', 'bootstrap_complete', 'ui_ready_signal'
   ];
 
   function connectQt() {

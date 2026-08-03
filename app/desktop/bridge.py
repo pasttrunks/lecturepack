@@ -152,6 +152,7 @@ class Backend(QObject):
     # Same JSON-string convention as every other signal above.
     bootstrap_progress = Signal(str)
     bootstrap_complete = Signal(str)
+    ui_ready_signal = Signal()
 
     def __init__(self, window):
         super().__init__()
@@ -545,8 +546,11 @@ class Backend(QObject):
         being guarded like the engine-facing operations would silently
         swallow it behind a setup_required diagnostics emission and
         self._ui_ready_seen would never be set."""
+        first_ui_ready = not self._ui_ready_seen
         self._ui_ready_seen = True
         self._replay_bootstrap_progress()
+        if first_ui_ready:
+            self.ui_ready_signal.emit()
         if self._adapter is not None and not self._ui_ready_dispatched:
             self._dispatch_ui_ready_work()
 

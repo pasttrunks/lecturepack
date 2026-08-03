@@ -43,7 +43,7 @@ from PySide6.QtGui import QColor, QIcon, QPalette
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QApplication, QMainWindow
+from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QStackedWidget, QVBoxLayout, QWidget
 
 from . import version
 from .assets import AssetResolver, install_asset_handler, register_asset_scheme
@@ -167,6 +167,25 @@ class MainWindow(QMainWindow):
         self.view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.view.setAutoFillBackground(True)
 
+        # Keep a native, themed surface visible while Chromium finishes its
+        # first frame and the QWebChannel handshake. The WebEngine view stays
+        # fully opaque underneath; ui_ready_signal swaps it in once the UI can
+        # actually accept input.
+        self._startup_stack = QStackedWidget(self)
+        self._startup_placeholder = QWidget(self._startup_stack)
+        self._startup_placeholder.setObjectName("startup-placeholder")
+        placeholder_layout = QVBoxLayout(self._startup_placeholder)
+        placeholder_layout.setContentsMargins(0, 0, 0, 0)
+        self._startup_label = QLabel("LecturePack · starting…", self._startup_placeholder)
+        self._startup_label.setObjectName("startup-placeholder-label")
+        self._startup_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        placeholder_layout.addWidget(self._startup_label)
+        self._startup_stack.addWidget(self.view)
+        self._startup_stack.addWidget(self._startup_placeholder)
+        self._startup_stack.setCurrentWidget(self._startup_placeholder)
+        self._startup_content_ready = False
+        self.backend.ui_ready_signal.connect(self._show_startup_content)
+
         # Match the Qt widget background to the saved theme so no white
         # bleeds through before the web page paints its first frame.
         self.backend.settings_changed.connect(self._sync_page_background)
@@ -198,7 +217,7 @@ class MainWindow(QMainWindow):
         self._show_requested = False
         self._theme_ready = False
         self.view.loadFinished.connect(self._apply_initial_theme_before_show)
-        self.setCentralWidget(self.view)
+        self.setCentralWidget(self._startup_stack)
         self.view.load(QUrl.fromLocalFile(index))
 
         # Windows integration: a tray icon carries local notifications; the
@@ -235,6 +254,13 @@ class MainWindow(QMainWindow):
         if self._theme_ready:
             self.show()
 
+    def _show_startup_content(self) -> None:
+        """Replace the startup surface once the WebChannel UI is interactive."""
+        if self._startup_content_ready:
+            return
+        self._startup_content_ready = True
+        self._startup_stack.setCurrentWidget(self.view)
+
     def _apply_initial_theme_before_show(self, loaded: bool) -> None:
         if not loaded:
             self._theme_ready = True
@@ -255,13 +281,18 @@ class MainWindow(QMainWindow):
         theme = self.backend.initial_theme()
         color = "#16191F" if theme == "dark" else "#F3F0E8"
         qcolor = QColor(color)
-        for widget in (self, self.view):
+        for widget in (self, self.view, self._startup_stack, self._startup_placeholder):
             palette = widget.palette()
             palette.setColor(QPalette.ColorRole.Window, qcolor)
             palette.setColor(QPalette.ColorRole.Base, qcolor)
             widget.setPalette(palette)
         self.setStyleSheet(f"QMainWindow{{background-color:{color};}}")
         self.view.setStyleSheet(f"QWebEngineView{{background-color:{color};}}")
+        ink = "#E8E3D8" if theme == "dark" else "#20242B"
+        self._startup_placeholder.setStyleSheet(
+            f"QWidget#startup-placeholder{{background-color:{color};}}"
+            f"QLabel#startup-placeholder-label{{color:{ink};font-size:20px;font-weight:600;}}"
+        )
         self.view.page().setBackgroundColor(qcolor)
 
     def _prewarm_posters(self, payload: str) -> None:
