@@ -14,6 +14,45 @@ import os
 import sys
 import json
 
+# Rendering strategy — reliability-first across all machines.
+#
+# Beta.9-era builds hardcoded `--enable-gpu-rasterization --enable-zero-copy
+# --ignore-gpu-blocklist`, forcing the GPU rasterizer on every machine. Beta.11
+# removed that forcing (and experimentally, `--disable-gpu` did not help the
+# clean-install laptop), so newer builds inherit Chromium's default. That is
+# still not enough on weak/freshly-imaged laptop GPUs, where Chromium's default
+# GPU rasterization can miss its frame deadline and present unfilled tiles for
+# a frame or two — the reported "flicker". This build defaults to `safe`, which
+# keeps GPU compositing but rasterizes on the CPU: every tile is completed
+# before it is presented (no tile-hole flicker) at the cost of slower page
+# paint — the reliability the user asked for ("may run slower, but must not
+# flicker").
+#
+# Override per machine or from IT with the LECTUREPACK_RENDER_MODE env var:
+#   auto     → let Chromium decide (GPU raster on healthy GPUs, blocklist
+#              respected). Fast on good machines; may flicker on weak ones.
+#   safe     → (DEFAULT) CPU rasterization + GPU compositing. No tile-hole
+#              flicker; slower on weak CPUs.
+#   software → fully software rendering (--disable-gpu). Most deterministic and
+#              slowest; best for the worst hardware/driver combos.
+#   gpu      → legacy forcing: GPU rasterization, ignore the blocklist. Fast
+#              on good GPUs; flickers on weak ones.
+_RENDER_MODES = {
+    "auto": "",
+    "safe": "--disable-gpu-rasterization",
+    "software": "--disable-gpu --disable-gpu-rasterization",
+    "gpu": "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist",
+}
+
+
+def _webengine_render_flags() -> str:
+    mode = os.environ.get("LECTUREPACK_RENDER_MODE", "").strip().lower()
+    return _RENDER_MODES.get(mode, _RENDER_MODES["safe"])
+
+
+# Must be set before Qt initialises WebEngine; Chromium reads the flags once at startup.
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = _webengine_render_flags()
+
 if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
     import site
     candidates = [

@@ -2,6 +2,30 @@
 
 All notable changes to Lecture Pack are documented here.
 
+## [0.9.0-beta.13] — 2026-08-03
+
+### Rendering — reliability-first across all machines
+- **CPU-first rasterization by default.** `app/desktop/main.py` now defaults the
+  WebEngine renderer to `--disable-gpu-rasterization` (CPU rasterization on top
+  of GPU compositing). Every page tile is fully rasterized before it is
+  presented, so the unfilled-tile "flicker" seen on weak or freshly-imaged
+  laptop GPUs cannot occur. Page paint is slower on low-end hardware — the
+  accepted trade for a flicker-free UI on any PC.
+- **Per-machine override.** Set `LECTUREPACK_RENDER_MODE` before launch to pick
+  a rendering mode without rebuilding:
+  - `safe` (default) — CPU rasterization + GPU compositing; no tile-hole flicker.
+  - `auto` — let Chromium decide (fast on good GPUs, may flicker on weak ones).
+  - `software` — fully software rendering (`--disable-gpu`); most deterministic.
+  - `gpu` — legacy forcing of GPU rasterization (fast on good GPUs, may flicker).
+- No overlay CSS or guided-tour compositing was changed; beta.11's opaque
+  surfaces, static scrim, and 4 Hz processing coalescing are unchanged.
+
+### Diagnostics (unchanged from beta.12)
+- Guided-tour flicker trace still available with `LECTUREPACK_TOUR_TRACE=1`,
+  forwarding overlay hidden writes / mutations / frame timestamps to local
+  stderr and the UI log. For the laptop acceptance matches, run with this on
+  and compare `safe` vs `software` vs `gpu` modes.
+
 ## [0.9.0-beta.12] — 2026-08-02
 
 ### Fixed
