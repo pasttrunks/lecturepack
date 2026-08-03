@@ -204,7 +204,9 @@ that immutable source tag. The release completed successfully:
 - **Immutable peeled tag commit:** `124eefad998763f925baeaaa6489d4c315f4b604`
 - **Published updater asset:**
   `LecturePack-0.9.0-beta.12-Setup.exe` plus its
-  `LecturePack-0.9.0-beta.12-SHA256SUMS.txt` checksum file.
+  `LecturePack-0.9.0-beta.12-SHA256SUMS.txt` checksum file. The Setup.exe
+  SHA-256 is
+  `5aa89a4f61985097e8ea06c7a2baa3cc525886000f45d7bf0dfa38a4d12ed3de`.
 
 The manual laptop gates remain pending. The laptop sequence must still run
 both beta.11 flicker experiments before any CSS diagnosis, then verify
