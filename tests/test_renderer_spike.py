@@ -145,6 +145,12 @@ def test_migration_bridge_maps_existing_ui_without_requiring_qt_webchannel():
     assert "qwebchannel" not in bridge.lower()
     assert "event === 'jobs_changed'" in bridge
     assert "isLocalThemeSetting" in bridge
+    for deferred in (
+        "delete_job", "delete_jobs", "exit_application", "media_link_support",
+        "restart_job", "resume_job", "run_diagnostics", "set_notification_prefs",
+        "start_demo_job", "validate_vulkan",
+    ):
+        assert f"{deferred}: true" in bridge
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
@@ -274,12 +280,31 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
 (async () => {
   await context.window.lpBridge.call('set_slide_state', 2, 'rejected');
   await context.window.lpBridge.call('save_corrections', JSON.stringify(['edited one', 'edited two']));
+  await context.window.lpBridge.call('export_all', JSON.stringify(['pdf', 'html']));
+  await context.window.lpBridge.call('export_one', 'pdf');
   if (calls[0].command !== 'set_slide_state' || calls[0].payload.index !== 2 || calls[0].payload.state !== 'rejected') {
     throw new Error('slide review command was not mapped');
+  }
+  if (Object.prototype.hasOwnProperty.call(calls[0].payload, 'job_id')) {
+    throw new Error('slide review command leaked an inferred job_id');
   }
   if (calls[1].command !== 'save_corrections' || calls[1].payload.texts.length !== 2 || calls[1].payload.texts[0] !== 'edited one') {
     throw new Error('transcript correction command was not mapped');
   }
+  if (Object.prototype.hasOwnProperty.call(calls[1].payload, 'job_id')) {
+    throw new Error('transcript correction command leaked an inferred job_id');
+  }
+  for (const call of calls.slice(2)) {
+    if (call.command !== 'export' || Object.keys(call.payload).length !== 0) {
+      throw new Error(`export mapping was not contract-shaped: ${JSON.stringify(call)}`);
+    }
+  }
+  await context.window.lpBridge.call('delete_job', 'job-1');
+  await context.window.lpBridge.call('resume_job', 'job-1');
+  await context.window.lpBridge.call('media_link_support');
+  await context.window.lpBridge.call('get_settings');
+  await context.window.lpBridge.call('exit_application');
+  if (calls.length !== 4) throw new Error('a deferred command crossed the sidecar boundary');
 })().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
 """.strip()
         + "\n",
