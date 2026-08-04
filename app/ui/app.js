@@ -4657,8 +4657,7 @@
     lpBridge.on('active_job', function (json) {
       var a = parseBridgePayload(json || '{}', {});
       if (a.id && LP.data.jobs.length && !LP.data.jobs.some(function (job) { return job.id === a.id; })) {
-        // A delete can race the sidecar's active-slot notification. Do not
-        // resurrect a job that the authoritative jobs_changed list removed.
+        // Ignore a stale active-slot event after deletion.
         if (LP.state.jobId === a.id) setActiveJob('', '');
         return;
       }
