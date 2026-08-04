@@ -497,6 +497,8 @@ class Sidecar:
                 self._import_media_url(request_id, command, payload)
             elif command == "cancel_media_url":
                 self._cancel_media_url(request_id, command)
+            elif command == "get_settings":
+                self._get_settings(request_id, command)
             elif command == "shutdown":
                 self._respond(request_id, command, shutting_down=True)
                 self._request_shutdown()
@@ -854,6 +856,29 @@ class Sidecar:
         self.controller.export_now()
         self._respond(request_id, command, job_id=job.job_id, started=True)
 
+    def _ollama_settings(self) -> dict:
+        return dict(self.config.get("ollama", {}) or {}) if hasattr(self, "config") else {}
+
+    def _settings_payload(self) -> dict:
+        o = self._ollama_settings()
+        return {
+            "version": getattr(self, "app_version", "0.0.0"),
+            "model_path": self.config.get("whisper_model", "") if hasattr(self, "config") else "",
+            "endpoint": o.get("base_url") or "http://localhost:11434",
+            "engine": self.config.get("engine", "auto") if hasattr(self, "config") else "auto",
+            "ollama_model": o.get("model", ""),
+            "transcription_backend": self.config.get("transcription_backend", "local-whispercpp")
+                if hasattr(self, "config") else "local-whispercpp",
+            "slide_detection_preset": self._preset(self.config.get("slide_detection_preset", "balanced"))
+                if hasattr(self, "config") else "balanced",
+            "export_dir": str(self.data_dir),
+        }
+
+    def _get_settings(self, request_id: str | None, command: str) -> None:
+        payload = self._settings_payload()
+        self._emit({"event": "settings_changed", "job": "", **payload})
+        self._respond(request_id, command, settings=payload)
+
     def _set_setting(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         key = str(payload.get("key") or "").strip()
         value = payload.get("value")
@@ -870,30 +895,53 @@ class Sidecar:
             normalized = self._preset(value)
             if job is not None:
                 job.settings["preset"] = normalized
+            if hasattr(self, "config"):
+                self.config.set("slide_detection_preset", normalized)
         elif key == "engine":
-            normalized = str(value or "cpu").strip().lower()
-            if normalized not in {"cpu", "auto"}:
-                normalized = "cpu"
+            normalized = str(value or "auto").strip().lower()
+            if normalized not in {"auto", "cpu", "vulkan", "cuda"}:
+                normalized = "auto"
             if hasattr(self, "config"):
                 self.config.set("engine", normalized)
             if job is not None:
                 job.settings.setdefault("whisper", {})["engine"] = normalized
         elif key == "transcription_backend":
             normalized = str(value or "local-whispercpp").strip()
-            if normalized != "local-whispercpp":
+            if normalized not in {"local-whispercpp", "groq-fast", "groq-accurate"}:
                 applied = False
                 normalized = "local-whispercpp"
             if hasattr(self, "config"):
                 self.config.set("transcription_backend", normalized)
             if job is not None:
                 job.settings.setdefault("whisper", {})["transcription_backend"] = normalized
+        elif key == "whisper_model":
+            normalized = str(value or "").strip()
+            if normalized:
+                if hasattr(self, "config"):
+                    self.config.set("whisper_model", normalized)
+                if job is not None:
+                    job.settings.setdefault("whisper", {})["model"] = normalized
+            else:
+                applied = False
+        elif key == "ollama_base_url":
+            normalized = str(value or "").strip()
+            o = dict(self._ollama_settings())
+            o["base_url"] = normalized
+            if hasattr(self, "config"):
+                self.config.set("ollama", o)
+        elif key == "ollama_model":
+            normalized = str(value or "").strip()
+            o = dict(self._ollama_settings())
+            o["model"] = normalized
+            if hasattr(self, "config"):
+                self.config.set("ollama", o)
         else:
-            # Secondary settings are intentionally outside Phase 8. Treat them
-            # as harmless acknowledgements so the reused UI cannot create a
-            # storm of unsupported-command errors.
+            # Unknown settings are acknowledged without persistence so the UI
+            # never sees a storm of unsupported-command errors.
             applied = False
 
-        if job is not None and key in {"slide_detection_preset", "engine", "transcription_backend"}:
+        if job is not None and key in {"slide_detection_preset", "engine", "transcription_backend",
+                                       "whisper_model"}:
             job.save()
         self._emit({
             "event": "settings_changed",

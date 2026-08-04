@@ -2020,12 +2020,12 @@
       "mapped_to": "settings_changed",
       "name": "settings_changed",
       "notes": "Emitted after a set_setting call; carries the applied key/value.",
-      "phase8": "processing-option selection",
+      "phase8": "",
       "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "PARTIAL"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2541,14 +2541,14 @@
       "name": "get_settings",
       "notes": "Returns the full persisted settings snapshot; the UI relies on defaults when absent.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "settings"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
