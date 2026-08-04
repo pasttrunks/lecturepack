@@ -173,6 +173,45 @@
         }
       };
     }
+    if (name === 'delete_job') {
+      return { command: name, payload: { job_id: jobIdPayload(first) } };
+    }
+    if (name === 'delete_jobs') {
+      return { command: name, payload: { ids: arrayPayload(first) } };
+    }
+    if (name === 'enqueue_job' || name === 'run_now' || name === 'remove_from_queue' || name === 'unschedule_job') {
+      return { command: name, payload: { job_id: jobIdPayload(first) } };
+    }
+    if (name === 'reorder_queue') {
+      return { command: name, payload: { job_id: jobIdPayload(first), index: Number(args[1]) } };
+    }
+    if (name === 'schedule_job') {
+      return {
+        command: name,
+        payload: {
+          job_id: jobIdPayload(first),
+          when: String(args[1] || ''),
+          tz: String(args[2] || 'local'),
+          missed_policy: String(args[3] || 'run_when_opened')
+        }
+      };
+    }
+    if (name === 'pause_job') return { command: name, payload: {} };
+    if (name === 'resume_job' || name === 'restart_job') {
+      return { command: name, payload: { job_id: jobIdPayload(first) } };
+    }
+    if (name === 'retry_stage') {
+      return { command: name, payload: { job_id: jobIdPayload(first), stage: String(args[1] || '') } };
+    }
+    if (name === 'set_job_group') {
+      return { command: name, payload: { job_id: jobIdPayload(first), group: String(args[1] || '') } };
+    }
+    if (name === 'set_jobs_group') {
+      return { command: name, payload: { ids: arrayPayload(first), group: String(args[1] || '') } };
+    }
+    if (name === 'rename_job') {
+      return { command: name, payload: { job_id: jobIdPayload(first), title: String(args[1] || '') } };
+    }
     if (name === 'open_job') return { command: 'get_job', payload: { job_id: jobIdPayload(first) } };
     if (name === 'open_job_folder' || name === 'open_export_folder') {
       return { command: name, payload: { job_id: jobIdPayload(first) } };
