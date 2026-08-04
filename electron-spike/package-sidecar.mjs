@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 
 const spikeRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(spikeRoot, '..');
-const pyinstaller = path.join(repoRoot, '.venv', 'Scripts', 'pyinstaller.exe');
+const pyinstaller = process.env.LECTUREPACK_PYINSTALLER
+  ? path.resolve(process.env.LECTUREPACK_PYINSTALLER)
+  : path.join(repoRoot, '.venv', 'Scripts', 'pyinstaller.exe');
 const spec = path.join(spikeRoot, 'sidecar.spec');
 const distPath = path.join(spikeRoot, 'dist-sidecar');
 const workPath = path.join(spikeRoot, 'build-sidecar');
