@@ -216,7 +216,7 @@ class Sidecar:
             from lecturepack.infrastructure.file_manager import FileManager
             from lecturepack.models.job import Job
             from lecturepack import electron_backend
-            from lecturepack.services import transcript_store
+            from lecturepack.services import media_fetch, transcript_store
             from lecturepack.services.job_queue import JobQueue
 
             self.JobController = JobController
@@ -226,6 +226,7 @@ class Sidecar:
             self.transcript_store = transcript_store
             self.JobQueue = JobQueue
             self.electron_backend = electron_backend
+            self.media_fetch = media_fetch
         except Exception as exc:  # noqa: BLE001 - surfaced through ready/error
             self._engine_error = f"{type(exc).__name__}: {exc}"
 
@@ -488,6 +489,14 @@ class Sidecar:
                 self._set_jobs_group(request_id, command, payload)
             elif command == "rename_job":
                 self._rename_job(request_id, command, payload)
+            elif command == "media_link_support":
+                self._media_link_support(request_id, command)
+            elif command == "probe_media_url":
+                self._probe_media_url(request_id, command, payload)
+            elif command == "import_media_url":
+                self._import_media_url(request_id, command, payload)
+            elif command == "cancel_media_url":
+                self._cancel_media_url(request_id, command)
             elif command == "shutdown":
                 self._respond(request_id, command, shutting_down=True)
                 self._request_shutdown()
@@ -1039,6 +1048,107 @@ class Sidecar:
             self._emit({"event": "active_job", "id": job_id, "title": result["title"]})
         self._emit_job_payloads()
         self._respond(request_id, command, **result)
+
+    # ------------------------------------------------------------------ #
+    # Phase 9: paste link / yt-dlp
+    # ------------------------------------------------------------------ #
+    def _media_link_support(self, request_id: str | None, command: str) -> None:
+        available = self.media_fetch.is_available()
+        version = self.media_fetch.version()
+        self._emit({
+            "event": "media_link_state",
+            "available": available,
+            "version": version,
+        })
+        self._respond(request_id, command, available=available, version=version)
+
+    def _probe_media_url(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        url = str(payload.get("url") or "").strip()
+        if not self.media_fetch.looks_like_url(url):
+            self._emit({"event": "media_probe", "ok": False,
+                        "error": "That doesn't look like a web link."})
+            self._respond(request_id, command, ok=False,
+                          error="That doesn't look like a web link.")
+            return
+
+        def worker():
+            try:
+                info = self.media_fetch.MediaFetcher().probe(url)
+                info["ok"] = True
+                payload_out = info
+            except self.media_fetch.MediaFetchError as exc:
+                payload_out = {"ok": False, "error": str(exc)}
+            except Exception as exc:  # noqa: BLE001 - never kill the thread
+                payload_out = {"ok": False, "error": str(exc)[:300]}
+            self._emit({"event": "media_probe", **payload_out})
+
+        threading.Thread(target=worker, daemon=True,
+                         name="lp-media-probe").start()
+        self._respond(request_id, command, ok=True)
+
+    def _downloads_dir(self) -> str:
+        d = self.data_dir / "downloads"
+        d.mkdir(parents=True, exist_ok=True)
+        return str(d)
+
+    def _cancel_media_url(self, request_id: str | None, command: str) -> None:
+        ev = getattr(self, "_media_cancel", None)
+        if ev is not None:
+            ev.set()
+        self._respond(request_id, command, ok=True, cancelled=ev is not None)
+
+    def _import_media_url(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        url = str(payload.get("url") or "").strip()
+        title = str(payload.get("title") or "")
+        if not self.media_fetch.looks_like_url(url):
+            self._emit({"event": "media_done", "ok": False,
+                        "error": "That doesn't look like a web link."})
+            self._respond(request_id, command, ok=False,
+                          error="That doesn't look like a web link.")
+            return
+        if getattr(self, "_media_busy", False):
+            self._emit({"event": "media_done", "ok": False,
+                        "error": "A link download is already running."})
+            self._respond(request_id, command, ok=False,
+                          error="A link download is already running.")
+            return
+
+        self._media_busy = True
+        cancel = threading.Event()
+        self._media_cancel = cancel
+        dest = self._downloads_dir()
+
+        def worker():
+            try:
+                path = self.media_fetch.MediaFetcher().download(
+                    url, dest,
+                    progress_cb=lambda p: self._emit({"event": "media_progress", **p}),
+                    cancel_check=cancel.is_set,
+                    title=title or None,
+                )
+                if cancel.is_set():
+                    payload_out = {"ok": False, "cancelled": True}
+                else:
+                    payload_out = {"ok": True, "path": path,
+                                   "name": os.path.basename(path)}
+            except self.media_fetch.MediaFetchCancelled:
+                payload_out = {"ok": False, "cancelled": True}
+            except self.media_fetch.MediaFetchError as exc:
+                payload_out = {"ok": False, "error": str(exc)}
+            except Exception as exc:  # noqa: BLE001 - never kill the thread
+                payload_out = {"ok": False, "error": str(exc)[:300]}
+            finally:
+                self._media_busy = False
+                self._media_cancel = None
+            self._emit({"event": "media_done", **payload_out})
+            if payload_out.get("ok"):
+                # Hand off on the main thread: import_video touches Qt + engine.
+                QTimer.singleShot(0, lambda: self._import_video(None, "import_media_url",
+                                                                {"path": payload_out["path"]}))
+
+        threading.Thread(target=worker, daemon=True,
+                         name="lp-media-download").start()
+        self._respond(request_id, command, ok=True, started=True)
 
     def _processing_workers_running(self) -> bool:
         """Keep QThread/QProcess owners alive while a cancellation drains.

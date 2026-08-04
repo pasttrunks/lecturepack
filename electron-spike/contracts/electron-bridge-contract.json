@@ -229,14 +229,14 @@
       "name": "cancel_media_url",
       "notes": "Cancels an in-flight link download and cleans partial files.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "cancelled"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -883,12 +883,12 @@
       "name": "import_media_url",
       "notes": "Downloads a link then hands the file to the normal import path; emits media_progress/media_done.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "url",
         "title"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
@@ -897,7 +897,7 @@
         "cancelled",
         "error"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1143,11 +1143,11 @@
       "name": "media_done",
       "notes": "Terminal outcome of a link download; ok:true hands off to import_video.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1160,11 +1160,11 @@
       "name": "media_link_state",
       "notes": "Capability report for the Paste Link entry point.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1173,15 +1173,15 @@
       "name": "media_link_support",
       "notes": "Reports whether link import is available in this build; also emits media_link_state.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "available",
         "version"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1200,11 +1200,11 @@
       "name": "media_probe",
       "notes": "Probe result for a pasted link (title/duration/uploader).",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1221,11 +1221,11 @@
       "name": "media_progress",
       "notes": "Coalesced download progress for a link import.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1446,11 +1446,11 @@
       "name": "probe_media_url",
       "notes": "Resolves a link's metadata without downloading; also emits media_probe.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "url"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "title",
@@ -1461,7 +1461,7 @@
         "webpage_url",
         "error"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
