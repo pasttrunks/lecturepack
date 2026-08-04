@@ -44,6 +44,9 @@
 - Packaged URL capability probe: `media_link_support` returned
   `available: true`, version `2026.07.04`, and the sidecar shut down with exit
   code 0.
+- The final-candidate URL probe used the host shutdown drain and returned
+  `ready: true`, `available: true`, and `exit_code: 0` from
+  `C:\LecturePackPhase9UrlProbe-final5b-disposable`.
 - `npm run validate`: passed; final ASAR audit found only
   `electron-bridge.js`, `production-main.js`, and `production-preload.js`
   among the Electron entrypoints.
