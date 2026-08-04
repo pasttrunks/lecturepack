@@ -13,7 +13,16 @@ const { pathToFileURL } = require('node:url');
 const { spawn, spawnSync } = require('node:child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
+const packageInfo = require('./package.json');
+const PRODUCT_NAME = packageInfo.productName || 'LecturePack';
+const PRODUCT_VERSION = packageInfo.version || '0.9.0-beta.15';
+const APP_USER_MODEL_ID = 'LecturePack.LecturePack';
 const options = parseOptions(process.argv.slice(1));
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+app.setName(PRODUCT_NAME);
+app.setVersion(PRODUCT_VERSION);
+if (process.platform === 'win32') app.setAppUserModelId(APP_USER_MODEL_ID);
 
 let activeSession = null;
 let lastResultsDir = null;
@@ -65,8 +74,7 @@ function productionDocument(uiDir) {
   const bridge = fs.readFileSync(path.join(__dirname, 'electron-bridge.js'), 'utf8');
   const productionScope = `
     <style id="lecturepack-production-scope">
-      [data-nav="study"], [data-nav="settings"], #home-demo,
-      #btn-paste-link, #btn-show-empty, #update-badge { display: none !important; }
+      #btn-show-empty { display: none !important; }
     </style>`;
   let document = index
     .replace(/<script\b[^>]*qrc:\/\/[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -108,7 +116,14 @@ function makeLogger() {
 
 function dataDirectory() {
   const requested = options['data-dir'] || process.env.LECTUREPACK_DATA_DIR;
-  return path.resolve(requested || path.join(app.getPath('userData'), 'LecturePackData'));
+  return path.resolve(requested || path.join(app.getPath('home'), 'LecturePackData'));
+}
+
+function applicationIcon() {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, 'lecturepack.ico')]
+    : [path.join(REPO_ROOT, 'app', 'packaging', 'lecturepack.ico')];
+  return candidates.find(pathExists) || undefined;
 }
 
 function sidecarScript() {
@@ -407,6 +422,21 @@ async function stopSession(session) {
       if (child.exitCode === null) terminateProcessTree(child, session.logger);
       await waitForExit(child, 2000);
     }
+    if (session.documentTempDir) {
+      const tempRoot = path.resolve(app.getPath('temp')) + path.sep;
+      const documentTempDir = path.resolve(session.documentTempDir);
+      if (documentTempDir.startsWith(tempRoot)) {
+        try {
+          fs.rmSync(documentTempDir, { recursive: true, force: true });
+          session.logger.write('production_document_removed', { directory: documentTempDir });
+        } catch (error) {
+          session.logger.write('production_document_remove_failed', {
+            directory: documentTempDir,
+            error: error.message
+          });
+        }
+      }
+    }
     session.logger.write('session_closed');
   })();
   return session.stopPromise;
@@ -421,14 +451,16 @@ function requestQuit() {
 function createProductionWindow() {
   const logger = makeLogger();
   const uiDir = uiDirectory();
+  const icon = applicationIcon();
   const window = new BrowserWindow({
     width: 1360,
     height: 860,
     minWidth: 640,
     minHeight: 480,
     show: false,
-    title: 'LecturePack',
+    title: PRODUCT_NAME,
     backgroundColor: '#16191F',
+    ...(icon ? { icon } : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -499,20 +531,33 @@ ipcMain.handle('lecturepack-production:command', (_event, command, payload) => {
   return handleCommand(activeSession, String(command || ''), normalizedPayload);
 });
 
-app.whenReady().then(() => {
-  createProductionWindow();
-  const quitAfter = Number(options['quit-after-seconds'] || 0);
-  if (Number.isFinite(quitAfter) && quitAfter > 0) {
-    setTimeout(() => requestQuit(), Math.min(quitAfter, 24 * 60 * 60) * 1000);
-  }
-});
+if (hasSingleInstanceLock) {
+  app.on('second-instance', () => {
+    const window = activeSession && activeSession.window;
+    if (!window || window.isDestroyed()) return;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+    if (process.platform === 'win32') window.flashFrame(true);
+  });
 
-app.on('before-quit', (event) => {
-  if (quitPromise || !activeSession || activeSession.closed) return;
-  event.preventDefault();
-  requestQuit();
-});
-app.on('window-all-closed', () => requestQuit());
+  app.whenReady().then(() => {
+    createProductionWindow();
+    const quitAfter = Number(options['quit-after-seconds'] || 0);
+    if (Number.isFinite(quitAfter) && quitAfter > 0) {
+      setTimeout(() => requestQuit(), Math.min(quitAfter, 24 * 60 * 60) * 1000);
+    }
+  });
+
+  app.on('before-quit', (event) => {
+    if (quitPromise || !activeSession || activeSession.closed) return;
+    event.preventDefault();
+    requestQuit();
+  });
+  app.on('window-all-closed', () => requestQuit());
+} else {
+  app.quit();
+}
 
 process.on('exit', () => {
   const child = activeSession && activeSession.sidecar;

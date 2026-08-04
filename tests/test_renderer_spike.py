@@ -15,12 +15,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SPIKE = ROOT / "electron-spike"
 
 
-def test_spike_package_isolated_and_unversioned():
+def test_production_package_has_release_identity_and_isolated_dependencies():
     package = json.loads((SPIKE / "package.json").read_text(encoding="utf-8"))
     assert package["private"] is True
     assert package["name"] == "lecturepack"
     assert package["main"] == "production-main.js"
-    assert package["version"] == "0.0.0"
+    assert package["productName"] == "LecturePack"
+    assert package["version"] == "0.9.0-beta.15"
     assert {"start", "validate", "package:sidecar", "package:win"}.issubset(package["scripts"])
     assert "electron" in package["devDependencies"]
     assert "PySide6" not in json.dumps(package)
