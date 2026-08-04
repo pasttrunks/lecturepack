@@ -18,17 +18,13 @@
     browse_model: true,
     cancel_cuda_pack: true,
     cancel_flashcards: true,
-    cancel_media_url: true,
     cancel_quiz: true,
     cancel_smart_study: true,
     cancel_update_download: true,
     check_updates: true,
     clear_skipped_version: true,
     cuda_pack_status: true,
-    delete_job: true,
-    delete_jobs: true,
     end_demo_job: true,
-    enqueue_job: true,
     exit_application: true,
     generate_flashcards: true,
     generate_quiz: true,
@@ -36,7 +32,6 @@
     get_post_completion: true,
     get_settings: true,
     get_updater_state: true,
-    import_media_url: true,
     install_cuda_pack: true,
     install_downloaded_update: true,
     install_smart_study: true,
@@ -44,27 +39,15 @@
     launch_ollama_installer: true,
     list_ollama_models: true,
     log_tour_trace: true,
-    media_link_support: true,
-    pause_job: true,
-    probe_media_url: true,
-    remove_from_queue: true,
     remove_groq_key: true,
-    reorder_queue: true,
     repair_selection: true,
-    restart_job: true,
-    resume_job: true,
-    retry_stage: true,
     run_diagnostics: true,
-    run_now: true,
     save_flashcard_session: true,
     save_notes: true,
     save_project: true,
     save_quiz_session: true,
-    schedule_job: true,
     set_auto_check: true,
     set_groq_key: true,
-    set_job_group: true,
-    set_jobs_group: true,
     set_notification_prefs: true,
     set_study_preset: true,
     set_update_channel: true,
@@ -75,7 +58,6 @@
     test_endpoint: true,
     test_groq_key: true,
     test_notification: true,
-    unschedule_job: true,
     validate_cuda: true,
     validate_vulkan: true,
     whatsnew_seen: true,
@@ -172,6 +154,18 @@
           preset: payload.preset || bridgeSettings.slide_detection_preset
         }
       };
+    }
+    if (name === 'probe_media_url') {
+      return { command: name, payload: { url: String(typeof first === 'string' ? first : payload.url || '') } };
+    }
+    if (name === 'import_media_url') {
+      return {
+        command: name,
+        payload: { url: String(typeof first === 'string' ? first : payload.url || ''), title: String(args[1] || payload.title || '') }
+      };
+    }
+    if (name === 'cancel_media_url' || name === 'media_link_support') {
+      return { command: name, payload: {} };
     }
     if (name === 'delete_job') {
       return { command: name, payload: { job_id: jobIdPayload(first) } };

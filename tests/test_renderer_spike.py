@@ -146,9 +146,8 @@ def test_migration_bridge_maps_existing_ui_without_requiring_qt_webchannel():
     assert "event === 'jobs_changed'" in bridge
     assert "isLocalThemeSetting" in bridge
     for deferred in (
-        "delete_job", "delete_jobs", "exit_application", "media_link_support",
-        "restart_job", "resume_job", "run_diagnostics", "set_notification_prefs",
-        "start_demo_job", "validate_vulkan",
+        "exit_application", "list_ollama_models", "run_diagnostics",
+        "set_notification_prefs", "start_demo_job", "validate_vulkan",
     ):
         assert f"{deferred}: true" in bridge
 
@@ -257,6 +256,89 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_production_bridge_maps_phase9_jobs_and_url_calls(tmp_path):
+    harness = tmp_path / "bridge-phase9-check.js"
+    harness.write_text(
+        r"""
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+const calls = [];
+const context = {
+  console: { error() {} },
+  window: {
+    localStorage: { setItem() {} },
+    lecturePackElectron: {
+      request(command, payload) { calls.push({ command, payload }); return Promise.resolve({}); },
+      onMessage() {}
+    }
+  }
+};
+vm.createContext(context);
+vm.runInContext(source, context, { filename: 'electron-bridge.js' });
+(async () => {
+  await context.window.lpBridge.call('delete_job', 'job-1');
+  await context.window.lpBridge.call('delete_jobs', JSON.stringify(['job-1', 'job-2']));
+  await context.window.lpBridge.call('enqueue_job', 'job-1');
+  await context.window.lpBridge.call('reorder_queue', 'job-1', 2);
+  await context.window.lpBridge.call('run_now', 'job-1');
+  await context.window.lpBridge.call('remove_from_queue', 'job-1');
+  await context.window.lpBridge.call('schedule_job', 'job-1', '2026-08-03T12:00', 'local', 'ask');
+  await context.window.lpBridge.call('unschedule_job', 'job-1');
+  await context.window.lpBridge.call('pause_job');
+  await context.window.lpBridge.call('resume_job', 'job-1');
+  await context.window.lpBridge.call('restart_job', 'job-1');
+  await context.window.lpBridge.call('retry_stage', 'job-1', 'Transcribe');
+  await context.window.lpBridge.call('set_job_group', 'job-1', 'Physics');
+  await context.window.lpBridge.call('set_jobs_group', JSON.stringify(['job-1', 'job-2']), 'Physics');
+  await context.window.lpBridge.call('rename_job', 'job-1', 'Lecture 1');
+  await context.window.lpBridge.call('media_link_support');
+  await context.window.lpBridge.call('probe_media_url', 'https://example.test/lecture');
+  await context.window.lpBridge.call('import_media_url', 'https://example.test/lecture', 'Lecture 1');
+  await context.window.lpBridge.call('cancel_media_url');
+  const expected = [
+    ['delete_job', { job_id: 'job-1' }],
+    ['delete_jobs', { ids: ['job-1', 'job-2'] }],
+    ['enqueue_job', { job_id: 'job-1' }],
+    ['reorder_queue', { job_id: 'job-1', index: 2 }],
+    ['run_now', { job_id: 'job-1' }],
+    ['remove_from_queue', { job_id: 'job-1' }],
+    ['schedule_job', { job_id: 'job-1', when: '2026-08-03T12:00', tz: 'local', missed_policy: 'ask' }],
+    ['unschedule_job', { job_id: 'job-1' }],
+    ['pause_job', {}],
+    ['resume_job', { job_id: 'job-1' }],
+    ['restart_job', { job_id: 'job-1' }],
+    ['retry_stage', { job_id: 'job-1', stage: 'Transcribe' }],
+    ['set_job_group', { job_id: 'job-1', group: 'Physics' }],
+    ['set_jobs_group', { ids: ['job-1', 'job-2'], group: 'Physics' }],
+    ['rename_job', { job_id: 'job-1', title: 'Lecture 1' }],
+    ['media_link_support', {}],
+    ['probe_media_url', { url: 'https://example.test/lecture' }],
+    ['import_media_url', { url: 'https://example.test/lecture', title: 'Lecture 1' }],
+    ['cancel_media_url', {}]
+  ];
+  if (calls.length !== expected.length) throw new Error(`expected ${expected.length} calls, got ${calls.length}`);
+  expected.forEach(([command, payload], index) => {
+    if (calls[index].command !== command || JSON.stringify(calls[index].payload) !== JSON.stringify(payload)) {
+      throw new Error(`call ${index} mismatch: ${JSON.stringify(calls[index])}`);
+    }
+  });
+})().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [shutil.which("node"), str(harness), str(SPIKE / "electron-bridge.js")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_production_bridge_maps_review_commands(tmp_path):
     harness = tmp_path / "bridge-review-check.js"
     harness.write_text(
@@ -299,12 +381,12 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
       throw new Error(`export mapping was not contract-shaped: ${JSON.stringify(call)}`);
     }
   }
-  await context.window.lpBridge.call('delete_job', 'job-1');
-  await context.window.lpBridge.call('resume_job', 'job-1');
+  await context.window.lpBridge.call('start_demo_job');
+  await context.window.lpBridge.call('list_ollama_models');
   await context.window.lpBridge.call('media_link_support');
   await context.window.lpBridge.call('get_settings');
   await context.window.lpBridge.call('exit_application');
-  if (calls.length !== 4) throw new Error('a deferred command crossed the sidecar boundary');
+  if (calls.length !== 5) throw new Error('a deferred command crossed the sidecar boundary');
 })().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
 """.strip()
         + "\n",
