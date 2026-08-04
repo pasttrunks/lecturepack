@@ -1,0 +1,2168 @@
+{
+  "contract": "lecturepack-electron-bridge",
+  "description": "Machine-readable bridge contract mapping the historical Qt/QWebChannel frontend bridge to the Electron/Python JSONL sidecar for LecturePack Phase 8. Documentation and test oracle only; changes no production behavior.",
+  "operations": [
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "acknowledge_setup",
+      "notes": "First-run setup acknowledgement is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "id",
+        "title"
+      ],
+      "mapped_to": "active_job",
+      "name": "active_job",
+      "notes": "Names which lecture the workspace belongs to.",
+      "phase8": "restore jobs after reopening",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "ai_done",
+      "notes": "Study AI streaming events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "ai_status",
+      "notes": "Study AI events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "ai_token",
+      "notes": "Study AI streaming events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "ask_ai",
+      "notes": "Study AI is deferred; beyond Phase 8 core.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "prompt"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "ready",
+      "name": "bootstrap_complete",
+      "notes": "app.js subscribes but the sidecar never emits it; the Electron host relies on ready + its own bootstrap.",
+      "phase8": "bootstrap/runtime readiness",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "MISSING"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "id",
+        "state",
+        "detail"
+      ],
+      "mapped_to": "bootstrap_progress",
+      "name": "bootstrap_progress",
+      "notes": "Emitted by the sidecar while the engine imports.",
+      "phase8": "bootstrap/runtime readiness",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "browse_model",
+      "notes": "Model path browsing is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "browse_video->import_video",
+      "name": "browse_video",
+      "notes": "Electron main opens a dialog and forwards the selection to import_video.",
+      "phase8": "import local video",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [
+        "ok",
+        "cancelled",
+        "job",
+        "job_id"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "cancel_cuda_pack",
+      "notes": "GPU/CUDA installer management is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "cancel_flashcards",
+      "notes": "Study AI (flashcards) is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "cancel_job",
+      "name": "cancel_job",
+      "notes": "Cancels the active pipeline and reports the terminal status.",
+      "phase8": "cancel job",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "cancelled",
+        "command",
+        "event",
+        "job_id",
+        "ok",
+        "response_to"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "cancel_media_url",
+      "notes": "URL/Paste Link import is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "cancel_quiz",
+      "notes": "Study AI (quiz) is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "cancel_smart_study",
+      "notes": "Ollama/smart study is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "cancel_update_download",
+      "notes": "Updater is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "check_updates",
+      "notes": "Updater is deferred; not required by Phase 8.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "clear_skipped_version",
+      "notes": "Updater is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "cuda_pack",
+      "notes": "GPU/CUDA installer events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "cuda_pack_status",
+      "notes": "GPU/CUDA installer management is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "cuda_status",
+      "notes": "GPU/CUDA events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "delete_job",
+      "notes": "Job deletion is deferred; intercepted as a noop.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "delete_jobs",
+      "notes": "Bulk job deletion is deferred; intercepted as a noop.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "ids"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "demo_event",
+      "notes": "Guided demo events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "diagnostics",
+      "notes": "Diagnostics events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "cancel_job",
+      "name": "end_demo_job",
+      "notes": "The guided demo end maps to cancel_job but is out of the Phase 8 core.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "enqueue_job",
+      "notes": "Queue management is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "error",
+        "command",
+        "response_to",
+        "job",
+        "stage"
+      ],
+      "mapped_to": "error",
+      "name": "error",
+      "notes": "Sent for command failures and stage failures; carries ok:false on command responses.",
+      "phase8": "errors",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "code",
+        "signal"
+      ],
+      "mapped_to": "exit",
+      "name": "exit",
+      "notes": "Emitted by the Electron host when the sidecar exits.",
+      "phase8": "clean shutdown",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "exit_application",
+      "notes": "app.js exit_application is not a real backend slot; the renderer closes the window and the host performs clean shutdown via the shutdown command.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "export",
+      "name": "export",
+      "notes": "app.js export_all and export_one both map to the export command.",
+      "phase8": "exports",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "already_running",
+        "command",
+        "event",
+        "job_id",
+        "ok",
+        "response_to",
+        "started"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "export",
+      "name": "export_all",
+      "notes": "app.js export_all maps to the export sidecar command.",
+      "phase8": "exports",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": true,
+      "response_fields": [
+        "already_running",
+        "command",
+        "event",
+        "job_id",
+        "ok",
+        "response_to",
+        "started"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "export_done",
+      "name": "export_done",
+      "notes": "Signals the Study Pack export completed.",
+      "phase8": "exports",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "export",
+      "name": "export_one",
+      "notes": "app.js export_one maps to the export sidecar command.",
+      "phase8": "exports",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": true,
+      "response_fields": [
+        "already_running",
+        "command",
+        "event",
+        "job_id",
+        "ok",
+        "response_to",
+        "started"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "export_progress",
+      "notes": "app.js subscribes to export_progress but the sidecar only emits export_done. Luna should emit export_progress during export.",
+      "phase8": "exports",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "MISSING"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "flashcards_changed",
+      "notes": "Study AI events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "flashcards_status",
+      "notes": "Study AI events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "generate_flashcards",
+      "notes": "Study AI (flashcards) is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "generate_quiz",
+      "notes": "Study AI (quiz) is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "health_check+list_jobs",
+      "name": "get_bootstrap",
+      "notes": "app.js requests initial state via get_bootstrap; Electron intercepts as a noop and drives bootstrap via ready + host bootstrap.",
+      "phase8": "bootstrap/runtime readiness",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "PARTIAL"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "get_job",
+      "name": "get_job",
+      "notes": "Restores one persisted job; the Electron host calls get_job + get_slides + get_transcript on reopen.",
+      "phase8": "restore jobs after reopening",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "command",
+        "event",
+        "export_dir",
+        "exports",
+        "job",
+        "job_dir",
+        "manifest",
+        "ok",
+        "response_to",
+        "source",
+        "state"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "get_notification_prefs",
+      "notes": "Notifications are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "get_post_completion",
+      "notes": "Post-completion coaching is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "get_slides",
+      "name": "get_slides",
+      "notes": "Reads detected slide candidates and emits slides_changed.",
+      "phase8": "slides",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "command",
+        "event",
+        "job_id",
+        "ok",
+        "response_to",
+        "slides"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "get_transcript",
+      "name": "get_transcript",
+      "notes": "Reads the canonical transcript and emits transcript_changed.",
+      "phase8": "transcript",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "command",
+        "event",
+        "job_id",
+        "ok",
+        "response_to",
+        "transcript"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "get_updater_state",
+      "notes": "Updater is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "groq_status",
+      "notes": "Groq events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "health_check",
+      "name": "health_check",
+      "notes": "Sidecar verifies the engine and packaged CPU runtime before the Electron host bootstraps the job list.",
+      "phase8": "bootstrap/runtime readiness",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": true,
+      "response_fields": [
+        "command",
+        "event",
+        "healthy",
+        "ok",
+        "paths",
+        "qt_application",
+        "response_to"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "import_media_url",
+      "notes": "URL/Paste Link import is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "url",
+        "title"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "import_video",
+      "name": "import_video",
+      "notes": "Creates a persisted job from a local file and activates it.",
+      "phase8": "import local video",
+      "production_core": true,
+      "request_fields": [
+        "path",
+        "title",
+        "preset",
+        "bundled_demo"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "command",
+        "event",
+        "job",
+        "job_id",
+        "ok",
+        "response_to",
+        "source"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "install_cuda_pack",
+      "notes": "GPU/CUDA installer management is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "install_downloaded_update",
+      "notes": "Updater is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "install_smart_study",
+      "notes": "Ollama/smart study is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "preset"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "install_update",
+      "notes": "Updater is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job_id",
+        "slides_detected",
+        "segment_count"
+      ],
+      "mapped_to": "job_completed",
+      "name": "job_completed",
+      "notes": "Emitted after the final Export stage completes.",
+      "phase8": "job status",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "job_deleted",
+      "notes": "Job deletion events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "jobs"
+      ],
+      "mapped_to": "jobs_changed",
+      "name": "jobs_changed",
+      "notes": "Renderer-facing signal is the direct job-summary array expected by app.ui.app.js; electron-bridge.js strips the envelope.",
+      "phase8": "list jobs",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "launch_ollama_installer",
+      "notes": "Ollama installer is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "list_jobs",
+      "name": "list_jobs",
+      "notes": "Enumerates persisted jobs and emits a jobs_changed summary array.",
+      "phase8": "list jobs",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": true,
+      "response_fields": [
+        "command",
+        "event",
+        "jobs",
+        "ok",
+        "response_to"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "list_ollama_models",
+      "notes": "Ollama is deferred; intercepted as a noop.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "tag",
+        "color",
+        "text"
+      ],
+      "mapped_to": "log_line",
+      "name": "log_line",
+      "notes": "Streams processing log lines to the renderer.",
+      "phase8": "processing logs",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "log_tour_trace",
+      "notes": "Onboarding tour tracing is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "payload"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "media_done",
+      "notes": "URL/Paste Link events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "media_link_state",
+      "notes": "URL/Paste Link events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "media_link_support",
+      "notes": "URL/Paste Link capability probe is deferred and intercepted as a noop.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "media_probe",
+      "notes": "URL/Paste Link events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "media_progress",
+      "notes": "URL/Paste Link events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "notification_navigate",
+      "notes": "Notification events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "notification_prefs",
+      "notes": "Notification events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "ollama_models",
+      "notes": "Ollama events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "name",
+        "meta"
+      ],
+      "mapped_to": "onboarding",
+      "name": "onboarding",
+      "notes": "Carries the newly imported video summary for the home screen.",
+      "phase8": "import local video",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "open_export_folder->get_job+shell.openPath",
+      "name": "open_export_folder",
+      "notes": "Handled in the Electron main process via get_job.response.export_dir.",
+      "phase8": "exports",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": false,
+      "response_fields": [
+        "ok",
+        "path"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "get_job",
+      "name": "open_job",
+      "notes": "app.js open_job maps to the get_job sidecar command.",
+      "phase8": "restore jobs after reopening",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "command",
+        "event",
+        "export_dir",
+        "exports",
+        "job",
+        "job_dir",
+        "manifest",
+        "ok",
+        "response_to",
+        "source",
+        "state"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "open_job_folder->get_job+shell.openPath",
+      "name": "open_job_folder",
+      "notes": "Handled in the Electron main process via get_job.response.job_dir.",
+      "phase8": "exports",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": false,
+      "response_fields": [
+        "ok",
+        "path"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "open_release_page",
+      "notes": "Updater is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "pause_job",
+      "notes": "Pause is deferred; intercepted as a noop.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "pause_state",
+      "notes": "Pause events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "title",
+        "meta",
+        "stages"
+      ],
+      "mapped_to": "pipeline_changed",
+      "name": "pipeline_changed",
+      "notes": "Carries the per-stage progress array consumed by the pipeline/stages UI.",
+      "phase8": "progress/stages",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "post_completion",
+      "notes": "Post-completion events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "probe_media_url",
+      "notes": "URL/Paste Link import is deferred, not required by Phase 8.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "url"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "queue_changed",
+      "notes": "Queue events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "quiz_changed",
+      "notes": "Study AI events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "quiz_status",
+      "notes": "Study AI events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "engine_loaded",
+        "session_id",
+        "backend"
+      ],
+      "mapped_to": "ready",
+      "name": "ready",
+      "notes": "Sent once by the sidecar when the engine and stdin reader are ready.",
+      "phase8": "bootstrap/runtime readiness",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "remove_from_queue",
+      "notes": "Queue management is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "remove_groq_key",
+      "notes": "Groq is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "reorder_queue",
+      "notes": "Queue management is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id",
+        "index"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "repair_event",
+      "notes": "Context repair events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "repair_selection",
+      "notes": "Context repair is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "start_job",
+      "name": "restart_job",
+      "notes": "Restart maps to start_job but is deferred as a distinct operation for Phase 8.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "start_job",
+      "name": "resume_job",
+      "notes": "Resume maps to start_job but is deferred as a distinct queue operation for Phase 8.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "retry_stage",
+      "notes": "Processing retry controls are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id",
+        "stage"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "run_diagnostics",
+      "notes": "Diagnostics are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "run_now",
+      "notes": "Queue management is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "save_corrections",
+      "notes": "app.js calls save_corrections to persist transcript edits but the Electron adapter resolves it as a noop. Luna should add a sidecar command.",
+      "phase8": "transcript",
+      "production_core": true,
+      "request_fields": [
+        "texts"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "MISSING"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "save_flashcard_session",
+      "notes": "Study AI (flashcards) is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "save_notes",
+      "notes": "Study workspace notes are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "text"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "save_project",
+      "notes": "Project save is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "save_quiz_session",
+      "notes": "Study AI (quiz) is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "schedule_job",
+      "notes": "Queue/scheduling is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id",
+        "when",
+        "tz",
+        "missed_policy"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "set_auto_check",
+      "notes": "Updater is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "enabled"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "set_groq_key",
+      "notes": "Groq is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "key"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "set_job_group",
+      "notes": "Job grouping is deferred; intercepted as a noop.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id",
+        "group"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "set_jobs_group",
+      "notes": "Bulk job grouping is deferred; intercepted as a noop.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "ids",
+        "group"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "set_notification_prefs",
+      "notes": "Notifications are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "set_setting",
+      "name": "set_setting",
+      "notes": "Primary processing settings applied; secondary acknowledged without persistence; theme handled locally and never sent to the sidecar.",
+      "phase8": "processing-option selection",
+      "production_core": true,
+      "request_fields": [
+        "key",
+        "value"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "applied",
+        "command",
+        "event",
+        "key",
+        "ok",
+        "response_to",
+        "value"
+      ],
+      "status": "PARTIAL"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "set_slide_state",
+      "notes": "app.js calls set_slide_state to accept/reject a slide but the Electron adapter resolves it as a noop. Luna should add a sidecar command that persists candidacy decisions.",
+      "phase8": "slides",
+      "production_core": true,
+      "request_fields": [
+        "index",
+        "state"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "MISSING"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "set_study_preset",
+      "notes": "Ollama/smart study is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "preset"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "set_update_channel",
+      "notes": "Updater is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "channel"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "key",
+        "value",
+        "applied"
+      ],
+      "mapped_to": "settings_changed",
+      "name": "settings_changed",
+      "notes": "Emitted after a set_setting call; there is no initial full-settings push (get_settings is a noop).",
+      "phase8": "processing-option selection",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "PARTIAL"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "shutdown",
+      "name": "shutdown",
+      "notes": "Stops the sidecar; the Electron host then terminates the full process tree and emits exit.",
+      "phase8": "clean shutdown",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [
+        "command",
+        "event",
+        "ok",
+        "response_to"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "skip_update_version",
+      "notes": "Updater is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "slides",
+        "duration",
+        "durationMid"
+      ],
+      "mapped_to": "slides_changed",
+      "name": "slides_changed",
+      "notes": "Carries the slide list and duration for the slides screen.",
+      "phase8": "slides",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "smart_study",
+      "notes": "Ollama/smart study events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "smart_study_status",
+      "notes": "Ollama/smart study is deferred; intercepted as a noop.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "start_job",
+      "name": "start_demo_job",
+      "notes": "The guided demo maps to start_job but is out of the Phase 8 core; production scope hides the demo entry point.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "start_job",
+      "name": "start_processing",
+      "notes": "app.js start_processing maps to the start_job command with mode, preset, and auto_export.",
+      "phase8": "processing-option selection / start job",
+      "production_core": true,
+      "request_fields": [
+        "mode",
+        "auto_export",
+        "preset"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "already_running",
+        "command",
+        "event",
+        "job_id",
+        "ok",
+        "response_to",
+        "started"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "start_update_download",
+      "notes": "Updater is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "label",
+        "pct",
+        "detail",
+        "right",
+        "side"
+      ],
+      "mapped_to": "status_changed",
+      "name": "status_changed",
+      "notes": "Reports the job status label and percent.",
+      "phase8": "job status",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "storage_changed",
+      "notes": "Storage measurement events are deferred; the sidebar storage widget remains hidden.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "study_changed",
+      "notes": "Study workspace events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "test_endpoint",
+      "notes": "Model endpoint probe is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "test_groq_key",
+      "notes": "Groq is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "test_notification",
+      "notes": "Notifications are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "reviewSegments",
+        "transcript"
+      ],
+      "mapped_to": "transcript_changed",
+      "name": "transcript_changed",
+      "notes": "Carries the review segments and transcript blocks for the transcript screen.",
+      "phase8": "transcript",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "ready",
+      "name": "ui_ready",
+      "notes": "Legacy ui_ready slot is acknowledged (noop); readiness is driven by the sidecar ready event and pageReady.",
+      "phase8": "bootstrap/runtime readiness",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "PARTIAL"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "unschedule_job",
+      "notes": "Queue/scheduling is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "update_available",
+      "notes": "Updater events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "update_error",
+      "notes": "Updater events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "update_progress",
+      "notes": "Updater events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "update_ready",
+      "notes": "Updater events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "update_state",
+      "notes": "Updater events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "validate_cuda",
+      "notes": "Backend admission / GPU validation is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "validate_vulkan",
+      "notes": "Backend admission / GPU validation is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "vulkan_status",
+      "notes": "GPU/Vulkan events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event"
+      ],
+      "mapped_to": "",
+      "name": "whatsnew",
+      "notes": "Updater/whats-new events are deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "whatsnew_seen",
+      "notes": "Updater/whats-new is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    }
+  ],
+  "status_values": [
+    "IMPLEMENTED",
+    "PARTIAL",
+    "MISSING",
+    "DEFERRED"
+  ],
+  "version": 1
+}
