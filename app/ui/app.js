@@ -663,6 +663,7 @@
   var JOB_BADGES = {
     running: { label: 'Running', bg: 'var(--orange-soft)', fg: 'var(--orange-ink)', dot: 'var(--orange)', blink: true },
     done: { label: 'Done', bg: 'var(--green-soft)', fg: 'var(--green)', dot: 'var(--green)' },
+    cancelled: { label: 'Cancelled', bg: 'var(--sunk)', fg: 'var(--muted)', dot: 'var(--muted)' },
     interrupted: { label: 'Interrupted', bg: 'var(--orange-soft)', fg: 'var(--orange-ink)', dot: 'var(--orange)' },
     failed: { label: 'Failed', bg: 'var(--red-soft, rgba(220,60,60,.15))', fg: 'var(--red)', dot: 'var(--red)' },
     paused: { label: 'Paused', bg: 'var(--blue-tint)', fg: 'var(--blue-ink)', dot: 'var(--blue-ink)' },
@@ -673,7 +674,7 @@
   // (idle|running|paused|success|failed|interrupted|complete). Purely a
   // lookup for motion/color feedback -- never consulted for app logic.
   var JOB_STATE_MAP = {
-    running: 'running', done: 'complete', interrupted: 'interrupted',
+    running: 'running', done: 'complete', cancelled: 'interrupted', interrupted: 'interrupted',
     failed: 'failed', paused: 'paused', queued: 'idle', scheduled: 'idle'
   };
   // Best-effort: sets data-state on the nearest ancestor (or self) carrying

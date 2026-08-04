@@ -2,7 +2,7 @@
 
 **Version:** 1.0  
 **Date:** 2026-07-15  
-**Status:** Approved (Phase 0)
+**Status:** Approved (Phase 0); current implementation: Phase 8 Electron Production App Core
 
 ---
 
@@ -397,6 +397,26 @@ Deliverables: HTML study pack, PDF study pack, PyInstaller packaging, first-run 
 ### Phase 6 -- Optional Qwen Module
 
 Deliverables: LM Studio connection, study notes, citations, graceful offline. Tag: `v0.6.0-ai`.
+
+### Phase 8 -- Electron Production App Core
+
+Deliverables: production-only Electron host, narrow context-isolated preload,
+packaged headless sidecar, JSONL request/response/event transport, local video
+import, processing-option selection, real CPU whisper.cpp transcription, real
+slide detection, status/log/slide/transcript display, Study Pack export,
+cancel, completed-job restore, and clean process-tree shutdown. Reuse the
+existing HTML/CSS/JavaScript UI, Python engine, and persisted job format.
+
+Non-goals: updater, installer migration, Paste Link/yt-dlp, Ollama/Groq,
+React, UI redesign, Qt removal, diagnostic modes in the production package,
+and secondary settings. The existing Qt application remains the fallback.
+
+Acceptance gate: run one unpacked packaged Electron candidate on the affected
+laptop with a freshly deleted data directory: cold launch, import a real
+lecture, process to completion, review slides and transcript, export the Study
+Pack, close, reopen, confirm restoration, and confirm no flicker, renderer
+crash, or orphaned Python/FFmpeg/whisper processes. This gate must pass before
+the candidate is called Beta 15 or the remaining migration work begins.
 
 ---
 

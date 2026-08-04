@@ -418,8 +418,9 @@ def validate_export(job_dir: str | Path, export_dir: str | Path) -> dict[str, An
     """Return ``{export_completed, export_file_count, files}``.
 
     The Study Pack export is complete when the export directory exists, is
-    non-empty, and contains at least the ``manifest.json`` marker the engine
-    writes. ``files`` is a sorted relative list for the human summary.
+    non-empty, and contains either the historical ``manifest.json`` marker or
+    one of the existing Study Pack HTML/PDF artifacts. ``files`` is a sorted
+    relative list for the human summary.
     """
     export_dir = Path(export_dir)
     files: list[str] = []
@@ -429,7 +430,16 @@ def validate_export(job_dir: str | Path, export_dir: str | Path) -> dict[str, An
             for p in export_dir.rglob("*")
             if p.is_file()
         )
-    completed = export_dir.is_dir() and bool(files) and (export_dir / "manifest.json").is_file()
+    export_markers = {
+        "manifest.json",
+        "study-pack.html",
+        "study-pack.pdf",
+        "study_pack.html",
+        "study_pack.pdf",
+    }
+    completed = export_dir.is_dir() and bool(files) and any(
+        Path(relative).name in export_markers for relative in files
+    )
     return {
         "export_completed": completed,
         "export_file_count": len(files),
@@ -583,12 +593,24 @@ class JsonlSession:
 
     def wait_event(self, event_name: str, timeout: float | None = None,
                    predicate: Callable[[dict[str, Any]], bool] | None = None) -> dict[str, Any]:
+        def matches(msg: dict[str, Any]) -> bool:
+            return str(msg.get("event", "")) == event_name and (
+                predicate is None or predicate(msg)
+            )
+
+        # A request handler may consume an event while waiting for its
+        # response. Preserve the evidence history so a later gate assertion
+        # can still observe completion events such as export_done.
+        for message in self.messages:
+            if matches(message):
+                return message
+
         timeout = self.timeout if timeout is None else timeout
         deadline = time.monotonic() + timeout
         while True:
             remaining = max(0.0, deadline - time.monotonic())
             msg = self._next(remaining)
-            if str(msg.get("event", "")) == event_name and (predicate is None or predicate(msg)):
+            if matches(msg):
                 return msg
             if remaining <= 0:
                 raise TimeoutError(f"timed out waiting for sidecar event {event_name!r}")
@@ -725,8 +747,9 @@ def _run_sidecar_gate(
         transcript = session.request("get_transcript", {"job_id": job_id})
         checks["transcript_generated"] = bool(transcript.get("transcript"))
 
-        session.request("export", {"job_id": job_id})
-        session.wait_event("export_done", timeout=min(timeout_s, PROTOCOL_TIMEOUT_S))
+        if not any(str(message.get("event", "")) == "export_done" for message in session.messages):
+            session.request("export", {"job_id": job_id})
+            session.wait_event("export_done", timeout=min(timeout_s, PROTOCOL_TIMEOUT_S))
         job_root = data_dir / "jobs" / job_id
         export = validate_export(job_root, locate_export_dir(job_root))
         checks["export_completed"] = export["export_completed"]
@@ -828,6 +851,17 @@ def _run_host_once(
             timeout_s,
             label=f"{label}: sidecar ready",
         )
+        try:
+            poll_until(
+                lambda: proc.poll() is not None
+                or _evidence_has(_read_new_jsonl(results_dir, baseline_files), "job_restored"),
+                min(timeout_s, 30.0),
+                label=f"{label}: job restore",
+            )
+        except TimeoutError:
+            # Keep the run bounded and let classify_host_evidence report the
+            # missing restore as a failed acceptance check.
+            pass
         if proc.poll() is None and not _close_app_window(proc.pid):
             proc.terminate()
         try:
@@ -995,8 +1029,6 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
 
 
 

@@ -136,9 +136,23 @@ def test_expected_export_evidence_is_validated(tmp_path):
     assert "manifest.json" in evidence["files"]
     assert "slides/001.png" in evidence["files"]
 
+    existing_engine_export = tmp_path / "jobs" / "job-2" / "exports"
+    existing_engine_export.mkdir(parents=True)
+    (existing_engine_export / "study-pack.html").write_text("<html />", encoding="utf-8")
+    assert m.validate_export(tmp_path / "jobs" / "job-2", existing_engine_export)["export_completed"] is True
+
     empty = m.validate_export(tmp_path / "missing", tmp_path / "missing" / "exports")
     assert empty["export_completed"] is False
     assert empty["export_file_count"] == 0
+
+
+def test_sidecar_event_history_preserves_completion_evidence():
+    session = m.JsonlSession(Path("unused-sidecar.exe"), [])
+    session.messages.append({"event": "export_done", "job": "job-1"})
+
+    observed = session.wait_event("export_done", timeout=0.01)
+
+    assert observed["job"] == "job-1"
 
 
 def test_restart_restore_evidence_required_for_pass():
@@ -197,4 +211,3 @@ def test_result_json_deterministic_and_machine_readable():
     failing = m.score_result(_passing_checks(job_started=False))
     assert m.dump_result(failing) != m.dump_result(first)
     assert set(json.loads(m.dump_result(failing))) == set(m.ACCEPTANCE_KEYS)
-

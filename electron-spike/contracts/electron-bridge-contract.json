@@ -1,6 +1,6 @@
 {
   "contract": "lecturepack-electron-bridge",
-  "description": "Machine-readable bridge contract mapping the historical Qt/QWebChannel frontend bridge to the Electron/Python JSONL sidecar for LecturePack Phase 8. Documentation and test oracle only; changes no production behavior.",
+  "description": "Machine-readable bridge contract mapping the historical Qt/QWebChannel frontend bridge to the Electron/Python JSONL sidecar for LecturePack Phase 8. The contract and test oracle are reconciled with the four narrow production-seam operations implemented for the Phase 8 gate.",
   "operations": [
     {
       "direction": "command",
@@ -95,17 +95,20 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "bootstrap_pending",
+        "runtime_health_state",
+        "setup_acknowledged"
       ],
       "mapped_to": "ready",
       "name": "bootstrap_complete",
-      "notes": "app.js subscribes but the sidecar never emits it; the Electron host relies on ready + its own bootstrap.",
+      "notes": "Emitted by the sidecar after engine and packaged-runtime bootstrap completes; the payload closes the existing runtime gate for the production CPU bundle.",
       "phase8": "bootstrap/runtime readiness",
       "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "MISSING"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -546,17 +549,20 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "job",
+        "pct",
+        "label"
       ],
       "mapped_to": "",
       "name": "export_progress",
-      "notes": "app.js subscribes to export_progress but the sidecar only emits export_done. Luna should emit export_progress during export.",
+      "notes": "Emitted during the Export stage with the existing UI fields pct and label.",
       "phase8": "exports",
       "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "MISSING"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1502,15 +1508,23 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "save_corrections",
-      "notes": "app.js calls save_corrections to persist transcript edits but the Electron adapter resolves it as a noop. Luna should add a sidecar command.",
+      "notes": "Persists the existing transcript working layer and legacy edited.json mirror without changing raw transcript output.",
       "phase8": "transcript",
       "production_core": true,
       "request_fields": [
         "texts"
       ],
-      "request_id_required": false,
-      "response_fields": [],
-      "status": "MISSING"
+      "request_id_required": true,
+      "response_fields": [
+        "changed",
+        "command",
+        "event",
+        "job_id",
+        "ok",
+        "response_to",
+        "saved"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1688,16 +1702,25 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "set_slide_state",
-      "notes": "app.js calls set_slide_state to accept/reject a slide but the Electron adapter resolves it as a noop. Luna should add a sidecar command that persists candidacy decisions.",
+      "notes": "Persists the existing candidates.json accept/reject decision by the renderer slide index and refreshes slides_changed.",
       "phase8": "slides",
       "production_core": true,
       "request_fields": [
         "index",
         "state"
       ],
-      "request_id_required": false,
-      "response_fields": [],
-      "status": "MISSING"
+      "request_id_required": true,
+      "response_fields": [
+        "applied",
+        "command",
+        "event",
+        "index",
+        "job_id",
+        "ok",
+        "response_to",
+        "state"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",

@@ -1,0 +1,17 @@
+{
+  "name": "lecturepack",
+  "version": "0.0.0",
+  "private": true,
+  "description": "LecturePack Electron production application core.",
+  "main": "production-main.js",
+  "scripts": {
+    "start": "electron .",
+    "validate": "node --check production-main.js && node --check production-preload.js && node --check electron-bridge.js && node --check package-sidecar.mjs && node --check package-win.mjs",
+    "package:sidecar": "node package-sidecar.mjs",
+    "package:win": "npm run package:sidecar && node package-win.mjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.0.4",
+    "electron": "43.2.0"
+  }
+}

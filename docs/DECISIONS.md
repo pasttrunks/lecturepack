@@ -2,6 +2,177 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-28: Package the disposable Electron acceptance demo as a resource
+
+**Date:** 2026-08-04
+**Status:** Implemented for the Phase 8 unpacked candidate
+
+**Context:** The packaged acceptance command intentionally imports the demo
+video from `resources\\assets\\demo-lecture.mp4`, but the Windows packager was
+excluding the source `electron-spike/assets` directory entirely. That made the
+documented gate depend on an unbundled developer checkout.
+
+**Decision:** Keep the source asset excluded from `app.asar`, while adding the
+small demo-assets directory as an Electron `extraResource`. The resulting
+portable candidate contains the disposable demo at the documented external
+resource path. No customer lecture, updater, URL import, AI, installer, or
+other deferred feature is added.
+
+**Alternatives considered:** Requiring the developer to copy a video beside
+the package was rejected because it weakens the reproducible acceptance gate.
+Embedding the video in `app.asar` was rejected because the gate's documented
+path and sidecar invocation use an external resource.
+
+**Rationale:** This is the smallest packaging-only repair needed to run the
+already-approved Phase 8 gate exactly as specified.
+
+---
+
+## AD-27: Phase 8 Electron Bridge Coverage Reconciliation
+
+**Date:** 2026-08-03
+**Status:** Implemented in the production Electron seam; affected-laptop gate pending
+
+**Context:** The Phase 8 bridge coverage contract identified four operations
+that the reused UI consumes as part of the production core but that the first
+Electron candidate had not connected: bootstrap completion, slide decisions,
+transcript corrections, and export progress. The contract commit was already
+the current branch head, so the task was a compatibility review plus minimal
+implementation rather than a separate architecture phase.
+
+**Decision:** Implement exactly those four operations at the existing bridge
+boundary. Emit `bootstrap_complete` after sidecar bootstrap, map and persist
+`set_slide_state` in the existing `candidates.json`, map and persist
+`save_corrections` through the existing transcript working layer and
+`edited.json` mirror, and emit `export_progress` with the UI's existing `pct`
+and `label` fields. Leave every operation marked `DEFERRED` untouched.
+
+**Alternatives considered:** Replacing the UI with a new contract, changing
+the persisted job format, implementing the full historical bridge, or
+re-enabling URL import/updater/AI/GPU features were rejected because they would
+expand the Phase 8 acceptance scope.
+
+**Rationale:** These are narrow, user-visible holes in the already selected
+Electron seam. Connecting them preserves the current UI and data formats while
+making the contract honest and testable before the laptop gate.
+
+---
+
+## AD-25: Phase 7.1 Electron Contract Repair
+
+**Date:** 2026-08-03<br>
+**Status:** Implemented in the isolated migration slice; affected-laptop gate
+pending
+
+**Context:** The first vertical slice reached real processing, but three small
+transport mismatches still made it unsuitable for the affected-laptop gate:
+the existing UI expects `jobs_changed` to parse directly as an array, theme
+clicks were being sent as unsupported sidecar requests, and a persisted
+pipeline state could make an active job look complete before its Study Pack
+export finished. Transport text also needed to avoid display encoding failures.
+
+**Decision:** Keep the sidecar event envelope internal to the Electron adapter
+and normalize `jobs_changed` to the exact array consumed by `app/ui/app.js`.
+Locally handle `set_setting('theme', value)` in the renderer adapter, with a
+local persistence attempt and no sidecar request. While an active job has a
+current stage and Export is incomplete, report the existing UI vocabulary
+`status: "running"`; switch to `"done"` only after the terminal export state.
+Use ASCII separators in the touched transport status/meta strings.
+
+**Alternatives considered:** Changing `app/ui/app.js` to accept a new envelope,
+adding a `processing` badge vocabulary, implementing a new sidecar settings
+command, or expanding the migration contract were rejected because this is a
+small compatibility repair, not an architecture phase.
+
+**Rationale:** The adapter absorbs the mismatch at the existing seam, avoids
+228 unnecessary theme round trips during stress, and preserves the UI's
+established status/badge behavior without changing the engine or product shell.
+
+## AD-24: Explicit Electron Migration Vertical Slice
+
+**Date:** 2026-08-03<br>
+**Status:** Implemented as an isolated migration slice; affected-laptop gate
+pending before any broader migration or release work
+
+**Context:** AD-23 established that the Electron renderer seam could be
+exercised without changing the Qt product shell, but its Mode 3 sidecar only
+proved engine import and heartbeat transport. The next authorized step is a
+real, reversible vertical slice that can be tested on the laptop showing the
+black interval. It must prove the process boundary and one complete user
+outcome without turning the work into Beta 15, a frontend rewrite, or an
+engine rewrite.
+
+**Decision:** Add an explicit `migration` mode inside the isolated
+`electron-spike/` harness. Electron launches a dedicated PyInstaller onedir
+sidecar built from the locked `.venv`; the sidecar uses `QCoreApplication` only
+and reuses the existing `JobController` and processing services. Electron and
+the sidecar exchange request-ID JSONL over stdin/stdout. The first contract
+contains `health_check`, `list_jobs`, `import_video`, `start_job`,
+`cancel_job`, `get_job`, `get_slides`, `get_transcript`, `export`, and
+`shutdown`, plus the documented progress, pipeline, status, log, slide,
+transcript, and error events.
+
+The first real path is fixed to a bundled demo video, CPU FFmpeg/ffprobe,
+CPU whisper.cpp, the existing slide detector, the existing transcript layer,
+and the existing Study Pack export service. The Electron adapter supplies the
+existing `app/ui` with the same event shapes; it does not expose Node or
+QWebChannel to that UI. The packaged sidecar includes its own PySide6/runtime
+dependencies, so a customer machine does not need Python or PySide6.
+
+**Alternatives considered:** continuing Qt graphics/CSS diagnosis, building
+Beta 15 from the current Qt shell, converting the frontend to React, or
+rewriting the Python engine were rejected because they would not answer the
+affected-laptop process-boundary question. Replacing the engine with a new
+backend was rejected because it would invalidate the already-working FFmpeg,
+whisper.cpp, slide, transcript, and export behavior. Shipping the full GPU
+runtime was deferred; the first packaged candidate is the verified CPU path.
+
+**Rationale:** A complete import-to-export-to-restart path gives the laptop a
+meaningful acceptance target while preserving the existing engine and keeping
+the migration reversible. Remaining bridge methods, installer, updater, and
+release packaging stay outside this slice until the laptop gate passes.
+
+## AD-23: Isolated Electron Renderer Spike (Experiment Only)
+
+**Date:** 2026-08-03<br>
+**Status:** Accepted as an unversioned diagnostic artifact; not a product-stack change
+
+**Context:** Beta 14 improved a confirmed QtWebEngine workload defect, but the
+affected laptop still showed a multi-second interval in which application
+content became almost completely black. Development-machine acceptance could
+not reproduce that failure. Further QtWebEngine flags or CSS tuning would not
+separate a renderer-surface failure from frontend state/update logic or a
+Python bridge problem.
+
+**Decision:** Add an isolated `electron-spike/` harness that reuses the
+existing `app/ui` HTML, CSS, JavaScript, and fonts without changing the
+PySide6/QWebEngine product shell, the Python engine, release version, installer,
+updater, or product specification. One Electron process offers three modes:
+
+1. a script-free static page with a minimal theme toggle;
+2. the real frontend with a local mock signal workload covering setup, Demo
+   transitions, processing progress, 500 logs, slides, transcript, theme, and
+   resize pressure; and
+3. a gated local stdio sidecar that imports the existing
+   `lecturepack.controllers.job_controller` entry point.
+
+Mode 3 proves only process/engine import and heartbeat transport until Mode 2
+passes on the affected laptop. No lecture-processing command is ported in this
+artifact. The spike writes only local JSONL evidence and makes no network
+requests at runtime.
+
+**Alternatives considered:** Continuing the Beta 14 QtWebEngine patch cycle,
+building Beta 15 from that approach, migrating React at the same time, or
+rewriting the Python engine were rejected because they do not isolate the
+renderer, frontend workload, and backend seam on the machine that actually
+fails. A full Electron migration was rejected for this step because the
+affected-laptop experiment must decide whether that migration is warranted.
+
+**Rationale:** Separating static rendering, frontend workload, and Python
+transport creates a concrete decision tree with the smallest reversible change.
+The affected laptop remains the acceptance authority; a smooth development
+run is not treated as evidence that the original defect is fixed.
+
 ## AD-22: Beta 12 Startup Grace and Native Placeholder (Phase 4)
 
 **Date:** 2026-08-02
@@ -734,3 +905,63 @@ nodes where possible, and batch new log rows in a `DocumentFragment` before a
 **Rationale:** The fix removes the two confirmed sources of avoidable compositor
 and repaint work while preserving the existing design, normal animations,
 processing timing, and persistence behavior.
+
+---
+
+## AD-26: Phase 8 Electron Production App Core
+
+**Date:** 2026-08-03
+**Status:** Implemented on the development desktop; affected-laptop gate pending
+
+**Context:** The Electron spike and Phase 7.1 transport repair established a
+working seam, but the next authorized step is a small real application core.
+The product must use the existing HTML/CSS/JavaScript UI, the existing Python
+engine, the packaged sidecar, JSONL IPC, and the existing persisted job format.
+The first candidate must be testable on the affected laptop before any broader
+bridge, installer, updater, or frontend work is approved.
+
+**Decision:** Use `electron-spike/production-main.js` as the production-only
+Electron host and `production-preload.js` as its narrow context-isolated IPC
+surface. Package the existing UI and engine resources beside a PyInstaller
+onedir `LecturePackSidecar.exe`. The host starts the sidecar, performs
+`health_check` and job restore, opens a local video picker, forwards processing
+options, displays existing sidecar progress/log/slide/transcript events,
+exports the existing Study Pack, and requests a graceful shutdown with an
+exact Windows process-tree fallback.
+
+The packaged candidate excludes the old launcher, static/mock/diagnostic modes,
+demo auto-run, and the historical spike result directories. Those source files
+remain in the repository as fallback evidence; they are not production entry
+points. The Qt application remains the fallback product shell and is not
+removed or rewritten.
+
+**Required first-build contract:**
+
+- Commands: `health_check`, `list_jobs`, `import_video`, `start_job`,
+  `cancel_job`, `get_job`, `get_slides`, `get_transcript`, `export`,
+  `set_setting`, and `shutdown`.
+- Events: `ready`, `bootstrap_progress`, `jobs_changed`, `pipeline_changed`,
+  `status_changed`, `log_line`, `slides_changed`, `transcript_changed`, and
+  `error`, with the existing UI's `jobs_changed` array shape preserved at the
+  renderer boundary.
+- Real local processing only: FFmpeg, whisper.cpp CPU, slide detection,
+  transcript generation, and Study Pack export.
+- Persistence: a completed job must be discoverable and reviewable after a
+  second launch against the same data directory.
+
+**Alternatives considered:**
+
+- Continuing the diagnostic launcher: rejected because it cannot be the
+  customer-facing real-processing entry point.
+- Rewriting the Python engine or converting the UI to React: rejected because
+  neither is required for this vertical slice and both expand the risk before
+  the laptop gate.
+- Removing PySide6 from the sidecar immediately: deferred; the existing
+  controller still imports QtCore services, while the sidecar creates no Qt
+  window or WebEngine view. Decoupling can follow a passing production gate.
+
+**Rationale:** A production-only host keeps the first build small and
+reviewable while preserving the proven engine and UI. The unpacked portable
+directory is an acceptance candidate, not yet Beta 15, an installer, or a
+release artifact. Beta 15 and additional features remain gated on a fresh-data
+run on the affected laptop.

@@ -4,8 +4,8 @@ Mapping the historical Qt/QWebChannel frontend bridge to the Electron/Python
 JSONL sidecar for **LecturePack Phase 8**.
 
 - **Branch:** `deepseek/electron-bridge-contract`
-- **Status:** Contract, documentation, and regression tests only. No production
-  Electron, Qt, engine, UI, or packaging code is changed by this deliverable.
+- **Status:** Contract, documentation, regression tests, and the four narrow
+  Phase 8 production-seam reconciliations are covered here.
 - **Machine-readable contract:** [`electron-spike/contracts/electron-bridge-contract.json`](../electron-spike/contracts/electron-bridge-contract.json)
 - **Regression tests:** [`tests/test_electron_bridge_contract.py`](../tests/test_electron_bridge_contract.py)
 - Related: [`ELECTRON_MIGRATION_VERTICAL_SLICE.md`](ELECTRON_MIGRATION_VERTICAL_SLICE.md),
@@ -17,7 +17,7 @@ JSONL sidecar for **LecturePack Phase 8**.
 
 Status values: `IMPLEMENTED` · `PARTIAL` · `MISSING` · `DEFERRED`.
 
-### Implemented core operations (30)
+### Implemented core operations (34)
 
 | Phase 8 requirement | Bridge operation | Where implemented |
 | --- | --- | --- |
@@ -37,14 +37,14 @@ Status values: `IMPLEMENTED` · `PARTIAL` · `MISSING` · `DEFERRED`.
 | clean shutdown | `shutdown` (cmd) · `exit` (event) | `python-sidecar.py` + `production-main.js` `stopSession()` |
 
 
-### Missing core operations (4) — connect in these exact files
+### Reconciled core operations (4)
 
 | Bridge operation | Frontend consumer | Connect here |
 | --- | --- | --- |
-| `bootstrap_complete` (event) | `app/ui/app.js` subscribes via `lpBridge.on('bootstrap_complete', …)`; the sidecar never emits it. | `electron-spike/python-sidecar.py` — emit `{"event":"bootstrap_complete"}` after the engine bootstrap finishes (alongside/after the `ready` emission). `electron-spike/electron-bridge.js` already forwards unknown events through `deliver()`; no adapter change needed for delivery. |
-| `set_slide_state` (command) | `app/ui/app.js` calls `lpBridge.call('set_slide_state', index, state)` to accept/reject a slide; `electron-bridge.js` resolves it as a noop. | (1) `electron-spike/electron-bridge.js` — remove `set_slide_state` from `noopCalls` and add a `mapCall` branch emitting command `set_slide_state`. (2) `electron-spike/python-sidecar.py` — add `elif command == "set_slide_state"` that persists the candidacy decision files. |
-| `save_corrections` (command) | `app/ui/app.js` calls `lpBridge.call('save_corrections', texts_json)` to persist transcript edits; `electron-bridge.js` resolves it as a noop. | (1) `electron-spike/electron-bridge.js` — remove `save_corrections` from `noopCalls` and add a `mapCall` branch. (2) `electron-spike/python-sidecar.py` — add an `elif command == "save_corrections"` handler. |
-| `export_progress` (event) | `app/ui/app.js` subscribes via `lpBridge.on('export_progress', …)`; the sidecar only emits `export_done`. | `electron-spike/python-sidecar.py` — emit `{"event":"export_progress", …}` from the Export stage (for example in `_on_stage_progress` when `stage == "Export"`). Delivery already works. |
+| `bootstrap_complete` (event) | `app/ui/app.js` subscribes via `lpBridge.on('bootstrap_complete', …)`. | `electron-spike/python-sidecar.py` emits the completion payload after the ready/bootstrap progress records. `electron-bridge.js` forwards it unchanged. |
+| `set_slide_state` (command) | `app/ui/app.js` calls `lpBridge.call('set_slide_state', index, state)` to accept/reject a slide. | `electron-bridge.js` maps the call; `python-sidecar.py` persists the existing `candidates.json` decision and emits refreshed `slides_changed`. |
+| `save_corrections` (command) | `app/ui/app.js` calls `lpBridge.call('save_corrections', texts_json)` to persist transcript edits. | `electron-bridge.js` maps the JSON array; `python-sidecar.py` persists the existing working transcript layer and `edited.json` mirror. |
+| `export_progress` (event) | `app/ui/app.js` subscribes via `lpBridge.on('export_progress', …)`. | `python-sidecar.py` emits `{event, job, pct, label}` during and at the end of Export. |
 
 ### Partial core operations (4)
 
@@ -67,9 +67,9 @@ Legend — **Direction:** `cmd` = renderer/main → sidecar command; `evt` = sid
 
 | Feature | Frontend caller | Old Qt method/signal | Electron command/event | Request payload | Response/event payload | Status | Phase 8 | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Runtime readiness | `lpBridge.call('get_bootstrap')`, `bridge.js` `backend.ui_ready()` | `get_bootstrap`, `ui_ready` slots; `bootstrap_progress`, `bootstrap_complete`, `ui_ready_signal` signals | `health_check` (cmd); `ready`, `bootstrap_progress` (evt) | `{}` | `{healthy, paths, qt_application}`; `{event:ready, engine_loaded}` | `PARTIAL` | core | `get_bootstrap`/`ui_ready` are intercepted noops; readiness is driven by the `ready` event and Electron host bootstrap. |
+| Runtime readiness | `lpBridge.call('get_bootstrap')`, `bridge.js` `backend.ui_ready()` | `get_bootstrap`, `ui_ready` slots; `bootstrap_progress`, `bootstrap_complete`, `ui_ready_signal` signals | `health_check` (cmd); `ready`, `bootstrap_progress`, `bootstrap_complete` (evt) | `{}` | `{healthy, paths, qt_application}`; `{event:ready, engine_loaded}`; `{bootstrap_pending, runtime_health_state, setup_acknowledged}` | `PARTIAL` | core | `get_bootstrap`/`ui_ready` remain intercepted noops; readiness is driven by sidecar bootstrap and the Electron host health/list/restore sequence. |
 | Engine import progress | `lpBridge.on('bootstrap_progress')` | `bootstrap_progress` signal | `bootstrap_progress` (evt) | — | `{event, id, state, detail}` | `IMPLEMENTED` | core | Emitted while the engine loads. |
-| Bootstrap completion | `lpBridge.on('bootstrap_complete')` | `bootstrap_complete` signal | *(missing)* | — | `{event}` expected | `MISSING` | core | Sidecar never emits `bootstrap_complete`; connect in `python-sidecar.py`. |
+| Bootstrap completion | `lpBridge.on('bootstrap_complete')` | `bootstrap_complete` signal | `bootstrap_complete` (evt) | — | `{event, bootstrap_pending, runtime_health_state, setup_acknowledged}` | `IMPLEMENTED` | core | Emitted after the sidecar reports ready and bootstrap progress. |
 
 ### list jobs & restore
 
@@ -94,16 +94,16 @@ Legend — **Direction:** `cmd` = renderer/main → sidecar command; `evt` = sid
 | Feature | Frontend caller | Old Qt method/signal | Electron command/event | Request payload | Response/event payload | Status | Phase 8 | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Load slides | `open_job` path / host restore; `lpBridge.on('slides_changed')` | `slides_changed` signal | `get_slides` (cmd); `slides_changed` (evt) | `{job_id}` | `{job_id, slides}`; `{event, job, slides, duration, durationMid}` | `IMPLEMENTED` | core | |
-| Accept/reject slide | `lpBridge.call('set_slide_state', index, state)` | `set_slide_state` slot | *(missing)* | `{index, state}` | — | `MISSING` | core | Intercepted as noop in `electron-bridge.js`; needs a sidecar command. |
+| Accept/reject slide | `lpBridge.call('set_slide_state', index, state)` | `set_slide_state` slot | `set_slide_state` (cmd); `slides_changed` (evt) | `{index, state}` | `{job_id, index, state, applied}` | `IMPLEMENTED` | core | Persists the candidate decision in the existing job format. |
 | Load transcript | `open_job` path / host restore; `lpBridge.on('transcript_changed')` | `transcript_changed` signal | `get_transcript` (cmd); `transcript_changed` (evt) | `{job_id}` | `{job_id, transcript}`; `{event, job, reviewSegments, transcript}` | `IMPLEMENTED` | core | |
-| Save transcript edits | `lpBridge.call('save_corrections', texts_json)` | `save_corrections` slot | *(missing)* | `{texts}` | — | `MISSING` | core | Intercepted as noop in `electron-bridge.js`; needs a sidecar command. |
+| Save transcript edits | `lpBridge.call('save_corrections', texts_json)` | `save_corrections` slot | `save_corrections` (cmd); `transcript_changed` (evt) | `{texts}` | `{job_id, saved, changed}` | `IMPLEMENTED` | core | Persists the working layer and legacy `edited.json` mirror; raw transcript remains unchanged. |
 
 ### exports
 
 | Feature | Frontend caller | Old Qt method/signal | Electron command/event | Request payload | Response/event payload | Status | Phase 8 | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Export | `lpBridge.call('export_all'/'export_one')` | `export_all`, `export_one` slots; `export_done` signal | `export` (cmd); `export_done` (evt) | `{job_id}` | `{job_id, started, already_running}`; `{event:export_done}` | `IMPLEMENTED` | core | Both frontend calls map to `export`. |
-| Export progress | `lpBridge.on('export_progress')` | `export_progress` signal | *(missing)* | — | `{event}` expected | `MISSING` | core | Sidecar only emits `export_done`; connect in `python-sidecar.py`. |
+| Export progress | `lpBridge.on('export_progress')` | `export_progress` signal | `export_progress` (evt) | — | `{event, job, pct, label}` | `IMPLEMENTED` | core | Emitted from Export stage progress and at 100% completion. |
 | Open export/job folder | `lpBridge.call('open_export_folder'/'open_job_folder')` | `open_export_folder` slot | `open_export_folder`/`open_job_folder` (cmd, main-handled) | `{job_id}` | `{ok, path}` | `IMPLEMENTED` | core | `production-main.js` via `get_job` → `shell.openPath`. |
 
 ### errors & shutdown
@@ -143,8 +143,8 @@ grouped here for readability.
    startup `settings_changed` broadcast; the UI relies on defaults for
    processing options.
 4. **`bootstrap_complete` / `export_progress` / `set_slide_state` /
-   `save_corrections`** are the four Phase 8 core gaps; connect them as listed
-   in the checklist.
+   `save_corrections`** were the four Phase 8 core gaps identified by the
+   contract commit; all four are now implemented in the production seam.
 5. **Deferred features** (`media_*`, `update_*`, Ollama, Groq, GPU, queue,
    notifications) are intentionally left as no-ops/interception in the
    production scope and must not be re-enabled for Phase 8.

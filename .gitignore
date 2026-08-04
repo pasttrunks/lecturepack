@@ -52,3 +52,15 @@ Thumbs.db
 # Local agent/MCP tooling (machine-specific; not part of the project)
 .claude/
 .mcp.json
+
+# Portable renderer-spike handoff artifact
+LecturePack-Renderer-Spike-Transfer/
+
+# Electron migration build outputs
+electron-spike/build-sidecar/
+electron-spike/dist-sidecar/
+electron-spike/dist/
+!electron-spike/assets/demo-lecture.mp4
+
+# Separate third-party promo-video project (not part of LecturePack)
+claude-promo-video/

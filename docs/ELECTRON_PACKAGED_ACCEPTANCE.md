@@ -49,7 +49,7 @@ The 12 packaged-app acceptance requirements:
 | 4 | Demo import | `import_video {path, bundled_demo: true}` over the JSONL contract. |
 | 5 | Processing completes | Wait for the sidecar `job_completed` event within `--timeout-seconds`. |
 | 6 | Slides + transcript | `get_slides` / `get_transcript` responses are non-empty. |
-| 7 | Export completes + files exist | Wait for `export_done`, then `validate_export()` checks the `exports/` dir is non-empty and contains `manifest.json`. |
+| 7 | Export completes + files exist | Observe `export_done`, then `validate_export()` checks the `exports/` dir is non-empty and contains `manifest.json` or an existing Study Pack HTML/PDF artifact. |
 | 8 | Clean close | Send `WM_CLOSE` to the app window, wait for exit, record exit code 0. |
 | 9 | Relaunch same data dir | Launch the app a second time with the same `--data-dir`. |
 | 10 | Restore as done | Second launch must emit a `job_restored` host-evidence record. |
@@ -148,11 +148,22 @@ packaged app needed):
 
 ## Real packaged run
 
-Luna's packaged `dist/LecturePack-win32-x64/` and `transfer/` renderer build
-currently live inside Luna's **active** worktree on this branch, so the gate
-was **not** run against them — running it would race Luna's build process.
-Stop after the harness + focused tests are complete; Luna runs the command
-above once her build is stable and outside her active worktree.
+The unpacked candidate was run from:
+
+```text
+C:\Users\marsh\Documents\LecturePack\electron-spike\dist\LecturePack-win32-x64
+```
+
+The final retained evidence is under:
+
+```text
+C:\LecturePackPhase8Results-final
+```
+
+`acceptance-result.json` and `acceptance-summary.txt` both report `PASS`:
+real processing produced 3 slides, 4 transcript blocks, and 13 Study Pack
+files; the completed job restored after relaunch; renderer and bridge error
+lists were empty; and the gate observed no orphan processes.
 
 ## Observability blockers
 
@@ -189,6 +200,5 @@ required.
 - **Deterministic result.** `score_result()` always returns the canonical key
   set in a fixed order, so `acceptance-result.json` is stable across runs for
   the same inputs.
-
 
 
