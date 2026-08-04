@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LecturePack 0.9.0-beta.15 — Audit Graph Map</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1216;
+    --panel: #16191f;
+    --panel-2: #1c2129;
+    --border: #2a313c;
+    --text: #e8ecf1;
+    --muted: #8b95a5;
+    --accent: #ff6e40;
+    --accent-2: #ff9a76;
+    --critical: #e74c3c;
+    --high: #e67e22;
+    --medium: #f1c40f;
+    --low: #2ecc71;
+    --working: #3498db;
+    --root: #9b59b6;
+    --tool: #1abc9c;
+    --font: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    --mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    overflow: hidden;
+    height: 100vh;
+  }
+  #header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 56px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    z-index: 100;
+    gap: 16px;
+  }
+  #header .logo {
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--accent);
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  #header .logo span { color: var(--text); }
+  #header .subtitle {
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  #header .spacer { flex: 1; }
+  #search {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    width: 220px;
+    outline: none;
+  }
+  #search:focus { border-color: var(--accent); }
+  #stats {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  #stats b { color: var(--text); }
+  #legend {
+    position: fixed;
+    top: 72px;
+    right: 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    z-index: 90;
+    font-size: 12px;
+    min-width: 180px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  #legend h4 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .legend-item:hover { color: var(--text); }
+  .legend-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  #filters {
+    position: fixed;
+    top: 72px;
+    left: 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    z-index: 90;
+    font-size: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  #filters h4 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .filter-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 5px;
+    padding: 5px 10px;
+    margin: 3px 0;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: var(--accent); }
+  .filter-btn.active { border-color: var(--accent); background: rgba(255,110,64,0.15); }
+  #graph {
+    position: fixed;
+    top: 56px; left: 0; right: 0; bottom: 0;
+  }
+  #tooltip {
+    position: fixed;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 200;
+    max-width: 320px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+    display: none;
+    line-height: 1.5;
+  }
+  #tooltip .tt-title {
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+  #tooltip .tt-body { color: var(--muted); }
+  #tooltip .tt-body b { color: var(--text); }
+  #tooltip .tt-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin: 4px 4px 0 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  #detail-panel {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 20px;
+    z-index: 95;
+    font-size: 13px;
+    max-width: 700px;
+    width: calc(100% - 40px);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    display: none;
+    line-height: 1.6;
+  }
+  #detail-panel .dp-title {
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #detail-panel .dp-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 4px;
+  }
+  #detail-panel .dp-close:hover { color: var(--text); }
+  #detail-panel .dp-body { color: var(--muted); }
+  #detail-panel .dp-body b { color: var(--text); }
+  #detail-panel .dp-links { margin-top: 8px; }
+  #detail-panel .dp-link {
+    display: inline-block;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 3px 10px;
+    margin: 3px 4px 0 0;
+    font-size: 11px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  #detail-panel .dp-link:hover { border-color: var(--accent); }
+  .node { cursor: pointer; }
+  .node circle { stroke: #fff; stroke-width: 1.5px; }
+  .node text {
+    font-family: var(--font);
+    font-size: 11px;
+    fill: var(--text);
+    pointer-events: none;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  }
+  .link { stroke: var(--border); stroke-opacity: 0.6; }
+  .link.highlight { stroke: var(--accent); stroke-opacity: 0.9; stroke-width: 2px; }
+  .link.dim { stroke-opacity: 0.08; }
+  .node.dim { opacity: 0.15; }
+  .node.highlight { opacity: 1; }
+  .node.highlight circle { stroke: var(--accent); stroke-width: 3px; }
+  #hint {
+    position: fixed;
+    bottom: 8px;
+    right: 16px;
+    color: var(--muted);
+    font-size: 11px;
+    z-index: 80;
+    background: rgba(15,18,22,0.8);
+    padding: 4px 10px;
+    border-radius: 4px;
+  }
+  @media (max-width: 900px) {
+    #legend, #filters { display: none; }
+    #search { width: 140px; }
+    #stats { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div class="logo">LecturePack<span> · Audit Map</span></div>
+  <div class="subtitle">0.9.0-beta.15 · CDP + windows-use UIA</div>
+  <div class="spacer"></div>
+  <div id="stats">
+    <span><b id="stat-defects">0</b> defects</span>
+    <span><b id="stat-working">0</b> working</span>
+    <span><b id="stat-roots">0</b> root causes</span>
+  </div>
+  <input id="search" type="text" placeholder="Search defects, causes, features…">
+</div>
+
+<div id="filters">
+  <h4>Filter by severity</h4>
+  <button class="filter-btn active" data-filter="all">All</button>
+  <button class="filter-btn" data-filter="critical">🔴 Critical</button>
+  <button class="filter-btn" data-filter="high">🟠 High</button>
+  <button class="filter-btn" data-filter="medium">🟡 Medium</button>
+  <button class="filter-btn" data-filter="low">🟢 Low</button>
+  <button class="filter-btn" data-filter="working">✅ Working</button>
+  <button class="filter-btn" data-filter="root">🔮 Root cause</button>
+  <button class="filter-btn" data-filter="tool">🧰 Toolchain</button>
+</div>
+
+<div id="legend">
+  <h4>Legend</h4>
+  <div class="legend-item" data-filter="critical"><span class="legend-dot" style="background:var(--critical)"></span> Critical defect</div>
+  <div class="legend-item" data-filter="high"><span class="legend-dot" style="background:var(--high)"></span> High defect</div>
+  <div class="legend-item" data-filter="medium"><span class="legend-dot" style="background:var(--medium)"></span> Medium defect</div>
+  <div class="legend-item" data-filter="low"><span class="legend-dot" style="background:var(--low)"></span> Low defect</div>
+  <div class="legend-item" data-filter="working"><span class="legend-dot" style="background:var(--working)"></span> Working feature</div>
+  <div class="legend-item" data-filter="root"><span class="legend-dot" style="background:var(--root)"></span> Root cause</div>
+  <div class="legend-item" data-filter="tool"><span class="legend-dot" style="background:var(--tool)"></span> Toolchain</div>
+</div>
+
+<div id="graph"></div>
+<div id="tooltip"></div>
+<div id="detail-panel">
+  <div class="dp-title"><span id="dp-title-text"></span><button class="dp-close" onclick="closeDetail()">×</button></div>
+  <div class="dp-body" id="dp-body"></div>
+  <div class="dp-links" id="dp-links"></div>
+</div>
+<div id="hint">Drag nodes · Hover to highlight · Click for details</div>
+
+<script>
+// ============ DATA ============
+const DATA = {
+  nodes: [
+    // --- Defects ---
+    { id: 'D-1', type: 'defect', severity: 'critical', label: 'D-1 · Empty state + demo card hidden', short: 'First-run home shows neither empty state nor demo card', detail: 'Both home-demo and home-empty start hidden. The reveal logic never fires in the packaged app. A new student sees only a dropzone, "Recent jobs: 0", and dead Archive/Restore/Select buttons.', fix: 'On zero jobs, always show the empty-state walkthrough AND the demo card.', observed: ['CDP', 'UIA'] },
+    { id: 'D-2', type: 'defect', severity: 'critical', label: 'D-2 · "Use demo video" card is dead', short: 'Demo card visible but clicking does nothing', detail: 'start_demo_job is in electron-bridge.js noopCalls (line 33), so lpBridge.startDemoJob() resolves to null.', fix: 'Wire start_demo_job to the real import_video with bundled_demo: true, or hide the card.', observed: ['CDP', 'UIA'] },
+    { id: 'D-3', type: 'defect', severity: 'high', label: 'D-3 · "Paste a link" is dead', short: 'Visible button does literally nothing', detail: 'import_media_url / probe_media_url are not implemented in the sidecar. The button ships visible (display:flex) but clicking produces no toast, dialog, or state change.', fix: 'Hide #btn-paste-link until yt-dlp / link import is implemented.', observed: ['CDP', 'UIA'] },
+    { id: 'D-4', type: 'defect', severity: 'high', label: 'D-4 · Raw Electron menu bar', short: 'File / Edit / View / Window visible in a consumer app', detail: 'production-main.js never calls Menu.setApplicationMenu(null) or autoHideMenuBar: true. The UIA tree shows a MenuBarControl with File/Edit/View/Window.', fix: 'Add autoHideMenuBar: true to the BrowserWindow constructor and/or Menu.setApplicationMenu(null).', observed: ['UIA'] },
+    { id: 'D-5', type: 'defect', severity: 'high', label: 'D-5 · Version shows "0.0.0"', short: 'Version displays 0.0.0 instead of 0.9.0-beta.15', detail: 'LP.data.version defaults to 0.0.0 (app.js line 229) and is never populated from the packaged package.json.', fix: 'Inject the packaged version via the preload bridge or at build time.', observed: ['CDP'] },
+    { id: 'D-6', type: 'defect', severity: 'high', label: 'D-6 · "Check for updates" hangs', short: 'Status stuck on "Checking…" forever', detail: 'check_updates is in noopCalls (electron-bridge.js line 20), so the promise resolves to null and the UI state is never cleared.', fix: 'Implement the update check or show "Updates are not available in this build".', observed: ['CDP'] },
+    { id: 'D-7', type: 'defect', severity: 'high', label: 'D-7 · "Checking compute backend…" hangs', short: 'Backend status never resolves', detail: 'validate_vulkan / validate_cuda are no-ops (electron-bridge.js lines 213-214). The status text is set to "Checking…" and never updated.', fix: 'Use the real health_check CPU/AVX2 info or show a static accurate status.', observed: ['CDP'] },
+    { id: 'D-8', type: 'defect', severity: 'medium', label: 'D-8 · Full model path shown', short: '200+ char technical whisper path displayed', detail: 'The settings screen renders the absolute path to the bundled ggml-base.en.bin model.', fix: 'Show a friendly label with the full path in an expandable Advanced section.', observed: ['CDP'] },
+    { id: 'D-9', type: 'defect', severity: 'medium', label: 'D-9 · CUDA offer despite deferred GPU', short: '"Install CUDA acceleration" offered though GPU packaging is deferred', detail: 'The sidecar reports an NVIDIA GPU and the UI shows the install offer, but the README says GPU packaging is deferred.', fix: 'Implement the CUDA pack install or suppress the offer until it works.', observed: ['CDP'] },
+    { id: 'D-10', type: 'defect', severity: 'medium', label: 'D-10 · "Test endpoint" does nothing', short: 'No visible feedback on click', detail: 'test_endpoint is in noopCalls (electron-bridge.js line 198), so the promise resolves to null.', fix: 'Implement the endpoint test or show "Not available in this build".', observed: ['CDP'] },
+    { id: 'D-11', type: 'defect', severity: 'medium', label: 'D-11 · Smart Study empty message', short: '"Set up Smart Study" shows empty message', detail: 'smart_study_status returns a payload but the UI setup flow does not populate the message element when the result is empty.', fix: 'Provide a clear message ("Smart Study is not available in this build").', observed: ['CDP'] },
+    { id: 'D-12', type: 'defect', severity: 'medium', label: 'D-12 · Runtime gate state hidden', short: 'Overlay internally set to "gate" (needs repair) but hidden', detail: 'The runtime setup overlay state machine is set to gate (needs repair) but the overlay is hidden — a silent failure.', fix: 'Show the repair overlay when assessment fails, or clear the stale gate state.', observed: ['CDP'] },
+    { id: 'D-13', type: 'defect', severity: 'low', label: 'D-13 · Archive/Restore/Select with 0 jobs', short: 'Action bar visible with zero jobs', detail: 'The recent-jobs action bar renders unconditionally even when jobs-grid is empty. UIA confirms all three buttons visible with jobs-count = 0.', fix: 'Hide the action bar when there are no jobs.', observed: ['UIA'] },
+    { id: 'D-14', type: 'defect', severity: 'low', label: 'D-14 · Save button does nothing', short: 'Header Save button always visible, no effect', detail: 'save_project is in noopCalls (electron-bridge.js line 29). UIA click produces no state change.', fix: 'Hide the Save button or wire it to a real save action.', observed: ['UIA'] },
+    { id: 'D-15', type: 'defect', severity: 'low', label: 'D-15 · Test notification no feedback', short: 'Button gives no visible result', detail: 'test_notification is in noopCalls (electron-bridge.js line 213).', fix: 'Implement a real desktop notification or show a toast.', observed: ['CDP'] },
+    { id: 'D-16', type: 'defect', severity: 'low', label: 'D-16 · Breadcrumb shows raw UUID', short: 'Header shows job UUID instead of friendly name', detail: 'After importing a video, crumb-job shows the raw job UUID (e90eadf6-…) instead of the video title. The sidebar card shows the title correctly.', fix: 'Populate crumb-job with the job friendly name, not the UUID.', observed: ['UIA', 'CDP'] },
+    { id: 'D-17', type: 'defect', severity: 'low', label: 'D-17 · Technical status strings', short: 'Status bar shows "detector decode: piped"', detail: 'The status-right element is bound to raw sidecar status text, showing internal pipeline states.', fix: 'Map internal pipeline states to friendly labels.', observed: ['CDP'] },
+
+    // --- Root causes ---
+    { id: 'RC-1', type: 'root', label: 'noopCalls (electron-bridge.js)', short: 'Commands that resolve to null — the root of 7 defects', detail: 'The noopCalls object lists deferred commands (start_demo_job, check_updates, save_project, test_endpoint, test_notification, validate_vulkan, validate_cuda, etc.). Every call resolves to null, so the UI renders the button but nothing happens.', fix: 'Wire each command to the real sidecar contract or hide the UI affordance.', causes: ['D-2', 'D-6', 'D-7', 'D-10', 'D-14', 'D-15'] },
+    { id: 'RC-2', type: 'root', label: 'index.html hidden attributes', short: 'home-demo and home-empty both start hidden', detail: 'Both cards have the hidden attribute in index.html (lines 123, 132). The app.js reveal logic never fires in the packaged app.', fix: 'Always show the empty state + demo card on first launch with zero jobs.', causes: ['D-1'] },
+    { id: 'RC-3', type: 'root', label: 'production-main.js menu', short: 'No Menu.setApplicationMenu(null) / autoHideMenuBar', detail: 'The BrowserWindow constructor (line 455) never sets autoHideMenuBar: true, and app.whenReady() never calls Menu.setApplicationMenu(null).', fix: 'Hide the menu bar for a consumer app.', causes: ['D-4'] },
+    { id: 'RC-4', type: 'root', label: 'app.js version default', short: 'LP.data.version defaults to 0.0.0', detail: 'app.js line 229 defaults the version to 0.0.0 and it is never populated from the packaged package.json.', fix: 'Inject the real version via the bridge.', causes: ['D-5'] },
+    { id: 'RC-5', type: 'root', label: 'Sidecar missing commands', short: 'import_media_url / probe_media_url not implemented', detail: 'The sidecar contract does not implement link import commands, but the UI ships the Paste a link button.', fix: 'Hide the button until implemented.', causes: ['D-3'] },
+    { id: 'RC-6', type: 'root', label: 'UI binds raw status text', short: 'status-right shows internal pipeline strings', detail: 'The status bar binds raw sidecar status text (e.g. "detector decode: piped") and the breadcrumb binds the raw job UUID.', fix: 'Map to friendly labels.', causes: ['D-16', 'D-17'] },
+
+    // --- Working features ---
+    { id: 'W-1', type: 'working', label: 'Browse for video', short: 'Opens native file dialog → imports video', detail: 'browse_video → dialog.showOpenDialog (production-main.js line 339) → import_video. Verified with a real 2:48 lecture video.', observed: ['UIA', 'CDP'] },
+    { id: 'W-2', type: 'working', label: 'Import pipeline', short: 'Inspect → Extract Audio → Transcribe → Slides → Align → Export', detail: 'Full pipeline completed in ~48 seconds for a 2:48 video. All stages ✓ in the Process screen.', observed: ['CDP'] },
+    { id: 'W-3', type: 'working', label: 'Accurate transcription', short: 'whisper.cpp produces coherent, timestamped text', detail: '"Hello everyone. Welcome back to another video from History with Daena…" — accurate and readable.', observed: ['CDP'] },
+    { id: 'W-4', type: 'working', label: 'Slide detection', short: '24 slides detected from a 2:48 lecture', detail: 'Review screen shows "24 slides · 02:48". Slide PNGs written to frames/ (accepted/candidates/rejected).', observed: ['UIA', 'CDP'] },
+    { id: 'W-5', type: 'working', label: 'Exports (133 files)', short: '10+ formats: slides.pdf, study-pack, transcript variants', detail: 'slides.pdf, study-pack.html/pdf, study-data.json, transcript in txt/srt/vtt/md/json/csv/jsonl/sections.md/normalized.txt.', observed: ['CDP'] },
+    { id: 'W-6', type: 'working', label: 'Navigation', short: 'All 7 screens work with a real job', detail: 'Review, Transcript, Study, Exports all navigated correctly via UIA clicks with a real job loaded.', observed: ['UIA'] },
+    { id: 'W-7', type: 'working', label: 'Open folder', short: 'Opens native File Explorer', detail: 'The "Open folder" button on the Exports screen opened a native Explorer window (class CabinetWClass) showing the exports directory.', observed: ['UIA'] },
+    { id: 'W-8', type: 'working', label: 'Clean boot + shutdown', short: 'Sidecar boots, health check passes, no leftover processes', detail: 'Verified in production logs: sidecar_exit code:0 across all sessions.', observed: ['CDP', 'UIA'] },
+
+    // --- Toolchains ---
+    { id: 'CDP', type: 'tool', label: 'CDP', short: 'Chrome DevTools Protocol — DOM-level inspection', detail: 'Reliable DOM click triggering and deep state inspection via --remote-debugging-port=9222.', observed: [] },
+    { id: 'UIA', type: 'tool', label: 'windows-use UIA', short: 'Native Windows UI Automation — accessibility tree', detail: 'windows_use.uia (Python-UIAutomation-for-Windows) — deterministic, no API key. Sees what a screen reader sees.', observed: [] }
+  ],
+  links: [
+    // Defect → Root cause
+    { source: 'D-1', target: 'RC-2', kind: 'caused-by' },
+    { source: 'D-2', target: 'RC-1', kind: 'caused-by' },
+    { source: 'D-3', target: 'RC-5', kind: 'caused-by' },
+    { source: 'D-4', target: 'RC-3', kind: 'caused-by' },
+    { source: 'D-5', target: 'RC-4', kind: 'caused-by' },
+    { source: 'D-6', target: 'RC-1', kind: 'caused-by' },
+    { source: 'D-7', target: 'RC-1', kind: 'caused-by' },
+    { source: 'D-10', target: 'RC-1', kind: 'caused-by' },
+    { source: 'D-14', target: 'RC-1', kind: 'caused-by' },
+    { source: 'D-15', target: 'RC-1', kind: 'caused-by' },
+    { source: 'D-16', target: 'RC-6', kind: 'caused-by' },
+    { source: 'D-17', target: 'RC-6', kind: 'caused-by' },
+    // Defect → Toolchain (observed by)
+    { source: 'D-1', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-1', target: 'UIA', kind: 'observed-by' },
+    { source: 'D-2', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-2', target: 'UIA', kind: 'observed-by' },
+    { source: 'D-3', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-3', target: 'UIA', kind: 'observed-by' },
+    { source: 'D-4', target: 'UIA', kind: 'observed-by' },
+    { source: 'D-5', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-6', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-7', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-8', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-9', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-10', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-11', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-12', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-13', target: 'UIA', kind: 'observed-by' },
+    { source: 'D-14', target: 'UIA', kind: 'observed-by' },
+    { source: 'D-15', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-16', target: 'UIA', kind: 'observed-by' },
+    { source: 'D-16', target: 'CDP', kind: 'observed-by' },
+    { source: 'D-17', target: 'CDP', kind: 'observed-by' },
+    // Working → Toolchain
+    { source: 'W-1', target: 'UIA', kind: 'observed-by' },
+    { source: 'W-1', target: 'CDP', kind: 'observed-by' },
+    { source: 'W-2', target: 'CDP', kind: 'observed-by' },
+    { source: 'W-3', target: 'CDP', kind: 'observed-by' },
+    { source: 'W-4', target: 'UIA', kind: 'observed-by' },
+    { source: 'W-4', target: 'CDP', kind: 'observed-by' },
+    { source: 'W-5', target: 'CDP', kind: 'observed-by' },
+    { source: 'W-6', target: 'UIA', kind: 'observed-by' },
+    { source: 'W-7', target: 'UIA', kind: 'observed-by' },
+    { source: 'W-8', target: 'CDP', kind: 'observed-by' },
+    { source: 'W-8', target: 'UIA', kind: 'observed-by' }
+  ]
+};
+
+// ============ COLORS ============
+const COLORS = {
+  critical: '#e74c3c',
+  high: '#e67e22',
+  medium: '#f1c40f',
+  low: '#2ecc71',
+  working: '#3498db',
+  root: '#9b59b6',
+  tool: '#1abc9c'
+};
+const RADII = {
+  defect: 16,
+  root: 22,
+  working: 18,
+  tool: 14
+};
+
+// ============ SETUP ============
+const width = window.innerWidth;
+const height = window.innerHeight - 56;
+
+const svg = d3.select('#graph')
+  .append('svg')
+  .attr('width', width)
+  .attr('height', height)
+  .style('display', 'block');
+
+const g = svg.append('g');
+
+// Zoom
+svg.call(d3.zoom()
+  .scaleExtent([0.3, 3])
+  .on('zoom', (event) => g.attr('transform', event.transform)));
+
+// Build node/link arrays
+const nodes = DATA.nodes.map(d => ({ ...d }));
+const links = DATA.links.map(d => ({ ...d }));
+
+// Node lookup
+const nodeById = new Map(nodes.map(n => [n.id, n]));
+
+// Resolve link endpoints
+links.forEach(l => {
+  l.source = nodeById.get(l.source);
+  l.target = nodeById.get(l.target);
+});
+
+// ============ FORCE SIMULATION ============
+const simulation = d3.forceSimulation(nodes)
+  .force('link', d3.forceLink(links).id(d => d.id).distance(d => {
+    if (d.kind === 'caused-by') return 90;
+    if (d.kind === 'observed-by') return 70;
+    return 80;
+  }))
+  .force('charge', d3.forceManyBody().strength(d => {
+    if (d.type === 'root') return -500;
+    if (d.type === 'defect') return -350;
+    return -250;
+  }))
+  .force('center', d3.forceCenter(width / 2, height / 2))
+  .force('collision', d3.forceCollide().radius(d => RADII[d.type] + 8))
+  .force('x', d3.forceX(width / 2).strength(0.05))
+  .force('y', d3.forceY(height / 2).strength(0.05));
+
+// ============ DRAW LINKS ============
+const link = g.append('g')
+  .selectAll('line')
+  .data(links)
+  .join('line')
+  .attr('class', 'link')
+  .attr('stroke', d => d.kind === 'caused-by' ? '#9b59b6' : '#2a313c')
+  .attr('stroke-dasharray', d => d.kind === 'observed-by' ? '4,3' : null)
+  .attr('stroke-opacity', d => d.kind === 'caused-by' ? 0.5 : 0.35);
+
+// ============ DRAW NODES ============
+const node = g.append('g')
+  .selectAll('g')
+  .data(nodes)
+  .join('g')
+  .attr('class', 'node')
+  .call(d3.drag()
+    .on('start', dragstarted)
+    .on('drag', dragged)
+    .on('end', dragended));
+
+node.append('circle')
+  .attr('r', d => RADII[d.type])
+  .attr('fill', d => COLORS[d.type === 'defect' ? d.severity : d.type])
+  .attr('fill-opacity', d => d.type === 'root' ? 0.25 : 0.85)
+  .attr('stroke', d => COLORS[d.type === 'defect' ? d.severity : d.type]);
+
+// Icon / short label inside node
+node.append('text')
+  .attr('text-anchor', 'middle')
+  .attr('dy', '0.35em')
+  .attr('font-size', d => d.type === 'tool' ? 9 : 8)
+  .attr('font-weight', '700')
+  .attr('fill', '#fff')
+  .text(d => {
+    if (d.type === 'tool') return d.id;
+    if (d.type === 'root') return 'RC';
+    if (d.type === 'working') return '✓';
+    return d.id;
+  });
+
+// Label below node
+node.append('text')
+  .attr('text-anchor', 'middle')
+  .attr('dy', d => RADII[d.type] + 14)
+  .attr('font-size', 10.5)
+  .attr('font-weight', d => d.type === 'root' ? 700 : 500)
+  .attr('fill', d => d.type === 'defect' ? COLORS[d.severity] : (d.type === 'root' ? '#b39ddb' : (d.type === 'working' ? '#7ec8e3' : '#7fd8c8')))
+  .text(d => d.type === 'defect' ? d.id : (d.type === 'root' ? d.label.split(' (')[0] : d.label));
+
+// ============ INTERACTIONS ============
+const tooltip = d3.select('#tooltip');
+const detailPanel = d3.select('#detail-panel');
+
+function connectedIds(id) {
+  const ids = new Set([id]);
+  links.forEach(l => {
+    if (l.source.id === id) ids.add(l.target.id);
+    if (l.target.id === id) ids.add(l.source.id);
+  });
+  return ids;
+}
+
+function highlight(id) {
+  const ids = connectedIds(id);
+  node.classed('dim', d => !ids.has(d.id));
+  node.classed('highlight', d => d.id === id);
+  link.classed('dim', l => !(ids.has(l.source.id) && ids.has(l.target.id)));
+  link.classed('highlight', l => l.source.id === id || l.target.id === id);
+}
+
+function clearHighlight() {
+  node.classed('dim', false);
+  node.classed('highlight', false);
+  link.classed('dim', false);
+  link.classed('highlight', false);
+}
+
+node.on('mouseover', (event, d) => {
+  highlight(d.id);
+  tooltip.style('display', 'block')
+    .style('left', (event.pageX + 14) + 'px')
+    .style('top', (event.pageY - 10) + 'px');
+  tooltip.html(`
+    <div class="tt-title" style="color:${COLORS[d.type === 'defect' ? d.severity : d.type]}">${d.label}</div>
+    <div class="tt-body">${d.short}</div>
+    ${d.type === 'defect' ? `<span class="tt-tag" style="background:${COLORS[d.severity]};color:#fff">${d.severity}</span>` : ''}
+    ${d.type === 'root' ? `<span class="tt-tag" style="background:${COLORS.root};color:#fff">root cause</span>` : ''}
+    ${d.type === 'working' ? `<span class="tt-tag" style="background:${COLORS.working};color:#fff">working</span>` : ''}
+    ${d.type === 'tool' ? `<span class="tt-tag" style="background:${COLORS.tool};color:#fff">toolchain</span>` : ''}
+  `);
+})
+.on('mousemove', (event) => {
+  tooltip.style('left', (event.pageX + 14) + 'px')
+    .style('top', (event.pageY - 10) + 'px');
+})
+.on('mouseout', () => {
+  tooltip.style('display', 'none');
+  clearHighlight();
+})
+.on('click', (event, d) => showDetail(d));
+
+function showDetail(d) {
+  document.getElementById('dp-title-text').innerHTML =
+    `<span style="color:${COLORS[d.type === 'defect' ? d.severity : d.type]}">${d.label}</span>`;
+  let body = `<div class="dp-body">${d.detail || d.short}</div>`;
+  if (d.fix) body += `<div style="margin-top:6px"><b>Fix:</b> ${d.fix}</div>`;
+  if (d.causes) body += `<div style="margin-top:6px"><b>Causes:</b> ${d.causes.join(', ')}</div>`;
+  if (d.observed && d.observed.length) body += `<div style="margin-top:6px"><b>Observed by:</b> ${d.observed.join(' + ')}</div>`;
+  document.getElementById('dp-body').innerHTML = body;
+
+  // Links to connected nodes
+  const ids = connectedIds(d.id);
+  const linksHtml = nodes.filter(n => ids.has(n.id) && n.id !== d.id)
+    .map(n => `<span class="dp-link" onclick="focusNode('${n.id}')">${n.label}</span>`)
+    .join('');
+  document.getElementById('dp-links').innerHTML = linksHtml ? `<b>Connected:</b> ${linksHtml}` : '';
+  detailPanel.style('display', 'block');
+}
+
+function closeDetail() {
+  detailPanel.style('display', 'none');
+}
+
+function focusNode(id) {
+  const n = nodeById.get(id);
+  if (!n) return;
+  // Center on node
+  const transform = d3.zoomTransform(svg.node());
+  const k = 1.2;
+  const tx = width / 2 - n.x * k;
+  const ty = height / 2 - n.y * k;
+  svg.transition().duration(600).call(
+    d3.zoom().transform,
+    d3.zoomIdentity.translate(tx, ty).scale(k)
+  );
+  highlight(id);
+  showDetail(n);
+}
+
+// ============ FILTERS ============
+let currentFilter = 'all';
+let searchTerm = '';
+
+function applyFilters() {
+  node.classed('hidden-node', d => {
+    if (searchTerm) {
+      const haystack = (d.label + ' ' + (d.short || '') + ' ' + (d.detail || '')).toLowerCase();
+      if (!haystack.includes(searchTerm)) return true;
+    }
+    if (currentFilter === 'all') return false;
+    if (currentFilter === 'working') return d.type !== 'working';
+    if (currentFilter === 'root') return d.type !== 'root';
+    if (currentFilter === 'tool') return d.type !== 'tool';
+    return !(d.type === 'defect' && d.severity === currentFilter);
+  });
+  // Hide links connected to hidden nodes
+  link.classed('hidden-link', l => {
+    return node.classed('hidden-node')(l.source) || node.classed('hidden-node')(l.target);
+  });
+}
+
+// CSS for hidden
+const style = document.createElement('style');
+style.textContent = `
+  .node.hidden-node { display: none; }
+  .link.hidden-link { display: none; }
+`;
+document.head.appendChild(style);
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.filter;
+    applyFilters();
+  });
+});
+
+document.querySelectorAll('.legend-item').forEach(item => {
+  item.addEventListener('click', () => {
+    const f = item.dataset.filter;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === f));
+    currentFilter = f;
+    applyFilters();
+  });
+});
+
+document.getElementById('search').addEventListener('input', (e) => {
+  searchTerm = e.target.value.trim().toLowerCase();
+  applyFilters();
+});
+
+// ============ STATS ============
+document.getElementById('stat-defects').textContent = nodes.filter(n => n.type === 'defect').length;
+document.getElementById('stat-working').textContent = nodes.filter(n => n.type === 'working').length;
+document.getElementById('stat-roots').textContent = nodes.filter(n => n.type === 'root').length;
+
+// ============ TICK ============
+simulation.on('tick', () => {
+  link
+    .attr('x1', d => d.source.x)
+    .attr('y1', d => d.source.y)
+    .attr('x2', d => d.target.x)
+    .attr('y2', d => d.target.y);
+  node.attr('transform', d => `translate(${d.x},${d.y})`);
+});
+
+// ============ DRAG ============
+function dragstarted(event, d) {
+  if (!event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x;
+  d.fy = d.y;
+}
+function dragged(event, d) {
+  d.fx = event.x;
+  d.fy = event.y;
+}
+function dragended(event, d) {
+  if (!event.active) simulation.alphaTarget(0);
+  d.fx = null;
+  d.fy = null;
+}
+
+// ============ RESIZE ============
+window.addEventListener('resize', () => {
+  const w = window.innerWidth;
+  const h = window.innerHeight - 56;
+  svg.attr('width', w).attr('height', h);
+  simulation.force('center', d3.forceCenter(w / 2, h / 2));
+  simulation.force('x', d3.forceX(w / 2).strength(0.05));
+  simulation.force('y', d3.forceY(h / 2).strength(0.05));
+  simulation.alpha(0.3).restart();
+});
+
+// Initial highlight of the noopCalls root cause after a moment
+setTimeout(() => {
+  focusNode('RC-1');
+  setTimeout(() => {
+    // Reset to a neutral view after 3s
+    clearHighlight();
+    closeDetail();
+    svg.transition().duration(800).call(
+      d3.zoom().transform,
+      d3.zoomIdentity
+    );
+  }, 3000);
+}, 500);
+</script>
+</body>
+</html>
