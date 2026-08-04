@@ -23,6 +23,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import shutil
 import sys
 import threading
@@ -30,6 +31,10 @@ import time
 from typing import Any
 
 from PySide6.QtCore import QCoreApplication, QProcess, QTimer
+
+# Reject unsafe job ids for any path-traversal-sensitive operation (delete,
+# group, rename, open). A job id is a UUID-safe token; anything else is refused.
+_SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
 
 STAGES = [
@@ -132,6 +137,13 @@ class Sidecar:
             "state": "failed" if self._engine_error else "resolved",
             "detail": self._engine_error or "Headless JobController connected",
         })
+        self._init_queue()
+        self._emit({
+            "event": "bootstrap_progress",
+            "id": "queue",
+            "state": "failed" if self._engine_error else "resolved",
+            "detail": self._engine_error or "Persistent job queue restored",
+        })
 
         self._poll_timer = QTimer(self.app)
         self._poll_timer.setInterval(25)
@@ -203,13 +215,17 @@ class Sidecar:
             from lecturepack.infrastructure.config_manager import ConfigManager
             from lecturepack.infrastructure.file_manager import FileManager
             from lecturepack.models.job import Job
+            from lecturepack import electron_backend
             from lecturepack.services import transcript_store
+            from lecturepack.services.job_queue import JobQueue
 
             self.JobController = JobController
             self.ConfigManager = ConfigManager
             self.FileManager = FileManager
             self.Job = Job
             self.transcript_store = transcript_store
+            self.JobQueue = JobQueue
+            self.electron_backend = electron_backend
         except Exception as exc:  # noqa: BLE001 - surfaced through ready/error
             self._engine_error = f"{type(exc).__name__}: {exc}"
 
@@ -281,6 +297,73 @@ class Sidecar:
             self.controller.pipeline_failed.connect(self._on_pipeline_failed)
         except Exception as exc:  # noqa: BLE001 - surfaced through ready/error
             self._engine_error = f"{type(exc).__name__}: {exc}"
+
+    # ------------------------------------------------------------------ #
+    # Persistent queue
+    # ------------------------------------------------------------------ #
+    def _init_queue(self) -> None:
+        """Restore the persistent job queue and reconcile schedules on launch."""
+        if self._engine_error:
+            return
+        try:
+            self.queue = self.JobQueue(str(self.data_dir))
+            # Bring any due/missed schedules into the queue per their policy.
+            self.queue.reconcile_schedules_on_launch()
+        except Exception as exc:  # noqa: BLE001 - a queue failure must not kill startup
+            self._engine_error = f"{type(exc).__name__}: {exc}"
+
+    def _push_queue(self) -> None:
+        """Emit queue_changed with the active slot, rows, and schedules."""
+        if not hasattr(self, "queue"):
+            return
+        rows = [{"id": jid, "position": pos}
+                for pos, jid in enumerate(self.queue.queued())]
+        self._emit({
+            "event": "queue_changed",
+            "active": self.queue.active,
+            "queue": rows,
+            "schedules": self.queue.schedules(),
+        })
+
+    def _reconcile_queue_on_startup(self) -> None:
+        """Resolve schedules that came due while the app was closed."""
+        if not hasattr(self, "queue"):
+            return
+        try:
+            self.queue.reconcile_schedules_on_launch()
+        except Exception:
+            pass
+
+    def _promote_next(self) -> None:
+        """Release the active slot and launch the next queued job (FIFO)."""
+        if not hasattr(self, "queue"):
+            return
+        if self.current_job is not None:
+            self.queue.finish_active(self.current_job.job_id)
+        nxt = self.queue.promote_next()
+        self._push_queue()
+        if not nxt:
+            return
+        try:
+            job = self._job_for({"job_id": nxt})
+        except Exception:
+            return
+        # Defer so the just-finished pipeline fully unwinds before the next one.
+        QTimer.singleShot(0, lambda: self._start_queued(job))
+
+    def _start_queued(self, job: Any) -> None:
+        """Start a queued job (no request_id; fire-and-forget)."""
+        if self.controller is None or self._shutting_down:
+            return
+        if self.current_stage:
+            return
+        self._activate_job(job, emit_payloads=False)
+        self.auto_export = True
+        self.current_stage = "Queued"
+        self._emit({"event": "job_started", "job_id": job.job_id})
+        self._emit_job_payloads()
+        self._push_queue()
+        self.controller.run_pipeline()
 
     # ------------------------------------------------------------------ #
     # JSONL process boundary
@@ -375,6 +458,36 @@ class Sidecar:
                 self._export(request_id, command, payload)
             elif command == "set_setting":
                 self._set_setting(request_id, command, payload)
+            elif command == "delete_job":
+                self._delete_job(request_id, command, payload)
+            elif command == "delete_jobs":
+                self._delete_jobs(request_id, command, payload)
+            elif command == "enqueue_job":
+                self._enqueue_job(request_id, command, payload)
+            elif command == "reorder_queue":
+                self._reorder_queue(request_id, command, payload)
+            elif command == "run_now":
+                self._run_now(request_id, command, payload)
+            elif command == "remove_from_queue":
+                self._remove_from_queue(request_id, command, payload)
+            elif command == "schedule_job":
+                self._schedule_job(request_id, command, payload)
+            elif command == "unschedule_job":
+                self._unschedule_job(request_id, command, payload)
+            elif command == "pause_job":
+                self._pause_job(request_id, command, payload)
+            elif command == "resume_job":
+                self._resume_job(request_id, command, payload)
+            elif command == "restart_job":
+                self._restart_job(request_id, command, payload)
+            elif command == "retry_stage":
+                self._retry_stage(request_id, command, payload)
+            elif command == "set_job_group":
+                self._set_job_group(request_id, command, payload)
+            elif command == "set_jobs_group":
+                self._set_jobs_group(request_id, command, payload)
+            elif command == "rename_job":
+                self._rename_job(request_id, command, payload)
             elif command == "shutdown":
                 self._respond(request_id, command, shutting_down=True)
                 self._request_shutdown()
@@ -645,8 +758,10 @@ class Sidecar:
         if self.controller is not None:
             self.controller.cancel()
         self.current_stage = ""
+        self._emit({"event": "job_cancelled", "job_id": job.job_id})
         self._emit_status("Cancelled", job=job, detail="Processing cancelled")
         self._emit_job_payloads()
+        self._promote_next()
         self._respond(request_id, command, job_id=job.job_id, cancelled=True)
 
     def _get_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
@@ -779,6 +894,151 @@ class Sidecar:
             "applied": applied,
         })
         self._respond(request_id, command, key=key, value=normalized, applied=applied)
+
+    # ------------------------------------------------------------------ #
+    # Phase 9: job management and queue
+    # ------------------------------------------------------------------ #
+    def _delete_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload.get("job_id") or "")
+        result = self.electron_backend.delete_job(str(self.data_dir), job_id)
+        self._emit({"event": "job_deleted", **result})
+        if result.get("ok"):
+            if self.current_job is not None and self.current_job.job_id == job_id:
+                self.current_job = None
+                self.current_stage = ""
+                self._emit({"event": "active_job", "id": "", "title": ""})
+            self._emit_job_payloads()
+        self._respond(request_id, command, **result)
+
+    def _delete_jobs(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        ids = payload.get("ids", [])
+        if isinstance(ids, str):
+            try:
+                ids = json.loads(ids)
+            except json.JSONDecodeError:
+                ids = []
+        result = self.electron_backend.delete_jobs(str(self.data_dir), ids)
+        self._emit({"event": "job_deleted", **result})
+        if result.get("ok"):
+            self._emit_job_payloads()
+        self._respond(request_id, command, **result)
+
+    def _enqueue_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload.get("job_id") or "")
+        job = self._job_for(payload)
+        position = self.electron_backend.enqueue_job(self.queue, job_id)
+        self._emit({"event": "job_queued", "job_id": job_id, "position": position})
+        self._push_queue()
+        self._emit_job_payloads()
+        self._respond(request_id, command, job_id=job_id, position=position, ok=position >= 0)
+
+    def _reorder_queue(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload.get("job_id") or "")
+        try:
+            index = int(payload.get("index", 0))
+        except (TypeError, ValueError):
+            index = 0
+        ok = self.electron_backend.reorder_queue(self.queue, job_id, index)
+        self._push_queue()
+        self._respond(request_id, command, job_id=job_id, index=index, ok=ok)
+
+    def _run_now(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload.get("job_id") or "")
+        ok = self.electron_backend.run_now(self.queue, job_id)
+        self._push_queue()
+        self._respond(request_id, command, job_id=job_id, ok=ok)
+
+    def _remove_from_queue(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload.get("job_id") or "")
+        ok = self.electron_backend.remove_from_queue(self.queue, job_id)
+        self._push_queue()
+        self._emit_job_payloads()
+        self._respond(request_id, command, job_id=job_id, ok=ok)
+
+    def _schedule_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload.get("job_id") or "")
+        self.electron_backend.schedule_job(
+            self.queue, job_id,
+            str(payload.get("when") or ""),
+            str(payload.get("tz") or "local"),
+            str(payload.get("missed_policy") or "run_when_opened"),
+        )
+        self._push_queue()
+        self._emit_job_payloads()
+        self._respond(request_id, command, job_id=job_id, ok=True)
+
+    def _unschedule_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload.get("job_id") or "")
+        ok = self.electron_backend.unschedule_job(self.queue, job_id)
+        self._push_queue()
+        self._respond(request_id, command, job_id=job_id, ok=ok)
+
+    def _pause_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job = self._job_for(payload)
+        paused = self.electron_backend.pause_job(self.controller)
+        self._emit({"event": "pause_state", "state": "paused" if paused else "requested",
+                    "job": job.job_id})
+        self._emit_job_payloads()
+        self._respond(request_id, command, job_id=job.job_id, paused=paused)
+
+    def _resume_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job = self._job_for(payload)
+        self._activate_job(job, emit_payloads=False)
+        self.electron_backend.resume_job(job, self.controller)
+        self.current_stage = "Queued"
+        self._emit_job_payloads()
+        self._respond(request_id, command, job_id=job.job_id, started=True)
+
+    def _restart_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job = self._job_for(payload)
+        self.electron_backend.restart_job(job)
+        job.save()
+        self._activate_job(job, emit_payloads=False)
+        self.auto_export = True
+        self.current_stage = "Queued"
+        self._emit_job_payloads()
+        self.controller.run_pipeline()
+        self._respond(request_id, command, job_id=job.job_id, started=True)
+
+    def _retry_stage(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job = self._job_for(payload)
+        stage = str(payload.get("stage") or "")
+        self._activate_job(job, emit_payloads=False)
+        self.electron_backend.retry_stage(job, self.controller, stage)
+        self.current_stage = stage
+        self._emit_job_payloads()
+        self._respond(request_id, command, job_id=job.job_id, stage=stage, started=True)
+
+    def _set_job_group(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload.get("job_id") or "")
+        group = str(payload.get("group") or "")
+        ok = self.electron_backend.set_job_group(str(self.data_dir), job_id, group)
+        if ok and self.current_job is not None and self.current_job.job_id == job_id:
+            self.current_job.manifest["group"] = group
+        self._emit_job_payloads()
+        self._respond(request_id, command, job_id=job_id, group=group, ok=ok)
+
+    def _set_jobs_group(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        ids = payload.get("ids", [])
+        if isinstance(ids, str):
+            try:
+                ids = json.loads(ids)
+            except json.JSONDecodeError:
+                ids = []
+        group = str(payload.get("group") or "")
+        count = self.electron_backend.set_jobs_group(str(self.data_dir), ids, group)
+        self._emit_job_payloads()
+        self._respond(request_id, command, count=count, group=group, ok=count > 0)
+
+    def _rename_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job_id = str(payload.get("job_id") or "")
+        title = str(payload.get("title") or "")
+        result = self.electron_backend.rename_job(str(self.data_dir), job_id, title)
+        if self.current_job is not None and self.current_job.job_id == job_id:
+            self.current_job.manifest["title"] = result["title"]
+            self._emit({"event": "active_job", "id": job_id, "title": result["title"]})
+        self._emit_job_payloads()
+        self._respond(request_id, command, **result)
 
     def _processing_workers_running(self) -> bool:
         """Keep QThread/QProcess owners alive while a cancellation drains.
@@ -959,6 +1219,7 @@ class Sidecar:
             QTimer.singleShot(0, self._start_automatic_export)
         else:
             self.current_stage = ""
+            self._promote_next()
 
     def _start_automatic_export(self) -> None:
         if self.controller is None or self.current_job is None or self._shutting_down:
@@ -969,8 +1230,15 @@ class Sidecar:
     def _on_pipeline_failed(self, error: str) -> None:
         if self.current_job is not None:
             self.current_stage = ""
+            self._emit({
+                "event": "job_failed",
+                "job_id": self.current_job.job_id,
+                "stage": self._last_stage(self.current_job),
+                "error": str(error or "Processing failed")[:500],
+            })
             self._emit_status("Failed", detail=str(error or "Processing failed"))
             self._emit_job_payloads()
+            self._promote_next()
 
     # ------------------------------------------------------------------ #
     # Payload builders

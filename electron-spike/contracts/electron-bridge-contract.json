@@ -381,11 +381,11 @@
       "name": "delete_job",
       "notes": "Deletes one job safely (recycle-bin first); emits job_deleted and refreshes jobs_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "id",
@@ -393,7 +393,7 @@
         "method",
         "error"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -402,11 +402,11 @@
       "name": "delete_jobs",
       "notes": "Bulk delete from Home multi-select; one job_deleted summary and one jobs_changed refresh.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "ids"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "bulk",
@@ -416,7 +416,7 @@
         "freed",
         "error"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -471,17 +471,17 @@
       "name": "enqueue_job",
       "notes": "Adds a job to the FIFO processing queue; emits queue_changed and jobs_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "position",
         "job_id"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1020,11 +1020,11 @@
       "name": "job_deleted",
       "notes": "Reports a single or bulk delete result; the UI refreshes from jobs_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1378,15 +1378,15 @@
       "name": "pause_job",
       "notes": "Cooperatively pauses the active job; emits pause_state and jobs_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
         "paused"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1399,11 +1399,11 @@
       "name": "pause_state",
       "notes": "Reports the cooperative pause state of the active job.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1475,11 +1475,11 @@
       "name": "queue_changed",
       "notes": "Carries the queue rows, active slot, and schedules after any queue mutation.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1543,16 +1543,16 @@
       "name": "remove_from_queue",
       "notes": "Removes a job from the queue/schedule; emits queue_changed and jobs_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1577,18 +1577,18 @@
       "name": "reorder_queue",
       "notes": "Moves a queued job to a new position; emits queue_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id",
         "index"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
         "index"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1632,17 +1632,17 @@
       "name": "restart_job",
       "notes": "Restarts an interrupted job from the beginning; emits jobs_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
         "started"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1651,17 +1651,17 @@
       "name": "resume_job",
       "notes": "Resumes a paused/interrupted job from its checkpoint; emits jobs_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
         "started"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1670,19 +1670,19 @@
       "name": "retry_stage",
       "notes": "Retries a single failed stage, preserving completed upstream work.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id",
         "stage"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
         "stage",
         "started"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1709,16 +1709,16 @@
       "name": "run_now",
       "notes": "Jumps a queued job to the front of the queue; emits queue_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1820,19 +1820,19 @@
       "name": "schedule_job",
       "notes": "Schedules a job for a future time; emits queue_changed and jobs_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id",
         "when",
         "tz",
         "missed_policy"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1874,18 +1874,18 @@
       "name": "set_job_group",
       "notes": "Sets/clears a job's course/subject group (persisted in its manifest); refreshes jobs_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id",
         "group"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
         "group"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1894,18 +1894,18 @@
       "name": "set_jobs_group",
       "notes": "Groups several jobs at once; one jobs_changed refresh for the batch.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "ids",
         "group"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "count",
         "group"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2326,16 +2326,16 @@
       "name": "unschedule_job",
       "notes": "Removes a job's schedule; emits queue_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2520,19 +2520,19 @@
       "name": "rename_job",
       "notes": "Renames a job (persisted in its manifest); refreshes jobs_changed and active_job.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id",
         "title"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
         "title",
         "job"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2561,11 +2561,11 @@
       "name": "job_queued",
       "notes": "Emitted when a job enters the processing queue.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2577,11 +2577,11 @@
       "name": "job_started",
       "notes": "Emitted when a job begins processing.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2595,11 +2595,11 @@
       "name": "job_failed",
       "notes": "Emitted when a job fails; carries the failed stage and sanitized error.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2611,11 +2611,11 @@
       "name": "job_cancelled",
       "notes": "Emitted when a job is cancelled.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
