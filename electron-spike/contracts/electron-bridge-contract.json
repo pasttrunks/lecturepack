@@ -2651,11 +2651,11 @@
       "name": "study_progress",
       "notes": "Coalesced study generation progress (quiz/flashcards/smart-study).",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2668,11 +2668,11 @@
       "name": "runtime_missing",
       "notes": "Emitted when a required runtime component is missing.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2685,11 +2685,11 @@
       "name": "repair_required",
       "notes": "Emitted when runtime repair is required; the frontend must confirm before any install.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2705,11 +2705,11 @@
       "name": "storage_warning",
       "notes": "Emitted when the data dir crosses a storage warning threshold.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     }
   ],
   "status_values": [

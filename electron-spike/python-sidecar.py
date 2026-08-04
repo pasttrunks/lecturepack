@@ -579,6 +579,9 @@ class Sidecar:
             "whisper": self.config.get("whisper_exe", "") if hasattr(self, "config") else "",
             "model": self.config.get("whisper_model", "") if hasattr(self, "config") else "",
         }
+        if self._engine_error:
+            self._emit({"event": "runtime_missing", "component": "runtime",
+                        "detail": self._engine_error})
         self._respond(
             request_id,
             command,
@@ -1384,6 +1387,15 @@ class Sidecar:
                 "free": free,
                 "percent": round(pct, 2),
             })
+            if pct >= 90.0:
+                self._emit({
+                    "event": "storage_warning",
+                    "total": used + free,
+                    "used": used,
+                    "free": free,
+                    "percent": round(pct, 2),
+                    "message": "LecturePack data is using 90%+ of its available space.",
+                })
         except Exception:
             pass
 
@@ -1422,6 +1434,8 @@ class Sidecar:
         # Context repair is a Qt-dialog feature in the desktop app. The sidecar
         # reports the job is loaded; Luna owns the repair UI. The engine's
         # deterministic repair runs on the transcript workspace.
+        self._emit({"event": "repair_required", "operation_id": "context_repair",
+                    "detail": "Context repair is available for the selected segments."})
         self._respond(request_id, command, ok=True, job_id=job.job_id, started=True)
 
     # ------------------------------------------------------------------ #
@@ -1769,6 +1783,8 @@ class Sidecar:
                 "source": payload.get("source", "transcript")}
         o = self._ollama_settings()
         self._emit({"event": "quiz_status", "state": "generating", "message": "Generating quiz…"})
+        self._emit({"event": "study_progress", "job_id": job.job_id, "kind": "quiz",
+                    "pct": 0, "message": "Generating quiz…"})
 
         def deliver(questions, provider, model=""):
             questions = self.electron_study.normalize_quiz(questions, count)
@@ -1880,6 +1896,8 @@ class Sidecar:
         o = self._ollama_settings()
         self._emit({"event": "flashcards_status", "state": "generating",
                     "message": "Generating flashcards…"})
+        self._emit({"event": "study_progress", "job_id": job.job_id, "kind": "flashcards",
+                    "pct": 0, "message": "Generating flashcards…"})
 
         def deliver(cards, provider, model=""):
             cards = self.electron_study.normalize_flashcards(cards, count)
