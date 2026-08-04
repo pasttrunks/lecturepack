@@ -2833,6 +2833,7 @@
       if (invoker) RuntimeSetupGate._diagnosticsInvoker = invoker;
       text('runtime-diagnostics-summary', 'Review the runtime repair details below.');
       text('runtime-diagnostics-report', bootstrapSnapshot && (bootstrapSnapshot.diagnostics || bootstrapSnapshot.summary) || 'No additional diagnostics are available.');
+      if (lpBridge.connected()) lpBridge.call('run_diagnostics', LP.state.jobId || '');
       render();
     }
     function back() {
@@ -2891,8 +2892,20 @@
       Array.prototype.forEach.call(document.querySelectorAll('[data-runtime-diagnostics]'), function (button) { button.addEventListener('click', function () { diagnostics(button); }); });
       $('btn-runtime-diagnostics-back').addEventListener('click', back);
       function diagnosticFeedback(promise, ok, bad) { promise.then(function (json) { var r; try { r = JSON.parse(json); } catch (e) {} announce('runtime-live-polite', r && /copied|saved/.test(r.type || '') ? ok : bad); }, function () { announce('runtime-live-polite', bad); }); }
-      $('btn-runtime-copy').addEventListener('click', function () { diagnosticFeedback(lpBridge.copyRuntimeRepairDiagnostics(), 'Details copied.', 'Could not copy details.'); });
-      $('btn-runtime-save').addEventListener('click', function () { diagnosticFeedback(lpBridge.saveRuntimeRepairDiagnostics('runtime-repair-report.txt'), 'Report saved.', 'Could not save report.'); });
+      function diagnosticText() { return ($('runtime-diagnostics-report') && $('runtime-diagnostics-report').textContent) || 'No runtime diagnostics are available.'; }
+      function copyDiagnostics() {
+        if (!navigator.clipboard || !navigator.clipboard.writeText) return Promise.reject(new Error('clipboard unavailable'));
+        return navigator.clipboard.writeText(diagnosticText()).then(function () { return JSON.stringify({ type: 'copied' }); });
+      }
+      function saveDiagnostics(filename) {
+        var blob = new Blob([diagnosticText()], { type: 'text/plain;charset=utf-8' });
+        var url = URL.createObjectURL(blob), link = document.createElement('a');
+        link.href = url; link.download = filename || 'runtime-repair-report.txt';
+        document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+        return Promise.resolve(JSON.stringify({ type: 'saved' }));
+      }
+      $('btn-runtime-copy').addEventListener('click', function () { diagnosticFeedback(copyDiagnostics(), 'Details copied.', 'Could not copy details.'); });
+      $('btn-runtime-save').addEventListener('click', function () { diagnosticFeedback(saveDiagnostics('runtime-repair-report.txt'), 'Report saved.', 'Could not save report.'); });
       document.addEventListener('keydown', function (e) { if (!isBlocking()) return; if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); return; } if (e.key === 'Tab' && isOpen()) { trapFocus(overlay(), e); e.stopImmediatePropagation(); return; } e.stopImmediatePropagation(); }, true);
       document.addEventListener('wheel', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true, passive: false });
       document.addEventListener('pointerdown', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
@@ -4405,6 +4418,25 @@
         _applyLpState(title, 'failed');
       }
     });
+    lpBridge.on('diagnostics', function (json) {
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
+      var report = d.bundle || d.diagnostics || d;
+      var reportEl = $('runtime-diagnostics-report');
+      if (reportEl) reportEl.textContent = typeof report === 'string' ? report : JSON.stringify(report, null, 2);
+    });
+    lpBridge.on('repair_required', function (json) {
+      var d = parseBridgePayload(json, null);
+      if (d && d.detail) toast(d.detail);
+    });
+    lpBridge.on('runtime_missing', function (json) {
+      var d = parseBridgePayload(json, null);
+      if (d && d.detail) toast('Runtime component missing: ' + d.detail);
+    });
+    lpBridge.on('storage_warning', function (json) {
+      var d = parseBridgePayload(json, null);
+      if (d && d.message) toast(d.message);
+    });
     lpBridge.on('demo_event', receiveDemoEvent);
     lpBridge.on('queue_changed', function (json) {
       var queue = parseBridgePayload(json, null);
@@ -4452,7 +4484,8 @@
       _applyLpState(panel, 'complete');
     });
     lpBridge.on('notification_prefs', function (json) {
-      var prefs = parseBridgePayload(json, null);
+      var payload = parseBridgePayload(json, null);
+      var prefs = payload && payload.prefs && typeof payload.prefs === 'object' ? payload.prefs : payload;
       if (!prefs || typeof prefs !== 'object') return;
       Array.prototype.forEach.call(document.querySelectorAll('[data-notif]'), function (cb) {
         if (cb.dataset.notif in prefs) cb.checked = !!prefs[cb.dataset.notif];
@@ -4467,9 +4500,17 @@
       if (!w) return;
       var s;
       s = parseBridgePayload(json, null);
-      if (!s || !s.ok) { w.hidden = true; return; }
-      $('storage-label').textContent = s.used_h + ' · ' + s.free_h + ' free';
-      setFill('storage-bar', s.pct);
+      if (!s || s.ok === false) { w.hidden = true; return; }
+      var human = function (bytes) {
+        var value = Number(bytes);
+        if (!isFinite(value) || value < 0) return '—';
+        var units = ['B', 'KB', 'MB', 'GB', 'TB'], index = 0;
+        while (value >= 1024 && index < units.length - 1) { value /= 1024; index++; }
+        return (index === 0 ? Math.round(value) : value.toFixed(1)) + ' ' + units[index];
+      };
+      var usedLabel = s.used_h || human(s.used), freeLabel = s.free_h || human(s.free);
+      $('storage-label').textContent = usedLabel + ' · ' + freeLabel + ' free';
+      setFill('storage-bar', s.pct != null ? s.pct : s.percent || 0);
       w.hidden = false;
     });
 

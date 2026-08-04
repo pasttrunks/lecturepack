@@ -15,32 +15,22 @@
     // DEFERRED. Implemented operations are mapped below and cross JSONL.
     acknowledge_setup: true,
     browse_model: true,
-    cancel_cuda_pack: true,
     cancel_update_download: true,
     check_updates: true,
     clear_skipped_version: true,
-    cuda_pack_status: true,
     end_demo_job: true,
     exit_application: true,
-    get_notification_prefs: true,
     get_post_completion: true,
     get_updater_state: true,
-    install_cuda_pack: true,
     install_downloaded_update: true,
     install_update: true,
     log_tour_trace: true,
-    repair_selection: true,
-    run_diagnostics: true,
     save_project: true,
     set_auto_check: true,
-    set_notification_prefs: true,
     set_update_channel: true,
     skip_update_version: true,
     start_demo_job: true,
     start_update_download: true,
-    test_notification: true,
-    validate_cuda: true,
-    validate_vulkan: true,
     whatsnew_seen: true,
     // Bootstrap is host-driven in the production app. These legacy calls
     // stay acknowledged locally as specified by the partial contract.
@@ -181,6 +171,18 @@
     }
     if (name === 'set_groq_key') {
       return { command: name, payload: { key: stringPayload(first) } };
+    }
+    if (name === 'run_diagnostics') {
+      return { command: name, payload: { job_id: jobIdPayload(first) } };
+    }
+    if (name === 'set_notification_prefs') {
+      return { command: name, payload: { prefs: objectPayload(first) } };
+    }
+    if (name === 'repair_selection' || name === 'get_notification_prefs' ||
+        name === 'test_notification' || name === 'validate_vulkan' ||
+        name === 'validate_cuda' || name === 'cuda_pack_status' ||
+        name === 'install_cuda_pack' || name === 'cancel_cuda_pack') {
+      return { command: name, payload: {} };
     }
 
     if (name === 'start_processing') {

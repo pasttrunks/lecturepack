@@ -146,11 +146,13 @@ def test_migration_bridge_maps_existing_ui_without_requiring_qt_webchannel():
     assert "event === 'jobs_changed'" in bridge
     assert "isLocalThemeSetting" in bridge
     for deferred in (
-        "exit_application", "run_diagnostics",
-        "set_notification_prefs", "start_demo_job", "validate_vulkan",
+        "exit_application",
+        "start_demo_job",
     ):
         assert f"{deferred}: true" in bridge
     assert "list_ollama_models: true" not in bridge
+    assert "validate_vulkan: true" not in bridge
+    assert "run_diagnostics: true" not in bridge
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
@@ -463,6 +465,71 @@ context.window.lpBridge.on('ai_token', (text) => { aiText = text; });
     ['cancel_smart_study', {}],
     ['set_groq_key', { key: 'secret' }],
     ['test_endpoint', {}]
+  ];
+  if (calls.length !== expected.length) throw new Error(`expected ${expected.length} calls, got ${calls.length}`);
+  expected.forEach(([command, payload], index) => {
+    if (calls[index].command !== command || JSON.stringify(calls[index].payload) !== JSON.stringify(payload)) {
+      throw new Error(`call ${index} mismatch: ${JSON.stringify(calls[index])}`);
+    }
+  });
+})().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [shutil.which("node"), str(harness), str(SPIKE / "electron-bridge.js")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_production_bridge_maps_runtime_and_notification_calls(tmp_path):
+    harness = tmp_path / "bridge-runtime-check.js"
+    harness.write_text(
+        r"""
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+const calls = [];
+const context = {
+  console: { error() {} },
+  window: {
+    localStorage: { setItem() {} },
+    lecturePackElectron: {
+      request(command, payload) { calls.push({ command, payload }); return Promise.resolve({}); },
+      onMessage() {}
+    }
+  }
+};
+vm.createContext(context);
+vm.runInContext(source, context, { filename: 'electron-bridge.js' });
+(async () => {
+  await context.window.lpBridge.call('run_diagnostics', 'job-7');
+  await context.window.lpBridge.call('repair_selection');
+  await context.window.lpBridge.call('get_notification_prefs');
+  await context.window.lpBridge.call('set_notification_prefs', JSON.stringify({ completion: true, failure: false }));
+  await context.window.lpBridge.call('test_notification');
+  await context.window.lpBridge.call('validate_vulkan');
+  await context.window.lpBridge.call('validate_cuda');
+  await context.window.lpBridge.call('cuda_pack_status');
+  await context.window.lpBridge.call('install_cuda_pack');
+  await context.window.lpBridge.call('cancel_cuda_pack');
+  const expected = [
+    ['run_diagnostics', { job_id: 'job-7' }],
+    ['repair_selection', {}],
+    ['get_notification_prefs', {}],
+    ['set_notification_prefs', { prefs: { completion: true, failure: false } }],
+    ['test_notification', {}],
+    ['validate_vulkan', {}],
+    ['validate_cuda', {}],
+    ['cuda_pack_status', {}],
+    ['install_cuda_pack', {}],
+    ['cancel_cuda_pack', {}]
   ];
   if (calls.length !== expected.length) throw new Error(`expected ${expected.length} calls, got ${calls.length}`);
   expected.forEach(([command, payload], index) => {
