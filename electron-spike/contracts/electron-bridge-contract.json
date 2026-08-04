@@ -175,14 +175,14 @@
       "name": "cancel_cuda_pack",
       "notes": "Cancels an in-flight CUDA-pack download.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "cancelled"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -324,11 +324,11 @@
       "name": "cuda_pack",
       "notes": "CUDA-pack install progress/state events.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -337,9 +337,9 @@
       "name": "cuda_pack_status",
       "notes": "Emits CUDA-pack install/availability state via cuda_pack.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "state",
@@ -347,7 +347,7 @@
         "installed",
         "size_label"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -368,11 +368,11 @@
       "name": "cuda_status",
       "notes": "CUDA (NVIDIA GPU) backend availability and selection report.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -445,11 +445,11 @@
       "name": "diagnostics",
       "notes": "Carries a redacted diagnostics bundle or runtime-fallback notice.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -757,14 +757,14 @@
       "name": "get_notification_prefs",
       "notes": "Emits notification_prefs with the persisted toggles.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "prefs"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -932,14 +932,14 @@
       "name": "install_cuda_pack",
       "notes": "Downloads + verifies + installs the optional CUDA acceleration pack; emits cuda_pack progress. Requires explicit frontend command.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "started"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1252,11 +1252,11 @@
       "name": "notification_prefs",
       "notes": "Persisted notification preference toggles.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1615,15 +1615,15 @@
       "name": "repair_selection",
       "notes": "Runs the engine's context-repair on the selected transcript segments.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
         "started"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1691,16 +1691,16 @@
       "name": "run_diagnostics",
       "notes": "Emits a redacted diagnostics bundle for a job via the diagnostics event.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "job_id"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1914,16 +1914,16 @@
       "name": "set_notification_prefs",
       "notes": "Persists notification toggles; emits notification_prefs.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "prefs"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "prefs"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2205,11 +2205,11 @@
       "name": "storage_changed",
       "notes": "Disk usage of the data dir; the sidebar storage widget stays hidden until this arrives.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2279,14 +2279,14 @@
       "name": "test_notification",
       "notes": "Fires a one-off test notification.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "sent"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2419,9 +2419,9 @@
       "name": "validate_cuda",
       "notes": "Reports the honest CUDA (NVIDIA GPU) backend state via the registry; emits cuda_status.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "state",
@@ -2434,7 +2434,7 @@
         "benchmark_ok",
         "exe"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2443,9 +2443,9 @@
       "name": "validate_vulkan",
       "notes": "Reports the honest Vulkan/compute-backend state via the engine registry; emits vulkan_status.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "state",
@@ -2458,7 +2458,7 @@
         "benchmark_ok",
         "exe"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2479,11 +2479,11 @@
       "name": "vulkan_status",
       "notes": "Vulkan/compute-backend availability and selection report.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",

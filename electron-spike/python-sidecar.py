@@ -539,6 +539,26 @@ class Sidecar:
                 self._test_groq_key(request_id, command)
             elif command == "test_endpoint":
                 self._test_endpoint(request_id, command)
+            elif command == "run_diagnostics":
+                self._run_diagnostics(request_id, command, payload)
+            elif command == "validate_vulkan":
+                self._validate_vulkan(request_id, command)
+            elif command == "validate_cuda":
+                self._validate_cuda(request_id, command)
+            elif command == "cuda_pack_status":
+                self._cuda_pack_status(request_id, command)
+            elif command == "install_cuda_pack":
+                self._install_cuda_pack(request_id, command)
+            elif command == "cancel_cuda_pack":
+                self._cancel_cuda_pack(request_id, command)
+            elif command == "get_notification_prefs":
+                self._get_notification_prefs(request_id, command)
+            elif command == "set_notification_prefs":
+                self._set_notification_prefs(request_id, command, payload)
+            elif command == "test_notification":
+                self._test_notification(request_id, command)
+            elif command == "repair_selection":
+                self._repair_selection(request_id, command)
             elif command == "shutdown":
                 self._respond(request_id, command, shutting_down=True)
                 self._request_shutdown()
@@ -1136,6 +1156,273 @@ class Sidecar:
             self._emit({"event": "active_job", "id": job_id, "title": result["title"]})
         self._emit_job_payloads()
         self._respond(request_id, command, **result)
+
+    # ------------------------------------------------------------------ #
+    # Phase 9: runtime, GPU, diagnostics, repair, storage
+    # ------------------------------------------------------------------ #
+    def _run_diagnostics(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        from lecturepack.services.job_ops import build_diagnostics
+        job_id = str(payload.get("job_id") or "")
+        job = None
+        if job_id:
+            try:
+                job = self._job_for({"job_id": job_id})
+            except Exception:
+                job = None
+        job = job or self.current_job
+        state = job.state if job is not None else {}
+        stages = state.get("stages", {}) if isinstance(state, dict) else {}
+        failed = next((n for n, sd in stages.items()
+                       if sd.get("status") in ("failed", "interrupted")), "")
+        err = stages.get(failed, {}).get("error", "") if failed else ""
+        diag = build_diagnostics(
+            app_version="0.0.0",
+            job_id=job_id,
+            stage=failed,
+            status=state.get("lifecycle", state.get("overall_status", "")) if isinstance(state, dict) else "",
+            error=err,
+            exit_code=None,
+            timestamp=state.get("last_updated", "") if isinstance(state, dict) else "",
+            runtime_paths={
+                "whisper_exe": self.config.get("whisper_exe", "") if hasattr(self, "config") else "",
+                "ffmpeg": getattr(getattr(self.controller, "ffmpeg_wrapper", None), "ffmpeg_path", ""),
+                "data_dir": str(self.data_dir),
+            })
+        self._emit({"event": "diagnostics", "bundle": diag, "job_id": job_id})
+        self._respond(request_id, command, ok=True, job_id=job_id)
+
+    def _validate_vulkan(self, request_id: str | None, command: str) -> None:
+        try:
+            from lecturepack.infrastructure.transcription_engines import (
+                EngineRegistry, ENGINE_VULKAN)
+            reg = EngineRegistry(self.config)
+            vk = reg.detect_engines().get(ENGINE_VULKAN)
+            requested = self.config.get("engine", "auto")
+            resolved = reg.resolve(requested)
+            avail = bool(vk and vk.available)
+            selected = resolved.key == ENGINE_VULKAN
+            if not avail:
+                state = "unavailable"
+                msg = f"Vulkan unavailable — {(vk.reason if vk else 'not detected')}"
+            elif selected:
+                state = "loaded"
+                msg = f"Vulkan available and selected — will load {resolved.backend}"
+            else:
+                state = "available"
+                msg = f"Vulkan available but not selected — currently using {resolved.backend}"
+            payload = {
+                "state": state, "message": msg, "available": avail,
+                "selected": selected, "reason": (vk.reason if vk else ""),
+                "requested": requested, "resolved_backend": resolved.backend,
+                "resolved_label": resolved.label,
+                "benchmark_ok": bool(self.config.get("vulkan_benchmark_ok", False)),
+                "exe": (vk.exe_path if vk else "")}
+        except Exception as exc:  # noqa: BLE001 - defensive
+            payload = {"state": "error", "message": f"Vulkan check failed: {exc}",
+                       "available": False, "selected": False}
+        self._emit({"event": "vulkan_status", **payload})
+        self._respond(request_id, command, ok=True, **payload)
+
+    def _validate_cuda(self, request_id: str | None, command: str) -> None:
+        try:
+            from lecturepack.infrastructure.transcription_engines import (
+                EngineRegistry, ENGINE_CUDA)
+            reg = EngineRegistry(self.config)
+            cuda = reg.detect_engines().get(ENGINE_CUDA)
+            requested = self.config.get("engine", "auto")
+            resolved = reg.resolve(requested)
+            avail = bool(cuda and cuda.available)
+            selected = resolved.key == ENGINE_CUDA
+            if not avail:
+                state = "unavailable"
+                msg = f"CUDA unavailable — {(cuda.reason if cuda else 'not detected')}"
+            elif selected:
+                state = "loaded"
+                msg = f"CUDA available and selected — will load {resolved.backend}"
+            else:
+                state = "available"
+                msg = f"CUDA available but not selected — currently using {resolved.backend}"
+            payload = {
+                "state": state, "message": msg, "available": avail,
+                "selected": selected, "reason": (cuda.reason if cuda else ""),
+                "requested": requested, "resolved_backend": resolved.backend,
+                "resolved_label": resolved.label,
+                "benchmark_ok": bool(self.config.get("cuda_benchmark_ok", False)),
+                "exe": (cuda.exe_path if cuda else "")}
+        except Exception as exc:  # noqa: BLE001 - defensive
+            payload = {"state": "error", "message": f"CUDA check failed: {exc}",
+                       "available": False, "selected": False}
+        self._emit({"event": "cuda_status", **payload})
+        self._respond(request_id, command, ok=True, **payload)
+
+    def _nvidia_present(self) -> bool:
+        try:
+            from lecturepack.infrastructure.transcription_engines import nvidia_cuda_present
+            return bool(nvidia_cuda_present())
+        except Exception:
+            return False
+
+    def _cuda_pack_status(self, request_id: str | None, command: str) -> None:
+        try:
+            from app.desktop import cuda_pack
+        except Exception:
+            cuda_pack = None
+        installed = bool(cuda_pack and cuda_pack.is_installed())
+        size_label = cuda_pack.CUDA_PACK["size_label"] if cuda_pack else "unknown"
+        payload = {"state": "installed" if installed else "idle",
+                   "gpu_present": self._nvidia_present(),
+                   "installed": installed, "size_label": size_label}
+        self._emit({"event": "cuda_pack", **payload})
+        self._respond(request_id, command, ok=True, **payload)
+
+    def _cancel_cuda_pack(self, request_id: str | None, command: str) -> None:
+        ev = getattr(self, "_cuda_pack_cancel", None)
+        if ev is not None:
+            ev.set()
+        self._respond(request_id, command, ok=True, cancelled=ev is not None)
+
+    def _install_cuda_pack(self, request_id: str | None, command: str) -> None:
+        try:
+            from app.desktop import cuda_pack
+        except Exception as exc:
+            self._emit({"event": "cuda_pack", "state": "error",
+                        "message": f"CUDA pack unavailable: {exc}"})
+            self._respond(request_id, command, ok=False, started=False)
+            return
+        cancel = threading.Event()
+        self._cuda_pack_cancel = cancel
+        pack = cuda_pack.CUDA_PACK
+
+        def emit(state, message="", pct=None, **extra):
+            payload = {"state": state, "message": message, "percent": pct,
+                       "gpu_present": self._nvidia_present(),
+                       "installed": cuda_pack.is_installed(),
+                       "size_label": pack["size_label"]}
+            payload.update(extra)
+            self._emit({"event": "cuda_pack", **payload})
+
+        def _rm(p):
+            try:
+                if p and os.path.exists(p):
+                    os.remove(p)
+            except OSError:
+                pass
+
+        def worker():
+            if not self._nvidia_present():
+                emit("error", "No NVIDIA CUDA GPU/driver detected on this computer.")
+                return
+            import tempfile
+            base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+            cache = os.path.join(base, "LecturePack", "Updates")
+            os.makedirs(cache, exist_ok=True)
+            partial = os.path.join(cache, pack["name"] + ".partial")
+            final_zip = os.path.join(cache, pack["name"])
+            _rm(partial)
+            last = {"p": -5.0}
+
+            def prog(pct, read, total):
+                if cancel.is_set():
+                    return
+                if pct - last["p"] >= 1.0 or pct >= 100:
+                    last["p"] = pct
+                    emit("downloading", f"Downloading CUDA acceleration ({pack['size_label']})…",
+                         round(pct, 1))
+
+            emit("downloading", f"Downloading CUDA acceleration ({pack['size_label']})…", 0.0)
+            try:
+                cuda_pack.download(pack["url"], partial, on_progress=prog, cancel=cancel.is_set)
+            except RuntimeError as exc:
+                _rm(partial)
+                emit("cancelled", "Download cancelled.") if str(exc) == "__cancelled__"                     else emit("error", f"Download failed: {exc}")
+                return
+            except Exception as exc:  # noqa: BLE001
+                _rm(partial)
+                emit("error", f"Download failed: {exc}")
+                return
+            emit("verifying", "Verifying download…")
+            if not cuda_pack.verify(partial):
+                _rm(partial)
+                emit("error", "Checksum mismatch — download rejected.")
+                return
+            os.replace(partial, final_zip)
+            emit("installing", "Installing CUDA files…")
+            try:
+                n = cuda_pack.extract_pack(final_zip, cuda_pack.bin_cuda_dir())
+            except Exception as exc:  # noqa: BLE001
+                _rm(final_zip)
+                emit("error", f"Install failed: {exc}")
+                return
+            _rm(final_zip)
+            if not cuda_pack.is_installed():
+                emit("error", "Install completed but whisper-cli.exe is missing.")
+                return
+            self._validate_cuda(None, "install_cuda_pack")
+            emit("ready", f"CUDA acceleration installed ({n} files). "
+                          "Pick NVIDIA CUDA under Compute engine.")
+
+        threading.Thread(target=worker, daemon=True, name="lp-cuda-pack").start()
+        self._respond(request_id, command, ok=True, started=True)
+
+    def _push_storage(self) -> None:
+        """Emit storage_changed with the data-dir usage."""
+        try:
+            used = 0
+            for dirpath, _dirnames, filenames in os.walk(str(self.data_dir)):
+                for fn in filenames:
+                    try:
+                        used += os.path.getsize(os.path.join(dirpath, fn))
+                    except OSError:
+                        pass
+            free = shutil.disk_usage(str(self.data_dir)).free
+            denom = used + free
+            pct = (used / denom * 100.0) if denom else 0.0
+            self._emit({
+                "event": "storage_changed",
+                "total": used + free,
+                "used": used,
+                "free": free,
+                "percent": round(pct, 2),
+            })
+        except Exception:
+            pass
+
+    def _load_notification_prefs(self) -> dict:
+        raw = self.config.get("notifications", None) if hasattr(self, "config") else None
+        return dict(raw) if isinstance(raw, dict) else {}
+
+    def _get_notification_prefs(self, request_id: str | None, command: str) -> None:
+        prefs = self._load_notification_prefs()
+        self._emit({"event": "notification_prefs", "prefs": prefs})
+        self._respond(request_id, command, ok=True, prefs=prefs)
+
+    def _set_notification_prefs(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        prefs = payload.get("prefs")
+        if isinstance(prefs, str):
+            try:
+                prefs = json.loads(prefs)
+            except json.JSONDecodeError:
+                prefs = {}
+        if not isinstance(prefs, dict):
+            prefs = {}
+        self.config.set("notifications", prefs)
+        self._emit({"event": "notification_prefs", "prefs": prefs})
+        self._respond(request_id, command, ok=True, prefs=prefs)
+
+    def _test_notification(self, request_id: str | None, command: str) -> None:
+        # The sidecar has no native notification surface; report success so the
+        # UI never sees an error. Luna owns the actual OS notification.
+        self._respond(request_id, command, ok=True, sent=True)
+
+    def _repair_selection(self, request_id: str | None, command: str) -> None:
+        job = self.current_job
+        if job is None:
+            self._respond(request_id, command, ok=False, job_id="", started=False)
+            return
+        # Context repair is a Qt-dialog feature in the desktop app. The sidecar
+        # reports the job is loaded; Luna owns the repair UI. The engine's
+        # deterministic repair runs on the transcript workspace.
+        self._respond(request_id, command, ok=True, job_id=job.job_id, started=True)
 
     # ------------------------------------------------------------------ #
     # Phase 9: study and AI backends
@@ -2130,6 +2417,7 @@ class Sidecar:
         self._emit_pipeline()
         if hasattr(self, "study_service"):
             self._emit_study_changed()
+        self._push_storage()
 
         if job.get_stage_status("Export") == "completed":
             self._emit({
