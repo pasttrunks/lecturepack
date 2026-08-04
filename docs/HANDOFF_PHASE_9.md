@@ -25,12 +25,13 @@
 
 ## Evidence
 
-- Focused bridge/study/runtime/release tests: `81 passed, 1 skipped` in the
-  final focused batch.
+- Renderer/contract parity repairs are committed as `081cbea`, with the
+  ownership-test stability follow-up `fa58eda`.
+- Focused bridge/study/runtime/release tests: `82 passed, 1 skipped`.
 - Full suite with the disposable legacy onedir fixture:
-  `1172 passed, 3 skipped, 1 warning`.
+  `1173 passed, 3 skipped, 1 warning`.
 - Packaged acceptance result:
-  `C:\LecturePackPhase9Results-luna-beta15-final\acceptance-result.json`
+  `C:\LecturePackPhase9Results-luna-beta15-final3\acceptance-result.json`
   reports `passed: true`, 13 export files, `restore_passed: true`, empty
   renderer/bridge error lists, and `orphan_processes: []`.
 - Packaged URL capability probe: `media_link_support` returned
@@ -47,6 +48,9 @@
   `C:\Users\marsh\Documents\LecturePack-luna-phase9\electron-spike\dist\releases\0.9.0-beta.15\LecturePack-0.9.0-beta.15-Setup.exe`
 - Hashes:
   `C:\Users\marsh\Documents\LecturePack-luna-phase9\electron-spike\dist\releases\0.9.0-beta.15\LecturePack-0.9.0-beta.15-SHA256SUMS.txt`
+
+Portable SHA-256: `4fb94d6966cf9aa934af4fa2ede784f914c92d03f770582b0a7436d862c40fb7`
+Setup SHA-256: `b4a73cbe98480984c1819855c7cc110d10f87d03c866eeca7cff4e921952231b`
 
 ## Remaining gate
 
