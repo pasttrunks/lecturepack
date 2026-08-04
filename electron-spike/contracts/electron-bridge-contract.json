@@ -39,7 +39,7 @@
       ],
       "mapped_to": "",
       "name": "ai_done",
-      "notes": "Study AI streaming events are deferred.",
+      "notes": "Signals the Ask AI stream completed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -50,11 +50,13 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "label",
+        "model"
       ],
       "mapped_to": "",
       "name": "ai_status",
-      "notes": "Study AI events are deferred.",
+      "notes": "Reports the active AI provider label and model.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -65,11 +67,12 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "text"
       ],
       "mapped_to": "",
       "name": "ai_token",
-      "notes": "Study AI streaming events are deferred.",
+      "notes": "Streams accumulated answer text from Ask AI.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -82,14 +85,17 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "ask_ai",
-      "notes": "Study AI is deferred; beyond Phase 8 core.",
+      "notes": "Streams an answer via ai_token then ai_done; built-in extractive fallback when no local model.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "prompt"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -133,12 +139,15 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "browse_model",
-      "notes": "Model path browsing is deferred.",
+      "notes": "Electron main opens a model file dialog and forwards the selection; emits settings_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "path"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -164,12 +173,15 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "cancel_cuda_pack",
-      "notes": "GPU/CUDA installer management is deferred.",
+      "notes": "Cancels an in-flight CUDA-pack download.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "cancelled"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -177,12 +189,15 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "cancel_flashcards",
-      "notes": "Study AI (flashcards) is deferred.",
+      "notes": "Cancels an in-flight flashcard generation; emits flashcards_status cancelled.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "cancelled"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -212,12 +227,15 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "cancel_media_url",
-      "notes": "URL/Paste Link import is deferred.",
+      "notes": "Cancels an in-flight link download and cleans partial files.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "cancelled"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -225,12 +243,15 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "cancel_quiz",
-      "notes": "Study AI (quiz) is deferred.",
+      "notes": "Cancels an in-flight quiz generation; emits quiz_status cancelled.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "cancelled"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -238,12 +259,15 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "cancel_smart_study",
-      "notes": "Ollama/smart study is deferred.",
+      "notes": "Cancels an in-flight Smart Study setup.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "cancelled"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -288,11 +312,17 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "state",
+        "message",
+        "percent",
+        "gpu_present",
+        "installed",
+        "size_label"
       ],
       "mapped_to": "",
       "name": "cuda_pack",
-      "notes": "GPU/CUDA installer events are deferred.",
+      "notes": "CUDA-pack install progress/state events.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -305,22 +335,38 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "cuda_pack_status",
-      "notes": "GPU/CUDA installer management is deferred.",
+      "notes": "Emits CUDA-pack install/availability state via cuda_pack.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "state",
+        "gpu_present",
+        "installed",
+        "size_label"
+      ],
       "status": "DEFERRED"
     },
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "state",
+        "message",
+        "available",
+        "selected",
+        "reason",
+        "requested",
+        "resolved_backend",
+        "resolved_label",
+        "benchmark_ok",
+        "exe"
       ],
       "mapped_to": "",
       "name": "cuda_status",
-      "notes": "GPU/CUDA events are deferred.",
+      "notes": "CUDA (NVIDIA GPU) backend availability and selection report.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -333,14 +379,20 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "delete_job",
-      "notes": "Job deletion is deferred; intercepted as a noop.",
+      "notes": "Deletes one job safely (recycle-bin first); emits job_deleted and refreshes jobs_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "job_id"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "id",
+        "freed",
+        "method",
+        "error"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -348,14 +400,22 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "delete_jobs",
-      "notes": "Bulk job deletion is deferred; intercepted as a noop.",
+      "notes": "Bulk delete from Home multi-select; one job_deleted summary and one jobs_changed refresh.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "ids"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "bulk",
+        "count",
+        "ids",
+        "failed",
+        "freed",
+        "error"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -376,11 +436,14 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "bundle",
+        "job_id",
+        "type"
       ],
       "mapped_to": "",
       "name": "diagnostics",
-      "notes": "Diagnostics events are deferred.",
+      "notes": "Carries a redacted diagnostics bundle or runtime-fallback notice.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -406,14 +469,18 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "enqueue_job",
-      "notes": "Queue management is deferred.",
+      "notes": "Adds a job to the FIFO processing queue; emits queue_changed and jobs_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "job_id"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "position",
+        "job_id"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -567,11 +634,16 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "cards",
+        "provider",
+        "model",
+        "meta",
+        "session"
       ],
       "mapped_to": "",
       "name": "flashcards_changed",
-      "notes": "Study AI events are deferred.",
+      "notes": "Carries the generated flashcards and their provider metadata.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -582,11 +654,13 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "state",
+        "message"
       ],
       "mapped_to": "",
       "name": "flashcards_status",
-      "notes": "Study AI events are deferred.",
+      "notes": "Reports flashcard generation state (generating/ready/error/cancelled).",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -599,12 +673,20 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "generate_flashcards",
-      "notes": "Study AI (flashcards) is deferred.",
+      "notes": "Generates flashcards (AI or fallback); emits flashcards_changed/status.",
       "phase8": "",
       "production_core": false,
-      "request_fields": [],
+      "request_fields": [
+        "count",
+        "difficulty",
+        "style",
+        "scope"
+      ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -612,12 +694,20 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "generate_quiz",
-      "notes": "Study AI (quiz) is deferred.",
+      "notes": "Generates a quiz (AI or deterministic fallback); emits quiz_changed/quiz_status.",
       "phase8": "",
       "production_core": false,
-      "request_fields": [],
+      "request_fields": [
+        "count",
+        "difficulty",
+        "type",
+        "scope"
+      ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -665,12 +755,15 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "get_notification_prefs",
-      "notes": "Notifications are deferred.",
+      "notes": "Emits notification_prefs with the persisted toggles.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "prefs"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -746,11 +839,15 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "has_key",
+        "testing",
+        "backend",
+        "message"
       ],
       "mapped_to": "",
       "name": "groq_status",
-      "notes": "Groq events are deferred.",
+      "notes": "Groq credential state; never contains the key itself.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -784,7 +881,7 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "import_media_url",
-      "notes": "URL/Paste Link import is deferred.",
+      "notes": "Downloads a link then hands the file to the normal import path; emits media_progress/media_done.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
@@ -792,7 +889,14 @@
         "title"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id",
+        "path",
+        "name",
+        "cancelled",
+        "error"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -826,12 +930,15 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "install_cuda_pack",
-      "notes": "GPU/CUDA installer management is deferred.",
+      "notes": "Downloads + verifies + installs the optional CUDA acceleration pack; emits cuda_pack progress. Requires explicit frontend command.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "started"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -852,14 +959,17 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "install_smart_study",
-      "notes": "Ollama/smart study is deferred.",
+      "notes": "One-action Smart Study setup: ensure the preset's model, test it, persist; emits smart_study progress.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "preset"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "preset"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -896,11 +1006,19 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "ok",
+        "id",
+        "freed",
+        "method",
+        "bulk",
+        "count",
+        "ids",
+        "failed"
       ],
       "mapped_to": "",
       "name": "job_deleted",
-      "notes": "Job deletion events are deferred.",
+      "notes": "Reports a single or bulk delete result; the UI refreshes from jobs_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -929,12 +1047,14 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "launch_ollama_installer",
-      "notes": "Ollama installer is deferred.",
+      "notes": "Opens the official Ollama download page; never downloads/executes the installer itself.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -961,12 +1081,18 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "list_ollama_models",
-      "notes": "Ollama is deferred; intercepted as a noop.",
+      "notes": "Fetches installed Ollama models (/api/tags) and emits ollama_models.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "models",
+        "selected",
+        "available",
+        "error"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1006,11 +1132,16 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "ok",
+        "path",
+        "name",
+        "cancelled",
+        "error"
       ],
       "mapped_to": "",
       "name": "media_done",
-      "notes": "URL/Paste Link events are deferred.",
+      "notes": "Terminal outcome of a link download; ok:true hands off to import_video.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1021,11 +1152,13 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "available",
+        "version"
       ],
       "mapped_to": "",
       "name": "media_link_state",
-      "notes": "URL/Paste Link events are deferred.",
+      "notes": "Capability report for the Paste Link entry point.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1038,22 +1171,34 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "media_link_support",
-      "notes": "URL/Paste Link capability probe is deferred and intercepted as a noop.",
+      "notes": "Reports whether link import is available in this build; also emits media_link_state.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "available",
+        "version"
+      ],
       "status": "DEFERRED"
     },
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "ok",
+        "title",
+        "duration",
+        "uploader",
+        "extractor",
+        "is_live",
+        "webpage_url",
+        "error"
       ],
       "mapped_to": "",
       "name": "media_probe",
-      "notes": "URL/Paste Link events are deferred.",
+      "notes": "Probe result for a pasted link (title/duration/uploader).",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1064,11 +1209,17 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "status",
+        "pct",
+        "downloaded",
+        "total",
+        "speed",
+        "eta"
       ],
       "mapped_to": "",
       "name": "media_progress",
-      "notes": "URL/Paste Link events are deferred.",
+      "notes": "Coalesced download progress for a link import.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1094,11 +1245,12 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "prefs"
       ],
       "mapped_to": "",
       "name": "notification_prefs",
-      "notes": "Notification events are deferred.",
+      "notes": "Persisted notification preference toggles.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1109,11 +1261,15 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "models",
+        "selected",
+        "available",
+        "error"
       ],
       "mapped_to": "",
       "name": "ollama_models",
-      "notes": "Ollama events are deferred.",
+      "notes": "Installed Ollama models for the Settings model picker.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1220,22 +1376,28 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "pause_job",
-      "notes": "Pause is deferred; intercepted as a noop.",
+      "notes": "Cooperatively pauses the active job; emits pause_state and jobs_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id",
+        "paused"
+      ],
       "status": "DEFERRED"
     },
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "state",
+        "job"
       ],
       "mapped_to": "",
       "name": "pause_state",
-      "notes": "Pause events are deferred.",
+      "notes": "Reports the cooperative pause state of the active job.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1282,24 +1444,36 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "probe_media_url",
-      "notes": "URL/Paste Link import is deferred, not required by Phase 8.",
+      "notes": "Resolves a link's metadata without downloading; also emits media_probe.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "url"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "title",
+        "duration",
+        "uploader",
+        "extractor",
+        "is_live",
+        "webpage_url",
+        "error"
+      ],
       "status": "DEFERRED"
     },
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "active",
+        "queue",
+        "schedules"
       ],
       "mapped_to": "",
       "name": "queue_changed",
-      "notes": "Queue events are deferred.",
+      "notes": "Carries the queue rows, active slot, and schedules after any queue mutation.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1310,11 +1484,16 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "questions",
+        "provider",
+        "model",
+        "meta",
+        "session"
       ],
       "mapped_to": "",
       "name": "quiz_changed",
-      "notes": "Study AI events are deferred.",
+      "notes": "Carries the generated quiz and its provider metadata.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1325,11 +1504,13 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "state",
+        "message"
       ],
       "mapped_to": "",
       "name": "quiz_status",
-      "notes": "Study AI events are deferred.",
+      "notes": "Reports quiz generation state (generating/ready/error/cancelled).",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1360,14 +1541,17 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "remove_from_queue",
-      "notes": "Queue management is deferred.",
+      "notes": "Removes a job from the queue/schedule; emits queue_changed and jobs_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "job_id"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1375,12 +1559,15 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "remove_groq_key",
-      "notes": "Groq is deferred.",
+      "notes": "Removes the stored Groq API key; emits groq_status.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "removed"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1388,7 +1575,7 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "reorder_queue",
-      "notes": "Queue management is deferred.",
+      "notes": "Moves a queued job to a new position; emits queue_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
@@ -1396,17 +1583,24 @@
         "index"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id",
+        "index"
+      ],
       "status": "DEFERRED"
     },
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "operation_id",
+        "kind",
+        "detail"
       ],
       "mapped_to": "",
       "name": "repair_event",
-      "notes": "Context repair events are deferred.",
+      "notes": "Runtime repair lifecycle events (metadata_ready/failed/cancelled/admitted).",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1419,12 +1613,16 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "repair_selection",
-      "notes": "Context repair is deferred.",
+      "notes": "Runs the engine's context-repair on the selected transcript segments.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id",
+        "started"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1432,14 +1630,18 @@
       "event_fields": [],
       "mapped_to": "start_job",
       "name": "restart_job",
-      "notes": "Restart maps to start_job but is deferred as a distinct operation for Phase 8.",
+      "notes": "Restarts an interrupted job from the beginning; emits jobs_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "job_id"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id",
+        "started"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1447,14 +1649,18 @@
       "event_fields": [],
       "mapped_to": "start_job",
       "name": "resume_job",
-      "notes": "Resume maps to start_job but is deferred as a distinct queue operation for Phase 8.",
+      "notes": "Resumes a paused/interrupted job from its checkpoint; emits jobs_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "job_id"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id",
+        "started"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1462,7 +1668,7 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "retry_stage",
-      "notes": "Processing retry controls are deferred.",
+      "notes": "Retries a single failed stage, preserving completed upstream work.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
@@ -1470,7 +1676,12 @@
         "stage"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id",
+        "stage",
+        "started"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1478,14 +1689,17 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "run_diagnostics",
-      "notes": "Diagnostics are deferred.",
+      "notes": "Emits a redacted diagnostics bundle for a job via the diagnostics event.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "job_id"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1493,14 +1707,17 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "run_now",
-      "notes": "Queue management is deferred.",
+      "notes": "Jumps a queued job to the front of the queue; emits queue_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "job_id"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1531,12 +1748,18 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "save_flashcard_session",
-      "notes": "Study AI (flashcards) is deferred.",
+      "notes": "Persists flashcard session state (known/unsure/index) in study data.",
       "phase8": "",
       "production_core": false,
-      "request_fields": [],
+      "request_fields": [
+        "session"
+      ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id",
+        "saved"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1544,14 +1767,18 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "save_notes",
-      "notes": "Study workspace notes are deferred.",
+      "notes": "Persists the user's free-text notes for the current job.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "text"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id",
+        "saved"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1572,12 +1799,18 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "save_quiz_session",
-      "notes": "Study AI (quiz) is deferred.",
+      "notes": "Persists quiz session state (answers/score/index) in study data.",
       "phase8": "",
       "production_core": false,
-      "request_fields": [],
+      "request_fields": [
+        "session"
+      ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id",
+        "saved"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1585,7 +1818,7 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "schedule_job",
-      "notes": "Queue/scheduling is deferred.",
+      "notes": "Schedules a job for a future time; emits queue_changed and jobs_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
@@ -1595,7 +1828,10 @@
         "missed_policy"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1618,14 +1854,17 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "set_groq_key",
-      "notes": "Groq is deferred.",
+      "notes": "Stores the Groq API key in the OS credential manager; emits groq_status. Key never logged.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "key"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "stored"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1633,7 +1872,7 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "set_job_group",
-      "notes": "Job grouping is deferred; intercepted as a noop.",
+      "notes": "Sets/clears a job's course/subject group (persisted in its manifest); refreshes jobs_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
@@ -1641,7 +1880,11 @@
         "group"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id",
+        "group"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1649,7 +1892,7 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "set_jobs_group",
-      "notes": "Bulk job grouping is deferred; intercepted as a noop.",
+      "notes": "Groups several jobs at once; one jobs_changed refresh for the batch.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
@@ -1657,7 +1900,11 @@
         "group"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "count",
+        "group"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1665,12 +1912,17 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "set_notification_prefs",
-      "notes": "Notifications are deferred.",
+      "notes": "Persists notification toggles; emits notification_prefs.",
       "phase8": "",
       "production_core": false,
-      "request_fields": [],
+      "request_fields": [
+        "prefs"
+      ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "prefs"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1727,14 +1979,18 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "set_study_preset",
-      "notes": "Ollama/smart study is deferred.",
+      "notes": "Persists the chosen Smart Study preset + its model; emits settings_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "preset"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "preset",
+        "model"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1763,7 +2019,7 @@
       ],
       "mapped_to": "settings_changed",
       "name": "settings_changed",
-      "notes": "Emitted after a set_setting call; there is no initial full-settings push (get_settings is a noop).",
+      "notes": "Emitted after a set_setting call; carries the applied key/value.",
       "phase8": "processing-option selection",
       "production_core": true,
       "request_fields": [],
@@ -1824,11 +2080,24 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "state",
+        "message",
+        "percent",
+        "ram_gb",
+        "recommendation",
+        "presets",
+        "preset",
+        "model",
+        "enabled",
+        "ready",
+        "ollama",
+        "installed_models",
+        "provider"
       ],
       "mapped_to": "",
       "name": "smart_study",
-      "notes": "Ollama/smart study events are deferred.",
+      "notes": "Full Smart Study snapshot: presets, RAM recommendation, provider, Ollama availability.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1841,12 +2110,14 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "smart_study_status",
-      "notes": "Ollama/smart study is deferred; intercepted as a noop.",
+      "notes": "Probes Ollama + installed models and emits a full smart_study snapshot.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1924,11 +2195,15 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "total",
+        "used",
+        "free",
+        "percent"
       ],
       "mapped_to": "",
       "name": "storage_changed",
-      "notes": "Storage measurement events are deferred; the sidebar storage widget remains hidden.",
+      "notes": "Disk usage of the data dir; the sidebar storage widget stays hidden until this arrives.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1939,11 +2214,21 @@
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "topics",
+        "topicBlocks",
+        "topicLabels",
+        "keyTerms",
+        "summary",
+        "summarySource",
+        "bookmarks",
+        "stats",
+        "cards",
+        "notes"
       ],
       "mapped_to": "",
       "name": "study_changed",
-      "notes": "Study workspace events are deferred.",
+      "notes": "Carries the Study workspace overview payload.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -1956,12 +2241,18 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "test_endpoint",
-      "notes": "Model endpoint probe is deferred.",
+      "notes": "Pings the local AI endpoint; emits ai_status.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "available",
+        "label",
+        "model",
+        "error"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1969,12 +2260,16 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "test_groq_key",
-      "notes": "Groq is deferred.",
+      "notes": "Verifies the stored Groq key against the provider; emits groq_status.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "valid",
+        "message"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -1982,12 +2277,15 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "test_notification",
-      "notes": "Notifications are deferred.",
+      "notes": "Fires a one-off test notification.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "sent"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -2026,14 +2324,17 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "unschedule_job",
-      "notes": "Queue/scheduling is deferred.",
+      "notes": "Removes a job's schedule; emits queue_changed.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
         "job_id"
       ],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "job_id"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -2116,12 +2417,23 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "validate_cuda",
-      "notes": "Backend admission / GPU validation is deferred.",
+      "notes": "Reports the honest CUDA (NVIDIA GPU) backend state via the registry; emits cuda_status.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "state",
+        "available",
+        "selected",
+        "reason",
+        "requested",
+        "resolved_backend",
+        "resolved_label",
+        "benchmark_ok",
+        "exe"
+      ],
       "status": "DEFERRED"
     },
     {
@@ -2129,22 +2441,43 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "validate_vulkan",
-      "notes": "Backend admission / GPU validation is deferred.",
+      "notes": "Reports the honest Vulkan/compute-backend state via the engine registry; emits vulkan_status.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
+      "response_fields": [
+        "ok",
+        "state",
+        "available",
+        "selected",
+        "reason",
+        "requested",
+        "resolved_backend",
+        "resolved_label",
+        "benchmark_ok",
+        "exe"
+      ],
       "status": "DEFERRED"
     },
     {
       "direction": "event",
       "event_fields": [
-        "event"
+        "event",
+        "state",
+        "message",
+        "available",
+        "selected",
+        "reason",
+        "requested",
+        "resolved_backend",
+        "resolved_label",
+        "benchmark_ok",
+        "exe"
       ],
       "mapped_to": "",
       "name": "vulkan_status",
-      "notes": "GPU/Vulkan events are deferred.",
+      "notes": "Vulkan/compute-backend availability and selection report.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
@@ -2173,6 +2506,204 @@
       "mapped_to": "",
       "name": "whatsnew_seen",
       "notes": "Updater/whats-new is deferred.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "rename_job",
+      "notes": "Renames a job (persisted in its manifest); refreshes jobs_changed and active_job.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [
+        "job_id",
+        "title"
+      ],
+      "request_id_required": false,
+      "response_fields": [
+        "ok",
+        "job_id",
+        "title",
+        "job"
+      ],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "get_settings",
+      "notes": "Returns the full persisted settings snapshot; the UI relies on defaults when absent.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [
+        "ok",
+        "settings"
+      ],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job_id",
+        "position"
+      ],
+      "mapped_to": "",
+      "name": "job_queued",
+      "notes": "Emitted when a job enters the processing queue.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job_id"
+      ],
+      "mapped_to": "",
+      "name": "job_started",
+      "notes": "Emitted when a job begins processing.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job_id",
+        "stage",
+        "error"
+      ],
+      "mapped_to": "",
+      "name": "job_failed",
+      "notes": "Emitted when a job fails; carries the failed stage and sanitized error.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job_id"
+      ],
+      "mapped_to": "",
+      "name": "job_cancelled",
+      "notes": "Emitted when a job is cancelled.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job_id",
+        "pct",
+        "downloaded",
+        "total",
+        "speed",
+        "eta"
+      ],
+      "mapped_to": "",
+      "name": "download_progress",
+      "notes": "Coalesced download progress (link import or CUDA pack).",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job_id",
+        "kind",
+        "pct",
+        "message"
+      ],
+      "mapped_to": "",
+      "name": "study_progress",
+      "notes": "Coalesced study generation progress (quiz/flashcards/smart-study).",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "component",
+        "detail"
+      ],
+      "mapped_to": "",
+      "name": "runtime_missing",
+      "notes": "Emitted when a required runtime component is missing.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "operation_id",
+        "detail"
+      ],
+      "mapped_to": "",
+      "name": "repair_required",
+      "notes": "Emitted when runtime repair is required; the frontend must confirm before any install.",
+      "phase8": "",
+      "production_core": false,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "DEFERRED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "total",
+        "used",
+        "free",
+        "percent",
+        "message"
+      ],
+      "mapped_to": "",
+      "name": "storage_warning",
+      "notes": "Emitted when the data dir crosses a storage warning threshold.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],

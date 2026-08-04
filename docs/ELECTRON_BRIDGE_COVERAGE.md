@@ -1,15 +1,144 @@
 # Electron Bridge Coverage Map
 
 Mapping the historical Qt/QWebChannel frontend bridge to the Electron/Python
-JSONL sidecar for **LecturePack Phase 8**.
+JSONL sidecar for **LecturePack Phase 8** (production core) and **Phase 9**
+(backend feature parity).
 
-- **Branch:** `deepseek/electron-bridge-contract`
-- **Status:** Contract, documentation, regression tests, and the four narrow
-  Phase 8 production-seam reconciliations are covered here.
+- **Branch:** `deepseek/phase9-backend-parity`
+- **Status:** Phase 8 production core is implemented and reconciled. Phase 9
+  locks the final command/event contract (names + payloads) so Luna can build
+  the Electron UI against it; the backend feature commits implement the
+  operations behind those names.
 - **Machine-readable contract:** [`electron-spike/contracts/electron-bridge-contract.json`](../electron-spike/contracts/electron-bridge-contract.json)
 - **Regression tests:** [`tests/test_electron_bridge_contract.py`](../tests/test_electron_bridge_contract.py)
 - Related: [`ELECTRON_MIGRATION_VERTICAL_SLICE.md`](ELECTRON_MIGRATION_VERTICAL_SLICE.md),
-  [`HANDOFF_PHASE_7.md`](HANDOFF_PHASE_7.md)
+  [`HANDOFF_PHASE_7.md`](HANDOFF_PHASE_7.md),
+  [`HANDOFF_PHASE_8.md`](HANDOFF_PHASE_8.md)
+
+---
+
+## PHASE 9 CONTRACT LOCK
+
+The Phase 9 contract is locked in
+`electron-spike/contracts/electron-bridge-contract.json`. Every operation below
+has its **final** command/event name and payload shape defined. Operations stay
+`DEFERRED` until the backend feature commits implement them; each feature commit
+flips the affected operations to `IMPLEMENTED` (and `production_core: true`).
+
+### Feature Group 1 — Job management and queue
+
+| Operation | Direction | Request / event fields |
+| --- | --- | --- |
+| `delete_job` | cmd | `{job_id}` → `{ok, id, freed, method, error}` |
+| `delete_jobs` | cmd | `{ids}` → `{ok, bulk, count, ids, failed, freed, error}` |
+| `enqueue_job` | cmd | `{job_id}` → `{ok, position, job_id}` |
+| `reorder_queue` | cmd | `{job_id, index}` → `{ok, job_id, index}` |
+| `run_now` | cmd | `{job_id}` → `{ok, job_id}` |
+| `remove_from_queue` | cmd | `{job_id}` → `{ok, job_id}` |
+| `schedule_job` | cmd | `{job_id, when, tz, missed_policy}` → `{ok, job_id}` |
+| `unschedule_job` | cmd | `{job_id}` → `{ok, job_id}` |
+| `pause_job` | cmd | `{}` → `{ok, job_id, paused}` |
+| `resume_job` | cmd | `{job_id}` → `{ok, job_id, started}` |
+| `restart_job` | cmd | `{job_id}` → `{ok, job_id, started}` |
+| `retry_stage` | cmd | `{job_id, stage}` → `{ok, job_id, stage, started}` |
+| `set_job_group` | cmd | `{job_id, group}` → `{ok, job_id, group}` |
+| `set_jobs_group` | cmd | `{ids, group}` → `{ok, count, group}` |
+| `rename_job` | cmd | `{job_id, title}` → `{ok, job_id, title, job}` |
+| `queue_changed` | evt | `{event, active, queue, schedules}` |
+| `job_deleted` | evt | `{event, ok, id, freed, method, bulk, count, ids, failed}` |
+| `pause_state` | evt | `{event, state, job}` |
+
+### Feature Group 2 — Paste link / yt-dlp
+
+| Operation | Direction | Request / event fields |
+| --- | --- | --- |
+| `media_link_support` | cmd | `{}` → `{ok, available, version}` |
+| `probe_media_url` | cmd | `{url}` → `{ok, title, duration, uploader, extractor, is_live, webpage_url, error}` |
+| `import_media_url` | cmd | `{url, title}` → `{ok, job_id, path, name, cancelled, error}` |
+| `cancel_media_url` | cmd | `{}` → `{ok, cancelled}` |
+| `media_link_state` | evt | `{event, available, version}` |
+| `media_probe` | evt | `{event, ok, title, duration, uploader, extractor, is_live, webpage_url, error}` |
+| `media_progress` | evt | `{event, status, pct, downloaded, total, speed, eta}` |
+| `media_done` | evt | `{event, ok, path, name, cancelled, error}` |
+
+### Feature Group 3 — Settings and processing options
+
+| Operation | Direction | Request / event fields |
+| --- | --- | --- |
+| `browse_model` | cmd | `{}` → `{ok, path}` (Electron main opens dialog) |
+| `test_endpoint` | cmd | `{}` → `{ok, available, label, model, error}` |
+| `get_settings` | cmd | `{}` → `{ok, settings}` |
+| `settings_changed` | evt | `{event, job, key, value, applied}` |
+
+### Feature Group 4 — Study and AI backends
+
+| Operation | Direction | Request / event fields |
+| --- | --- | --- |
+| `ask_ai` | cmd | `{prompt}` → `{ok, job_id}` |
+| `generate_quiz` | cmd | `{count, difficulty, type, scope}` → `{ok, job_id}` |
+| `cancel_quiz` | cmd | `{}` → `{ok, cancelled}` |
+| `save_quiz_session` | cmd | `{session}` → `{ok, job_id, saved}` |
+| `generate_flashcards` | cmd | `{count, difficulty, style, scope}` → `{ok, job_id}` |
+| `cancel_flashcards` | cmd | `{}` → `{ok, cancelled}` |
+| `save_flashcard_session` | cmd | `{session}` → `{ok, job_id, saved}` |
+| `save_notes` | cmd | `{text}` → `{ok, job_id, saved}` |
+| `smart_study_status` | cmd | `{}` → `{ok}` |
+| `set_study_preset` | cmd | `{preset}` → `{ok, preset, model}` |
+| `install_smart_study` | cmd | `{preset}` → `{ok, preset}` |
+| `cancel_smart_study` | cmd | `{}` → `{ok, cancelled}` |
+| `launch_ollama_installer` | cmd | `{}` → `{ok}` |
+| `list_ollama_models` | cmd | `{}` → `{ok, models, selected, available, error}` |
+| `set_groq_key` | cmd | `{key}` → `{ok, stored}` (key never logged) |
+| `remove_groq_key` | cmd | `{}` → `{ok, removed}` |
+| `test_groq_key` | cmd | `{}` → `{ok, valid, message}` |
+| `ai_token` | evt | `{event, text}` |
+| `ai_done` | evt | `{event}` |
+| `ai_status` | evt | `{event, label, model}` |
+| `quiz_changed` | evt | `{event, questions, provider, model, meta, session}` |
+| `quiz_status` | evt | `{event, state, message}` |
+| `flashcards_changed` | evt | `{event, cards, provider, model, meta, session}` |
+| `flashcards_status` | evt | `{event, state, message}` |
+| `smart_study` | evt | `{event, state, message, percent, ram_gb, recommendation, presets, preset, model, enabled, ready, ollama, installed_models, provider}` |
+| `ollama_models` | evt | `{event, models, selected, available, error}` |
+| `groq_status` | evt | `{event, has_key, testing, backend, message}` |
+| `study_changed` | evt | `{event, topics, topicBlocks, topicLabels, keyTerms, summary, summarySource, bookmarks, stats, cards, notes}` |
+
+### Feature Group 5 — Runtime, GPU, diagnostics, repair, storage
+
+| Operation | Direction | Request / event fields |
+| --- | --- | --- |
+| `run_diagnostics` | cmd | `{job_id}` → `{ok, job_id}` |
+| `validate_vulkan` | cmd | `{}` → `{ok, state, available, selected, reason, requested, resolved_backend, resolved_label, benchmark_ok, exe}` |
+| `validate_cuda` | cmd | `{}` → `{ok, state, available, selected, reason, requested, resolved_backend, resolved_label, benchmark_ok, exe}` |
+| `cuda_pack_status` | cmd | `{}` → `{ok, state, gpu_present, installed, size_label}` |
+| `install_cuda_pack` | cmd | `{}` → `{ok, started}` (explicit frontend command required) |
+| `cancel_cuda_pack` | cmd | `{}` → `{ok, cancelled}` |
+| `get_notification_prefs` | cmd | `{}` → `{ok, prefs}` |
+| `set_notification_prefs` | cmd | `{prefs}` → `{ok, prefs}` |
+| `test_notification` | cmd | `{}` → `{ok, sent}` |
+| `repair_selection` | cmd | `{}` → `{ok, job_id, started}` |
+| `diagnostics` | evt | `{event, bundle, job_id, type}` |
+| `vulkan_status` | evt | `{event, state, message, available, selected, reason, requested, resolved_backend, resolved_label, benchmark_ok, exe}` |
+| `cuda_status` | evt | `{event, state, message, available, selected, reason, requested, resolved_backend, resolved_label, benchmark_ok, exe}` |
+| `cuda_pack` | evt | `{event, state, message, percent, gpu_present, installed, size_label}` |
+| `notification_prefs` | evt | `{event, prefs}` |
+| `repair_event` | evt | `{event, operation_id, kind, detail}` |
+| `storage_changed` | evt | `{event, total, used, free, percent}` |
+
+### Feature Group 6 — Backend notifications and events
+
+| Operation | Direction | Event fields |
+| --- | --- | --- |
+| `job_queued` | evt | `{event, job_id, position}` |
+| `job_started` | evt | `{event, job_id}` |
+| `job_failed` | evt | `{event, job_id, stage, error}` |
+| `job_cancelled` | evt | `{event, job_id}` |
+| `download_progress` | evt | `{event, job_id, pct, downloaded, total, speed, eta}` |
+| `export_progress` | evt | `{event, job, pct, label}` |
+| `study_progress` | evt | `{event, job_id, kind, pct, message}` |
+| `runtime_missing` | evt | `{event, component, detail}` |
+| `repair_required` | evt | `{event, operation_id, detail}` |
+| `storage_warning` | evt | `{event, total, used, free, percent, message}` |
 
 ---
 
