@@ -41,11 +41,11 @@
       "name": "ai_done",
       "notes": "Signals the Ask AI stream completed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -58,11 +58,11 @@
       "name": "ai_status",
       "notes": "Reports the active AI provider label and model.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -74,11 +74,11 @@
       "name": "ai_token",
       "notes": "Streams accumulated answer text from Ask AI.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -87,16 +87,16 @@
       "name": "ask_ai",
       "notes": "Streams an answer via ai_token then ai_done; built-in extractive fallback when no local model.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "prompt"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -191,14 +191,14 @@
       "name": "cancel_flashcards",
       "notes": "Cancels an in-flight flashcard generation; emits flashcards_status cancelled.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "cancelled"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -245,14 +245,14 @@
       "name": "cancel_quiz",
       "notes": "Cancels an in-flight quiz generation; emits quiz_status cancelled.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "cancelled"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -261,14 +261,14 @@
       "name": "cancel_smart_study",
       "notes": "Cancels an in-flight Smart Study setup.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "cancelled"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -645,11 +645,11 @@
       "name": "flashcards_changed",
       "notes": "Carries the generated flashcards and their provider metadata.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -662,11 +662,11 @@
       "name": "flashcards_status",
       "notes": "Reports flashcard generation state (generating/ready/error/cancelled).",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -675,19 +675,19 @@
       "name": "generate_flashcards",
       "notes": "Generates flashcards (AI or fallback); emits flashcards_changed/status.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "count",
         "difficulty",
         "style",
         "scope"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -696,19 +696,19 @@
       "name": "generate_quiz",
       "notes": "Generates a quiz (AI or deterministic fallback); emits quiz_changed/quiz_status.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "count",
         "difficulty",
         "type",
         "scope"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -849,11 +849,11 @@
       "name": "groq_status",
       "notes": "Groq credential state; never contains the key itself.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -961,16 +961,16 @@
       "name": "install_smart_study",
       "notes": "One-action Smart Study setup: ensure the preset's model, test it, persist; emits smart_study progress.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "preset"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "preset"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1049,13 +1049,13 @@
       "name": "launch_ollama_installer",
       "notes": "Opens the official Ollama download page; never downloads/executes the installer itself.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1083,9 +1083,9 @@
       "name": "list_ollama_models",
       "notes": "Fetches installed Ollama models (/api/tags) and emits ollama_models.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "models",
@@ -1093,7 +1093,7 @@
         "available",
         "error"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1271,11 +1271,11 @@
       "name": "ollama_models",
       "notes": "Installed Ollama models for the Settings model picker.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1495,11 +1495,11 @@
       "name": "quiz_changed",
       "notes": "Carries the generated quiz and its provider metadata.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1512,11 +1512,11 @@
       "name": "quiz_status",
       "notes": "Reports quiz generation state (generating/ready/error/cancelled).",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1561,14 +1561,14 @@
       "name": "remove_groq_key",
       "notes": "Removes the stored Groq API key; emits groq_status.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "removed"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1750,17 +1750,17 @@
       "name": "save_flashcard_session",
       "notes": "Persists flashcard session state (known/unsure/index) in study data.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "session"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
         "saved"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1769,17 +1769,17 @@
       "name": "save_notes",
       "notes": "Persists the user's free-text notes for the current job.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "text"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
         "saved"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1801,17 +1801,17 @@
       "name": "save_quiz_session",
       "notes": "Persists quiz session state (answers/score/index) in study data.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "session"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "job_id",
         "saved"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1856,16 +1856,16 @@
       "name": "set_groq_key",
       "notes": "Stores the Groq API key in the OS credential manager; emits groq_status. Key never logged.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "key"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "stored"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -1981,17 +1981,17 @@
       "name": "set_study_preset",
       "notes": "Persists the chosen Smart Study preset + its model; emits settings_changed.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [
         "preset"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "preset",
         "model"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2099,11 +2099,11 @@
       "name": "smart_study",
       "notes": "Full Smart Study snapshot: presets, RAM recommendation, provider, Ollama availability.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2112,13 +2112,13 @@
       "name": "smart_study_status",
       "notes": "Probes Ollama + installed models and emits a full smart_study snapshot.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2230,11 +2230,11 @@
       "name": "study_changed",
       "notes": "Carries the Study workspace overview payload.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2243,9 +2243,9 @@
       "name": "test_endpoint",
       "notes": "Pings the local AI endpoint; emits ai_status.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "available",
@@ -2253,7 +2253,7 @@
         "model",
         "error"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2262,15 +2262,15 @@
       "name": "test_groq_key",
       "notes": "Verifies the stored Groq key against the provider; emits groq_status.",
       "phase8": "",
-      "production_core": false,
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
         "valid",
         "message"
       ],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",

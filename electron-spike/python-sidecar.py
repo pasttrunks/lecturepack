@@ -215,8 +215,9 @@ class Sidecar:
             from lecturepack.infrastructure.config_manager import ConfigManager
             from lecturepack.infrastructure.file_manager import FileManager
             from lecturepack.models.job import Job
-            from lecturepack import electron_backend
-            from lecturepack.services import media_fetch, transcript_store
+            from lecturepack import electron_backend, electron_study
+            from lecturepack.services import media_fetch, study_service, transcript_store
+            from lecturepack.services import study_presets
             from lecturepack.services.job_queue import JobQueue
 
             self.JobController = JobController
@@ -226,7 +227,10 @@ class Sidecar:
             self.transcript_store = transcript_store
             self.JobQueue = JobQueue
             self.electron_backend = electron_backend
+            self.electron_study = electron_study
             self.media_fetch = media_fetch
+            self.study_service = study_service
+            self.study_presets = study_presets
         except Exception as exc:  # noqa: BLE001 - surfaced through ready/error
             self._engine_error = f"{type(exc).__name__}: {exc}"
 
@@ -499,6 +503,42 @@ class Sidecar:
                 self._cancel_media_url(request_id, command)
             elif command == "get_settings":
                 self._get_settings(request_id, command)
+            elif command == "ask_ai":
+                self._ask_ai(request_id, command, payload)
+            elif command == "generate_quiz":
+                self._generate_quiz(request_id, command, payload)
+            elif command == "cancel_quiz":
+                self._cancel_quiz(request_id, command)
+            elif command == "save_quiz_session":
+                self._save_quiz_session(request_id, command, payload)
+            elif command == "generate_flashcards":
+                self._generate_flashcards(request_id, command, payload)
+            elif command == "cancel_flashcards":
+                self._cancel_flashcards(request_id, command)
+            elif command == "save_flashcard_session":
+                self._save_flashcard_session(request_id, command, payload)
+            elif command == "save_notes":
+                self._save_notes(request_id, command, payload)
+            elif command == "smart_study_status":
+                self._smart_study_status(request_id, command)
+            elif command == "set_study_preset":
+                self._set_study_preset(request_id, command, payload)
+            elif command == "install_smart_study":
+                self._install_smart_study(request_id, command, payload)
+            elif command == "cancel_smart_study":
+                self._cancel_smart_study(request_id, command)
+            elif command == "launch_ollama_installer":
+                self._launch_ollama_installer(request_id, command)
+            elif command == "list_ollama_models":
+                self._list_ollama_models(request_id, command)
+            elif command == "set_groq_key":
+                self._set_groq_key(request_id, command, payload)
+            elif command == "remove_groq_key":
+                self._remove_groq_key(request_id, command)
+            elif command == "test_groq_key":
+                self._test_groq_key(request_id, command)
+            elif command == "test_endpoint":
+                self._test_endpoint(request_id, command)
             elif command == "shutdown":
                 self._respond(request_id, command, shutting_down=True)
                 self._request_shutdown()
@@ -1098,6 +1138,565 @@ class Sidecar:
         self._respond(request_id, command, **result)
 
     # ------------------------------------------------------------------ #
+    # Phase 9: study and AI backends
+    # ------------------------------------------------------------------ #
+    def _ollama_base(self) -> str:
+        return self._ollama_settings().get("base_url") or "http://localhost:11434"
+
+    def _groq_store(self):
+        from lecturepack.infrastructure.secret_store import WindowsCredentialStore
+        return WindowsCredentialStore()
+
+    def _emit_groq_status(self, message: str = "", testing: bool = False) -> None:
+        has = False
+        try:
+            has = self._groq_store().has_secret()
+        except Exception:
+            has = False
+        self._emit({
+            "event": "groq_status",
+            "has_key": bool(has),
+            "testing": bool(testing),
+            "backend": self.config.get("transcription_backend", "local-whispercpp")
+                if hasattr(self, "config") else "local-whispercpp",
+            "message": message or ("API key stored." if has else "No API key stored."),
+        })
+
+    def _set_groq_key(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        key = str(payload.get("key") or "")
+        try:
+            self._groq_store().set(key)
+            self._emit_groq_status("API key saved to Windows Credential Manager.")
+            self._respond(request_id, command, ok=True, stored=True)
+        except Exception as exc:
+            self._emit_groq_status(f"Could not save key: {exc}")
+            self._respond(request_id, command, ok=False, stored=False)
+
+    def _remove_groq_key(self, request_id: str | None, command: str) -> None:
+        try:
+            self._groq_store().remove()
+            self._emit_groq_status("API key removed.")
+            self._respond(request_id, command, ok=True, removed=True)
+        except Exception as exc:
+            self._emit_groq_status(f"Could not remove key: {exc}")
+            self._respond(request_id, command, ok=False, removed=False)
+
+    def _test_groq_key(self, request_id: str | None, command: str) -> None:
+        self._emit_groq_status("Testing Groq credentials…", testing=True)
+
+        def work():
+            try:
+                from lecturepack.services.groq_transcription import GroqHttpClient
+                key = self._groq_store().get()
+                if not key:
+                    self._emit_groq_status("No API key stored — set one first.")
+                    return
+                ok = GroqHttpClient().test_key(key)
+                self._emit_groq_status(
+                    "Groq credential test passed — account limits and billing still apply."
+                    if ok else "Groq credential test failed — check the key.")
+            except Exception as exc:
+                self._emit_groq_status(f"Groq test failed: {exc}")
+
+        threading.Thread(target=work, daemon=True, name="lp-groq-test").start()
+        self._respond(request_id, command, ok=True)
+
+    def _list_ollama_models(self, request_id: str | None, command: str) -> None:
+        base = self._ollama_base()
+        selected = self._ollama_settings().get("model", "")
+
+        def worker():
+            try:
+                from lecturepack.infrastructure.ollama_client import OllamaClient
+                models = OllamaClient(base).list_models()
+                self._emit({"event": "ollama_models", "models": models,
+                            "selected": selected, "available": True})
+            except Exception as exc:
+                self._emit({"event": "ollama_models", "models": [], "selected": selected,
+                            "available": False, "error": str(exc)})
+
+        threading.Thread(target=worker, daemon=True, name="lp-ollama-models").start()
+        self._respond(request_id, command, ok=True)
+
+    def _smart_study_status(self, request_id: str | None, command: str) -> None:
+        base = self._ollama_base()
+
+        def worker():
+            ollama = {"available": False}
+            installed = []
+            try:
+                from lecturepack.infrastructure.ollama_client import OllamaClient
+                c = OllamaClient(base)
+                ollama = c.is_available()
+                if ollama.get("available"):
+                    installed = [m["name"] for m in c.list_models()]
+            except Exception as exc:
+                ollama = {"available": False, "error": str(exc)}
+            self._emit({"event": "smart_study",
+                        **self.electron_study.smart_study_payload(
+                            self.config, ollama=ollama, installed=installed)})
+
+        threading.Thread(target=worker, daemon=True, name="lp-smart-study").start()
+        self._respond(request_id, command, ok=True)
+
+    def _set_study_preset(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        preset = str(payload.get("preset") or "")
+        o = dict(self._ollama_settings())
+        if preset in (self.study_presets.PRESET_LIGHTWEIGHT, self.study_presets.PRESET_BALANCED):
+            o["model"] = self.study_presets.model_for_preset(preset)
+            o["enabled"] = True
+            self.config.set("study_preset", preset)
+        else:
+            self.config.set("study_preset", self.study_presets.PRESET_CUSTOM)
+        self.config.set("ollama", o)
+        self._emit({"event": "settings_changed", "job": "", **self._settings_payload()})
+        self._respond(request_id, command, ok=True, preset=preset,
+                      model=o.get("model", ""))
+
+    def _cancel_smart_study(self, request_id: str | None, command: str) -> None:
+        ev = getattr(self, "_smart_study_cancel", None)
+        if ev is not None:
+            ev.set()
+        self._respond(request_id, command, ok=True, cancelled=ev is not None)
+
+    def _launch_ollama_installer(self, request_id: str | None, command: str) -> None:
+        import webbrowser
+        try:
+            webbrowser.open(self.study_presets.OLLAMA_DOWNLOAD_URL)
+        except Exception:
+            pass
+        self._respond(request_id, command, ok=True)
+
+    def _install_smart_study(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        preset = str(payload.get("preset") or "")
+        if preset not in (self.study_presets.PRESET_LIGHTWEIGHT, self.study_presets.PRESET_BALANCED):
+            preset = self.study_presets.PRESET_BALANCED
+        label = self.study_presets.STUDY_PRESETS[preset]["label"]
+        model = self.study_presets.model_for_preset(preset)
+        cancel = threading.Event()
+        self._smart_study_cancel = cancel
+        base = self._ollama_base()
+
+        def emit(state: str, message: str = "", pct: float | None = None, **extra: Any) -> None:
+            payload_out = self.electron_study.smart_study_payload(
+                self.config, state=state, message=message, pct=pct)
+            payload_out.update(extra)
+            payload_out["preset"] = preset
+            self._emit({"event": "smart_study", **payload_out})
+
+        def worker():
+            from lecturepack.infrastructure.ollama_client import (
+                OllamaClient, OllamaError, OllamaCancelled)
+            c = OllamaClient(base)
+            if not c.is_available().get("available"):
+                emit("need_engine",
+                     "Local AI Engine (Ollama) isn't installed or running. "
+                     "Install it to enable Smart Study.")
+                return
+            try:
+                installed = [m["name"] for m in c.list_models()]
+            except Exception:
+                installed = []
+            if model not in installed:
+                emit("downloading", f"Downloading {label}…", 0.0)
+                last = {"pct": -5.0}
+
+                def on_prog(p):
+                    if cancel.is_set():
+                        return
+                    pct = p.get("percent")
+                    if pct is None or pct - last["pct"] >= 1.0 or pct >= 100:
+                        last["pct"] = pct if pct is not None else last["pct"]
+                        emit("downloading", f"Downloading {label}…",
+                             round(pct, 1) if pct is not None else None,
+                             status=p.get("status", ""))
+
+                try:
+                    c.pull_model(model, on_progress=on_prog, cancel_event=cancel)
+                except OllamaCancelled:
+                    emit("cancelled", "Smart Study setup cancelled.")
+                    return
+                except OllamaError as exc:
+                    emit("error", f"Download failed: {exc}")
+                    return
+            emit("testing", f"Testing {label}…")
+            try:
+                res = c.chat_structured(
+                    model, "Reply with compact JSON only.", 'Return {"ok": true}.',
+                    {"type": "object", "properties": {"ok": {"type": "boolean"}},
+                     "required": ["ok"]},
+                    num_predict=32, keep_alive="5m", cancel_event=cancel, timeout=90.0)
+                json.loads(res.get("content", "") or "{}")
+            except OllamaCancelled:
+                emit("cancelled", "Smart Study setup cancelled.")
+                return
+            except Exception as exc:
+                emit("error", f"The model downloaded but the test request failed: {exc}")
+                return
+            o = dict(self._ollama_settings())
+            o["model"] = model
+            o["enabled"] = True
+            self.config.set("ollama", o)
+            self.config.set("study_preset", preset)
+            self.config.set("smart_study_ready", True)
+            self._emit({"event": "settings_changed", "job": "", **self._settings_payload()})
+            emit("ready", f"Smart Study ready — {label}.")
+
+        threading.Thread(target=worker, daemon=True, name="lp-smart-study-install").start()
+        self._respond(request_id, command, ok=True, preset=preset)
+
+    def _test_endpoint(self, request_id: str | None, command: str) -> None:
+        base = self._ollama_base()
+        model = self._ollama_settings().get("model", "")
+
+        def worker():
+            try:
+                from lecturepack.infrastructure.ollama_client import OllamaClient
+                probe = OllamaClient(base).is_available()
+                if probe.get("available"):
+                    self._emit({"event": "ai_status",
+                                "label": self.study_presets.PROVIDER_LOCAL, "model": model})
+                    self._respond(request_id, command, ok=True, available=True,
+                                  label=self.study_presets.PROVIDER_LOCAL, model=model)
+                else:
+                    self._emit({"event": "ai_status",
+                                "label": self.study_presets.PROVIDER_BUILTIN, "model": model})
+                    self._respond(request_id, command, ok=True, available=False,
+                                  label=self.study_presets.PROVIDER_BUILTIN, model=model)
+            except Exception as exc:
+                self._respond(request_id, command, ok=False, available=False,
+                              error=str(exc)[:200])
+
+        threading.Thread(target=worker, daemon=True, name="lp-endpoint-test").start()
+
+    def _emit_study_changed(self) -> None:
+        """Emit the study_changed overview payload for the current job."""
+        job = self.current_job
+        if job is None:
+            return
+        try:
+            overview = self.study_service.build_overview(job)
+        except Exception:
+            overview = {}
+        key_terms = overview.get("key_terms", []) or []
+        try:
+            cards = []
+            for card in self.study_service.load_flashcards(job).get("cards") or []:
+                term = card.get("term") or card.get("front") or ""
+                definition = card.get("definition") or card.get("back") or ""
+                if term or definition:
+                    cards.append({"q": term, "a": definition})
+            notes = self.study_service.load_study_data(job).get("notes", "") or ""
+        except Exception:
+            cards = []
+            notes = ""
+        self._emit({
+            "event": "study_changed",
+            "topics": [{"t": "00:00", "title": "Lecture", "active": True}],
+            "topicBlocks": [{"left": 0.5, "width": 99, "active": True}],
+            "topicLabels": ["Lecture"],
+            "keyTerms": key_terms,
+            "summary": overview.get("summary", "") or "",
+            "summarySource": overview.get("summary_source", "") or "",
+            "bookmarks": [],
+            "stats": [
+                ["Slides", str(overview.get("accepted_slide_count", 0))],
+                ["Segments", str(overview.get("transcript_segment_count", 0))],
+                ["Needs review", str(overview.get("needs_review_count", 0))],
+            ],
+            "cards": cards or [{"q": "No flashcards yet",
+                                "a": "Generate flashcards from this lecture."}],
+            "notes": notes,
+        })
+
+    def _ask_ai(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        prompt = str(payload.get("prompt") or "")
+        job = self.current_job
+        if job is None:
+            self._emit({"event": "ai_token",
+                        "text": "Open or process a lecture first, then ask away."})
+            self._emit({"event": "ai_done"})
+            self._respond(request_id, command, ok=True, job_id="")
+            return
+        segments = self.transcript_store.load_working(job.paths) or []
+        o = self._ollama_settings()
+        local_ready = bool(o.get("enabled") and o.get("model"))
+        if not local_ready:
+            answer = self.electron_study.builtin_answer(prompt, segments)
+            self._emit({"event": "ai_token", "text": answer})
+            self._emit({"event": "ai_done"})
+            self._emit({"event": "ai_status",
+                        "label": self.study_presets.PROVIDER_BUILTIN, "model": ""})
+            try:
+                self.study_service.append_chat_message(job, "user", prompt)
+                self.study_service.append_chat_message(job, "assistant", answer)
+            except Exception:
+                pass
+            self._respond(request_id, command, ok=True, job_id=job.job_id)
+            return
+        # Local AI path: use the existing StudyAssistantWorker (Qt thread).
+        from lecturepack.services.study_assistant_service import StudyAssistantWorker
+        transcript_text = StudyAssistantWorker.transcript_context(segments)
+        self._emit({"event": "ai_status", "label": "Thinking…", "model": o.get("model")})
+        worker = StudyAssistantWorker(
+            "chat", transcript_text, o, history=[], question=prompt, count=5)
+        self._ai_worker = worker
+
+        def ok(task, result):
+            answer = (result or {}).get("answer", "") if isinstance(result, dict) else ""
+            answer = answer or "I couldn't find an answer in the transcript."
+            self._emit({"event": "ai_token", "text": answer})
+            self._emit({"event": "ai_done"})
+            self._emit({"event": "ai_status",
+                        "label": self.study_presets.PROVIDER_LOCAL, "model": o.get("model")})
+            try:
+                self.study_service.append_chat_message(job, "user", prompt)
+                self.study_service.append_chat_message(job, "assistant", answer)
+            except Exception:
+                pass
+
+        def fail(kind, message, details):
+            self._emit({"event": "ai_token", "text": f"⚠ {message}"})
+            self._emit({"event": "ai_done"})
+            self._emit({"event": "ai_status", "label": "AI error", "model": o.get("model")})
+
+        worker.finished_ok.connect(ok)
+        worker.failed.connect(fail)
+        worker.start()
+        self._respond(request_id, command, ok=True, job_id=job.job_id)
+
+    def _generate_quiz(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job = self.current_job
+        if job is None:
+            self._emit({"event": "quiz_status", "state": "error",
+                        "message": "Open or process a lecture first."})
+            self._respond(request_id, command, ok=False, job_id="")
+            return
+        try:
+            count = max(1, min(int(payload.get("count") or 5), 50))
+        except (TypeError, ValueError):
+            count = 5
+        meta = {"count": count, "difficulty": payload.get("difficulty", "Mixed"),
+                "type": payload.get("type", "multiple choice"),
+                "scope": payload.get("scope", "entire lecture"),
+                "source": payload.get("source", "transcript")}
+        o = self._ollama_settings()
+        self._emit({"event": "quiz_status", "state": "generating", "message": "Generating quiz…"})
+
+        def deliver(questions, provider, model=""):
+            questions = self.electron_study.normalize_quiz(questions, count)
+            if not questions:
+                self._emit({"event": "quiz_status", "state": "error",
+                            "message": "Couldn't build a quiz for this lecture."})
+                return
+            self._save_quiz(job, questions, meta, provider, model)
+            self._emit({"event": "quiz_changed", "questions": questions,
+                        "provider": provider, "model": model,
+                        "meta": {**meta, "provider": provider, "model": model},
+                        "session": None})
+            self._emit({"event": "quiz_status", "state": "ready",
+                        "message": f"{len(questions)} questions · {provider}"})
+
+        segments = self.transcript_store.load_working(job.paths) or []
+
+        def do_fallback():
+            try:
+                terms = self.study_service.build_overview(job).get("key_terms", []) or []
+            except Exception:
+                terms = []
+            deliver(self.electron_study.generate_quiz_fallback(terms, count, segments),
+                    self.study_presets.PROVIDER_BUILTIN)
+
+        if not (o.get("enabled") and o.get("model")):
+            do_fallback()
+            self._respond(request_id, command, ok=True, job_id=job.job_id)
+            return
+
+        from lecturepack.services.study_assistant_service import StudyAssistantWorker
+        transcript_text = StudyAssistantWorker.transcript_context(segments)
+        worker = StudyAssistantWorker("quiz", transcript_text, o, count=count,
+                                      difficulty=meta["difficulty"], qtype=meta["type"])
+        self._quiz_worker = worker
+
+        def ok(task, result):
+            qs = (result or {}).get("questions") if isinstance(result, dict) else None
+            if qs:
+                deliver(qs, self.study_presets.PROVIDER_LOCAL, o.get("model", ""))
+            else:
+                do_fallback()
+
+        def fail(kind, message, details):
+            do_fallback()
+
+        worker.finished_ok.connect(ok)
+        worker.failed.connect(fail)
+        worker.start()
+        self._respond(request_id, command, ok=True, job_id=job.job_id)
+
+    def _save_quiz(self, job, questions, meta, provider, model, reset_session=True):
+        data = self.study_service.load_study_data(job)
+        prev = data.get("quiz") if isinstance(data.get("quiz"), dict) else {}
+        data["quiz"] = {
+            "questions": questions,
+            "meta": {**meta, "provider": provider, "model": model},
+            "session": {} if reset_session else (prev.get("session") or {}),
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        self.study_service.save_study_data(job, data)
+
+    def _cancel_quiz(self, request_id: str | None, command: str) -> None:
+        w = getattr(self, "_quiz_worker", None)
+        if w is not None:
+            try:
+                w.detach_and_stop()
+            except Exception:
+                pass
+        self._emit({"event": "quiz_status", "state": "cancelled",
+                    "message": "Generation cancelled."})
+        self._respond(request_id, command, ok=True, cancelled=True)
+
+    def _save_quiz_session(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job = self.current_job
+        if job is None:
+            self._respond(request_id, command, ok=False, job_id="")
+            return
+        session = payload.get("session")
+        if isinstance(session, str):
+            try:
+                session = json.loads(session)
+            except json.JSONDecodeError:
+                session = None
+        if not isinstance(session, dict):
+            self._respond(request_id, command, ok=False, job_id=job.job_id)
+            return
+        data = self.study_service.load_study_data(job)
+        q = data.get("quiz") if isinstance(data.get("quiz"), dict) else {}
+        q["session"] = session
+        data["quiz"] = q
+        self.study_service.save_study_data(job, data)
+        self._respond(request_id, command, ok=True, job_id=job.job_id, saved=True)
+
+    def _generate_flashcards(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job = self.current_job
+        if job is None:
+            self._emit({"event": "flashcards_status", "state": "error",
+                        "message": "Open or process a lecture first."})
+            self._respond(request_id, command, ok=False, job_id="")
+            return
+        try:
+            count = max(1, min(int(payload.get("count") or 10), 60))
+        except (TypeError, ValueError):
+            count = 10
+        meta = {"count": count, "difficulty": payload.get("difficulty", "Basic"),
+                "style": payload.get("style", "term → definition"),
+                "scope": payload.get("scope", "entire lecture")}
+        o = self._ollama_settings()
+        self._emit({"event": "flashcards_status", "state": "generating",
+                    "message": "Generating flashcards…"})
+
+        def deliver(cards, provider, model=""):
+            cards = self.electron_study.normalize_flashcards(cards, count)
+            if not cards:
+                self._emit({"event": "flashcards_status", "state": "error",
+                            "message": "Couldn't build flashcards for this lecture."})
+                return
+            self._save_flashcards(job, cards, meta, provider, model)
+            self._emit({"event": "flashcards_changed", "cards": cards,
+                        "provider": provider, "model": model,
+                        "meta": {**meta, "provider": provider, "model": model},
+                        "session": None})
+            self._emit({"event": "flashcards_status", "state": "ready",
+                        "message": f"{len(cards)} cards · {provider}"})
+
+        segments = self.transcript_store.load_working(job.paths) or []
+
+        def do_fallback():
+            try:
+                terms = self.study_service.build_overview(job).get("key_terms", []) or []
+            except Exception:
+                terms = []
+            deliver(self.electron_study.generate_flashcards_fallback(terms, count, segments),
+                    self.study_presets.PROVIDER_BUILTIN)
+
+        if not (o.get("enabled") and o.get("model")):
+            do_fallback()
+            self._respond(request_id, command, ok=True, job_id=job.job_id)
+            return
+
+        from lecturepack.services.study_assistant_service import StudyAssistantWorker
+        transcript_text = StudyAssistantWorker.transcript_context(segments)
+        worker = StudyAssistantWorker("flashcards", transcript_text, o, count=count,
+                                      difficulty=meta["difficulty"])
+        self._flash_worker = worker
+
+        def ok(task, result):
+            cards = (result or {}).get("cards") if isinstance(result, dict) else None
+            if cards:
+                deliver(cards, self.study_presets.PROVIDER_LOCAL, o.get("model", ""))
+            else:
+                do_fallback()
+
+        def fail(kind, message, details):
+            do_fallback()
+
+        worker.finished_ok.connect(ok)
+        worker.failed.connect(fail)
+        worker.start()
+        self._respond(request_id, command, ok=True, job_id=job.job_id)
+
+    def _save_flashcards(self, job, cards, meta, provider, model):
+        data = self.study_service.load_study_data(job)
+        data["flashcards"] = {
+            "cards": cards,
+            "meta": {**meta, "provider": provider, "model": model},
+            "session": {},
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        self.study_service.save_study_data(job, data)
+
+    def _cancel_flashcards(self, request_id: str | None, command: str) -> None:
+        w = getattr(self, "_flash_worker", None)
+        if w is not None:
+            try:
+                w.detach_and_stop()
+            except Exception:
+                pass
+        self._emit({"event": "flashcards_status", "state": "cancelled",
+                    "message": "Generation cancelled."})
+        self._respond(request_id, command, ok=True, cancelled=True)
+
+    def _save_flashcard_session(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job = self.current_job
+        if job is None:
+            self._respond(request_id, command, ok=False, job_id="")
+            return
+        session = payload.get("session")
+        if isinstance(session, str):
+            try:
+                session = json.loads(session)
+            except json.JSONDecodeError:
+                session = None
+        if not isinstance(session, dict):
+            self._respond(request_id, command, ok=False, job_id=job.job_id)
+            return
+        data = self.study_service.load_study_data(job)
+        f = data.get("flashcards") if isinstance(data.get("flashcards"), dict) else {}
+        f["session"] = session
+        data["flashcards"] = f
+        self.study_service.save_study_data(job, data)
+        self._respond(request_id, command, ok=True, job_id=job.job_id, saved=True)
+
+    def _save_notes(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job = self.current_job
+        if job is None:
+            self._respond(request_id, command, ok=False, job_id="")
+            return
+        data = self.study_service.load_study_data(job)
+        data["notes"] = str(payload.get("text") or "")[:20000]
+        self.study_service.save_study_data(job, data)
+        self._respond(request_id, command, ok=True, job_id=job.job_id, saved=True)
+
+    # ------------------------------------------------------------------ #
     # Phase 9: paste link / yt-dlp
     # ------------------------------------------------------------------ #
     def _media_link_support(self, request_id: str | None, command: str) -> None:
@@ -1529,6 +2128,8 @@ class Sidecar:
         self._emit({"event": "slides_changed", "job": job.job_id, **self._slide_payload(job, slides)})
         self._emit({"event": "transcript_changed", "job": job.job_id, **transcript})
         self._emit_pipeline()
+        if hasattr(self, "study_service"):
+            self._emit_study_changed()
 
         if job.get_stage_status("Export") == "completed":
             self._emit({
