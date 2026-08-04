@@ -111,6 +111,11 @@ def write_sha256sums(version: str, output: Path) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pyinstaller", help="locked PyInstaller executable used for the sidecar")
+    parser.add_argument(
+        "--runtime-root",
+        type=Path,
+        help="directory containing bin/ and models/ used to build the packaged sidecar",
+    )
     parser.add_argument("--iscc", help="Inno Setup compiler path")
     parser.add_argument("--output-dir", type=Path, help="release artifact directory")
     parser.add_argument("--skip-sidecar", action="store_true")
@@ -124,6 +129,8 @@ def main(argv: list[str] | None = None) -> int:
     environment = os.environ.copy()
     if args.pyinstaller:
         environment["LECTUREPACK_PYINSTALLER"] = str(Path(args.pyinstaller).resolve())
+    if args.runtime_root:
+        environment["LECTUREPACK_RUNTIME_ROOT"] = str(args.runtime_root.resolve())
     if not args.skip_sidecar:
         run(["npm", "run", "package:sidecar"], SPIKE_ROOT, environment)
     run(["node", "package-win.mjs"], SPIKE_ROOT, environment)

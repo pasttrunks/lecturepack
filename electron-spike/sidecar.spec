@@ -1,10 +1,12 @@
 from pathlib import Path
+import os
 
 from PyInstaller.building.build_main import Analysis, COLLECT, EXE, PYZ
 
 
 SPIKE_ROOT = Path(SPECPATH).resolve()
 REPO_ROOT = SPIKE_ROOT.parent
+RUNTIME_ROOT = Path(os.environ.get("LECTUREPACK_RUNTIME_ROOT", str(REPO_ROOT))).expanduser().resolve()
 OUT_NAME = "LecturePackSidecar"
 
 
@@ -14,11 +16,11 @@ def required(path: Path) -> Path:
     return path
 
 
-ffmpeg = required(REPO_ROOT / "bin" / "ffmpeg.exe")
-ffprobe = required(REPO_ROOT / "bin" / "ffprobe.exe")
-whisper = required(REPO_ROOT / "bin" / "Release" / "whisper-cli.exe")
-model = required(REPO_ROOT / "models" / "ggml-base.en.bin")
-release_dir = REPO_ROOT / "bin" / "Release"
+ffmpeg = required(RUNTIME_ROOT / "bin" / "ffmpeg.exe")
+ffprobe = required(RUNTIME_ROOT / "bin" / "ffprobe.exe")
+whisper = required(RUNTIME_ROOT / "bin" / "Release" / "whisper-cli.exe")
+model = required(RUNTIME_ROOT / "models" / "ggml-base.en.bin")
+release_dir = RUNTIME_ROOT / "bin" / "Release"
 
 
 # The sidecar ships the verified CPU whisper.cpp binary and its DLLs only.
