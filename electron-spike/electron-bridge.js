@@ -30,7 +30,6 @@
     generate_quiz: true,
     get_notification_prefs: true,
     get_post_completion: true,
-    get_settings: true,
     get_updater_state: true,
     install_cuda_pack: true,
     install_downloaded_update: true,

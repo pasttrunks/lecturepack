@@ -386,7 +386,10 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
   await context.window.lpBridge.call('media_link_support');
   await context.window.lpBridge.call('get_settings');
   await context.window.lpBridge.call('exit_application');
-  if (calls.length !== 5) throw new Error('a deferred command crossed the sidecar boundary');
+  if (calls.length !== 6) throw new Error('a deferred command crossed the sidecar boundary');
+  if (calls[5].command !== 'get_settings' || Object.keys(calls[5].payload).length !== 0) {
+    throw new Error(`get_settings was not forwarded: ${JSON.stringify(calls[5])}`);
+  }
 })().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
 """.strip()
         + "\n",

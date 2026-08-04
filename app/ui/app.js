@@ -4356,9 +4356,14 @@
     // resolves null safely when a slot is missing, so a browser preview and
     // an older backend both still work with no extra guard here.
     var normalBridgeActivityStarted = false;
+    var normalBridgeAdmitted = !lpBridge.connected();
+    var normalBridgeActivityPending = false;
     function startNormalBridgeActivity() {
       if (normalBridgeActivityStarted) return;
+      if (!normalBridgeAdmitted) { normalBridgeActivityPending = true; return; }
       normalBridgeActivityStarted = true;
+      normalBridgeActivityPending = false;
+      lpBridge.call('get_settings');
       lpBridge.call('list_ollama_models');
       // Ask whether link import exists in this build; the button stays hidden
       // until the backend says yes.
@@ -4372,7 +4377,10 @@
       // One routing implementation, not two: completion routes through the
       // same admit() the initial bootstrap uses.
       RuntimeSetupGate.admit(b);
-      if (!b.bootstrap_pending && b.runtime_health_state !== 'SETUP_REQUIRED') startNormalBridgeActivity();
+      if (!b.bootstrap_pending && b.runtime_health_state !== 'SETUP_REQUIRED') {
+        normalBridgeAdmitted = true;
+        if (normalBridgeActivityPending || !normalBridgeActivityStarted) startNormalBridgeActivity();
+      }
     });
     lpBridge.on('error', function (json) {
       var d = parseBridgePayload(json, {});
@@ -4830,7 +4838,7 @@
     lpBridge.ready(function (backend) {
       if (backend && backend.get_bootstrap) {
         lpBridge.call('get_bootstrap').then(function (json) {
-          if (!json) { startNormalBridgeActivity(); return; }
+          if (!json) { normalBridgeAdmitted = true; startNormalBridgeActivity(); return; }
           try {
             var b = JSON.parse(json);
             if (b.theme) applyTheme(b.theme, false);
@@ -4843,6 +4851,7 @@
             // them while pending would surface a spurious setup-required
             // diagnostics payload behind the honest progress panel.
             if (!b.bootstrap_pending && b.runtime_health_state !== 'SETUP_REQUIRED') {
+              normalBridgeAdmitted = true;
               startNormalBridgeActivity();
             }
           } catch (e) { console.error('bootstrap parse', e); }
