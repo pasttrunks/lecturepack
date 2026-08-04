@@ -849,7 +849,16 @@
         { label: 'Cancel' },
         { label: 'Apply', primary: true, onClick: function () {
           var i = $('lp-bulk-group-input');
-          if (lpBridge.connected()) lpBridge.call('set_jobs_group', JSON.stringify(ids), (i && i.value || '').trim());
+          if (lpBridge.connected()) {
+            var group = (i && i.value || '').trim();
+            lpBridge.call('set_jobs_group', JSON.stringify(ids), group).then(function (result) {
+              if (!result || !result.ok) return;
+              LP.data.jobs.forEach(function (job) {
+                if (ids.indexOf(job.id) >= 0) job.group = group;
+              });
+              renderJobs();
+            });
+          }
           else toast('Preview mode — not grouped');
           setSelectMode(false);
         } }
@@ -1055,7 +1064,17 @@
       bodyHtml: '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px">Course / subject</label>' +
         '<input id="lp-group-input" type="text" spellcheck="false" value="' + esc(job.group || '') + '" placeholder="e.g. CL100" style="width:100%;box-sizing:border-box;font:600 14px \'JetBrains Mono\';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--ink)">' +
         '<div style="font-size:12px;color:var(--muted);margin-top:8px">Leave blank to auto-group by the lecture title.</div>',
-      actions: [{ label: 'Cancel' }, { label: 'Save', primary: true, onClick: function () { var i = $('lp-group-input'); if (lpBridge.connected()) lpBridge.call('set_job_group', job.id, (i && i.value || '').trim()); } }]
+      actions: [{ label: 'Cancel' }, { label: 'Save', primary: true, onClick: function () {
+        var i = $('lp-group-input');
+        if (lpBridge.connected()) {
+          var group = (i && i.value || '').trim();
+          lpBridge.call('set_job_group', job.id, group).then(function (result) {
+            if (!result || !result.ok) return;
+            job.group = group;
+            renderJobs();
+          });
+        }
+      } }]
     });
     setTimeout(function () { var i = $('lp-group-input'); if (i) { i.focus(); i.select(); } }, 30);
   }
@@ -1063,6 +1082,21 @@
   function _jobName(id) {
     var j = (LP.data.jobs || []).filter(function (x) { return x.id === id; })[0];
     return j ? j.name : id;
+  }
+  function inferredJobGroup(title) {
+    var text = String(title || '').trim();
+    if (!text) return 'Ungrouped';
+    var separators = [':', '—', '-'];
+    for (var i = 0; i < separators.length; i++) {
+      if (text.indexOf(separators[i]) >= 0) {
+        var head = text.split(separators[i], 1)[0].trim();
+        if (head) return head.slice(0, 40);
+      }
+    }
+    return text.split(/\s+/).filter(Boolean).slice(0, 2).join(' ').slice(0, 40) || 'Ungrouped';
+  }
+  function jobGroup(job) {
+    return (job && job.group) || inferredJobGroup(job && (job.name || job.title));
   }
   function renderQueue() {
     var wrap = $('home-queue'), list = $('queue-list');
@@ -1111,7 +1145,7 @@
     g.style.gridTemplateColumns = 'none';
     var groups = {}, order = [];
     LP.data.jobs.forEach(function (j) {
-      var k = j.group || 'Ungrouped';
+      var k = jobGroup(j);
       if (!groups[k]) { groups[k] = []; order.push(k); }
       groups[k].push(j);
     });
@@ -1735,8 +1769,10 @@
   var _genTimers = { quiz: null, flash: null };
   function _genBar(kind) {
     var st = kind === 'quiz' ? LP.state.quiz : LP.state.flash;
-    var el = Date.now() - (st.genStart || Date.now()), est = st.genEst || 12000;
-    var pct = Math.max(4, Math.min(93, el / est * 100)), etaMs = est - el;
+    var elapsed = Date.now() - (st.genStart || Date.now()), est = st.genEst || 12000;
+    var timedPct = elapsed / est * 100;
+    var backendPct = typeof st.backendPct === 'number' ? st.backendPct : 0;
+    var pct = Math.max(4, Math.min(93, Math.max(timedPct, backendPct))), etaMs = est - elapsed;
     var eta = etaMs > 1000 ? '~' + Math.ceil(etaMs / 1000) + 's remaining'
       : (etaMs > -8000 ? 'almost done…' : 'still working…');
     var noun = kind === 'quiz' ? 'quiz' : 'flashcards';
@@ -1751,7 +1787,7 @@
   }
   function startGen(kind, count) {
     var st = kind === 'quiz' ? LP.state.quiz : LP.state.flash;
-    st.generating = true; st.genStart = Date.now();
+    st.generating = true; st.genStart = Date.now(); st.backendPct = 0;
     st.genEst = (3.5 + 1.6 * (count || 5)) * 1000;  // rough ETA; capped until result lands
     if (_genTimers[kind]) clearInterval(_genTimers[kind]);
     _genTimers[kind] = setInterval(function () {
@@ -1762,6 +1798,7 @@
   function stopGen(kind) {
     var st = kind === 'quiz' ? LP.state.quiz : LP.state.flash;
     st.generating = false;
+    st.backendPct = 0;
     if (_genTimers[kind]) { clearInterval(_genTimers[kind]); _genTimers[kind] = null; }
   }
 
@@ -4439,11 +4476,37 @@
     });
     lpBridge.on('demo_event', receiveDemoEvent);
     lpBridge.on('queue_changed', function (json) {
-      var queue = parseBridgePayload(json, null);
-      if (!Array.isArray(queue)) return;
+      var payload = parseBridgePayload(json, null);
+      // The locked Electron contract carries the queue rows together with the
+      // active slot and schedules. Keep accepting the historical direct array
+      // shape for the Qt/browser adapters, but preserve the full object when
+      // it crosses the JSONL sidecar boundary.
+      var queue = Array.isArray(payload)
+        ? { active: null, queue: payload, schedules: {} }
+        : payload;
+      if (!queue || typeof queue !== 'object' || !Array.isArray(queue.queue)) return;
       LP.data.queue = queue;
       renderQueue();
       renderScheduled();
+    });
+
+    lpBridge.on('study_progress', function (json) {
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
+      if (d.job_id && LP.state.jobId && d.job_id !== LP.state.jobId) return;
+      var kind = d.kind === 'flashcards' ? 'flash' : d.kind === 'quiz' ? 'quiz' : '';
+      if (!kind) return;
+      var state = kind === 'quiz' ? LP.state.quiz : LP.state.flash;
+      if (d.message) state.status = d.message;
+      // The renderer's existing timer supplies a smooth ETA between backend
+      // checkpoints. A real percentage from the sidecar is still useful as a
+      // monotonic lower bound for the visible progress bar.
+      if (typeof d.pct === 'number' && isFinite(d.pct)) {
+        state.backendPct = Math.max(0, Math.min(100, d.pct));
+      }
+      if (state.generating) {
+        (kind === 'quiz' ? renderQuiz : renderCard)();
+      }
     });
     lpBridge.on('pause_state', function (json) {
       var pauseState = parseBridgePayload(json, null);
@@ -4575,6 +4638,7 @@
           delete LP.state.selected[id];
         });
         renderSelCount();
+        if (lpBridge.connected()) lpBridge.call('list_jobs');
         return;
       }
       toast(d.ok ? ('Lecture deleted · ' + (d.freed || '') + ' freed') : 'Delete failed');
@@ -4586,11 +4650,18 @@
         if (d.id === LP.state.jobId) setActiveJob('', '');
         delete LP.byJob[d.id];
       }
+      if (d.ok && lpBridge.connected()) lpBridge.call('list_jobs');
     });
 
     // The backend owns which lecture the workspace belongs to; the UI follows.
     lpBridge.on('active_job', function (json) {
       var a = parseBridgePayload(json || '{}', {});
+      if (a.id && LP.data.jobs.length && !LP.data.jobs.some(function (job) { return job.id === a.id; })) {
+        // A delete can race the sidecar's active-slot notification. Do not
+        // resurrect a job that the authoritative jobs_changed list removed.
+        if (LP.state.jobId === a.id) setActiveJob('', '');
+        return;
+      }
       setActiveJob(a.id || '', a.title || '');
     });
     lpBridge.on('pipeline_changed', function (json) {

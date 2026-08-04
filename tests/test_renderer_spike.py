@@ -59,6 +59,8 @@ def test_production_ui_keeps_real_sections_and_hardens_bridge_payloads():
     assert "importDroppedVideo" in ui
     assert "function parseBridgePayload" in ui
     assert "localStorage.getItem('lecturepack.electron.theme')" in ui
+    assert "Array.isArray(queue.queue)" in ui
+    assert "lpBridge.on('study_progress'" in ui
 
 
 def test_diagnostic_modes_and_migration_mode_are_declared():
@@ -148,6 +150,7 @@ def test_migration_bridge_maps_existing_ui_without_requiring_qt_webchannel():
     for deferred in (
         "exit_application",
         "start_demo_job",
+        "open_release_page",
     ):
         assert f"{deferred}: true" in bridge
     assert "list_ollama_models: true" not in bridge
@@ -180,10 +183,13 @@ const context = {
 vm.createContext(context);
 vm.runInContext(source, context, { filename: 'electron-bridge.js' });
 context.window.lpBridge.on('jobs_changed', (json) => received.push(JSON.parse(json)));
+const queues = [];
+context.window.lpBridge.on('queue_changed', (json) => queues.push(JSON.parse(json)));
 
 const jobs = [{ id: 'job-1', status: 'running' }];
 apiMessage({ event: 'jobs_changed', jobs });
 context.window.__LECTUREPACK_ELECTRON__.onSidecar({ event: 'jobs_changed', jobs });
+apiMessage({ event: 'queue_changed', active: 'job-1', queue: [{ id: 'job-2', position: 0 }], schedules: {} });
 
 (async () => {
   const result = await context.window.lpBridge.call('set_setting', 'theme', 'dark');
@@ -193,6 +199,9 @@ context.window.__LECTUREPACK_ELECTRON__.onSidecar({ event: 'jobs_changed', jobs 
     if (!Array.isArray(value) || value.length !== 1 || value[0].id !== 'job-1') {
       throw new Error(`jobs_changed was not an array: ${JSON.stringify(value)}`);
     }
+  }
+  if (queues.length !== 1 || queues[0].active !== 'job-1' || queues[0].queue[0].id !== 'job-2') {
+    throw new Error(`queue_changed envelope was not preserved: ${JSON.stringify(queues)}`);
   }
   if (!result || result.local !== true) throw new Error('theme was not handled locally');
 })().catch((error) => {

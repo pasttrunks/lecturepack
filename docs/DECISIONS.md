@@ -1008,3 +1008,34 @@ still required before calling the build Beta 15.
 DeepSeek progress independently while keeping release evidence auditable. A
 single packaged candidate is the source for both portable and installer
 artifacts, which makes acceptance results and hashes meaningful.
+
+## AD-28: Preserve Phase 9 Queue Envelopes at the Renderer Boundary
+
+**Date:** 2026-08-04
+**Status:** Implemented on `luna/phase9-product-app`
+
+**Context:** The Phase 9 queue event intentionally carries the active slot,
+queued rows, and schedules together. The Electron sidecar emitted that locked
+object, but the existing renderer handler still rejected every payload that
+was not a legacy direct array. Study-generation progress was also emitted by
+the backend without a renderer subscriber.
+
+**Decision:** Accept the contract queue object in the existing UI while
+retaining a direct-array compatibility path for the fallback adapters. Route
+implemented `study_progress` checkpoints into the existing quiz/flashcard
+progress surfaces, and refresh the authoritative job list after deletion.
+Infer a display-only group from a title when no explicit group is persisted;
+explicit user groups still win.
+
+**Alternatives considered:**
+
+- Changing the sidecar event to an array: rejected because it would discard
+  schedules and the active slot required by the contract.
+- Rewriting the queue or study UI: rejected because the existing renderer
+  already has the correct screens and persistence behavior.
+- Sending theme or deferred updater/runtime operations through JSONL: rejected
+  because the locked contract keeps those paths local/no-op for this phase.
+
+**Rationale:** Keeping the envelope intact makes queue state lossless across
+  the transport and limits this repair to the renderer-owned compatibility
+  layer.

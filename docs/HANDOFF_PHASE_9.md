@@ -13,6 +13,9 @@
 - Renderer adapter maps implemented queue, local/URL import, settings, study,
   AI/provider, runtime, notification, review, and export operations to exact
   contract payloads. DEFERRED operations remain untouched.
+- Renderer queue handling now preserves the contract's active/rows/schedules
+  envelope, consumes study-progress checkpoints, refreshes jobs after deletes,
+  and keeps title-based grouping visible when no explicit group is stored.
 - `jobs_changed` remains a direct array at the renderer boundary; `ai_token`
   remains plain text; sidecar JSONL uses ASCII-safe escaping.
 - Packaged sidecar includes PySide6 only as an internal backend dependency, with

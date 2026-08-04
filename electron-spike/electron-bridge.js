@@ -25,6 +25,7 @@
     install_downloaded_update: true,
     install_update: true,
     log_tour_trace: true,
+    open_release_page: true,
     save_project: true,
     set_auto_check: true,
     set_update_channel: true,

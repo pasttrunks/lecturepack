@@ -160,3 +160,10 @@ def test_no_production_core_operation_is_silently_deferred():
         if op["production_core"]:
             assert op["status"] != "DEFERRED"
 
+
+def test_deferred_commands_do_not_cross_the_sidecar_boundary():
+    bridge_source = BRIDGE.read_text(encoding="utf-8")
+    for op in load()["operations"]:
+        if op["direction"] == "command" and op["status"] == "DEFERRED":
+            assert f'{op["name"]}: true' in bridge_source, op["name"]
+
