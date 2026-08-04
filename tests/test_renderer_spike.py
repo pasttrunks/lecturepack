@@ -146,10 +146,11 @@ def test_migration_bridge_maps_existing_ui_without_requiring_qt_webchannel():
     assert "event === 'jobs_changed'" in bridge
     assert "isLocalThemeSetting" in bridge
     for deferred in (
-        "exit_application", "list_ollama_models", "run_diagnostics",
+        "exit_application", "run_diagnostics",
         "set_notification_prefs", "start_demo_job", "validate_vulkan",
     ):
         assert f"{deferred}: true" in bridge
+    assert "list_ollama_models: true" not in bridge
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
@@ -386,10 +387,89 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
   await context.window.lpBridge.call('media_link_support');
   await context.window.lpBridge.call('get_settings');
   await context.window.lpBridge.call('exit_application');
-  if (calls.length !== 6) throw new Error('a deferred command crossed the sidecar boundary');
-  if (calls[5].command !== 'get_settings' || Object.keys(calls[5].payload).length !== 0) {
-    throw new Error(`get_settings was not forwarded: ${JSON.stringify(calls[5])}`);
+  if (calls.length !== 7) throw new Error('an unexpected command crossed the sidecar boundary');
+  if (calls[4].command !== 'list_ollama_models' || Object.keys(calls[4].payload).length !== 0) {
+    throw new Error(`list_ollama_models was not forwarded: ${JSON.stringify(calls[4])}`);
   }
+  if (calls[5].command !== 'media_link_support' || Object.keys(calls[5].payload).length !== 0) {
+    throw new Error(`media_link_support was not forwarded: ${JSON.stringify(calls[5])}`);
+  }
+  if (calls[6].command !== 'get_settings' || Object.keys(calls[6].payload).length !== 0) {
+    throw new Error(`get_settings was not forwarded: ${JSON.stringify(calls[6])}`);
+  }
+})().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [shutil.which("node"), str(harness), str(SPIKE / "electron-bridge.js")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_production_bridge_maps_study_and_ai_calls_and_text_events(tmp_path):
+    harness = tmp_path / "bridge-study-check.js"
+    harness.write_text(
+        r"""
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+const calls = [];
+let aiText = null;
+const context = {
+  console: { error() {} },
+  window: {
+    localStorage: { setItem() {} },
+    lecturePackElectron: {
+      request(command, payload) { calls.push({ command, payload }); return Promise.resolve({}); },
+      onMessage(callback) { context._message = callback; }
+    }
+  }
+};
+vm.createContext(context);
+vm.runInContext(source, context, { filename: 'electron-bridge.js' });
+context.window.lpBridge.on('ai_token', (text) => { aiText = text; });
+(async () => {
+  await context.window.lpBridge.call('ask_ai', 'What is the thesis?');
+  await context.window.lpBridge.call('generate_quiz', JSON.stringify({ count: 5, difficulty: 'Mixed', type: 'multiple choice', scope: 'lecture', source: 'ignored' }));
+  await context.window.lpBridge.call('save_quiz_session', JSON.stringify({ index: 1, answers: { 0: 2 } }));
+  await context.window.lpBridge.call('generate_flashcards', JSON.stringify({ count: 8, difficulty: 'Basic', style: 'term → definition', scope: 'lecture' }));
+  await context.window.lpBridge.call('save_flashcard_session', JSON.stringify({ index: 2, known: { 0: 1 } }));
+  await context.window.lpBridge.call('save_notes', 'A note');
+  await context.window.lpBridge.call('set_study_preset', 'balanced');
+  await context.window.lpBridge.call('install_smart_study', 'lightweight');
+  await context.window.lpBridge.call('smart_study_status');
+  await context.window.lpBridge.call('cancel_smart_study');
+  await context.window.lpBridge.call('set_groq_key', 'secret');
+  await context.window.lpBridge.call('test_endpoint');
+  context._message({ event: 'ai_token', text: 'plain answer' });
+  if (aiText !== 'plain answer') throw new Error(`ai_token was not delivered as text: ${aiText}`);
+  const expected = [
+    ['ask_ai', { prompt: 'What is the thesis?' }],
+    ['generate_quiz', { count: 5, difficulty: 'Mixed', type: 'multiple choice', scope: 'lecture' }],
+    ['save_quiz_session', { session: { index: 1, answers: { 0: 2 } } }],
+    ['generate_flashcards', { count: 8, difficulty: 'Basic', style: 'term → definition', scope: 'lecture' }],
+    ['save_flashcard_session', { session: { index: 2, known: { 0: 1 } } }],
+    ['save_notes', { text: 'A note' }],
+    ['set_study_preset', { preset: 'balanced' }],
+    ['install_smart_study', { preset: 'lightweight' }],
+    ['smart_study_status', {}],
+    ['cancel_smart_study', {}],
+    ['set_groq_key', { key: 'secret' }],
+    ['test_endpoint', {}]
+  ];
+  if (calls.length !== expected.length) throw new Error(`expected ${expected.length} calls, got ${calls.length}`);
+  expected.forEach(([command, payload], index) => {
+    if (calls[index].command !== command || JSON.stringify(calls[index].payload) !== JSON.stringify(payload)) {
+      throw new Error(`call ${index} mismatch: ${JSON.stringify(calls[index])}`);
+    }
+  });
 })().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
 """.strip()
         + "\n",

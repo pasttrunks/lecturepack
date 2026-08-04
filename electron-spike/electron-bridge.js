@@ -11,51 +11,33 @@
   var api = window.lecturePackElectron;
   var listeners = {};
   var noopCalls = {
-    // These commands remain deliberately inert until DeepSeek's backend
-    // parity commits change their contract status from DEFERRED.
+    // Commands remain inert only while the locked contract marks them
+    // DEFERRED. Implemented operations are mapped below and cross JSONL.
     acknowledge_setup: true,
-    ask_ai: true,
     browse_model: true,
     cancel_cuda_pack: true,
-    cancel_flashcards: true,
-    cancel_quiz: true,
-    cancel_smart_study: true,
     cancel_update_download: true,
     check_updates: true,
     clear_skipped_version: true,
     cuda_pack_status: true,
     end_demo_job: true,
     exit_application: true,
-    generate_flashcards: true,
-    generate_quiz: true,
     get_notification_prefs: true,
     get_post_completion: true,
     get_updater_state: true,
     install_cuda_pack: true,
     install_downloaded_update: true,
-    install_smart_study: true,
     install_update: true,
-    launch_ollama_installer: true,
-    list_ollama_models: true,
     log_tour_trace: true,
-    remove_groq_key: true,
     repair_selection: true,
     run_diagnostics: true,
-    save_flashcard_session: true,
-    save_notes: true,
     save_project: true,
-    save_quiz_session: true,
     set_auto_check: true,
-    set_groq_key: true,
     set_notification_prefs: true,
-    set_study_preset: true,
     set_update_channel: true,
     skip_update_version: true,
-    smart_study_status: true,
     start_demo_job: true,
     start_update_download: true,
-    test_endpoint: true,
-    test_groq_key: true,
     test_notification: true,
     validate_cuda: true,
     validate_vulkan: true,
@@ -95,6 +77,10 @@
     return Array.isArray(parsed) ? parsed : [];
   }
 
+  function stringPayload(value) {
+    return typeof value === 'string' ? value : String(value == null ? '' : value);
+  }
+
   function jobIdPayload(value) {
     var parsed = objectPayload(value);
     return String(parsed.job_id || (typeof value === 'string' ? value : '') || '');
@@ -110,6 +96,7 @@
       if (Array.isArray(item.payload)) return item.payload;
       return [];
     }
+    if (event === 'ai_token') return String(item.text || '');
     var payload = Object.assign({}, item);
     delete payload.event;
     return payload;
@@ -120,7 +107,10 @@
     if (typeof item === 'string') item = parse(item);
     var event = item.event;
     if (!event || event === 'response') return;
-    fire(event, json(eventPayload(event, item)));
+    var payload = eventPayload(event, item);
+    // The historical UI treats ai_token as a text signal; every other event
+    // keeps the JSON-string payload shape expected by app/ui/app.js.
+    fire(event, event === 'ai_token' ? payload : json(payload));
   }
 
   function isLocalThemeSetting(name, args) {
@@ -143,6 +133,55 @@
   function mapCall(name, args) {
     var first = args[0];
     var payload = objectPayload(first);
+
+    if (name === 'ask_ai') {
+      return { command: name, payload: { prompt: stringPayload(first) } };
+    }
+    if (name === 'generate_quiz') {
+      return {
+        command: name,
+        payload: {
+          count: payload.count,
+          difficulty: payload.difficulty,
+          type: payload.type,
+          scope: payload.scope
+        }
+      };
+    }
+    if (name === 'cancel_quiz') return { command: name, payload: {} };
+    if (name === 'save_quiz_session') {
+      return { command: name, payload: { session: payload } };
+    }
+    if (name === 'generate_flashcards') {
+      return {
+        command: name,
+        payload: {
+          count: payload.count,
+          difficulty: payload.difficulty,
+          style: payload.style,
+          scope: payload.scope
+        }
+      };
+    }
+    if (name === 'cancel_flashcards') return { command: name, payload: {} };
+    if (name === 'save_flashcard_session') {
+      return { command: name, payload: { session: payload } };
+    }
+    if (name === 'save_notes') {
+      return { command: name, payload: { text: stringPayload(first) } };
+    }
+    if (name === 'smart_study_status' || name === 'cancel_smart_study' ||
+        name === 'launch_ollama_installer' || name === 'list_ollama_models' ||
+        name === 'remove_groq_key' || name === 'test_groq_key' ||
+        name === 'test_endpoint') {
+      return { command: name, payload: {} };
+    }
+    if (name === 'set_study_preset' || name === 'install_smart_study') {
+      return { command: name, payload: { preset: stringPayload(first) } };
+    }
+    if (name === 'set_groq_key') {
+      return { command: name, payload: { key: stringPayload(first) } };
+    }
 
     if (name === 'start_processing') {
       return {
