@@ -965,3 +965,46 @@ reviewable while preserving the proven engine and UI. The unpacked portable
 directory is an acceptance candidate, not yet Beta 15, an installer, or a
 release artifact. Beta 15 and additional features remain gated on a fresh-data
 run on the affected laptop.
+
+---
+
+## AD-27: Phase 9 Electron Product App and Backend Parity Boundary
+
+**Date:** 2026-08-04
+**Status:** Implemented on `luna/phase9-product-app`; affected-laptop gate pending
+
+**Context:** Phase 8 proved the production Electron shell and the real local
+processing path. Phase 9 expands that shell to the user-facing queue, import,
+settings, study, diagnostics, notifications, export, and Windows release
+surfaces while DeepSeek completes Python-side parity in a separate worktree.
+
+**Decision:** Keep the existing HTML/CSS/JavaScript renderer and persisted job
+format. Treat `electron-spike/contracts/electron-bridge-contract.json` as the
+authority for renderer adapter behavior: implemented operations cross JSONL with
+explicit payload mappings, partial operations retain their local handling, and
+DEFERRED operations remain local no-ops. Preserve the direct array shape for
+`jobs_changed`, plain text for `ai_token`, and ASCII-safe JSONL output from the
+sidecar. Package the sidecar with PyInstaller, including the locked runtime
+assets and URL-import provider, and produce both a portable ZIP and Inno Setup
+artifact from the same unpacked candidate.
+
+The final desktop candidate passed the automated packaged workflow using a
+fresh data directory: import, real FFmpeg/whisper.cpp processing, slides,
+transcript, Study Pack export, clean close, relaunch, restored job, and no
+renderer/bridge/orphan-process failures. The affected-laptop manual gate is
+still required before calling the build Beta 15.
+
+**Alternatives considered:**
+
+- Reintroducing Qt or converting the renderer to React: rejected because the
+  existing renderer and sidecar seam already provide the required vertical
+  slice.
+- Forwarding every historical bridge call: rejected because it would violate
+  the locked DEFERRED contract and reintroduce unsupported behavior.
+- Making the portable ZIP depend on the developer checkout: rejected; runtime
+  assets are explicitly supplied to PyInstaller and copied into the candidate.
+
+**Rationale:** An explicit contract and ownership boundary lets Luna and
+DeepSeek progress independently while keeping release evidence auditable. A
+single packaged candidate is the source for both portable and installer
+artifacts, which makes acceptance results and hashes meaningful.
