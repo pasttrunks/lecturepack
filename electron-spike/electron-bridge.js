@@ -160,6 +160,15 @@
       setTimeout(function () { callback({}); }, 0);
     },
     connected: function () { return !!api; },
+    pathForFile: function (file) {
+      if (!file) return '';
+      try {
+        if (api && api.getPathForFile) return api.getPathForFile(file) || '';
+      } catch (error) {
+        console.warn('electron bridge file path', error);
+      }
+      return typeof file.path === 'string' ? file.path : '';
+    },
     on: function (name, callback) {
       (listeners[name] = listeners[name] || []).push(callback);
     },

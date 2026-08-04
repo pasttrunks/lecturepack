@@ -62,6 +62,8 @@ window.lpBridge = (function () {
     ready: function (cb) { if (readyCbs === null) { cb(backend); } else { readyCbs.push(cb); } },
     /** True when running inside the desktop shell with a live backend. */
     connected: function () { return backend !== null; },
+    /** Browser-safe fallback for Electron's narrow dropped-file capability. */
+    pathForFile: function (file) { return file && typeof file.path === 'string' ? file.path : ''; },
     /** Subscribe to a backend signal by name. */
     on: function (name, fn) { (listeners[name] = listeners[name] || []).push(fn); },
     /** Dispatch a signal locally, exactly as the backend would. Lets preview

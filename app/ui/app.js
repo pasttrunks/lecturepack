@@ -3914,6 +3914,25 @@
 
     // home / import
     var dz = $('dropzone');
+    function importDroppedVideo(file) {
+      if (!file) return;
+      if (!/\.(mp4|mkv|mov|m4v|webm|avi)$/i.test(file.name || '')) {
+        toast('Choose a supported lecture video (.mp4, .mkv, .mov, .m4v, .webm, or .avi).');
+        return;
+      }
+      var path = lpBridge.pathForFile ? lpBridge.pathForFile(file) : '';
+      if (!path) {
+        toast('LecturePack could not read that dropped file. Use Browse for video instead.');
+        return;
+      }
+      if (!lpBridge.connected()) {
+        setOnb('detected');
+        return;
+      }
+      lpBridge.call('import_video', { path: path }).then(function (result) {
+        if (result && result.ok === false) toast(result.error || 'The video could not be imported.');
+      });
+    }
     dz.addEventListener('click', function () {
       if (lpBridge.connected()) lpBridge.call('browse_video'); else setOnb('drop');
     });
@@ -3963,12 +3982,16 @@
     dz.addEventListener('drop', function (e) {
       e.preventDefault();
       if (hasDemoDrag(e)) { clearDemoDropState(); useDroppedDemo(); return; }
-      setOnb('detected');
+      importDroppedVideo(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
     });
-    // "drop anywhere": in the desktop shell native drops are captured by Qt and
-    // routed through backend.import_video, which drives the same overlay.
+    // Electron owns the document-level drop path too. Ignore the dropzone here
+    // because its handler already imported the first file and the event bubbles.
     window.addEventListener('dragover', function (e) { e.preventDefault(); });
-    window.addEventListener('drop', function (e) { e.preventDefault(); });
+    window.addEventListener('drop', function (e) {
+      e.preventDefault();
+      if (e.target && e.target.closest && e.target.closest('#dropzone')) return;
+      importDroppedVideo(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+    });
 
     $('btn-show-empty').addEventListener('click', function () { setJobsEmpty(true); });
     $('btn-load-jobs').addEventListener('click', function () { setJobsEmpty(false); });

@@ -1,6 +1,6 @@
 'use strict';
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // The production renderer receives only the narrow request/event surface. No
 // Node, Electron, filesystem, or process handles cross the isolation boundary.
@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('lecturePackElectron', {
       command,
       payload || {}
     );
+  },
+  getPathForFile(file) {
+    return webUtils.getPathForFile(file);
   },
   onMessage(callback) {
     const listener = (_event, message) => callback(message);

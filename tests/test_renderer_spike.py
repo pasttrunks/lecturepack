@@ -47,11 +47,16 @@ def test_production_host_is_single_real_app_entry_point():
 
 def test_production_ui_keeps_real_sections_and_hardens_bridge_payloads():
     host = (SPIKE / "production-main.js").read_text(encoding="utf-8")
+    preload = (SPIKE / "production-preload.js").read_text(encoding="utf-8")
+    adapter = (SPIKE / "electron-bridge.js").read_text(encoding="utf-8")
     ui = (ROOT / "app" / "ui" / "app.js").read_text(encoding="utf-8")
     assert "data-nav=\"study\"" not in host
     assert "data-nav=\"settings\"" not in host
     assert "path.join(app.getPath('home'), 'LecturePackData')" in host
     assert "app.requestSingleInstanceLock()" in host
+    assert "getPathForFile(file)" in preload
+    assert "pathForFile" in adapter
+    assert "importDroppedVideo" in ui
     assert "function parseBridgePayload" in ui
     assert "localStorage.getItem('lecturepack.electron.theme')" in ui
 
