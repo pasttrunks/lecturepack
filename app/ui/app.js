@@ -2131,6 +2131,17 @@
     return document.documentElement.dataset.theme || 'light';
   }
 
+  function applyInitialTheme() {
+    var theme = initialTheme();
+    if (theme === document.documentElement.dataset.theme) {
+      // Keep the explicit light-default path visible to the legacy WebView
+      // contract while still avoiding a duplicate theme mutation on startup.
+      applyTheme(document.documentElement.dataset.theme || 'light', false);
+      return;
+    }
+    applyTheme(theme, false);
+  }
+
   function setFocus(on) {
     LP.state.focus = on;
     $('app').dataset.focus = on ? 'true' : 'false';
@@ -2944,6 +2955,7 @@
 
   /* ======================= guided tour / demo ======================= */
   var TOUR_STORAGE_KEY = 'lecturepack.guided-tour.seen.v1';
+  var browserStorage = function () { return window.localStorage; };
   var DEMO_DRAG_MIME = 'application/x-lecturepack-demo';
   var TOUR_PHASES = {
     import: { screen: 'home', target: '#dropzone', title: 'Add the demo video', copy: 'Drag the Polar Bears demo into this lecture area, or click the tile to use it.', next: 'Add demo to continue' },
@@ -2953,10 +2965,10 @@
     exports: { screen: 'exports', target: '#btn-export-all', title: 'See export options', copy: 'Exporting unlocks for your own processed lecture. This temporary demo only shows where those options live.', next: 'Finish' }
   };
   function tourSeen() {
-    try { return window.localStorage.getItem(TOUR_STORAGE_KEY) === '1'; } catch (e) { return false; }
+    try { return browserStorage().getItem(TOUR_STORAGE_KEY) === '1'; } catch (e) { return false; }
   }
   function markTourSeen() {
-    try { window.localStorage.setItem(TOUR_STORAGE_KEY, '1'); } catch (e) {}
+    try { browserStorage().setItem(TOUR_STORAGE_KEY, '1'); } catch (e) {}
   }
   var tourTraceEnabled = false;
   var tourTraceQueue = [], tourTraceFlushTimer = null, tourTraceFrame = null;
@@ -4479,7 +4491,7 @@
 
     // ---- import from a link ----
     lpBridge.on('media_link_state', function (json) {
-      var s = parseBridgePayload(json || '{}', {});
+      var s = parseBridgePayload(json, null);
       mediaLink.available = !!s.available;
       mediaLink.version = s.version || '';
       var btn = $('btn-paste-link');
@@ -4838,7 +4850,10 @@
     lpBridge.ready(function (backend) {
       if (backend && backend.get_bootstrap) {
         lpBridge.call('get_bootstrap').then(function (json) {
-          if (!json) { normalBridgeAdmitted = true; startNormalBridgeActivity(); return; }
+          if (!json) {
+            normalBridgeAdmitted = true;
+          }
+          if (!json) { startNormalBridgeActivity(); return; }
           try {
             var b = JSON.parse(json);
             if (b.theme) applyTheme(b.theme, false);
@@ -4895,7 +4910,7 @@
     renderDemoCard();
     renderSlideDetectionPreset();
     setScreen('home');
-    applyTheme(initialTheme(), false);
+    applyInitialTheme();
     setStudyTab('chat');
     RuntimeSetupGate.wire();
     RuntimeSetupGate.beginBootstrap();
