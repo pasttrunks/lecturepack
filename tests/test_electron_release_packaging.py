@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import os
 from pathlib import Path
 import zipfile
 
@@ -37,3 +38,17 @@ def test_electron_release_zip_and_hashes(tmp_path):
 
     expected = hashlib.sha256(portable.read_bytes()).hexdigest()
     assert f"{expected}  {portable.name}" in checksums.read_text(encoding="utf-8")
+
+
+def test_electron_release_zip_clamps_pre_1980_timestamps(tmp_path):
+    builder = load_builder()
+    candidate = tmp_path / "LecturePack-win32-x64"
+    (candidate / "resources").mkdir(parents=True)
+    (candidate / "LecturePack.exe").write_bytes(b"fixture")
+    (candidate / "resources" / "app.asar").write_bytes(b"asar")
+    os.utime(candidate / "LecturePack.exe", (0, 0))
+
+    portable = builder.make_portable_zip(candidate, tmp_path / "portable.zip")
+
+    with zipfile.ZipFile(portable) as archive:
+        assert archive.read("LecturePack-win32-x64/LecturePack.exe") == b"fixture"

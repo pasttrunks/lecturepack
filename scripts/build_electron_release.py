@@ -39,6 +39,18 @@ def run(argv: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
     subprocess.run(argv, cwd=str(cwd), env=env, check=True, shell=False)
 
 
+def node_tool(name: str) -> str:
+    """Resolve Windows command shims for shell-free subprocess execution."""
+    candidates = [name]
+    if os.name == "nt":
+        candidates = [f"{name}.cmd", f"{name}.exe", name]
+    for candidate in candidates:
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    return name
+
+
 def candidate_dir() -> Path:
     return SPIKE_ROOT / "dist" / "LecturePack-win32-x64"
 
@@ -55,7 +67,13 @@ def make_portable_zip(source: Path, destination: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         destination.unlink()
-    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+    with zipfile.ZipFile(
+        destination,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+        strict_timestamps=False,
+    ) as archive:
         for path in sorted(source.rglob("*")):
             if path.is_file():
                 archive.write(path, path.relative_to(source.parent))
@@ -132,8 +150,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.runtime_root:
         environment["LECTUREPACK_RUNTIME_ROOT"] = str(args.runtime_root.resolve())
     if not args.skip_sidecar:
-        run(["npm", "run", "package:sidecar"], SPIKE_ROOT, environment)
-    run(["node", "package-win.mjs"], SPIKE_ROOT, environment)
+        run([node_tool("npm"), "run", "package:sidecar"], SPIKE_ROOT, environment)
+    run([node_tool("node"), "package-win.mjs"], SPIKE_ROOT, environment)
 
     candidate = candidate_dir()
     validate_candidate(candidate)
