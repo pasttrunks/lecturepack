@@ -323,7 +323,7 @@ async function bootstrap(session) {
     await restoreJob(session, preferred);
   } catch (error) {
     session.logger.write('bootstrap_failed', { error: error.message });
-    sendToPage(session, { event: 'error', error: error.message });
+    sendToPage(session, { event: 'error', kind: 'bootstrap', error: error.message });
   }
 }
 
@@ -493,7 +493,7 @@ function createProductionWindow() {
       startSidecar(session);
     } catch (error) {
       logger.write('sidecar_start_failed', { error: error.message });
-      sendToPage(session, { event: 'error', error: error.message });
+      sendToPage(session, { event: 'error', kind: 'startup', error: error.message });
     }
   });
   window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {

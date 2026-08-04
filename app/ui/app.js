@@ -12,6 +12,15 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   };
+  function parseBridgePayload(value, fallback) {
+    if (value && typeof value === 'object') return value;
+    try {
+      var parsed = JSON.parse(value == null ? '' : value);
+      return parsed == null ? (fallback === undefined ? {} : fallback) : parsed;
+    } catch (e) {
+      return fallback === undefined ? {} : fallback;
+    }
+  }
 
   /* ======================= guided tour models =======================
      These reducers deliberately contain no DOM or bridge calls.  The DOM
@@ -2113,6 +2122,14 @@
   }
 
   function setTheme(theme) { applyTheme(theme, true); }
+
+  function initialTheme() {
+    try {
+      var saved = window.localStorage.getItem('lecturepack.electron.theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch (e) { /* private/file contexts may deny localStorage */ }
+    return document.documentElement.dataset.theme || 'light';
+  }
 
   function setFocus(on) {
     LP.state.focus = on;
@@ -4327,21 +4344,36 @@
     lpBridge.on('repair_event', function (json) { RuntimeSetupGate.event(json); });
     lpBridge.on('bootstrap_progress', function (json) { RuntimeSetupGate.progress(json); });
     lpBridge.on('bootstrap_complete', function (json) {
-      var b; try { b = JSON.parse(json); } catch (e) { b = null; }
+      var b = parseBridgePayload(json, null);
       if (!b) return;
       // One routing implementation, not two: completion routes through the
       // same admit() the initial bootstrap uses.
       RuntimeSetupGate.admit(b);
       if (!b.bootstrap_pending && b.runtime_health_state !== 'SETUP_REQUIRED') startNormalBridgeActivity();
     });
+    lpBridge.on('error', function (json) {
+      var d = parseBridgePayload(json, {});
+      var message = String(d.error || d.message || 'The LecturePack runtime reported an error.');
+      toast(message);
+      var title = $('proc-status-title');
+      if (title && (d.kind === 'startup' || d.kind === 'bootstrap')) {
+        title.textContent = 'LecturePack needs attention';
+        title.title = message;
+        _applyLpState(title, 'failed');
+      }
+    });
     lpBridge.on('demo_event', receiveDemoEvent);
     lpBridge.on('queue_changed', function (json) {
-      try { LP.data.queue = JSON.parse(json); } catch (e) { return; }
+      var queue = parseBridgePayload(json, null);
+      if (!Array.isArray(queue)) return;
+      LP.data.queue = queue;
       renderQueue();
       renderScheduled();
     });
     lpBridge.on('pause_state', function (json) {
-      var st; try { st = JSON.parse(json).state; } catch (e) { return; }
+      var pauseState = parseBridgePayload(json, null);
+      if (!pauseState || typeof pauseState !== 'object') return;
+      var st = pauseState.state;
       var pause = $('btn-pause-job'), resume = $('btn-resume-job'),
           title = $('proc-status-title'), dot = $('proc-status-dot');
       if (st === 'pause_requested') {
@@ -4362,7 +4394,8 @@
       }
     });
     lpBridge.on('job_completed', function (json) {
-      var m; try { m = JSON.parse(json); } catch (e) { return; }
+      var m = parseBridgePayload(json, null);
+      if (!m || typeof m !== 'object') return;
       LP.state.completedJob = m.job_id || '';
       var set = function (id, v) { var el = $(id); if (el) el.textContent = v; };
       set('cm-time', m.wall_time || '—');
@@ -4376,7 +4409,8 @@
       _applyLpState(panel, 'complete');
     });
     lpBridge.on('notification_prefs', function (json) {
-      var prefs; try { prefs = JSON.parse(json); } catch (e) { return; }
+      var prefs = parseBridgePayload(json, null);
+      if (!prefs || typeof prefs !== 'object') return;
       Array.prototype.forEach.call(document.querySelectorAll('[data-notif]'), function (cb) {
         if (cb.dataset.notif in prefs) cb.checked = !!prefs[cb.dataset.notif];
       });
@@ -4389,7 +4423,7 @@
       var w = $('storage-widget');
       if (!w) return;
       var s;
-      try { s = JSON.parse(json); } catch (e) { w.hidden = true; return; }
+      s = parseBridgePayload(json, null);
       if (!s || !s.ok) { w.hidden = true; return; }
       $('storage-label').textContent = s.used_h + ' · ' + s.free_h + ' free';
       setFill('storage-bar', s.pct);
@@ -4397,7 +4431,9 @@
     });
 
     lpBridge.on('jobs_changed', function (json) {
-      LP.data.jobs = JSON.parse(json);
+      var jobs = parseBridgePayload(json, null);
+      if (!Array.isArray(jobs)) return;
+      LP.data.jobs = jobs;
       // Forget selections whose job is gone, else the count lies.
       if (LP.state.selecting) {
         var alive = {};
@@ -4412,7 +4448,7 @@
 
     // ---- import from a link ----
     lpBridge.on('media_link_state', function (json) {
-      var s = JSON.parse(json || '{}');
+      var s = parseBridgePayload(json || '{}', {});
       mediaLink.available = !!s.available;
       mediaLink.version = s.version || '';
       var btn = $('btn-paste-link');
@@ -4420,7 +4456,7 @@
     });
 
     lpBridge.on('media_probe', function (json) {
-      var info = JSON.parse(json || '{}');
+      var info = parseBridgePayload(json || '{}', {});
       if (!info.ok) { setLinkMsg(info.error || 'That link could not be read.', true); return; }
       if (mediaLink.probeModal) { mediaLink.probeModal.close(); mediaLink.probeModal = null; }
       linkConfirmDialog(info);
@@ -4431,14 +4467,15 @@
     });
 
     lpBridge.on('media_done', function (json) {
-      var r = JSON.parse(json || '{}');
+      var r = parseBridgePayload(json || '{}', {});
       if (mediaLink.progressModal) { mediaLink.progressModal.close(); mediaLink.progressModal = null; }
       if (r.ok) toast('Downloaded ' + (r.name || 'the recording'));
       else if (r.cancelled) toast('Download cancelled');
       else lpModal({ title: 'Download failed', bodyHtml: esc(r.error || 'Unknown error.'), actions: [{ label: 'Close', primary: true }] });
     });
     lpBridge.on('job_deleted', function (json) {
-      var d = JSON.parse(json);
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
       if (d.bulk) {
         var msg = d.ok
           ? (d.count + (d.count === 1 ? ' lecture' : ' lectures') + ' deleted · ' + (d.freed || '') + ' freed')
@@ -4469,11 +4506,12 @@
 
     // The backend owns which lecture the workspace belongs to; the UI follows.
     lpBridge.on('active_job', function (json) {
-      var a = JSON.parse(json || '{}');
+      var a = parseBridgePayload(json || '{}', {});
       setActiveJob(a.id || '', a.title || '');
     });
     lpBridge.on('pipeline_changed', function (json) {
-      var p = JSON.parse(json);
+      var p = parseBridgePayload(json, null);
+      if (!p || typeof p !== 'object') return;
       if (!ownsPayload(p)) return;      // stale: belongs to another lecture
       if (p.log) LP.data.pipeline.log = p.log;
       LP.data.pipeline.title = p.title || LP.data.pipeline.title;
@@ -4492,12 +4530,15 @@
     });
     lpBridge.on('log_line', function (json) {
       if (!LP.state.jobId) return;      // no lecture owns this log yet
-      LP.data.pipeline.log.push(JSON.parse(json));
+      var line = parseBridgePayload(json, null);
+      if (!line || typeof line !== 'object') return;
+      LP.data.pipeline.log.push(line);
       if (LP.data.pipeline.log.length > 500) LP.data.pipeline.log.shift();
       schedulePipelineRender();   // was renderPipeline() per line -- see the comment there
     });
     lpBridge.on('status_changed', function (json) {
-      var s = JSON.parse(json);
+      var s = parseBridgePayload(json, null);
+      if (!s || typeof s !== 'object') return;
       pendingProcessingStatus = Object.assign({}, pendingProcessingStatus, s);
       scheduleProcessingRender('status');
       // D-08: _on_pipeline_failed (Python) never re-emits pipeline_changed
@@ -4511,7 +4552,8 @@
       }
     });
     lpBridge.on('slides_changed', function (json) {
-      var d = JSON.parse(json);
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
       if (!ownsPayload(d)) return;
       LP.data.slides = d.slides || LP.data.slides;
       if (d.duration) LP.data.duration = d.duration;
@@ -4522,20 +4564,24 @@
       updateExportPdfDescription();
     });
     lpBridge.on('transcript_changed', function (json) {
-      var d = JSON.parse(json);
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
       if (!ownsPayload(d)) return;
       if (d.reviewSegments) { LP.data.reviewSegments = d.reviewSegments; renderReviewTranscript(); }
       if (d.transcript) { LP.data.transcript = d.transcript; renderTranscript(); }
     });
     lpBridge.on('study_changed', function (json) {
-      var sd = JSON.parse(json);
+      var sd = parseBridgePayload(json, null);
+      if (!sd || typeof sd !== 'object') return;
       if (!ownsPayload(sd)) return;
       LP.data.study = sd; renderStudy();
       var na = $('notes-area');
       if (na && document.activeElement !== na) na.value = LP.data.study.notes || '';
     });
     lpBridge.on('quiz_changed', function (json) {
-      var d = JSON.parse(json), q = LP.state.quiz;
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
+      var q = LP.state.quiz;
       if (!ownsPayload(d)) return;
       LP.data.quiz = { questions: d.questions || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
       if (d.session && typeof d.session === 'object' && Object.keys(d.session).length) {
@@ -4548,13 +4594,17 @@
       renderQuiz();
     });
     lpBridge.on('quiz_status', function (json) {
-      var d = JSON.parse(json), q = LP.state.quiz;
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
+      var q = LP.state.quiz;
       q.status = d.message || '';
       if (d.state === 'ready' || d.state === 'error' || d.state === 'cancelled') stopGen('quiz');
       if (d.state === 'error') { toast(d.message || 'Quiz failed'); renderQuiz(); }
     });
     lpBridge.on('flashcards_changed', function (json) {
-      var d = JSON.parse(json), f = LP.state.flash;
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
+      var f = LP.state.flash;
       if (!ownsPayload(d)) return;
       LP.data.flashcards = { cards: d.cards || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
       if (d.session && typeof d.session === 'object' && Object.keys(d.session).length) {
@@ -4567,19 +4617,23 @@
       renderCard();
     });
     lpBridge.on('flashcards_status', function (json) {
-      var d = JSON.parse(json), f = LP.state.flash;
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
+      var f = LP.state.flash;
       f.status = d.message || '';
       if (d.state === 'ready' || d.state === 'error' || d.state === 'cancelled') stopGen('flash');
       if (d.state === 'error') { toast(d.message || 'Flashcards failed'); renderCard(); }
     });
     lpBridge.on('export_progress', function (json) {
-      var p = JSON.parse(json);
+      var p = parseBridgePayload(json, null);
+      if (!p || typeof p !== 'object') return;
       LP.state.exportPhase = 'running'; renderExportPhase();
       setFill('export-progress-bar', p.pct || 0);
       $('export-progress-label').textContent = p.label || '';
     });
     lpBridge.on('export_done', function (json) {
-      var d = JSON.parse(json);
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
       LP.data.exportFiles = d.files || LP.data.exportFiles;
       LP.state.exportPhase = 'done'; renderExportPhase();
       if (d.meta) $('export-done-meta').textContent = d.meta;
@@ -4589,19 +4643,22 @@
       LP.state.streaming = false; renderChat();
     });
     lpBridge.on('groq_status', function (json) {
-      var d = JSON.parse(json), el = $('groq-status');
+      var d = parseBridgePayload(json, null), el = $('groq-status');
+      if (!d || typeof d !== 'object') return;
       if (el) { el.textContent = d.message || ''; el.style.color = d.has_key ? 'var(--secondary-text)' : 'var(--muted)'; }
       if (d.backend && LP.ui) LP.ui.reflectBackend(d.backend);
     });
     lpBridge.on('vulkan_status', function (json) {
-      var d = JSON.parse(json), el = $('vulkan-status');
+      var d = parseBridgePayload(json, null), el = $('vulkan-status');
+      if (!d || typeof d !== 'object') return;
       if (!el) return;
       el.textContent = d.message || '';
       el.style.color = (d.state === 'loaded' || d.state === 'available') ? 'var(--secondary-text)'
         : (d.state === 'unavailable' || d.state === 'error') ? 'var(--muted)' : 'var(--muted)';
     });
     lpBridge.on('cuda_status', function (json) {
-      var d = JSON.parse(json), el = $('cuda-status');
+      var d = parseBridgePayload(json, null), el = $('cuda-status');
+      if (!d || typeof d !== 'object') return;
       if (!el) return;
       el.textContent = d.message || '';
       el.style.color = (d.state === 'loaded' || d.state === 'available') ? 'var(--secondary-text)' : 'var(--muted)';
@@ -4636,7 +4693,8 @@
       }
     });
     lpBridge.on('ai_status', function (json) {
-      var s = JSON.parse(json);
+      var s = parseBridgePayload(json, null);
+      if (!s || typeof s !== 'object') return;
       var lbl = s.label || 'Built-in Study';
       var builtin = lbl === 'Built-in Study';
       var err = lbl === 'AI error';
@@ -4650,13 +4708,17 @@
       try { renderSmartStudy(JSON.parse(json)); } catch (e) { console.error('smart_study', e); }
     });
     lpBridge.on('onboarding', function (json) {
-      var d = JSON.parse(json);
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
       if (d.name) $('onb-file-name').textContent = d.name;
       if (d.meta) $('onb-file-meta').textContent = d.meta;
       setScreen('home');
       setOnb('detected');
     });
-    lpBridge.on('update_available', function (json) { showWhatsNew(JSON.parse(json), 'available'); });
+    lpBridge.on('update_available', function (json) {
+      var d = parseBridgePayload(json, null);
+      if (d && typeof d === 'object') showWhatsNew(d, 'available');
+    });
     lpBridge.on('update_progress', function (pct) {
       if ($('whatsnew-overlay').hidden) $('whatsnew-overlay').hidden = false;
       if (LP.state.updatePhase !== 'downloading') updSetPhase('downloading');
@@ -4693,9 +4755,13 @@
         if (d.stage === 'check' || d.manual) $('update-status').textContent = d.message || 'Unable to check right now';
       }
     });
-    lpBridge.on('whatsnew', function (json) { showWhatsNew(JSON.parse(json), 'installed'); });
+    lpBridge.on('whatsnew', function (json) {
+      var d = parseBridgePayload(json, null);
+      if (d && typeof d === 'object') showWhatsNew(d, 'installed');
+    });
     lpBridge.on('settings_changed', function (json) {
-      var s = JSON.parse(json);
+      var s = parseBridgePayload(json, null);
+      if (!s || typeof s !== 'object') return;
       if (s.theme) applyTheme(s.theme, false);
       if (s.version) { LP.data.version = s.version; $('app-version').textContent = s.version; }
       if (s.model_path) $('setting-model-path').textContent = s.model_path;
@@ -4721,7 +4787,8 @@
       if (s.update_status) $('update-status').textContent = s.update_status;
     });
     lpBridge.on('ollama_models', function (json) {
-      var d = JSON.parse(json), sel = $('ai-model-select');
+      var d = parseBridgePayload(json, null), sel = $('ai-model-select');
+      if (!d || typeof d !== 'object') return;
       if (!sel) return;
       if (!d.available) {
         sel.innerHTML = '<option value="">Ollama unavailable — ' + esc(d.error || 'not reachable') + '</option>';
@@ -4796,7 +4863,7 @@
     renderDemoCard();
     renderSlideDetectionPreset();
     setScreen('home');
-    applyTheme(document.documentElement.dataset.theme || 'light', false);
+    applyTheme(initialTheme(), false);
     setStudyTab('chat');
     RuntimeSetupGate.wire();
     RuntimeSetupGate.beginBootstrap();
