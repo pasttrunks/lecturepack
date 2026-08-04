@@ -1039,3 +1039,55 @@ explicit user groups still win.
 **Rationale:** Keeping the envelope intact makes queue state lossless across
   the transport and limits this repair to the renderer-owned compatibility
   layer.
+
+## AD-29: Exclude Nested Build Dependencies from the Electron ASAR
+
+**Date:** 2026-08-04
+**Status:** Implemented on `luna/phase9-product-app`
+
+**Context:** The unpacked build source can contain a nested, ignored
+`electron-spike/node_modules` or Python `__pycache__` directory left by local
+packaging tools. A root-only ignore rule allowed those build-time files to be
+copied into `app.asar`, even though the production host does not require them.
+
+**Decision:** Match `node_modules` and `__pycache__` at any relative depth in
+the Electron packager ignore predicate. Keep only the production entrypoints
+in the ASAR; the sidecar and runtime assets remain explicit extra resources.
+
+**Alternatives considered:**
+
+- Deleting generated build directories before every package: rejected because
+  it is destructive and makes the build depend on cleanup state.
+- Leaving the nested dependencies in the artifact: rejected because they add
+  unneeded customer payload and can expose historical tooling files.
+
+**Rationale:** The package is deterministic from the source tree and excludes
+build-only dependencies without changing runtime behavior.
+
+## AD-30: Keep Runtime Recovery Safe When the Packaged Runtime Is Missing
+
+**Date:** 2026-08-04
+**Status:** Implemented on `luna/phase9-product-app`
+
+**Context:** The existing renderer's runtime setup overlay calls historical
+repair methods directly. The Phase 9 sidecar contract intentionally does not
+include an in-place runtime-download operation because the production package
+ships a fixed, verified runtime. Leaving those methods undefined would turn a
+corrupt or incomplete install into a renderer exception.
+
+**Decision:** Expose the historical methods at the Electron adapter boundary.
+`retryRuntimeAssessment` maps to the implemented `health_check` command and
+refreshes the bootstrap state. Repair and cancellation return a structured
+local result; the renderer presents an explicit reinstall-required state and
+never sends an unsupported command to the sidecar.
+
+**Alternatives considered:**
+
+- Adding new runtime repair commands to the sidecar: rejected because it would
+  expand the locked contract and duplicate the deferred Qt repair service.
+- Leaving the methods undefined: rejected because a missing runtime would
+  cause a renderer `TypeError` and provide no recovery instruction.
+
+**Rationale:** A bundled runtime should be repaired by reinstalling the
+  verified package in this phase. The adapter remains total and the failure
+  path remains clear without crossing the deferred JSONL boundary.

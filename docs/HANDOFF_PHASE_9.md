@@ -18,25 +18,35 @@
   and keeps title-based grouping visible when no explicit group is stored.
 - `jobs_changed` remains a direct array at the renderer boundary; `ai_token`
   remains plain text; sidecar JSONL uses ASCII-safe escaping.
+- The Electron adapter now exposes the historical runtime-recheck/repair
+  methods without crossing the deferred sidecar boundary. Recheck uses
+  `health_check`; an unavailable in-place repair produces an explicit
+  reinstall-required UI state instead of a renderer exception.
 - Packaged sidecar includes PySide6 only as an internal backend dependency, with
   no Qt window or WebEngine view, plus FFmpeg, whisper.cpp, the bundled model,
   demo video, and frozen yt-dlp provider support.
 - Portable ZIP, Inno Setup EXE, and SHA256 manifest were generated.
+- The refreshed candidate excludes legacy Electron entrypoints and ignores
+  nested build-time `node_modules`/`__pycache__` directories in the ASAR.
 
 ## Evidence
 
 - Renderer/contract parity repairs are committed as `081cbea`, with the
-  ownership-test stability follow-up `fa58eda`.
-- Focused bridge/study/runtime/release tests: `82 passed, 1 skipped`.
+  ownership-test stability follow-up `fa58eda`; runtime-boundary repair is
+  committed as `30d87bf`.
+- Focused bridge/study/runtime/release tests: `83 passed, 1 skipped`.
 - Full suite with the disposable legacy onedir fixture:
-  `1173 passed, 3 skipped, 1 warning`.
+  `1174 passed, 3 skipped, 1 warning`.
 - Packaged acceptance result:
-  `C:\LecturePackPhase9Results-luna-beta15-final3\acceptance-result.json`
+  `C:\LecturePackPhase9Results-luna-beta15-final5\acceptance-result.json`
   reports `passed: true`, 13 export files, `restore_passed: true`, empty
   renderer/bridge error lists, and `orphan_processes: []`.
 - Packaged URL capability probe: `media_link_support` returned
   `available: true`, version `2026.07.04`, and the sidecar shut down with exit
   code 0.
+- `npm run validate`: passed; final ASAR audit found only
+  `electron-bridge.js`, `production-main.js`, and `production-preload.js`
+  among the Electron entrypoints.
 
 ## Artifacts
 
@@ -49,8 +59,8 @@
 - Hashes:
   `C:\Users\marsh\Documents\LecturePack-luna-phase9\electron-spike\dist\releases\0.9.0-beta.15\LecturePack-0.9.0-beta.15-SHA256SUMS.txt`
 
-Portable SHA-256: `4fb94d6966cf9aa934af4fa2ede784f914c92d03f770582b0a7436d862c40fb7`
-Setup SHA-256: `b4a73cbe98480984c1819855c7cc110d10f87d03c866eeca7cff4e921952231b`
+Portable SHA-256: `99668ac31498e1253054d84327a9e0916abcaba5f063c5561061c8cc66c3c605`
+Setup SHA-256: `99c089612157dbaf51cf53c01e42ca2f43d90949ce2e1f4e595c6d726b63a65e`
 
 ## Remaining gate
 

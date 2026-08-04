@@ -64,10 +64,10 @@ const output = await packager({
       /^build-sidecar(?:\/|$)/,
       /^renderer-spike-results(?:\/|$)/,
       /^electron-production-results(?:\/|$)/,
-      /^node_modules(?:\/|$)/,
+      /(?:^|\/)node_modules(?:\/|$)/,
       /^package-lock\.json$/,
       /^python-sidecar\.py$/,
-      /^__pycache__(?:\/|$)/,
+      /(?:^|\/)__pycache__(?:\/|$)/,
       /^\.git(?:\/|$)/,
       /^(?:final-|packaged-|transfer(?:\/|$))/
     ].some((pattern) => pattern.test(relative));
