@@ -2834,16 +2834,32 @@
       setDemoAdmissionAvailable(!!(view && view.healthy && !view.bootstrapPending && view.acknowledged &&
         (view.state === 'ready' || !view.activeOperation)));
     }
+    function handleElectronRepairResult(operationId, value) {
+      var result = value;
+      if (typeof result === 'string') {
+        try { result = JSON.parse(result); } catch (e) { result = null; }
+      }
+      if (!result || result.type !== 'repair_unavailable' || result.operation_id !== operationId) return false;
+      var view = eventModel.event({ operation_id: operationId, kind: 'failed', classification: 'portable_unavailable' });
+      text('runtime-failure-reason', result.message || 'Reinstall LecturePack to restore the bundled runtime.');
+      announce('runtime-live-assertive', 'The bundled runtime cannot be repaired in place.');
+      render(true);
+      return !!view;
+    }
     function beginOffer() {
       var previous = eventModel.snapshot(); if (previous.retryPending || (previous.activeOperation && !previous.terminal)) return;
       var view = eventModel.begin(operationId());
       $('btn-runtime-repair').disabled = true; announce('runtime-live-polite', 'Checking runtime…');
-      render(); lpBridge.beginRuntimeRepairOffer(view.activeOperation).then(function () {});
+      render(); lpBridge.beginRuntimeRepairOffer(view.activeOperation).then(function (result) {
+        handleElectronRepairResult(view.activeOperation, result);
+      });
     }
     function confirm() {
       var before = eventModel.snapshot(); if (!validOffer(before.offer) || before.terminal) return;
       var view = eventModel.confirm(); if (view.state !== 'repairing') return;
-      render(); text('runtime-progress-text', 'Downloading'); lpBridge.confirmRuntimeRepair(view.activeOperation);
+      render(); text('runtime-progress-text', 'Downloading'); lpBridge.confirmRuntimeRepair(view.activeOperation).then(function (result) {
+        handleElectronRepairResult(view.activeOperation, result);
+      });
     }
     function retryAssessment() {
       if (eventModel.snapshot().retryPending) return;
@@ -2858,12 +2874,23 @@
     }
     function beginNewRepair() {
       var view = eventModel.begin(operationId(), 'repairing');
-      render(); text('runtime-progress-text', 'Downloading'); lpBridge.beginRuntimeRepairOffer(view.activeOperation);
+      render(); text('runtime-progress-text', 'Downloading'); lpBridge.beginRuntimeRepairOffer(view.activeOperation).then(function (result) {
+        handleElectronRepairResult(view.activeOperation, result);
+      });
     }
     function cancel() {
       var view = eventModel.snapshot(); if (!view.activeOperation || view.cancelPending || view.terminal) return;
       view = eventModel.requestCancel(); $('btn-runtime-cancel').disabled = true; text('btn-runtime-cancel', 'Cancelling safely…');
-      lpBridge.cancelRuntimeRepair(view.activeOperation);
+      lpBridge.cancelRuntimeRepair(view.activeOperation).then(function (result) {
+        var payload = result;
+        if (typeof payload === 'string') {
+          try { payload = JSON.parse(payload); } catch (e) { payload = null; }
+        }
+        if (payload && payload.type === 'cancelled' && payload.operation_id === view.activeOperation) {
+          eventModel.event({ operation_id: view.activeOperation, kind: 'cancelled' });
+          render(true);
+        }
+      });
     }
     function diagnostics(invoker) {
       eventModel.diagnostics();

@@ -77,6 +77,36 @@
     return String(parsed.job_id || (typeof value === 'string' ? value : '') || '');
   }
 
+  var PACKAGED_REPAIR_UNAVAILABLE = 'The bundled LecturePack runtime cannot be repaired in place. Reinstall the current LecturePack package and try again.';
+
+  function repairUnavailable(operationId) {
+    return Promise.resolve(json({
+      type: 'repair_unavailable',
+      operation_id: String(operationId || ''),
+      message: PACKAGED_REPAIR_UNAVAILABLE
+    }));
+  }
+
+  function bootstrapFromHealth(result) {
+    var paths = result && result.paths && typeof result.paths === 'object' ? result.paths : {};
+    var missing = Object.keys(paths).filter(function (name) {
+      return !paths[name] || paths[name].exists !== true;
+    });
+    var healthy = !!(result && result.healthy === true && missing.length === 0);
+    return {
+      bootstrap_pending: false,
+      runtime_health_state: healthy ? 'HEALTHY' : 'SETUP_REQUIRED',
+      setup_acknowledged: false,
+      healthy: healthy,
+      engine_loaded: !!(result && result.engine_loaded),
+      validation_path: 'light',
+      failed_components: missing.map(function (name) {
+        return { component: name, friendly_name: name + ' is missing' };
+      }),
+      diagnostics: result && result.error ? String(result.error) : ''
+    };
+  }
+
   function eventPayload(event, item) {
     // app/ui/app.js parses jobs_changed directly and immediately calls
     // forEach on it. Keep the migration envelope internal to the transport;
@@ -320,6 +350,23 @@
         console.warn('electron bridge file path', error);
       }
       return typeof file.path === 'string' ? file.path : '';
+    },
+    // The packaged sidecar owns a fixed, verified runtime. It can re-assess
+    // that runtime through health_check, but it deliberately has no deferred
+    // in-place download/repair operation. Keep the historical UI methods
+    // total so a missing runtime produces a recovery message, not a renderer
+    // TypeError or a call to an unsupported sidecar command.
+    beginRuntimeRepairOffer: function (operationId) { return repairUnavailable(operationId); },
+    confirmRuntimeRepair: function (operationId) { return repairUnavailable(operationId); },
+    cancelRuntimeRepair: function (operationId) {
+      return Promise.resolve(json({ type: 'cancelled', operation_id: String(operationId || '') }));
+    },
+    retryRuntimeAssessment: function () {
+      return window.lpBridge.call('health_check').then(function (result) {
+        var bootstrap = bootstrapFromHealth(result);
+        fire('bootstrap_complete', json(bootstrap));
+        return json(bootstrap);
+      });
     },
     on: function (name, callback) {
       (listeners[name] = listeners[name] || []).push(callback);

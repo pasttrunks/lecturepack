@@ -268,6 +268,64 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_production_bridge_keeps_runtime_recheck_and_repair_boundary_total(tmp_path):
+    harness = tmp_path / "bridge-runtime-repair-check.js"
+    harness.write_text(
+        r"""
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+const calls = [];
+const events = [];
+const context = {
+  console: { error() {} },
+  window: {
+    localStorage: { setItem() {} },
+    lecturePackElectron: {
+      request(command, payload) {
+        calls.push({ command, payload });
+        if (command === 'health_check') {
+          return Promise.resolve({
+            healthy: true,
+            engine_loaded: true,
+            paths: { ffmpeg: { exists: true }, whisper: { exists: true } }
+          });
+        }
+        return Promise.resolve({});
+      },
+      onMessage() {}
+    }
+  }
+};
+vm.createContext(context);
+vm.runInContext(source, context, { filename: 'electron-bridge.js' });
+context.window.lpBridge.on('bootstrap_complete', (json) => events.push(JSON.parse(json)));
+(async () => {
+  const assessment = JSON.parse(await context.window.lpBridge.retryRuntimeAssessment());
+  const unavailable = JSON.parse(await context.window.lpBridge.beginRuntimeRepairOffer('op-1'));
+  const confirmed = JSON.parse(await context.window.lpBridge.confirmRuntimeRepair('op-1'));
+  const cancelled = JSON.parse(await context.window.lpBridge.cancelRuntimeRepair('op-1'));
+  if (assessment.runtime_health_state !== 'HEALTHY' || !assessment.healthy) throw new Error('health recheck was not adapted');
+  if (events.length !== 1 || events[0].runtime_health_state !== 'HEALTHY') throw new Error('health recheck did not refresh bootstrap state');
+  if (unavailable.type !== 'repair_unavailable' || confirmed.type !== 'repair_unavailable') throw new Error('repair did not fail explicitly');
+  if (cancelled.type !== 'cancelled') throw new Error('repair cancellation was not acknowledged');
+  if (calls.length !== 1 || calls[0].command !== 'health_check') throw new Error('deferred repair crossed JSONL');
+})().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [shutil.which("node"), str(harness), str(SPIKE / "electron-bridge.js")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_production_bridge_maps_phase9_jobs_and_url_calls(tmp_path):
     harness = tmp_path / "bridge-phase9-check.js"
     harness.write_text(
