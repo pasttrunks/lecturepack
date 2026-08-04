@@ -454,6 +454,8 @@ def test_sidecar_spec_is_cpu_only_and_headless():
     assert "ffprobe.exe" in spec
     assert "whisper-cli.exe" in spec
     assert "ggml-base.en.bin" in spec
+    assert "collect_submodules(\"yt_dlp\")" in spec
+    assert '"send2trash"' in spec
     assert "bin/vulkan" not in spec
     assert "bin/cuda" not in spec
     assert "qtwidgets" not in (SPIKE / "python-sidecar.py").read_text(encoding="utf-8").lower()

@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 
 from PyInstaller.building.build_main import Analysis, COLLECT, EXE, PYZ
+from PyInstaller.utils.hooks import collect_submodules
 
 
 SPIKE_ROOT = Path(SPECPATH).resolve()
@@ -38,6 +39,7 @@ runtime_datas.extend(
 
 
 hiddenimports = [
+    "send2trash",
     "lecturepack.services.transcript_store",
     "lecturepack.services.transcript_service",
     "lecturepack.services.transcript_formats",
@@ -45,6 +47,14 @@ hiddenimports = [
     "lecturepack.infrastructure.whisper_detector",
     "lecturepack.infrastructure.whisper_path_staging",
 ]
+try:
+    # yt-dlp resolves extractors by name at runtime. Collecting its extractor
+    # modules is required for URL import to work without customer Python.
+    hiddenimports += collect_submodules("yt_dlp")
+except Exception:
+    # A build environment without the optional URL provider still produces a
+    # valid local-file candidate; the sidecar reports link import unavailable.
+    pass
 
 
 a = Analysis(
