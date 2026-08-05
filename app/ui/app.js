@@ -1735,7 +1735,7 @@
       var row = 'display:flex;padding:11px 13px;' + (last ? '' : 'border-bottom:1px solid var(--line);') + 'gap:11px';
       var tColor = 'var(--muted)';
       if (s.hot) { row += ';background:var(--blue-tint);border-left:3px solid var(--blue)'; tColor = 'var(--blue-ink)'; }
-      return '<div style="' + row + '"><span style="width:66px;flex:none;font:500 11px \'JetBrains Mono\';color:' + tColor + '">' + esc(s.t) + '</span><span contenteditable="true" style="flex:1;font-size:13px;line-height:1.5">' + esc(s.text) + '</span></div>';
+      return '<div style="' + row + '"><span style="width:104px;flex:none;min-width:104px;white-space:nowrap;font:500 11px \'JetBrains Mono\';color:' + tColor + '">' + esc(s.t) + '</span><span contenteditable="true" style="flex:1;min-width:0;overflow-wrap:anywhere;font-size:13px;line-height:1.5">' + esc(s.text) + '</span></div>';
     }).join('');
   }
 
@@ -1758,7 +1758,7 @@
       var chip = b.hotTime
         ? '<span style="font:700 12px \'JetBrains Mono\';color:var(--orange-ink);background:var(--orange-soft);border-radius:7px;padding:3px 7px">' + esc(b.t) + '</span>'
         : '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted)">' + esc(b.t) + '</span>';
-      return '<div style="display:flex;gap:18px"><div style="width:58px;flex:none;text-align:right;min-width:58px">' + chip + '</div><p style="margin:0;font-size:17px;line-height:1.72;text-wrap:pretty;flex:1;min-width:0">' + b.html + '</p></div>';
+      return '<div style="display:flex;gap:18px"><div style="width:104px;flex:none;text-align:right;min-width:104px;white-space:nowrap">' + chip + '</div><p style="margin:0;font-size:17px;line-height:1.72;text-wrap:pretty;flex:1;min-width:0;overflow-wrap:anywhere">' + b.html + '</p></div>';
     }).join('');
   }
 
@@ -5179,6 +5179,14 @@
     lpBridge.on('onboarding', function (json) {
       var d = parseBridgePayload(json, null);
       if (!d || typeof d !== 'object') return;
+      // Demo import emits the same onboarding event as a normal file import.
+      // The guided demo has already moved to Process before that event arrives;
+      // reopening the New Job overlay here covered the real processing screen.
+      var demoIsActive = guidedDemo.snapshot().active || demoFlowPhase() !== 'import';
+      if (demoIsActive) {
+        setOnb(null);
+        return;
+      }
       if (d.name) $('onb-file-name').textContent = d.name;
       if (d.meta) $('onb-file-meta').textContent = d.meta;
       setScreen('home');

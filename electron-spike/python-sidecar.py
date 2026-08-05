@@ -2159,8 +2159,12 @@ class Sidecar:
             self._emit({"event": "media_done", **payload_out})
             if payload_out.get("ok"):
                 # Hand off on the main thread: import_video touches Qt + engine.
-                QTimer.singleShot(0, lambda: self._import_video(None, "import_media_url",
-                                                                {"path": payload_out["path"]}))
+                # The download worker has no Qt event loop. Give the timer a
+                # main-thread QObject context so the handoff reaches the
+                # sidecar's event loop and the downloaded file becomes a job.
+                QTimer.singleShot(0, self._poll_timer,
+                                  lambda: self._import_video(None, "import_media_url",
+                                                             {"path": payload_out["path"]}))
 
         threading.Thread(target=worker, daemon=True,
                          name="lp-media-download").start()

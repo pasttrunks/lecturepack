@@ -1091,3 +1091,36 @@ never sends an unsupported command to the sidecar.
 **Rationale:** A bundled runtime should be repaired by reinstalling the
   verified package in this phase. The adapter remains total and the failure
   path remains clear without crossing the deferred JSONL boundary.
+
+## AD-31: Use a Compatible YouTube Client for Link Import
+
+**Date:** 2026-08-05
+**Status:** Implemented on `deepseek/beta15-pc-polish`
+
+**Context:** The supplied public YouTube lecture URL returned “This video is
+not available” through yt-dlp's default web client, while YouTube's oEmbed
+metadata and the Android player client both resolved it. The Android client
+also exposed a combined MP4 format compatible with the existing format
+selector. After download, the Electron sidecar's worker-to-import callback was
+also being scheduled with a bare `QTimer.singleShot`, which has no event loop
+in the worker thread.
+
+**Decision:** Pass yt-dlp's YouTube extractor argument
+`player_client=android` for link probes and downloads. Keep the existing
+format selector and normal import path unchanged. Schedule the successful
+download handoff with the sidecar's main-thread `QTimer` context so the file
+becomes a normal queued LecturePack job.
+
+**Alternatives considered:**
+
+- Requiring users to remove URL parameters or use a different YouTube URL:
+  rejected because the supplied valid URL should work as pasted.
+- Retrying arbitrary YouTube clients or enabling DRM-related paths: rejected
+  because it is nondeterministic and would violate the plain-stream-only
+  importer boundary.
+- Importing the file directly from the worker: rejected because job creation
+  touches Qt and the existing engine and must stay on the sidecar event loop.
+
+**Rationale:** A fixed compatible client makes the packaged importer
+deterministic for public videos hidden from the default web client, while the
+context-bound handoff preserves the existing processing/import contract.

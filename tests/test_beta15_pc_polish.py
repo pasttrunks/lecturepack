@@ -74,6 +74,15 @@ def test_renderer_requests_poster_through_lpasset() -> None:
     assert "function posterSrc" in app
 
 
+def test_packaged_demo_thumbnail_asset_is_attested() -> None:
+    import hashlib
+    thumbnail = ROOT / "electron-spike" / "assets" / "demo" / "polar_bears_thumbnail.jpg"
+    assert thumbnail.is_file()
+    assert hashlib.sha256(thumbnail.read_bytes()).hexdigest() == (
+        "6120e615b8f5d3006be9bb786b856c15ae1b6ae9c0a80b106d5f48280556795f"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 2. False "Transcribing audio" idle status
 # --------------------------------------------------------------------------- #
@@ -152,6 +161,7 @@ def test_media_fetch_uses_normal_import_path() -> None:
     sidecar = read(SIDECAR)
     assert "def _import_media_url" in sidecar
     assert "self._import_video(None, \"import_media_url\"" in sidecar
+    assert "QTimer.singleShot(0, self._poll_timer" in sidecar
     assert "MediaFetchCancelled" in sidecar
     assert "cancel_check=cancel.is_set" in sidecar
 
@@ -164,6 +174,15 @@ def test_demo_start_hides_new_job_overlay() -> None:
     demo = block(app, "function startGuidedDemo()", "function endGuidedDemo")
     assert "setOnb(null);" in demo
     assert "setScreen('process'); renderGuidedTour();" in demo
+
+
+def test_demo_onboarding_event_does_not_restore_new_job_overlay() -> None:
+    app = read(APP)
+    onboarding = block(app, "lpBridge.on('onboarding'", "lpBridge.on('update_available'")
+    assert "guidedDemo.snapshot().active" in onboarding
+    assert "demoFlowPhase() !== 'import'" in onboarding
+    assert "if (demoIsActive)" in onboarding
+    assert "setOnb(null);" in onboarding
 
 
 # --------------------------------------------------------------------------- #
@@ -190,8 +209,11 @@ def test_tour_overlay_remains_visible_across_screens() -> None:
 # --------------------------------------------------------------------------- #
 def test_transcript_row_uses_fixed_timestamp_column() -> None:
     app = read(APP)
+    review = block(app, "function renderReviewTranscript()", "function renderTranscript()")
     transcript = block(app, "function renderTranscript()", "function renderStudy()")
-    assert "width:58px;flex:none;text-align:right;min-width:58px" in transcript
+    assert "width:104px;flex:none;min-width:104px;white-space:nowrap" in review
+    assert "width:104px;flex:none;text-align:right;min-width:104px;white-space:nowrap" in transcript
+    assert "overflow-wrap:anywhere" in review
     assert "flex:1;min-width:0" in transcript
 
 
@@ -203,4 +225,5 @@ def test_transcript_geometry_contract() -> None:
     transcript = block(app, "function renderTranscript()", "function renderStudy()")
     assert "display:flex;gap:18px" in transcript
     assert "flex:none" in transcript
+    assert "min-width:104px" in transcript
     assert "min-width:0" in transcript

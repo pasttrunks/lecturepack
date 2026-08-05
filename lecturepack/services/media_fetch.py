@@ -115,6 +115,15 @@ class MediaFetcher:
             "noprogress": True,
             "noplaylist": True,       # a lecture link, not someone's whole channel
             "restrictfilenames": False,
+            # Some public YouTube videos are hidden from yt-dlp's default web
+            # client even though they remain playable. The Android client
+            # exposes the combined MP4 formats that the default selector can
+            # download without a separate merge step.
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android"],
+                },
+            },
         }
 
     # ------------------------------------------------------------------- probe
