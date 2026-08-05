@@ -484,6 +484,23 @@
     // if a workspace renderer throws on unusual data.
     renderJobChrome();
     renderWorkspace();
+    // F-3: settle every status readout to the restored job's terminal state.
+    // On relaunch or a job switch no live pipeline events will ever arrive
+    // for a completed/failed/cancelled lecture, so paint its final state now
+    // instead of leaving whatever the previous job left behind.
+    var restored = (LP.data.jobs || []).filter(function (j) { return j && j.id === id; })[0];
+    if (restored && restored.status === 'done') settleTerminalStatus('complete');
+    else if (restored && restored.status === 'failed') settleTerminalStatus('failed');
+    else if (restored && restored.status === 'cancelled') settleTerminalStatus('cancelled');
+    else if (restored && restored.status === 'interrupted') settleTerminalStatus('interrupted');
+    else if (restored && !id) settleTerminalStatus('idle');
+    else if (restored) {
+      // A live (queued/running/paused) job: clear the previous job's terminal
+      // readouts; real pipeline events take over from here.
+      var liveLabel = $('status-label'); if (liveLabel) liveLabel.textContent = 'Idle';
+      setFill('status-bar', 0);
+      setStatusDotText($('side-job-status'), restored.status === 'running' ? 'Processing' : 'Queued', 'var(--orange)', restored.status === 'running');
+    }
   }
 
   /* Reject a payload that belongs to a lecture other than the active one.
@@ -714,6 +731,57 @@
     if (/review ready|preparing review/.test(normalized)) return 'Preparing review';
     if (/^prepare|preparing/.test(normalized)) return 'Preparing';
     return raw.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+  }
+
+  /* Backend and IPC failures must never reach the student raw (N-2):
+     "Error invoking remote method '…': Error: RuntimeError: no job is loaded"
+     is log-speak, not a message. Strip the transport wrapper, map the known
+     failure phrases to short actionable copy, and keep the raw string in the
+     technical log only. `command` is the mapped sidecar command name when the
+     failure came through the bridge's error channel. */
+  function friendlyErrorMessage(raw, command) {
+    var text = String(raw == null ? '' : raw).trim();
+    if (!text) return 'Something went wrong. Try again.';
+    var cleaned = text.replace(/^Error invoking remote method '[^']*':\s*/i, '').replace(/^Error:\s*/i, '').trim();
+    var lower = cleaned.toLowerCase();
+    if (lower.indexOf('no job is loaded') >= 0) {
+      if (command === 'repair_selection') return 'Load a lecture before repairing slide selections.';
+      if (command === 'export') return 'Load a lecture first — there is nothing to export yet.';
+      if (command === 'set_slide_state' || command === 'save_corrections') return 'Load a lecture first — there are no slides to review yet.';
+      if (command === 'pause_job' || command === 'resume_job' || command === 'cancel_job') return 'No lecture is processing right now.';
+      return 'Load a lecture first — there is nothing to process yet.';
+    }
+    if (lower.indexOf('sidecar command failed') >= 0) {
+      if (lower.indexOf('repair_selection') >= 0) return 'Load a lecture before repairing slide selections.';
+      if (lower.indexOf('export') >= 0) return 'The export could not be completed. Try again.';
+      return 'That action could not be completed right now. Try again.';
+    }
+    if (command === 'probe_media_url' || command === 'import_media_url') {
+      var link = friendlyLinkError(cleaned);
+      if (link) return link;
+    }
+    if (/runtimeerror|traceback|exception|errno|0x[0-9a-f]{4}/i.test(cleaned)) {
+      try { console.error('[lecturepack]', text); } catch (e) {}
+      return 'Something went wrong. Please try again.';
+    }
+    return cleaned;
+  }
+
+  /* yt-dlp stderr → student copy (N-6). Returns '' when nothing matches so
+     the caller can fall back to its own generic message; the raw technical
+     text stays in the log or behind the dialog's Details section. */
+  function friendlyLinkError(raw) {
+    var lower = String(raw == null ? '' : raw).toLowerCase();
+    if (!lower) return '';
+    if (/getaddrinfo|name or service|temporary failure in name|nodename|errno 11001|unreachable|connection refused|timed?\s?out|failed to establish|urlopen|network is down/.test(lower))
+      return 'We could not reach that link. Check the URL and your internet connection.';
+    if (/unsupported url|unsupported site|no suitable extractor/.test(lower))
+      return 'That site is not supported. Try a direct video file or a supported video link.';
+    if (/private video|sign in|log ?in|cookies?|authentication/.test(lower))
+      return 'That video requires a sign-in and cannot be imported.';
+    if (/http error 404|404|not found|video unavailable|has been removed/.test(lower))
+      return 'That link did not resolve to a video. Check the URL and try again.';
+    return '';
   }
 
   function looksLikeJobId(value) {
@@ -1452,6 +1520,7 @@
      stages.forEach(function (st, index) { applyPipelineStage(stagesEl.children[index], st); });
      renderPipelineLog($('proc-log'), logs);
      if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') scheduleTourGeometry();
+     refreshControlStates();
    }
 
    function renderProcessingStatus() {
@@ -1469,6 +1538,72 @@
         $('crumb-job').textContent = jobName || 'Lecture';
       }
      if (s.side !== undefined) setStatusDotText($('side-job-status'), s.side, 'var(--orange)', true);
+   }
+
+   /* One writer for the enable/disable state of every job-dependent control
+      (N-1/N-2). A control the student cannot validly use right now is
+      disabled with a one-line reason on the tooltip instead of answering the
+      click with a raw backend error. */
+   function setCtl(id, enabled, disabledTip) {
+     var el = $(id); if (!el) return;
+     el.disabled = !enabled;
+     el.style.opacity = enabled ? '' : '.45';
+     el.style.cursor = enabled ? '' : 'not-allowed';
+     if (enabled) { if (el.dataset.ctlTip) { el.removeAttribute('title'); delete el.dataset.ctlTip; } }
+     else { el.title = disabledTip || 'Load a lecture first.'; el.dataset.ctlTip = '1'; }
+   }
+   function refreshControlStates() {
+     var hasSlides = LP.data.slides.length > 0;
+     var hasJob = !!LP.state.jobId;
+     var processing = LP.state.pipelineRunning || guidedDemo.snapshot().active;
+     var reviewTip = 'Load a lecture first — there are no slides to review yet.';
+     setCtl('btn-keep', hasSlides, reviewTip);
+     setCtl('btn-reject', hasSlides, reviewTip);
+     setCtl('btn-prev-slide', hasSlides, reviewTip);
+     setCtl('btn-next-slide', hasSlides, reviewTip);
+     setCtl('btn-save-corrections', hasSlides, reviewTip);
+     setCtl('btn-repair', hasSlides, 'Load a lecture before repairing slide selections.');
+     var exportTip = 'Load a lecture first — there is nothing to export yet.';
+     setCtl('btn-export-all', hasJob, exportTip);
+     setCtl('btn-export-pdf', hasJob, exportTip);
+     setCtl('btn-export-html', hasJob, exportTip);
+     var procTip = 'No lecture is processing right now.';
+     setCtl('btn-pause-job', processing, procTip);
+     setCtl('btn-cancel-job', processing, procTip);
+   }
+
+   /* Terminal job states settle EVERY readout from one place (F-3): the job
+      card, the sidebar chip, the status-bar label, the stage text, and the
+      progress fill must never contradict each other or rest mid-pipeline.
+      "Transcribing audio" / "Detecting slides" may only appear while those
+      stages are actually active; afterwards the stage text reads Ready. */
+   function settleTerminalStatus(kind) {
+     var hasJob = !!LP.state.jobId;
+     var label = $('status-label'), pct = $('status-pct'), right = $('status-right');
+     if (pct) pct.textContent = '';
+     if (right) right.textContent = 'Ready';
+     if (kind === 'complete') {
+       if (label) label.textContent = 'Complete';
+       setFill('status-bar', 100);
+       setStatusDotText($('side-job-status'), hasJob ? 'Complete' : 'Idle', hasJob ? 'var(--green)' : 'var(--muted)', false);
+     } else if (kind === 'failed') {
+       if (label) label.textContent = 'Failed';
+       setFill('status-bar', 0);
+       setStatusDotText($('side-job-status'), 'Failed', 'var(--red)', false);
+     } else if (kind === 'cancelled') {
+       if (label) label.textContent = 'Cancelled';
+       setFill('status-bar', 0);
+       setStatusDotText($('side-job-status'), 'Cancelled', 'var(--muted)', false);
+     } else if (kind === 'interrupted') {
+       if (label) label.textContent = 'Interrupted';
+       setFill('status-bar', 0);
+       setStatusDotText($('side-job-status'), 'Interrupted', 'var(--orange)', false);
+     } else {
+       if (label) label.textContent = 'Idle';
+       setFill('status-bar', 0);
+       setStatusDotText($('side-job-status'), 'Idle', 'var(--muted)', false);
+     }
+     refreshControlStates();
    }
 
    // Main slide preview: fills the canvas at Fit (preserving aspect ratio) and
@@ -1702,6 +1837,7 @@
       ? (esc(cur.time) + '.500 <span style="color:var(--muted);font-weight:400">· frame ' + (cur.frame || Math.round(cur.pct * 30)) + '</span>')
       : '';
     renderTimeline();
+    refreshControlStates();
   }
 
   function renderTimeline() {
@@ -3908,12 +4044,21 @@
   /* ======================= export ======================= */
 
   function startExport() {
-    LP.state.exportPhase = 'running';
-    renderExportPhase();
+    // N-2/N-4: guard the invalid state first, and only enter the exporting
+    // state when the backend reports REAL progress. A failed export shows one
+    // friendly message and leaves no phantom progress bar behind.
+    if (!LP.state.jobId) { toast('Load a lecture first — there is nothing to export yet.'); return; }
     if (lpBridge.connected()) {
       var formats = LP.data.exportFormats.filter(function (f) { return f.sel; }).map(function (f) { return f.key; });
-      lpBridge.call('export_all', JSON.stringify(formats));
+      lpBridge.call('export_all', JSON.stringify(formats)).then(function (value) {
+        var result = parseBridgeResult(value);
+        if (result && result.ok === false && LP.state.exportPhase === 'running') {
+          LP.state.exportPhase = 'idle'; renderExportPhase();
+        }
+      });
     } else {
+      LP.state.exportPhase = 'running';
+      renderExportPhase();
       setTimeout(function () { LP.state.exportPhase = 'done'; renderExportPhase(); }, 1700);
     }
   }
@@ -4364,9 +4509,15 @@
       }
       var card = e.target.closest('[data-job]');
       if (!card) return;
-      var running = card.querySelector('span[style*="animation:lpblink"]');
-      if (lpBridge.connected()) lpBridge.call('open_job', card.dataset.job);
-      setScreen(running ? 'process' : 'review');
+      var jobId = card.dataset.job;
+      var cardJob = LP.data.jobs.filter(function (x) { return x.id === jobId; })[0];
+      // F-4: the click's visible response never depends on the bridge
+      // round-trip. A completed lecture opens Review; anything else (queued,
+      // running, failed, cancelled) opens Process with its final/live state.
+      setScreen(cardJob && cardJob.status === 'done' ? 'review' : 'process');
+      if (lpBridge.connected()) {
+        try { lpBridge.call('open_job', jobId); } catch (err) { /* navigation already happened */ }
+      }
     });
 
     // Processing queue controls (Run Now / reorder / remove).
@@ -4470,15 +4621,18 @@
       });
     });
     $('btn-prev-slide').addEventListener('click', function () {
+      if (!LP.data.slides.length) return;   // N-1: nothing to page through
       LP.state.viewingSlide = (LP.state.viewingSlide + LP.data.slides.length - 1) % LP.data.slides.length;
       renderSlides();
     });
     $('btn-next-slide').addEventListener('click', function () {
+      if (!LP.data.slides.length) return;   // N-1: nothing to page through
       LP.state.viewingSlide = (LP.state.viewingSlide + 1) % LP.data.slides.length;
       renderSlides();
     });
     $('btn-keep').addEventListener('click', function () {
       var s = LP.data.slides[LP.state.viewingSlide];
+      if (!s) return;   // N-1: no slide selected / no lecture loaded
       s.state = 'accepted';
       lpBridge.call('set_slide_state', LP.state.viewingSlide, 'accepted');
       // Advance after judging: the user is working THROUGH the deck, so keeping
@@ -4492,6 +4646,7 @@
     });
     $('btn-reject').addEventListener('click', function () {
       var s = LP.data.slides[LP.state.viewingSlide];
+      if (!s) return;   // N-1: no slide selected / no lecture loaded
       s.state = 'rejected'; s.sel = false;
       lpBridge.call('set_slide_state', LP.state.viewingSlide, 'rejected');
       // Advance after judging: the user is working THROUGH the deck, so keeping
@@ -4504,11 +4659,15 @@
       renderSlides();
     });
     $('btn-save-corrections').addEventListener('click', function () {
+      if (!LP.state.jobId) { toast('Load a lecture first — there are no corrections to save yet.'); return; }
       var rows = document.querySelectorAll('#review-transcript [contenteditable]');
       var texts = Array.prototype.map.call(rows, function (r) { return r.textContent; });
       lpBridge.call('save_corrections', JSON.stringify(texts));
     });
-    $('btn-repair').addEventListener('click', function () { lpBridge.call('repair_selection'); });
+    $('btn-repair').addEventListener('click', function () {
+      if (!LP.state.jobId) { toast('Load a lecture before repairing slide selections.'); return; }
+      lpBridge.call('repair_selection');
+    });
 
     // transcript
     $('btn-copy-transcript').addEventListener('click', function () {
@@ -4598,8 +4757,14 @@
     $('btn-export-all').addEventListener('click', startExport);
     $('btn-export-again').addEventListener('click', function () { LP.state.exportPhase = 'idle'; renderExportPhase(); });
     $('btn-open-folder').addEventListener('click', function () { lpBridge.call('open_export_folder'); });
-    $('btn-export-pdf').addEventListener('click', function () { lpBridge.call('export_one', 'pdf'); });
-    $('btn-export-html').addEventListener('click', function () { lpBridge.call('export_one', 'html'); });
+    $('btn-export-pdf').addEventListener('click', function () {
+      if (!LP.state.jobId) { toast('Load a lecture first — there is nothing to export yet.'); return; }
+      lpBridge.call('export_one', 'pdf');
+    });
+    $('btn-export-html').addEventListener('click', function () {
+      if (!LP.state.jobId) { toast('Load a lecture first — there is nothing to export yet.'); return; }
+      lpBridge.call('export_one', 'html');
+    });
 
     // what's new / updates
     $('btn-whatsnew-close').addEventListener('click', hideWhatsNew);
@@ -4736,12 +4901,19 @@
     });
     lpBridge.on('error', function (json) {
       var d = parseBridgePayload(json, {});
-      var message = String(d.error || d.message || 'The LecturePack runtime reported an error.');
-      toast(message);
+      var raw = String(d.error || d.message || 'The LecturePack runtime reported an error.');
+      // N-2: backend and IPC failures reach the student as short friendly
+      // copy; the raw technical string stays in the console log only.
+      try { console.error('[lecturepack]', d.command || 'command', raw); } catch (err) {}
+      toast(friendlyErrorMessage(raw, d.command));
+      // N-4: a failed export must never leave the progress panel running.
+      if (LP.state.exportPhase === 'running' && (d.command === 'export' || d.stage === 'Export')) {
+        LP.state.exportPhase = 'idle'; renderExportPhase();
+      }
       var title = $('proc-status-title');
       if (title && (d.kind === 'startup' || d.kind === 'bootstrap')) {
         title.textContent = 'LecturePack needs attention';
-        title.title = message;
+        title.title = raw;
         _applyLpState(title, 'failed');
       }
     });
@@ -4835,6 +5007,8 @@
       if (pause) pause.hidden = true;
       if (resume) resume.hidden = true;
       _applyLpState(panel, 'complete');
+      // F-3: every readout settles to the terminal state from one place.
+      settleTerminalStatus('complete');
     });
     lpBridge.on('notification_prefs', function (json) {
       var payload = parseBridgePayload(json, null);
@@ -4881,6 +5055,14 @@
         renderSelCount();
       }
       renderJobs();           // poster URLs are stable, so loaded ones stay cached
+      // F-3: settle the readouts once the job list can confirm the active
+      // job's terminal state. On relaunch active_job legitimately arrives
+      // BEFORE this list exists, so setActiveJob alone cannot settle.
+      var activeEntry = (LP.data.jobs || []).filter(function (j) { return j && j.id === LP.state.jobId; })[0];
+      if (activeEntry && activeEntry.status === 'done') settleTerminalStatus('complete');
+      else if (activeEntry && activeEntry.status === 'failed') settleTerminalStatus('failed');
+      else if (activeEntry && activeEntry.status === 'cancelled') settleTerminalStatus('cancelled');
+      else if (activeEntry && activeEntry.status === 'interrupted') settleTerminalStatus('interrupted');
     });
 
     // ---- import from a link ----
@@ -4988,6 +5170,22 @@
       var s = parseBridgePayload(json, null);
       if (!s || typeof s !== 'object') return;
       if (!ownsPayload(s)) return;      // stale: belongs to another lecture
+      // F-3: the job list is the truth about whether the active lecture is
+      // finished. On relaunch the backend replays the last LIVE status of a
+      // restored job ("Processing - 100%", "Detecting slides"); no terminal
+      // event ever follows it. A non-terminal status for a lecture the list
+      // already calls done/failed/cancelled/interrupted is that replay —
+      // ignore it and re-assert the settled terminal readout instead.
+      var listEntry = (LP.data.jobs || []).filter(function (j) { return j && j.id === LP.state.jobId; })[0];
+      var listTerminal = listEntry && (listEntry.status === 'done' || listEntry.status === 'failed' ||
+        listEntry.status === 'cancelled' || listEntry.status === 'interrupted') ? listEntry.status : null;
+      var incomingTerminal = s.label === 'Failed' || (function (t) {
+        return t === 'failed' || t === 'done' || t === 'complete' || t === 'cancelled';
+      })(normalizedProcessingText(s.label));
+      if (listTerminal && !incomingTerminal) {
+        settleTerminalStatus(listTerminal === 'done' ? 'complete' : listTerminal);
+        return;
+      }
       pendingProcessingStatus = Object.assign({}, pendingProcessingStatus, s);
       scheduleProcessingRender('status');
       // D-08: _on_pipeline_failed (Python) never re-emits pipeline_changed
@@ -5010,6 +5208,12 @@
         if (statusPct) statusPct.textContent = '';
         setFill('status-bar', 0);
         renderSlideDetectionPreset();
+        // F-3: the terminal event's own readouts were previously dropped with
+        // the cleared pending dict, freezing the sidebar/status bar mid-stage
+        // ("Processing - 86%" / "Detecting slides") forever. Paint the settled
+        // terminal state directly from the current job state.
+        settleTerminalStatus(terminalLabel === 'failed' || s.label === 'Failed' ? 'failed' :
+          terminalLabel === 'cancelled' ? 'cancelled' : 'complete');
       }
     });
     lpBridge.on('slides_changed', function (json) {
