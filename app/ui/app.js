@@ -3525,7 +3525,10 @@
 
   function applyAppVersion(value) {
     var version = String(value == null ? '' : value).trim();
-    if (!version) return;
+    // Settings payloads from older sidecars may carry their neutral
+    // 0.0.0 placeholder. Never let that overwrite Electron's packaged
+    // metadata version supplied through preload.
+    if (!version || version === '0.0.0') return;
     LP.data.version = version;
     var target = $('app-version');
     if (target) target.textContent = version;

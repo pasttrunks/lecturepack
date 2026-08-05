@@ -73,6 +73,7 @@ def test_d05_version_comes_from_preload_metadata() -> None:
     assert "lecturepack-production:version" in read(MAIN)
     assert "loadAppVersion();" in app
     assert "version: '0.0.0'" not in app
+    assert "version === '0.0.0'" in app
 
 
 def test_d06_update_check_settles_unavailable_and_failure_paths() -> None:
