@@ -283,6 +283,8 @@ function startSidecar(session) {
       '--resources-root', path.dirname(executable),
       '--data-dir', dataDir
     ];
+    const bundledDemo = path.join(process.resourcesPath, 'assets', 'demo-lecture.mp4');
+    if (pathExists(bundledDemo)) args.push('--demo-video', bundledDemo);
     cwd = path.dirname(executable);
   } else if (!app.isPackaged) {
     const python = options.python || path.join(REPO_ROOT, '.venv', 'Scripts', 'python.exe');
