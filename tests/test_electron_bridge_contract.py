@@ -165,5 +165,11 @@ def test_deferred_commands_do_not_cross_the_sidecar_boundary():
     bridge_source = BRIDGE.read_text(encoding="utf-8")
     for op in load()["operations"]:
         if op["direction"] == "command" and op["status"] == "DEFERRED":
-            assert f'{op["name"]}: true' in bridge_source, op["name"]
+            # A deferred command either stays in noopCalls (resolving to a
+            # structured FEATURE_UNAVAILABLE response) or is handled by a
+            # bridge-local special case that never calls api.request.
+            assert (
+                f'{op["name"]}: true' in bridge_source
+                or f"name === '{op['name']}'" in bridge_source
+            ), op["name"]
 

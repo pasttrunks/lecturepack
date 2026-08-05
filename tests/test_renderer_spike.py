@@ -149,10 +149,13 @@ def test_migration_bridge_maps_existing_ui_without_requiring_qt_webchannel():
     assert "isLocalThemeSetting" in bridge
     for deferred in (
         "exit_application",
-        "start_demo_job",
         "open_release_page",
     ):
         assert f"{deferred}: true" in bridge
+    # D-2: start_demo_job is wired to the normal import_video path with the
+    # bundled demo; it is no longer a no-op.
+    assert "start_demo_job: true" not in bridge
+    assert "bundled_demo: true" in bridge
     assert "list_ollama_models: true" not in bridge
     assert "validate_vulkan: true" not in bridge
     assert "run_diagnostics: true" not in bridge
@@ -456,15 +459,20 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
   await context.window.lpBridge.call('media_link_support');
   await context.window.lpBridge.call('get_settings');
   await context.window.lpBridge.call('exit_application');
-  if (calls.length !== 7) throw new Error('an unexpected command crossed the sidecar boundary');
-  if (calls[4].command !== 'list_ollama_models' || Object.keys(calls[4].payload).length !== 0) {
-    throw new Error(`list_ollama_models was not forwarded: ${JSON.stringify(calls[4])}`);
+  // D-2: start_demo_job now crosses the sidecar as import_video with the
+  // bundled demo flag. exit_application stays a local structured no-op.
+  if (calls.length !== 8) throw new Error('an unexpected command crossed the sidecar boundary');
+  if (calls[4].command !== 'import_video' || calls[4].payload.bundled_demo !== true) {
+    throw new Error(`start_demo_job was not mapped to import_video: ${JSON.stringify(calls[4])}`);
   }
-  if (calls[5].command !== 'media_link_support' || Object.keys(calls[5].payload).length !== 0) {
-    throw new Error(`media_link_support was not forwarded: ${JSON.stringify(calls[5])}`);
+  if (calls[5].command !== 'list_ollama_models' || Object.keys(calls[5].payload).length !== 0) {
+    throw new Error(`list_ollama_models was not forwarded: ${JSON.stringify(calls[5])}`);
   }
-  if (calls[6].command !== 'get_settings' || Object.keys(calls[6].payload).length !== 0) {
-    throw new Error(`get_settings was not forwarded: ${JSON.stringify(calls[6])}`);
+  if (calls[6].command !== 'media_link_support' || Object.keys(calls[6].payload).length !== 0) {
+    throw new Error(`media_link_support was not forwarded: ${JSON.stringify(calls[6])}`);
+  }
+  if (calls[7].command !== 'get_settings' || Object.keys(calls[7].payload).length !== 0) {
+    throw new Error(`get_settings was not forwarded: ${JSON.stringify(calls[7])}`);
   }
 })().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
 """.strip()
@@ -568,7 +576,11 @@ const context = {
   window: {
     localStorage: { setItem() {} },
     lecturePackElectron: {
-      request(command, payload) { calls.push({ command, payload }); return Promise.resolve({}); },
+      request(command, payload) {
+        calls.push({ command, payload });
+        if (command === 'test_notification') return Promise.resolve({ ok: true, sent: true });
+        return Promise.resolve({});
+      },
       onMessage() {}
     }
   }
@@ -580,7 +592,12 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
   await context.window.lpBridge.call('repair_selection');
   await context.window.lpBridge.call('get_notification_prefs');
   await context.window.lpBridge.call('set_notification_prefs', JSON.stringify({ completion: true, failure: false }));
-  await context.window.lpBridge.call('test_notification');
+  // D-15: test_notification routes to the Electron main process (Luna's
+  // testDesktopNotification), never to the Python sidecar.
+  const notification = await context.window.lpBridge.call('test_notification');
+  if (!notification || notification.ok !== true || notification.sent !== true) {
+    throw new Error(`test_notification did not resolve: ${JSON.stringify(notification)}`);
+  }
   await context.window.lpBridge.call('validate_vulkan');
   await context.window.lpBridge.call('validate_cuda');
   await context.window.lpBridge.call('cuda_pack_status');

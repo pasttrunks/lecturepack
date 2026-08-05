@@ -13,12 +13,12 @@
   var noopCalls = {
     // Commands remain inert only while the locked contract marks them
     // DEFERRED. Implemented operations are mapped below and cross JSONL.
+    // Commands reached by visible controls resolve to a structured
+    // FEATURE_UNAVAILABLE response in call(), never a silent null.
     acknowledge_setup: true,
     browse_model: true,
     cancel_update_download: true,
-    check_updates: true,
     clear_skipped_version: true,
-    end_demo_job: true,
     exit_application: true,
     get_post_completion: true,
     get_updater_state: true,
@@ -30,7 +30,6 @@
     set_auto_check: true,
     set_update_channel: true,
     skip_update_version: true,
-    start_demo_job: true,
     start_update_download: true,
     whatsnew_seen: true,
     // Bootstrap is host-driven in the production app. These legacy calls
@@ -38,9 +37,43 @@
     get_bootstrap: true,
     ui_ready: true,
   };
+  var unavailableMessages = {
+    acknowledge_setup: 'First-run setup is already complete in this build.',
+    browse_model: 'Model browsing is not available in this build.',
+    cancel_update_download: 'Updates are not available in this build.',
+    clear_skipped_version: 'Updates are not available in this build.',
+    exit_application: 'Close the window to exit LecturePack.',
+    get_post_completion: 'Post-completion coaching is not available in this build.',
+    get_updater_state: 'Updates are not available in this build.',
+    install_downloaded_update: 'Updates are not available in this build.',
+    install_update: 'Updates are not available in this build.',
+    log_tour_trace: 'Guided tour tracing is not available in this build.',
+    open_release_page: 'Release notes are not available in this build.',
+    save_project: 'Saving is automatic in this build.',
+    set_auto_check: 'Updates are not available in this build.',
+    set_update_channel: 'Updates are not available in this build.',
+    skip_update_version: 'Updates are not available in this build.',
+    start_update_download: 'Updates are not available in this build.',
+    whatsnew_seen: 'What\'s new is not available in this build.',
+    get_bootstrap: 'Bootstrap is host-driven in this build.',
+    ui_ready: 'UI readiness is acknowledged in this build.'
+  };
+  function featureUnavailable(name) {
+    return {
+      ok: false,
+      available: false,
+      code: 'FEATURE_UNAVAILABLE',
+      message: unavailableMessages[name] || 'This feature is not available in this build.',
+      command: name
+    };
+  }
   var bridgeSettings = {
     slide_detection_preset: 'balanced'
   };
+  // D-2: the active guided-demo identity. The bridge translates the normal
+  // pipeline lifecycle into demo_event signals so the guided tour can advance
+  // without a separate fake demo pipeline.
+  var demoSession = null;
 
   function fire(name) {
     var args = Array.prototype.slice.call(arguments, 1);
@@ -123,12 +156,43 @@
     return payload;
   }
 
+  function demoEvent(payload) {
+    if (!demoSession) return;
+    fire('demo_event', json(Object.assign({
+      operation_id: demoSession.operationId,
+      session_id: demoSession.sessionId
+    }, payload)));
+  }
+
   function deliver(message) {
     var item = message || {};
     if (typeof item === 'string') item = parse(item);
     var event = item.event;
     if (!event || event === 'response') return;
     var payload = eventPayload(event, item);
+    // D-2: translate the normal pipeline lifecycle into demo_event signals so
+    // the guided tour can advance without a separate fake demo pipeline.
+    if (demoSession) {
+      if (event === 'pipeline_changed') {
+        var stages = payload.stages || [];
+        var reviewReady = stages.some(function (stage) {
+          return stage && stage.label === 'Review Ready' && stage.state === 'done';
+        });
+        if (reviewReady) {
+          demoEvent({ status: 'running', stage: 'review_ready' });
+        } else if (stages.some(function (stage) {
+          return stage && (stage.state === 'active' || stage.state === 'running');
+        })) {
+          demoEvent({ status: 'running', stage: 'processing' });
+        }
+      } else if (event === 'job_completed') {
+        demoEvent({ status: 'cleaned', stage: 'exports' });
+      } else if (event === 'job_failed') {
+        demoEvent({ status: 'failed', error: String(payload.error || 'Guided demo failed.') });
+      } else if (event === 'job_cancelled') {
+        demoEvent({ status: 'cleaned', stage: 'ended' });
+      }
+    }
     // The historical UI treats ai_token as a text signal; every other event
     // keeps the JSON-string payload shape expected by app/ui/app.js.
     fire(event, event === 'ai_token' ? payload : json(payload));
@@ -216,6 +280,15 @@
       return { command: name, payload: {} };
     }
 
+    if (name === 'start_demo_job') {
+      // D-2: the demo uses the bundled demo video through the normal
+      // video-import path. The sidecar resolves the bundled demo when
+      // bundled_demo is true and no path is supplied.
+      return { command: 'import_video', payload: { bundled_demo: true } };
+    }
+    if (name === 'end_demo_job') {
+      return { command: 'cancel_job', payload: {} };
+    }
     if (name === 'start_processing') {
       return {
         command: 'start_job',
@@ -376,7 +449,23 @@
     },
     call: function (name) {
       var args = Array.prototype.slice.call(arguments, 1);
-      if (!api || noopCalls[name]) return Promise.resolve(null);
+      if (!api) return Promise.resolve(featureUnavailable(name));
+      if (name === 'check_updates') {
+        // D-6: updates are not available in this build. Resolve immediately
+        // with a structured result and clear the UI's "Checking…" state.
+        var updateResult = featureUnavailable('check_updates');
+        fire('update_state', json({
+          phase: 'uptodate',
+          message: updateResult.message
+        }));
+        return Promise.resolve(updateResult);
+      }
+      if (noopCalls[name]) {
+        // Internal bootstrap calls stay acknowledged locally; visible-control
+        // commands get a structured unavailable response, never a silent null.
+        if (name === 'get_bootstrap' || name === 'ui_ready') return Promise.resolve(null);
+        return Promise.resolve(featureUnavailable(name));
+      }
       if (isLocalThemeSetting(name, args)) {
         // Theme application is already local in app/ui/app.js. Persist the
         // choice in the renderer when possible, but never turn a UI toggle
@@ -386,14 +475,74 @@
         } catch (_) { /* private/file contexts may deny localStorage */ }
         return Promise.resolve({ ok: true, local: true });
       }
+      if (name === 'test_notification') {
+        // D-15: route to the Electron main process where Luna's
+        // testDesktopNotification() creates the OS notification. The Python
+        // sidecar never creates desktop notifications.
+        return api.request('test_notification', {}).catch(function (error) {
+          return { ok: false, sent: false, available: false, error: String(error && error.message || error) };
+        });
+      }
       var mapped = mapCall(name, args);
       return api.request(mapped.command, mapped.payload).catch(function (error) {
         fire('error', json({ command: mapped.command, error: String(error && error.message || error) }));
-        return null;
+        return featureUnavailable(name);
       });
     },
-    startDemoJob: function () { return this.call('start_demo_job'); },
-    endDemoJob: function (reason) { return this.call('end_demo_job', reason || 'ended'); }
+    startDemoJob: function () {
+      // D-2: the demo uses the bundled demo video through the normal
+      // import_video path. The guided-demo UI expects a start result with
+      // operation_id/session_id and a live demo_event so it can adopt the
+      // identity. Derive those from the imported job and start processing.
+      var self = this;
+      return self.call('start_demo_job').then(function (value) {
+        var result = parse(value);
+        if (!result || result.ok !== true || !result.job_id) {
+          return { ok: false, error: (result && result.error) || 'Could not start the guided demo.' };
+        }
+        var operationId = 'demo-' + result.job_id;
+        var sessionId = 'session-' + result.job_id;
+        demoSession = { operationId: operationId, sessionId: sessionId, jobId: result.job_id };
+        fire('demo_event', json({
+          operation_id: operationId,
+          session_id: sessionId,
+          status: 'started',
+          stage: 'import'
+        }));
+        // Start the normal processing pipeline for the imported demo. A
+        // failure must propagate so the guided-demo UI can show an error
+        // instead of a false success.
+        return self.call('start_processing', 'study').then(function (started) {
+          var startedResult = parse(started);
+          if (!startedResult || startedResult.ok !== true) {
+            demoSession = null;
+            return { ok: false, error: (startedResult && startedResult.error) || 'Could not start processing the guided demo.' };
+          }
+          return {
+            ok: true,
+            operation_id: operationId,
+            session_id: sessionId,
+            job_id: result.job_id
+          };
+        }, function (error) {
+          demoSession = null;
+          return { ok: false, error: String(error && error.message || error) || 'Could not start processing the guided demo.' };
+        });
+      });
+    },
+    endDemoJob: function (reason) {
+      // D-2: the demo end maps to cancel_job; the guided-demo UI expects a
+      // terminal status so it can settle the session.
+      var self = this;
+      return self.call('end_demo_job', reason || 'ended').then(function (value) {
+        var result = parse(value);
+        if (!result || result.ok !== true) {
+          return { ok: false, error: (result && result.error) || 'Could not confirm that the demo stopped. Try again.' };
+        }
+        demoSession = null;
+        return { ok: true, status: 'cleaned' };
+      });
+    }
   };
 
   window.__LECTUREPACK_ELECTRON__ = {

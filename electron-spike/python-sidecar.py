@@ -704,6 +704,27 @@ class Sidecar:
             self._emit({"event": "active_job", "id": "", "title": ""})
         self._respond(request_id, command, jobs=summaries)
 
+    def _resolve_demo_video(self) -> Path | None:
+        """Resolve the bundled demo video for the normal import path.
+
+        The packaged app ships the demo under resources/assets/demo-lecture.mp4
+        (package-win.mjs extraResource). The sidecar also accepts an explicit
+        --demo-video for developer runs. The demo always flows through the
+        normal import_video path; there is no separate fake demo pipeline.
+        """
+        if self.demo_video is not None and self.demo_video.is_file():
+            return self.demo_video
+        candidates = [
+            self.runtime_root / "assets" / "demo-lecture.mp4",
+            self.runtime_root / "demo-lecture.mp4",
+        ]
+        if self.repo_root is not None:
+            candidates.append(self.repo_root / "electron-spike" / "assets" / "demo-lecture.mp4")
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        return None
+
     def _copy_demo_if_needed(self, source: Path) -> Path:
         target = self.data_dir / "demo-inputs" / source.name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -739,7 +760,14 @@ class Sidecar:
 
     def _import_video(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         path_text = str(payload.get("path") or "")
-        source = Path(path_text).expanduser().resolve() if path_text else self.demo_video
+        if payload.get("bundled_demo"):
+            # D-2: the demo flows through the normal import path using the
+            # bundled demo video. There is no separate fake demo pipeline.
+            source = self._resolve_demo_video()
+            if source is None:
+                raise FileNotFoundError("bundled demo video not found")
+        else:
+            source = Path(path_text).expanduser().resolve() if path_text else self.demo_video
         if source is None or not source.is_file():
             raise FileNotFoundError(f"video not found: {source or path_text}")
         if payload.get("bundled_demo"):
