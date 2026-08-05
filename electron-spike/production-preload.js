@@ -5,6 +5,9 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 // The production renderer receives only the narrow request/event surface. No
 // Node, Electron, filesystem, or process handles cross the isolation boundary.
 contextBridge.exposeInMainWorld('lecturePackElectron', {
+  getAppVersion() {
+    return ipcRenderer.invoke('lecturepack-production:version');
+  },
   request(command, payload) {
     return ipcRenderer.invoke(
       'lecturepack-production:command',

@@ -226,7 +226,10 @@
       pipelineRunning: false
     },
     data: {
-      version: '0.0.0',
+      // Populated from Electron's packaged app metadata by loadAppVersion().
+      // An empty value is intentional: the renderer must never invent a
+      // release number when it is running outside the desktop shell.
+      version: '',
       // BUG-07: these three demo lectures exist ONLY so the static screenshot
       // pipeline and a bare `python -m http.server app/ui` have something to
       // render. In the packaged app a live bridge overwrites them on the first
@@ -460,13 +463,15 @@
   function setActiveJob(id, title) {
     id = id || '';
     if (id === LP.state.jobId) {
-      if (title) LP.state.jobTitle = title;
+      if (title && !looksLikeJobId(title)) LP.state.jobTitle = title;
+      if (!LP.state.jobTitle) LP.state.jobTitle = friendlyJobName(id);
       renderJobChrome();
       return;
     }
     if (LP.state.jobId) LP.byJob[LP.state.jobId] = snapshotWorkspace();
     LP.state.jobId = id;
-    LP.state.jobTitle = title || '';
+    LP.state.jobTitle = '';
+    LP.state.jobTitle = title && !looksLikeJobId(title) ? title : friendlyJobName(id);
     applyWorkspace(id && LP.byJob[id] ? LP.byJob[id] : emptyWorkspace());
     // Per-lecture view state must not leak across lectures either.
     LP.state.chat = [];
@@ -671,7 +676,7 @@
   // status -> badge {label, bg, fg, dot, blink}
   var JOB_BADGES = {
     running: { label: 'Running', bg: 'var(--orange-soft)', fg: 'var(--orange-ink)', dot: 'var(--orange)', blink: true },
-    done: { label: 'Done', bg: 'var(--green-soft)', fg: 'var(--green)', dot: 'var(--green)' },
+    done: { label: 'Complete', bg: 'var(--green-soft)', fg: 'var(--green)', dot: 'var(--green)' },
     cancelled: { label: 'Cancelled', bg: 'var(--sunk)', fg: 'var(--muted)', dot: 'var(--muted)' },
     interrupted: { label: 'Interrupted', bg: 'var(--orange-soft)', fg: 'var(--orange-ink)', dot: 'var(--orange)' },
     failed: { label: 'Failed', bg: 'var(--red-soft, rgba(220,60,60,.15))', fg: 'var(--red)', dot: 'var(--red)' },
@@ -686,6 +691,55 @@
     running: 'running', done: 'complete', cancelled: 'interrupted', interrupted: 'interrupted',
     failed: 'failed', paused: 'paused', queued: 'idle', scheduled: 'idle'
   };
+
+  function normalizedProcessingText(value) {
+    return String(value == null ? '' : value).trim().toLowerCase()
+      .replace(/[\u2013\u2014]/g, '-')
+      .replace(/[\s_-]+/g, ' ');
+  }
+
+  // Backend status vocabulary is deliberately kept out of the visible UI.
+  // The raw event still remains in LP.data.pipeline.log for technical review.
+  function friendlyProcessingLabel(value) {
+    var raw = String(value == null ? '' : value).trim();
+    var normalized = normalizedProcessingText(raw);
+    if (!normalized) return '';
+    if (/detector.*decode.*piped|detect.*slide|slide.*detect/.test(normalized)) return 'Detecting slides';
+    if (/whisper|transcrib|transcription/.test(normalized)) return 'Transcribing audio';
+    if (/export|study pack/.test(normalized)) return 'Building Study Pack';
+    if (/^(done|complete|completed|success|successful)$/.test(normalized)) return 'Complete';
+    if (/^(inspect|inspecting|probe|probing)/.test(normalized)) return 'Inspecting video';
+    if (/extract( audio|ing audio)?/.test(normalized)) return 'Extracting audio';
+    if (/^align|aligning/.test(normalized)) return 'Aligning notes';
+    if (/review ready|preparing review/.test(normalized)) return 'Preparing review';
+    if (/^prepare|preparing/.test(normalized)) return 'Preparing';
+    return raw.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+  }
+
+  function looksLikeJobId(value) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+  }
+
+  function friendlyJobName(value) {
+    var raw = String(value == null ? '' : value).trim();
+    if (!raw) return '';
+    if (raw === LP.state.jobId && LP.state.jobTitle && !looksLikeJobId(LP.state.jobTitle)) return LP.state.jobTitle;
+    var found = (LP.data.jobs || []).filter(function (job) { return job && job.id === raw; })[0];
+    if (found && (found.name || found.title)) return found.name || found.title;
+    return looksLikeJobId(raw) ? (raw === LP.state.jobId ? (LP.state.jobTitle || 'Lecture') : 'Lecture') : raw;
+  }
+
+  function setComputeReadyFallback() {
+    var vulkan = $('vulkan-status'), cuda = $('cuda-status');
+    if (vulkan && /checking/i.test(vulkan.textContent || '')) {
+      vulkan.textContent = 'CPU · AVX2 ready';
+      vulkan.style.color = 'var(--secondary-text)';
+    }
+    if (cuda && /checking/i.test(cuda.textContent || '')) {
+      cuda.textContent = 'CUDA unavailable in this build · CPU · AVX2 ready';
+      cuda.style.color = 'var(--muted)';
+    }
+  }
   // Best-effort: sets data-state on the nearest ancestor (or self) carrying
   // class lp-state. No-ops silently if that class isn't present -- the
   // markup owner may not have landed it yet, or may never for this element.
@@ -877,7 +931,7 @@
     if (j.status === 'running') {
       body = '<div style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(j.name) + '</div>' +
         '<div style="height:8px;border-radius:5px;background:var(--sunk);overflow:hidden;margin-bottom:7px"><div style="width:' + (j.pct || 0) + '%;height:100%;background:var(--orange);background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.3) 6px,rgba(255,255,255,.3) 13px);animation:lpbar 1s linear infinite"></div></div>' +
-        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(j.stage) + ' · ' + (j.pct || 0) + '% · ' + esc(j.eta || '') + '</div>';
+        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(friendlyProcessingLabel(j.stage)) + ' · ' + (j.pct || 0) + '% · ' + esc(j.eta || '') + '</div>';
     } else {
       body = '<div style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(j.name) + '</div>' +
         '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted);line-height:1.7">' + esc(j.file || '') + '<br>' + esc(j.meta || '') + '</div>';
@@ -1141,6 +1195,16 @@
   }
   function renderJobs() {
     var g = $('jobs-grid');
+    var empty = !(LP.data.jobs || []).length;
+    setJobsEmpty(empty);
+    var actionBar = $('jobs-actionbar');
+    if (actionBar) actionBar.hidden = empty;
+    if (empty && LP.state.selecting) {
+      LP.state.selecting = false;
+      LP.state.selected = {};
+      var selectBar = $('jobs-selectbar');
+      if (selectBar) selectBar.hidden = true;
+    }
     g.style.display = 'flex'; g.style.flexDirection = 'column'; g.style.gap = '26px';
     g.style.gridTemplateColumns = 'none';
     var groups = {}, order = [];
@@ -1215,7 +1279,7 @@
    function schedulePipelineRender() { scheduleProcessingRender('pipeline'); }
    function renderPipelineLegacy() {
     var p = LP.data.pipeline;
-    $('proc-status-title').textContent = p.title;
+     $('proc-status-title').textContent = friendlyProcessingLabel(p.title);
     $('proc-status-meta').textContent = p.meta;
     // BUG-16: the Process screen's "Source" card had NO writer anywhere in
     // app.js -- the same defect class as BUG-04's storage figure. It was only
@@ -1223,23 +1287,24 @@
     // hardcoded "1920x1080 · 06:12 · H.264" even while a real lecture was
     // being processed. The pipeline payload already carries both values.
     var hasJob = !!(p.title && p.stages && p.stages.length);
-    $('proc-source-name').textContent = hasJob ? p.title : 'No lecture loaded';
+     $('proc-source-name').textContent = hasJob ? friendlyJobName(p.title) : 'No lecture loaded';
     $('proc-source-meta').textContent = hasJob ? (p.meta || '') : '';
     var stagesEl = $('pipeline-stages');
-    var stageHtml = p.stages.map(function (st) {
-      // Contract data-state values: idle|running|paused|success|failed|interrupted|complete
-      var ds = st.state === 'done' ? 'complete' : st.state === 'active' ? 'running' :
-        st.state === 'error' ? 'failed' : 'idle';
-      if (st.state === 'done') {
-        return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;background:var(--green-fill);border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--green-soft);overflow:hidden"><div style="width:100%;height:100%;background:var(--green)"></div></div></div>';
+     var stageHtml = p.stages.map(function (st) {
+       // Contract data-state values: idle|running|paused|success|failed|interrupted|complete
+       var ds = st.state === 'done' ? 'complete' : st.state === 'active' ? 'running' :
+         st.state === 'error' ? 'failed' : 'idle';
+       var visibleStage = friendlyProcessingLabel(st.label || st.name || '');
+       if (st.state === 'done') {
+         return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;background:var(--green-fill);border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>' + esc(visibleStage) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--green-soft);overflow:hidden"><div style="width:100%;height:100%;background:var(--green)"></div></div></div>';
       }
       if (st.state === 'active') {
         var c = st.color === 'blue' ? 'var(--blue)' : 'var(--orange)';
         var pctColor = st.color === 'blue' ? ';color:var(--blue-ink)' : '';
         var blink = st.color === 'blue' ? '1.3s' : '1s';
-        return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid ' + c + ';border-radius:50%;flex:none;animation:lpblink ' + blink + ' infinite"></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk);overflow:hidden"><div style="width:' + (st.pct || 0) + '%;height:100%;background:' + c + ';background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.32) 6px,rgba(255,255,255,.32) 13px);animation:lpbar 1s linear infinite"></div></div><span style="width:38px;text-align:right;font:700 11px \'JetBrains Mono\'' + pctColor + '">' + (st.pct || 0) + '%</span></div>';
+         return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px"><span style="width:120px;flex:none;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid ' + c + ';border-radius:50%;flex:none;animation:lpblink ' + blink + ' infinite"></span>' + esc(visibleStage) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk);overflow:hidden"><div style="width:' + (st.pct || 0) + '%;height:100%;background:' + c + ';background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.32) 6px,rgba(255,255,255,.32) 13px);animation:lpbar 1s linear infinite"></div></div><span style="width:38px;text-align:right;font:700 11px \'JetBrains Mono\'' + pctColor + '">' + (st.pct || 0) + '%</span></div>';
       }
-      return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px;opacity:.45"><span style="width:120px;flex:none;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid var(--muted);border-radius:50%;flex:none"></span>' + esc(st.label) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk)"></div></div>';
+       return '<div class="lp-stage" data-state="' + ds + '" style="display:flex;align-items:center;gap:13px;opacity:.45"><span style="width:120px;flex:none;font-size:13px;display:flex;align-items:center;gap:8px"><span style="width:19px;height:19px;border:2px solid var(--muted);border-radius:50%;flex:none"></span>' + esc(visibleStage) + '</span><div style="flex:1;height:9px;border-radius:6px;background:var(--sunk)"></div></div>';
     }).join('');
     if (stagesEl.innerHTML !== stageHtml) { stagesEl.innerHTML = stageHtml; }
     var logEl = $('proc-log');
@@ -1304,8 +1369,8 @@
      var pct = row.querySelector('.lp-stage-pct');
      var color = st.color === 'blue' ? 'var(--blue)' : 'var(--orange)';
      row.dataset.state = ds;
-     row.dataset.stageLabel = st.label || '';
-     label.textContent = st.label || '';
+      row.dataset.stageLabel = friendlyProcessingLabel(st.label || st.name || '');
+      label.textContent = friendlyProcessingLabel(st.label || st.name || '');
      check.hidden = st.state !== 'done';
      pct.hidden = st.state !== 'active';
      if (st.state === 'done') {
@@ -1376,10 +1441,10 @@
      var key = JSON.stringify({ title: p.title || '', meta: p.meta || '', stages: stages, log: logs });
      if (key === lastPipelineRenderKey) return;
      lastPipelineRenderKey = key;
-     $('proc-status-title').textContent = p.title || '';
-     $('proc-status-meta').textContent = p.meta || '';
-     var hasJob = !!(p.title && stages.length);
-     $('proc-source-name').textContent = hasJob ? p.title : 'No lecture loaded';
+      $('proc-status-title').textContent = friendlyProcessingLabel(p.title || '');
+      $('proc-status-meta').textContent = p.meta || '';
+      var hasJob = !!(p.title && stages.length);
+      $('proc-source-name').textContent = hasJob ? friendlyJobName(p.title) : 'No lecture loaded';
      $('proc-source-meta').textContent = hasJob ? (p.meta || '') : '';
      var stagesEl = $('pipeline-stages');
      while (stagesEl.children.length > stages.length) stagesEl.lastElementChild.remove();
@@ -1394,13 +1459,15 @@
      var key = JSON.stringify(s);
      if (key === lastStatusRenderKey) return;
      lastStatusRenderKey = key;
-     if (s.label !== undefined) $('status-label').textContent = s.label;
-     if (s.pct !== undefined) setFill('status-bar', s.pct);
-     if (s.detail !== undefined) $('status-pct').textContent = s.detail;
-     if (s.right !== undefined) $('status-right').textContent = s.right;
-     if (s.job !== undefined && LP.state.jobId) {
-       $('side-job-name').textContent = s.job; $('crumb-job').textContent = s.job;
-     }
+      if (s.label !== undefined) $('status-label').textContent = friendlyProcessingLabel(s.label) || 'Idle';
+      if (s.pct !== undefined) setFill('status-bar', s.pct);
+      if (s.detail !== undefined) $('status-pct').textContent = friendlyProcessingLabel(s.detail) || s.detail;
+      if (s.right !== undefined) $('status-right').textContent = friendlyProcessingLabel(s.right) || s.right;
+      if (s.job !== undefined && LP.state.jobId) {
+        var jobName = friendlyJobName(s.job);
+        $('side-job-name').textContent = jobName || 'Untitled lecture';
+        $('crumb-job').textContent = jobName || 'Lecture';
+      }
      if (s.side !== undefined) setStatusDotText($('side-job-status'), s.side, 'var(--orange)', true);
    }
 
@@ -2429,6 +2496,11 @@
         state = 'gate'; returnState = 'gate'; retryPending = false; cancelPending = false;
         activeOperation = null; terminal = false; offer = null; healthy = false; return snapshot();
       },
+      // Closing a valid runtime overlay must clear the transient repair state
+      // without leaving the reducer at the invalid default `gate` state.
+      restoreHealthy: function () {
+        healthy = true; terminal = true; state = 'ready'; return snapshot();
+      },
       snapshot: snapshot
     };
   }
@@ -2680,12 +2752,14 @@
     function closeOverlay() {
       var el = overlay(); if (!el || closeInFlight) return;
       clearCheckingTimers();
+      var preserveHealthy = eventModel.snapshot().healthy;
       if (el.hidden) {
         // beginBootstrap() always captured the underlying app as inert. Warm
         // starts can skip opening this overlay entirely, so release that
         // capture even though there is no animated overlay to close.
         setUnderlyingInert(false);
         eventModel.reset();
+        if (preserveHealthy) eventModel.restoreHealthy();
         lastRenderedState = null;
         return;
       }
@@ -2693,6 +2767,7 @@
       function finish() {
         closeInFlight = false;
         setUnderlyingInert(false); el.hidden = true; eventModel.reset();
+        if (preserveHealthy) eventModel.restoreHealthy();
         lastRenderedState = null;
         var target = isNormalFocusable(priorFocus) ? priorFocus : fallbackFocus();
         if (isNormalFocusable(target)) target.focus();
@@ -2869,7 +2944,7 @@
         bootstrapSnapshot = bootstrap && bootstrap.setup_required || bootstrap || bootstrapSnapshot;
         var view = eventModel.retryResult(bootstrap); $('btn-runtime-retry').disabled = false;
         syncDemoAdmission(view);
-        if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !view.activeOperation) setUnderlyingInert(false); else render(true);
+        if (bootstrap && bootstrap.runtime_health_state === 'HEALTHY' && !view.activeOperation) closeOverlay(); else render(true);
       });
     }
     function beginNewRepair() {
@@ -2974,7 +3049,15 @@
       document.addEventListener('wheel', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true, passive: false });
       document.addEventListener('pointerdown', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
     }
-    return { admit: admit, event: event, progress: progress, acknowledge: acknowledge, wire: wire, beginBootstrap: function () { setUnderlyingInert(true); }, isOpen: isOpen, state: function () { return eventModel.snapshot().state; }, _diagnosticsInvoker: null };
+    return { admit: admit, event: event, progress: progress, acknowledge: acknowledge, wire: wire, beginBootstrap: function () {
+      setUnderlyingInert(true);
+      // A hidden overlay must never report the invalid `gate` state while the
+      // first authoritative health response is still in flight. Start in the
+      // existing checking state; render() keeps the short grace period and
+      // opens the honest progress panel if the response is slow.
+      eventModel.bootstrap({ bootstrap_pending: true, validation_path: 'full' });
+      render(true);
+    }, isOpen: isOpen, state: function () { return eventModel.snapshot().state; }, _diagnosticsInvoker: null };
   })();
 
   /* Clears the design-time placeholder chrome shipped in index.html so a fresh
@@ -3025,9 +3108,18 @@
   }
 
   function setJobsEmpty(empty) {
-    LP.state.jobsEmpty = empty;
-    $('home-jobs').hidden = empty;
-    $('home-empty').hidden = !empty;
+    LP.state.jobsEmpty = !!empty;
+    var jobs = $('home-jobs'), emptyState = $('home-empty'), actionBar = $('jobs-actionbar');
+    if (jobs) jobs.hidden = !!empty;
+    if (emptyState) emptyState.hidden = !empty;
+    if (actionBar) actionBar.hidden = !!empty;
+    if (empty) {
+      LP.state.selecting = false;
+      LP.state.selected = {};
+      var selectBar = $('jobs-selectbar');
+      if (selectBar) selectBar.hidden = true;
+    }
+    renderDemoHomeAvailability();
   }
 
   /* ======================= guided tour / demo ======================= */
@@ -3154,6 +3246,7 @@
       setDemoTourInteraction(false);
       renderSlideDetectionPreset();
       if (guidedDemo.snapshot().active) endGuidedDemo('runtime_unavailable');
+      renderDemoCard();
       return;
     }
     renderDemoCard();
@@ -3161,13 +3254,17 @@
   }
   function renderDemoHomeAvailability() {
     var demoHome = $('home-demo');
-    if (demoHome) demoHome.hidden = !demoAdmissionAvailable ||
-      (demoHomeDismissed && !guidedTour.snapshot().active);
+    var firstRun = !!(LP.data && LP.data.jobs && LP.data.jobs.length === 0);
+    // The empty workspace is the first-run entry point, even when a prior
+    // tour dismissal is still present in the browser profile.  A zero-job
+    // launch must always expose the demo alongside the import guidance.
+    if (demoHome) demoHome.hidden = !firstRun &&
+      ((!demoAdmissionAvailable) || (demoHomeDismissed && !guidedTour.snapshot().active));
   }
 
   function stageLabel(name) {
-    var labels = { prepare: 'Preparing demo', inspect: 'Inspecting video', extract_audio: 'Extracting audio', transcribe: 'Transcribing locally', detect_slides: 'Detecting slides', align: 'Aligning notes', review_ready: 'Preparing review', export: 'Exporting study pack', complete: 'Complete' };
-    return labels[name] || (name ? String(name).replace(/_/g, ' ') : 'Preparing demo');
+    var labels = { prepare: 'Preparing demo', inspect: 'Inspecting video', extract_audio: 'Extracting audio', transcribe: 'Transcribing audio', detect_slides: 'Detecting slides', align: 'Aligning notes', review_ready: 'Preparing review', export: 'Building Study Pack', complete: 'Complete' };
+    return labels[name] || friendlyProcessingLabel(name) || 'Preparing demo';
   }
   function guidedDemoSensitivityLocked() {
     return guidedTour.snapshot().active && demoFlowPhase() !== 'idle';
@@ -3213,13 +3310,22 @@
     var card = $('glowing-demo-card'), status = $('demo-card-status'), action = $('demo-card-action');
     if (!card || !status || !action) return;
     var d = guidedDemo.snapshot();
+    var firstRunUnavailable = !demoAdmissionAvailable && LP.state.jobsEmpty;
+    card.disabled = firstRunUnavailable || d.status === 'starting' || d.status === 'cancelling';
+    card.setAttribute('aria-disabled', card.disabled ? 'true' : 'false');
+    card.title = firstRunUnavailable ? 'Complete runtime setup before starting the guided demo.' : '';
     card.dataset.demoState = d.status === 'failed' || d.status === 'error' ? 'error' : (d.active ? 'running' : 'idle');
+    if (firstRunUnavailable) {
+      status.textContent = 'Guided demo will be available after runtime setup is ready.';
+      action.textContent = 'Runtime setup required';
+      return;
+    }
     if (d.status === 'error' || d.status === 'failed') {
       status.textContent = d.error || 'The guided demo could not start.'; action.textContent = 'Try again'; return;
     }
     if (d.active) {
       status.textContent = stageLabel(d.stage) + ' · ' + Math.round(d.progress) + '%';
-      action.textContent = d.status === 'cancelling' ? 'Stopping…' : 'End demo'; return;
+      action.textContent = d.status === 'starting' ? 'Starting…' : d.status === 'cancelling' ? 'Stopping…' : 'End demo'; return;
     }
     if (d.status === 'ended') { status.textContent = 'Demo ended and its temporary files were removed.'; action.textContent = 'Try guided demo'; return; }
     status.textContent = 'Move this demo video into the lecture drop area, or click to use it.';
@@ -3289,8 +3395,19 @@
     var model = $('ai-model-name');
     if (!model) return;
     var text = String(value || '');
-    model.textContent = text || '—';
+    var friendly = text ? text.split(/[\\/]/).pop() : '';
+    model.textContent = friendly || '—';
     if (!text) hideModelTooltip();
+  }
+
+  function setWhisperModelPath(value) {
+    var raw = String(value || ''), path = $('setting-model-path'), name = $('setting-model-name');
+    if (path && raw) path.textContent = raw;
+    if (!name) return;
+    if (!raw) { name.textContent = 'Bundled Whisper Base English model'; return; }
+    var file = raw.split(/[\\/]/).pop();
+    var friendly = /base\.en/i.test(file) ? 'Whisper Base English model' : 'Whisper model · ' + file;
+    name.textContent = friendly;
   }
   function wireModelTooltip() {
     var model = $('ai-model-name');
@@ -3405,8 +3522,28 @@
     if (typeof value === 'string') { try { return JSON.parse(value); } catch (e) { return null; } }
     return value && typeof value === 'object' ? value : null;
   }
+
+  function applyAppVersion(value) {
+    var version = String(value == null ? '' : value).trim();
+    if (!version) return;
+    LP.data.version = version;
+    var target = $('app-version');
+    if (target) target.textContent = version;
+  }
+
+  function loadAppVersion() {
+    var electron = window.lecturePackElectron;
+    if (!electron || typeof electron.getAppVersion !== 'function') return;
+    try {
+      Promise.resolve(electron.getAppVersion()).then(applyAppVersion, function () {
+        // Keep the neutral placeholder; never display a fabricated version.
+      });
+    } catch (e) { /* browser preview or an older preload */ }
+  }
+
   function startGuidedDemo() {
     var current = guidedDemo.snapshot();
+    if (current.status === 'starting' || current.status === 'cancelling') return;
     if (current.active) { endGuidedDemo('user_cancelled'); return; }
     if (!demoAdmissionAvailable) return;
     if (!lpBridge.connected()) { toast('Guided demo needs the LecturePack desktop app.'); return; }
@@ -3429,10 +3566,13 @@
       if (result && result.ok && state.active && !state.terminal &&
           state.operationId === result.operation_id && state.sessionId === result.session_id) setScreen('process');
       else if (result && result.error) toast(result.error);
-    }, function () {
+      else if (!result || result.ok !== true) toast(state.error || 'Could not start the guided demo.');
+    }, function (error) {
       if (!guidedDemo.isCurrentAttempt(startedAttempt)) return;
-      guidedDemo.started({ ok: false, error: 'Could not start the guided demo.' }, startedAttempt);
+      var message = error && error.message ? error.message : 'Could not start the guided demo.';
+      var state = guidedDemo.started({ ok: false, error: message }, startedAttempt);
       renderDemoCard();
+      toast(state.error || message);
     });
   }
   function endGuidedDemo(reason) {
@@ -3487,10 +3627,12 @@
     $('btn-replay-tour').addEventListener('click', function () { startGuidedTour(true); });
     var demoCard = $('glowing-demo-card');
     demoCard.addEventListener('click', function () {
+      if (demoCard.disabled) return;
       if (guidedDemo.snapshot().active) { startGuidedDemo(); return; }
       flyDemoTileToDropzone(startGuidedDemo);
     });
     demoCard.addEventListener('dragstart', function (e) {
+      if (demoCard.disabled) { e.preventDefault(); return; }
       if (!e.dataTransfer) return;
       e.dataTransfer.effectAllowed = 'copy';
       e.dataTransfer.setData(DEMO_DRAG_MIME, 'polar-bears-10s');
@@ -3614,7 +3756,9 @@
     }
     if ($('ss-settings-msg')) $('ss-settings-msg').textContent =
       d.state === 'downloading' ? (d.message || 'Downloading…') :
-      d.ready ? 'Ready.' : (d.message || '');
+      d.ready ? 'Ready.' : (d.message || (d.state === 'need_engine'
+        ? 'Install the optional local AI engine to enable Smart Study.'
+        : 'Smart Study is optional; Built-in Study is ready.'));
 
     // State machine drives which sub-panel of the banner shows.
     var st = d.state || 'idle';
@@ -3639,8 +3783,22 @@
   }
 
   function ssInstall() {
-    if (!lpBridge.connected()) { toast('Preview mode — Smart Study needs the app'); return; }
-    lpBridge.call('install_smart_study', ssChosenPreset(LP.state.smartStudy) || 'balanced');
+    var status = $('ss-settings-msg');
+    if (!lpBridge.connected()) {
+      if (status) status.textContent = 'Smart Study setup is unavailable in browser preview; Built-in Study is ready.';
+      toast('Preview mode — Smart Study needs the app');
+      return;
+    }
+    if (status) status.textContent = 'Starting Smart Study setup…';
+    lpBridge.call('install_smart_study', ssChosenPreset(LP.state.smartStudy) || 'balanced').then(function (value) {
+      var result = parseBridgeResult(value);
+      if (!result) { if (status) status.textContent = 'Smart Study setup is unavailable in this build.'; return; }
+      if (result.error) { if (status) status.textContent = 'Smart Study setup failed: ' + result.error; return; }
+      if (result.ok === false) { if (status) status.textContent = result.message || 'Smart Study setup could not start.'; return; }
+      if (status) status.textContent = result.message || 'Smart Study setup started…';
+    }, function (error) {
+      if (status) status.textContent = 'Smart Study setup failed: ' + (error && error.message || 'unknown error');
+    });
   }
 
   /* ======================= chat ======================= */
@@ -3894,7 +4052,28 @@
     $('btn-set-light').addEventListener('click', function () { setTheme('light'); });
     $('btn-set-dark').addEventListener('click', function () { setTheme('dark'); });
     $('btn-browse-model').addEventListener('click', function () { lpBridge.call('browse_model'); });
-    $('btn-test-endpoint').addEventListener('click', function () { lpBridge.call('test_endpoint'); });
+    $('btn-test-endpoint').addEventListener('click', function () {
+      var button = $('btn-test-endpoint'), status = $('endpoint-test-status');
+      if (button) button.disabled = true;
+      if (status) status.textContent = 'Testing endpoint…';
+      var request;
+      try { request = lpBridge.connected() ? lpBridge.call('test_endpoint') : Promise.resolve(null); }
+      catch (error) { request = Promise.reject(error); }
+      Promise.resolve(request).then(function (value) {
+        var result = parseBridgeResult(value);
+        if (value === true || value === 'ok' || value === 'available' || (result && (result.ok === true || result.success === true || result.available === true))) {
+          if (status) status.textContent = 'Endpoint test succeeded.';
+        } else if (!result) {
+          if (status) status.textContent = 'Endpoint testing is unavailable in this build.';
+        } else if (result.error || result.message) {
+          if (status) status.textContent = 'Endpoint test failed: ' + (result.error || result.message);
+        } else {
+          if (status) status.textContent = 'Endpoint is unavailable.';
+        }
+      }, function (error) {
+        if (status) status.textContent = 'Endpoint test failed: ' + (error && error.message || 'unknown error');
+      }).then(function () { if (button) button.disabled = false; });
+    });
 
     // Compute engine (CPU / Vulkan) — reflects the persisted engine and writes
     // it back so a Vulkan selection actually reaches the transcription backend.
@@ -3917,11 +4096,33 @@
         reflectEngine(k); lpBridge.call('set_setting', 'engine', k);
       });
     });
+    function applyComputeResponse(kind, value) {
+      var data = parseBridgeResult(value);
+      if (!data || typeof data !== 'object') return;
+      var id = kind === 'cuda' ? 'cuda-status' : 'vulkan-status', el = $(id);
+      if (!el || data.state === 'checking') return;
+      var message = data.message || data.detail;
+      if (!message && data.state === 'available') message = kind === 'cuda' ? 'CUDA available' : 'Vulkan available';
+      if (!message && data.state === 'unavailable') message = kind === 'cuda' ? 'CUDA unavailable · CPU · AVX2 ready' : 'Vulkan unavailable · CPU · AVX2 ready';
+      if (message) el.textContent = friendlyProcessingLabel(message) || message;
+      el.style.color = data.state === 'available' || data.state === 'loaded' ? 'var(--secondary-text)' : 'var(--muted)';
+    }
     $('btn-validate-vulkan').addEventListener('click', function () {
       ['vulkan-status', 'cuda-status'].forEach(function (id) {
         var el = $(id); if (el) { el.textContent = 'Checking compute backend…'; el.style.color = 'var(--muted)'; }
       });
-      if (lpBridge.connected()) { lpBridge.call('validate_vulkan'); lpBridge.call('validate_cuda'); }
+      var requests = lpBridge.connected()
+        ? [lpBridge.call('validate_vulkan'), lpBridge.call('validate_cuda')]
+        : [Promise.resolve(null), Promise.resolve(null)];
+      Promise.all(requests).then(function (values) {
+        applyComputeResponse('vulkan', values[0]);
+        applyComputeResponse('cuda', values[1]);
+        setComputeReadyFallback();
+      }, function () { setComputeReadyFallback(); });
+      // A backend may report through its event channel rather than the command
+      // response. This bounded fallback guarantees the CPU path is never left
+      // behind a permanent spinner if either response is unavailable.
+      setTimeout(setComputeReadyFallback, 1500);
     });
     $('btn-cuda-pack-install').addEventListener('click', function () {
       if (!lpBridge.connected()) { toast('Preview mode — needs the app'); return; }
@@ -3978,10 +4179,34 @@
         setModelValue(this.value);
       }
     });
+    var updateCheckToken = 0;
     $('btn-check-updates').addEventListener('click', function () {
-      $('update-status').textContent = 'Checking…';
-      if (lpBridge.connected()) { lpBridge.call('check_updates'); }
-      else { setTimeout(function () { $('update-status').textContent = 'Up to date (browser preview)'; }, 600); }
+      var token = ++updateCheckToken, button = $('btn-check-updates'), status = $('update-status');
+      if (status) status.textContent = 'Checking…';
+      if (button) button.disabled = true;
+      function settle(message) {
+        if (token !== updateCheckToken) return;
+        if (status) status.textContent = message;
+        if (button) button.disabled = false;
+      }
+      var request;
+      try { request = lpBridge.connected() ? lpBridge.call('check_updates') : Promise.resolve(null); }
+      catch (error) { request = Promise.reject(error); }
+      Promise.resolve(request).then(function (value) {
+        var result = parseBridgeResult(value);
+        if (!result) { settle('Updates are not available in this build.'); return; }
+        if (result.error) { settle('Update check failed: ' + result.error); return; }
+        if (result.available === false || result.phase === 'unavailable' || result.phase === 'not_available') {
+          settle(result.message || 'Updates are not available in this build.'); return;
+        }
+        if (result.available === true || result.phase === 'available') {
+          settle(result.message || 'An update is available.'); return;
+        }
+        settle(result.message || 'Updates are not available in this build.');
+      }, function (error) {
+        settle('Update check failed: ' + (error && error.message || 'unknown error'));
+      });
+      setTimeout(function () { settle('Updates are not available in this build.'); }, 4000);
     });
 
     // Smart Study setup (§5): install flow + built-in continue + engine install.
@@ -4406,7 +4631,24 @@
     });
     var testBtn = $('btn-test-notification');
     if (testBtn) testBtn.addEventListener('click', function () {
-      if (lpBridge.connected()) lpBridge.call('test_notification');
+      var status = $('notification-test-status');
+      testBtn.disabled = true;
+      if (status) status.textContent = 'Sending test notification…';
+      var request;
+      try { request = lpBridge.connected() ? lpBridge.call('test_notification') : Promise.resolve(null); }
+      catch (error) { request = Promise.reject(error); }
+      Promise.resolve(request).then(function (value) {
+        var result = parseBridgeResult(value);
+        if (value === true || (result && (result.ok === true || result.success === true))) {
+          if (status) status.textContent = 'Test notification sent.';
+        } else if (!result) {
+          if (status) status.textContent = 'Desktop notifications are unavailable in this build.';
+        } else {
+          if (status) status.textContent = result.error || result.message || 'Desktop notification failed.';
+        }
+      }, function (error) {
+        if (status) status.textContent = 'Desktop notification failed: ' + (error && error.message || 'unknown error');
+      }).then(function () { testBtn.disabled = false; });
     });
 
     // Keyboard shortcuts.  An open overlay OWNS the keyboard: digit/F shortcuts
@@ -4437,6 +4679,7 @@
   /* ======================= backend hookup ======================= */
 
   function wireBridge() {
+    loadAppVersion();
     // Shared with the lpBridge.ready() bootstrap consumer below: normal
     // bridge activity must start exactly once per launch, from whichever of
     // the two admission paths (this signal, or the initial get_bootstrap()
@@ -4626,7 +4869,9 @@
       mediaLink.available = !!s.available;
       mediaLink.version = s.version || '';
       var btn = $('btn-paste-link');
-      if (btn) btn.hidden = !mediaLink.available;
+      // URL import is not part of this build. Keep the CTA hidden even if an
+      // older sidecar advertises the deferred capability.
+      if (btn) btn.hidden = true;
     });
 
     lpBridge.on('media_probe', function (json) {
@@ -4688,7 +4933,7 @@
         if (LP.state.jobId === a.id) setActiveJob('', '');
         return;
       }
-      setActiveJob(a.id || '', a.title || '');
+      setActiveJob(a.id || '', a.title || friendlyJobName(a.id || ''));
     });
     lpBridge.on('pipeline_changed', function (json) {
       var p = parseBridgePayload(json, null);
@@ -4727,7 +4972,8 @@
       // explicitly on the terminal "Failed" status label. "Done" is handled
       // here too as a redundant safety net -- the all-"done" stages payload
       // already clears it above.
-      if (s.label === 'Failed' || s.label === 'Done') {
+      var terminalLabel = normalizedProcessingText(s.label);
+      if (s.label === 'Failed' || terminalLabel === 'failed' || terminalLabel === 'done' || terminalLabel === 'complete') {
         LP.state.pipelineRunning = false;
         renderSlideDetectionPreset();
       }
@@ -4833,15 +5079,22 @@
       var d = parseBridgePayload(json, null), el = $('vulkan-status');
       if (!d || typeof d !== 'object') return;
       if (!el) return;
-      el.textContent = d.message || '';
-      el.style.color = (d.state === 'loaded' || d.state === 'available') ? 'var(--secondary-text)'
-        : (d.state === 'unavailable' || d.state === 'error') ? 'var(--muted)' : 'var(--muted)';
+      if (d.state === 'checking' || /checking/i.test(d.message || '')) {
+        setComputeReadyFallback();
+        return;
+      }
+      el.textContent = d.message || (d.state === 'available' ? 'Vulkan available' : 'Vulkan unavailable · CPU · AVX2 ready');
+      el.style.color = (d.state === 'loaded' || d.state === 'available') ? 'var(--secondary-text)' : 'var(--muted)';
     });
     lpBridge.on('cuda_status', function (json) {
       var d = parseBridgePayload(json, null), el = $('cuda-status');
       if (!d || typeof d !== 'object') return;
       if (!el) return;
-      el.textContent = d.message || '';
+      if (d.state === 'checking' || /checking/i.test(d.message || '')) {
+        setComputeReadyFallback();
+        return;
+      }
+      el.textContent = d.message || (d.state === 'available' ? 'CUDA available' : 'CUDA unavailable · CPU · AVX2 ready');
       el.style.color = (d.state === 'loaded' || d.state === 'available') ? 'var(--secondary-text)' : 'var(--muted)';
     });
     lpBridge.on('cuda_pack', function (json) {
@@ -4850,7 +5103,8 @@
       var st = d.state;
       var busy = st === 'downloading' || st === 'verifying' || st === 'installing';
       // Offer the pack only on an NVIDIA machine that hasn't installed it yet.
-      var show = d.gpu_present && (!d.installed || busy || st === 'error' || st === 'cancelled');
+      var installationAvailable = d.installation_available === true || d.install_available === true || d.can_install === true;
+      var show = installationAvailable && d.gpu_present && (!d.installed || busy || st === 'error' || st === 'cancelled');
       box.hidden = !show;
       if (!show) return;
       $('cuda-pack-progress').hidden = !busy;
@@ -4920,6 +5174,7 @@
       var phase = d.phase;
       if (phase === 'checking') { $('update-status').textContent = 'Checking…'; }
       else if (phase === 'uptodate') { $('update-status').textContent = d.message || 'You’re up to date'; }
+      else if (phase === 'unavailable' || phase === 'not_available') { $('update-status').textContent = d.message || 'Updates are not available in this build.'; }
       else if (phase === 'downloading') {
         if ($('whatsnew-overlay').hidden) $('whatsnew-overlay').hidden = false;
         updSetPhase('downloading'); updMsg('');
@@ -4944,8 +5199,8 @@
       var s = parseBridgePayload(json, null);
       if (!s || typeof s !== 'object') return;
       if (s.theme) applyTheme(s.theme, false);
-      if (s.version) { LP.data.version = s.version; $('app-version').textContent = s.version; }
-      if (s.model_path) $('setting-model-path').textContent = s.model_path;
+      if (s.version) applyAppVersion(s.version);
+      if (s.model_path) setWhisperModelPath(s.model_path);
       if (s.endpoint) {
         var ep = $('ai-endpoint-url');
         if (ep && document.activeElement !== ep) ep.value = s.endpoint;
@@ -4963,7 +5218,7 @@
         var msel = $('ai-model-select');
         if (msel && msel.querySelector('option[value="' + s.ollama_model + '"]')) msel.value = s.ollama_model;
       }
-      if (s.actual_backend) $('status-right').textContent = s.actual_backend;
+      if (s.actual_backend) $('status-right').textContent = friendlyProcessingLabel(s.actual_backend) || s.actual_backend;
       if (s.export_dir) $('export-dir').textContent = s.export_dir;
       if (s.update_status) $('update-status').textContent = s.update_status;
     });
@@ -4995,7 +5250,7 @@
           try {
             var b = JSON.parse(json);
             if (b.theme) applyTheme(b.theme, false);
-            if (b.version) { LP.data.version = b.version; $('app-version').textContent = b.version; }
+            if (b.version) applyAppVersion(b.version);
             RuntimeSetupGate.admit(b);
             // Gate on bootstrap_pending, never on a runtime_health_state
             // string comparison (that string legitimately reads "PENDING"

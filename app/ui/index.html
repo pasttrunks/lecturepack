@@ -33,7 +33,7 @@
     <button id="btn-theme" class="lp-hit" title="Toggle theme" style="display:flex;align-items:center;gap:8px;font:600 12px 'JetBrains Mono';letter-spacing:.04em;background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:9px;padding:8px 11px;cursor:pointer">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path id="theme-icon" d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><span id="theme-label">LIGHT</span>
     </button>
-    <button id="btn-save" class="lp-hit lp-press" style="font:600 13.5px 'Space Grotesk';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:9px;padding:9px 15px;cursor:pointer">Save</button>
+    <button id="btn-save" class="lp-hit lp-press" hidden style="font:600 13.5px 'Space Grotesk';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:9px;padding:9px 15px;cursor:pointer">Save</button>
     <button id="btn-export-top" class="lp-hit lp-press" style="display:flex;align-items:center;gap:8px;font:600 13.5px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:9px;padding:9px 17px;cursor:pointer">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>Export
     </button>
@@ -98,12 +98,12 @@
           <div id="scheduled-list" style="display:flex;flex-direction:column;gap:8px"></div>
         </div>
         <div id="home-jobs">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div id="jobs-actionbar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
           <div style="display:flex;align-items:baseline;gap:11px"><h2 style="font:500 12px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;margin:0;color:var(--ink)">Recent jobs</h2><span id="jobs-count" style="font:500 12px 'JetBrains Mono';color:var(--muted)">3</span></div>
           <div style="display:flex;gap:8px">
             <button id="btn-show-empty" class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--muted);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Preview first-run</button>
-            <button class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Archive</button>
-            <button class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Restore</button>
+            <button id="btn-archive" class="lp-hit" disabled title="Archive is not available in Beta 15" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--muted);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:not-allowed">Archive</button>
+            <button id="btn-restore" class="lp-hit" disabled title="Restore is not available in Beta 15" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--muted);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:not-allowed">Restore</button>
             <button id="btn-select-mode" class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Select</button>
           </div>
         </div>
@@ -120,7 +120,7 @@
         <div id="jobs-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px"></div>
         </div>
 
-        <section id="home-demo" aria-labelledby="guided-demo-heading" style="margin-top:32px" hidden>
+         <section id="home-demo" aria-labelledby="guided-demo-heading" style="margin-top:32px" hidden>
           <div style="display:flex;align-items:baseline;gap:11px;margin-bottom:14px"><h2 id="guided-demo-heading" style="font:500 12px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;margin:0;color:var(--ink)">Guided demo</h2><span style="font:500 12px 'JetBrains Mono';color:var(--muted)">10 seconds · local only</span></div>
           <button id="glowing-demo-card" class="lp-hit lp-press" type="button" draggable="true" aria-describedby="demo-card-status" style="width:100%;text-align:left;display:flex;align-items:center;gap:16px;background:var(--panel);border:2px solid var(--orange);border-radius:14px;padding:12px 14px;cursor:grab;color:var(--ink);box-shadow:var(--shadow-hard)">
             <img src="../assets/demo/polar_bears_thumbnail.jpg" alt="Polar bear lecture slide preview" width="116" height="66" draggable="false" style="width:116px;height:66px;object-fit:cover;flex:none;border-radius:9px;border:1.5px solid var(--border);box-shadow:var(--shadow-soft)">
@@ -453,17 +453,17 @@
         <h1 style="font-size:30px;font-weight:700;letter-spacing:-.02em;margin:0 0 26px">Settings</h1>
         <div style="display:flex;flex-direction:column;gap:16px">
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
-            <div style="font-weight:700;font-size:16px;margin-bottom:13px">Whisper model</div>
-            <div style="display:flex;gap:10px;align-items:center"><div id="setting-model-path" style="flex:1;font:500 13px 'JetBrains Mono';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--muted)">…/models/ggml-base.en.bin</div><button id="btn-browse-model" class="lp-hit lp-press-sm" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:10px 16px;cursor:pointer;color:var(--ink)">Browse</button></div>
+             <div style="display:flex;gap:10px;align-items:center"><div id="setting-model-name" style="flex:1;font:600 13px 'Space Grotesk';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--ink)">Bundled Whisper Base English model</div><button id="btn-browse-model" class="lp-hit lp-press-sm" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:10px 16px;cursor:pointer;color:var(--ink)">Browse</button></div>
+             <details id="setting-model-details" style="margin-top:10px"><summary style="cursor:pointer;font:600 12px 'JetBrains Mono';color:var(--muted);padding:4px 0">Advanced model details</summary><code id="setting-model-path" style="display:block;margin-top:8px;font:500 12px 'JetBrains Mono';line-height:1.4;overflow-wrap:anywhere;color:var(--muted)">…/models/ggml-base.en.bin</code></details>
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
             <div style="font-weight:700;font-size:16px;margin-bottom:13px">Compute engine</div>
             <div style="display:flex;gap:8px"><span id="compute-cpu" style="flex:1;text-align:center;font:700 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid var(--secondary-border);border-radius:9px;background:var(--secondary-surface);color:var(--secondary-text)">CPU · AVX2</span><span id="compute-cuda" class="lp-hit" style="flex:1;text-align:center;font:500 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid transparent;border-radius:9px;color:var(--muted);cursor:pointer">NVIDIA CUDA</span><span id="compute-gpu" class="lp-hit" style="flex:1;text-align:center;font:500 13px 'JetBrains Mono';padding:11px 0;border:1.5px solid transparent;border-radius:9px;color:var(--muted);cursor:pointer">Vulkan GPU</span></div>
             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:11px">
-              <span id="vulkan-status" style="flex:1;font:500 12px 'JetBrains Mono';color:var(--muted);line-height:1.4">Checking compute backend…</span>
+               <span id="vulkan-status" style="flex:1;font:500 12px 'JetBrains Mono';color:var(--secondary-text);line-height:1.4">CPU · AVX2 ready</span>
               <button id="btn-validate-vulkan" class="lp-hit lp-press-sm" style="flex:none;font:600 12px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:7px 13px;cursor:pointer;color:var(--ink)">Validate</button>
             </div>
-            <div id="cuda-status" style="font:500 12px 'JetBrains Mono';color:var(--muted);line-height:1.4;margin-top:7px"></div>
+             <div id="cuda-status" style="font:500 12px 'JetBrains Mono';color:var(--muted);line-height:1.4;margin-top:7px">CUDA unavailable unless this build explicitly enables installation.</div>
             <div id="cuda-pack" hidden style="margin-top:12px;border-top:2px solid var(--line);padding-top:12px">
               <div id="cuda-pack-msg" style="font-size:13px;color:var(--ink);line-height:1.5;margin-bottom:10px">NVIDIA GPU detected. Install optional CUDA acceleration for faster transcription.</div>
               <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -482,12 +482,12 @@
             <div id="ss-settings-rec" style="font:600 12px 'JetBrains Mono';color:var(--secondary-text);margin-bottom:9px"></div>
             <div id="ss-settings-seg" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:11px"></div>
             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px">
-              <button id="btn-ss-setup" class="lp-hit lp-press" style="font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer">Set up Smart Study</button>
-              <span id="ss-settings-msg" style="align-self:center;font:500 12px 'JetBrains Mono';color:var(--muted)"></span>
+               <button id="btn-ss-setup" class="lp-hit lp-press" style="font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer">Set up Smart Study</button>
+               <span id="ss-settings-msg" style="align-self:center;font:500 12px 'JetBrains Mono';color:var(--muted)">Smart Study is optional; Built-in Study is ready.</span>
             </div>
             <details style="margin-top:8px">
               <summary style="cursor:pointer;font:600 12px 'JetBrains Mono';color:var(--muted);padding:4px 0">Advanced AI details</summary>
-              <div style="display:flex;gap:10px;margin:12px 0"><input id="ai-endpoint-url" type="text" spellcheck="false" value="http://localhost:11434" style="flex:1;font:500 13px 'JetBrains Mono';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--ink)"><button id="btn-test-endpoint" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:10px 16px;cursor:pointer;color:var(--ink)">Test</button></div>
+               <div style="display:flex;gap:10px;margin:12px 0"><input id="ai-endpoint-url" type="text" spellcheck="false" value="http://localhost:11434" style="flex:1;font:500 13px 'JetBrains Mono';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--ink)"><button id="btn-test-endpoint" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:10px 16px;cursor:pointer;color:var(--ink)">Test</button></div><div id="endpoint-test-status" role="status" aria-live="polite" style="font:500 12px 'JetBrains Mono';color:var(--muted);line-height:1.4;margin:-3px 0 10px">Not tested yet.</div>
               <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:9px"><span style="color:var(--muted);white-space:nowrap">Installed model</span><span id="ai-model-name" class="lp-model-value" tabindex="0" aria-describedby="ai-model-tooltip" style="font:700 12px 'JetBrains Mono'">—</span></div>
               <div id="ai-model-tooltip" class="lp-model-tooltip" role="tooltip" hidden></div>
               <div style="display:flex;gap:8px;align-items:center"><select id="ai-model-select" style="flex:1;font:600 12px 'JetBrains Mono';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:9px 10px;color:var(--ink);cursor:pointer"><option value="">— refresh to list installed models —</option></select><button id="btn-refresh-models" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:9px 14px;cursor:pointer;color:var(--ink)">Refresh</button></div>
@@ -519,7 +519,7 @@
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:13px"><div style="font-weight:700;font-size:16px">Updates</div><span id="update-badge" hidden style="display:flex;align-items:center;gap:5px;font:600 10px 'JetBrains Mono';text-transform:uppercase;background:var(--orange-soft);color:var(--orange-ink);border:1.5px solid var(--orange);border-radius:6px;padding:3px 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>Update available</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:9px"><span style="color:var(--muted)">Current version</span><span id="app-version" style="font:700 12px 'JetBrains Mono'">0.0.0</span></div>
+             <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:9px"><span style="color:var(--muted)">Current version</span><span id="app-version" style="font:700 12px 'JetBrains Mono'">—</span></div>
             <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px;margin-bottom:11px"><span style="color:var(--muted)">Update channel</span>
               <div id="update-channel-seg" style="display:flex;gap:6px">
                 <button data-channel="beta" class="lp-hit" style="font:600 11px 'JetBrains Mono';padding:5px 11px;border-radius:7px;border:1.5px solid var(--secondary-border);background:var(--secondary-surface);color:var(--secondary-text);cursor:pointer">Beta</button>
@@ -542,7 +542,7 @@
             <label style="display:flex;align-items:center;gap:9px;font-size:13px;margin-bottom:11px;cursor:pointer"><input id="notif-study" type="checkbox" data-notif="notify_smart_study" style="width:15px;height:15px;cursor:pointer"><span>Notify when Smart Study finishes</span></label>
             <label style="display:flex;align-items:center;gap:9px;font-size:13px;margin-bottom:11px;cursor:pointer"><input id="notif-sound" type="checkbox" data-notif="play_sound" style="width:15px;height:15px;cursor:pointer"><span>Play notification sound</span></label>
             <label style="display:flex;align-items:center;gap:9px;font-size:13px;margin-bottom:14px;cursor:pointer"><input id="notif-unfocused" type="checkbox" data-notif="only_when_unfocused" checked style="width:15px;height:15px;cursor:pointer"><span>Only notify when LecturePack is not focused</span></label>
-            <button id="btn-test-notification" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:10px 16px;cursor:pointer;color:var(--ink)">Test notification</button>
+             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button id="btn-test-notification" class="lp-hit" style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:10px 16px;cursor:pointer;color:var(--ink)">Test notification</button><span id="notification-test-status" role="status" aria-live="polite" style="font:500 12px 'JetBrains Mono';color:var(--muted)">Not tested yet.</span></div>
           </div>
           <div style="display:flex;gap:12px;align-items:center;background:var(--blue-tint);border:1.5px solid var(--blue);border-radius:13px;padding:16px 20px">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--blue-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>

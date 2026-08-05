@@ -5,6 +5,8 @@ const {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
+  Notification,
   shell
 } = require('electron');
 const fs = require('node:fs');
@@ -74,7 +76,9 @@ function productionDocument(uiDir) {
   const bridge = fs.readFileSync(path.join(__dirname, 'electron-bridge.js'), 'utf8');
   const productionScope = `
     <style id="lecturepack-production-scope">
-      #btn-show-empty { display: none !important; }
+      #btn-paste-link, #btn-show-empty, #btn-save, #update-badge {
+        display: none !important;
+      }
     </style>`;
   let document = index
     .replace(/<script\b[^>]*qrc:\/\/[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -355,11 +359,32 @@ async function openJobFolder(session, command, payload) {
   return { ok: true, path: target };
 }
 
+function testDesktopNotification() {
+  if (!Notification.isSupported()) {
+    return {
+      ok: false,
+      unavailable: true,
+      error: 'Desktop notifications are unavailable on this system.'
+    };
+  }
+  try {
+    const notification = new Notification({
+      title: 'LecturePack',
+      body: 'Desktop notifications are working.'
+    });
+    notification.show();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message || 'The desktop notification could not be shown.' };
+  }
+}
+
 async function handleCommand(session, command, payload) {
   if (command === 'browse_video') return browseVideo(session);
   if (command === 'open_job_folder' || command === 'open_export_folder') {
     return openJobFolder(session, command, payload);
   }
+  if (command === 'test_notification') return testDesktopNotification();
   return sendCommand(session, command, payload);
 }
 
@@ -458,6 +483,7 @@ function createProductionWindow() {
     minWidth: 640,
     minHeight: 480,
     show: false,
+    autoHideMenuBar: true,
     title: PRODUCT_NAME,
     backgroundColor: '#16191F',
     ...(icon ? { icon } : {}),
@@ -531,6 +557,8 @@ ipcMain.handle('lecturepack-production:command', (_event, command, payload) => {
   return handleCommand(activeSession, String(command || ''), normalizedPayload);
 });
 
+ipcMain.handle('lecturepack-production:version', () => app.getVersion());
+
 if (hasSingleInstanceLock) {
   app.on('second-instance', () => {
     const window = activeSession && activeSession.window;
@@ -542,12 +570,16 @@ if (hasSingleInstanceLock) {
   });
 
   app.whenReady().then(() => {
-    createProductionWindow();
-    const quitAfter = Number(options['quit-after-seconds'] || 0);
-    if (Number.isFinite(quitAfter) && quitAfter > 0) {
-      setTimeout(() => requestQuit(), Math.min(quitAfter, 24 * 60 * 60) * 1000);
-    }
-  });
+  // The production window is a focused desktop surface, not a browser shell.
+  // Removing the application menu also prevents Alt from resurrecting the
+  // default File/Edit/View/Window menu on Windows.
+  Menu.setApplicationMenu(null);
+  createProductionWindow();
+  const quitAfter = Number(options['quit-after-seconds'] || 0);
+  if (Number.isFinite(quitAfter) && quitAfter > 0) {
+    setTimeout(() => requestQuit(), Math.min(quitAfter, 24 * 60 * 60) * 1000);
+  }
+});
 
   app.on('before-quit', (event) => {
     if (quitPromise || !activeSession || activeSession.closed) return;
