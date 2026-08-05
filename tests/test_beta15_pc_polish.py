@@ -44,6 +44,22 @@ def test_sidecar_generates_poster_at_import() -> None:
     assert "thumbnail failure must not block import" in sidecar
 
 
+# --------------------------------------------------------------------------- #
+# Demo lecture provenance
+# --------------------------------------------------------------------------- #
+def test_bundled_demo_matches_attested_polar_bears_lecture() -> None:
+    """The demo the app bundles must be the attested Polar Bears lecture
+    (PROVENANCE.md in app/assets/demo). A stale or swapped demo file fails here
+    rather than shipping a wrong guided-demo video."""
+    import hashlib
+    demo = ROOT / "electron-spike" / "assets" / "demo-lecture.mp4"
+    thumb = ROOT / "app" / "assets" / "demo" / "polar_bears_thumbnail.jpg"
+    mp4_sha = hashlib.sha256(demo.read_bytes()).hexdigest()
+    jpg_sha = hashlib.sha256(thumb.read_bytes()).hexdigest()
+    assert mp4_sha == "24957e863c477cd7ad2ef9228f3bbe943f5038e5ccd18ef7ab92efefee13f55f"
+    assert jpg_sha == "6120e615b8f5d3006be9bb786b856c15ae1b6ae9c0a80b106d5f48280556795f"
+
+
 def test_electron_serves_lpasset_poster_protocol() -> None:
     main = read(MAIN)
     assert "protocol.handle('lpasset'" in main
