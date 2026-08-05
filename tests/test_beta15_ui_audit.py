@@ -58,6 +58,7 @@ def test_d03_paste_link_stays_hidden_even_if_an_older_payload_advertises_it() ->
     assert re.search(r'id="btn-paste-link"[^>]*\bhidden\b', html)
     assert "if (btn) btn.hidden = true;" in app
     assert "#btn-paste-link" in main
+    assert "lpBridge.call('media_link_support')" not in app
 
 
 def test_d04_production_window_has_no_electron_menu() -> None:

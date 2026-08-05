@@ -4697,9 +4697,8 @@
       normalBridgeActivityPending = false;
       lpBridge.call('get_settings');
       lpBridge.call('list_ollama_models');
-      // Ask whether link import exists in this build; the button stays hidden
-      // until the backend says yes.
-      lpBridge.call('media_link_support');
+      // D-3: URL import is deferred in this build. Keep its CTA hidden and do
+      // not probe an unsupported backend command during startup.
     }
     lpBridge.on('repair_event', function (json) { RuntimeSetupGate.event(json); });
     lpBridge.on('bootstrap_progress', function (json) { RuntimeSetupGate.progress(json); });
