@@ -574,6 +574,11 @@
   /* ======================= renderers ======================= */
 
   /* ---- lightweight modal + toast (no markup needed) ---- */
+  // Every open lpModal registers here so the guided tour (and only it) can
+  // close competing dialogs before its overlay appears -- a modal and the
+  // tour are never visible together (F-2/F-5). This is a small registry for
+  // the existing helper, not a new overlay system.
+  var _openModals = [];
   function lpModal(opts) {
     var ov = document.createElement('div');
     ov.className = 'lp-modal-ov lp-scrim';
@@ -589,6 +594,8 @@
     function close() {
       if (closed) return;
       closed = true;
+      var ix = _openModals.indexOf(entry);
+      if (ix >= 0) _openModals.splice(ix, 1);
       document.removeEventListener('keydown', onKey);
       try { LP.motion.close(ov, function () { ov.remove(); }); }
       catch (e) { try { ov.remove(); } catch (e2) {} }
@@ -611,7 +618,15 @@
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-modal', 'true');
     focusFirst(ov);
-    return { close: close };
+    var entry = { close: close, overlay: ov };
+    _openModals.push(entry);
+    return entry;
+  }
+  function closeAllModals() {
+    _openModals.slice().forEach(function (m) { m.close(); });
+  }
+  function anyModalOpen() {
+    return _openModals.length > 0;
   }
   /* Progress fills: drive them with transform:scaleX() rather than width, so a
      per-frame progress tick stays on the compositor instead of forcing layout +
@@ -651,7 +666,10 @@
   // conflict with this singleton's inline `transform:translateX(-50%)`
   // centering. Re-trigger the entrance on every show by toggling the class
   // off/on around a reflow; skipped entirely under reduced motion.
-  var _toastT = null;
+  // Toast discipline (N-5): ordinary toasts auto-dismiss after ~5s, the
+  // singleton caps the visible stack at one, navigation clears stale
+  // transient messages, and no toast may linger once its condition is gone.
+  var _toastT = null, _toastClearT = null;
   function toast(msg) {
     var t = $('lp-toast');
     if (!t) {
@@ -666,7 +684,18 @@
       t.classList.add('lp-toast');
     }
     if (_toastT) clearTimeout(_toastT);
-    _toastT = setTimeout(function () { t.style.opacity = '0'; }, 2600);
+    if (_toastClearT) { clearTimeout(_toastClearT); _toastClearT = null; }
+    _toastT = setTimeout(dismissToast, 5000);
+  }
+  function dismissToast() {
+    if (_toastT) { clearTimeout(_toastT); _toastT = null; }
+    var t = $('lp-toast');
+    if (!t) return;
+    t.style.opacity = '0';
+    if (_toastClearT) clearTimeout(_toastClearT);
+    // Clear the text once the fade has finished so a stale message can never
+    // be read back out of the DOM on another screen.
+    _toastClearT = setTimeout(function () { _toastClearT = null; if (t.style.opacity === '0') t.textContent = ''; }, 240);
   }
   function copyText(text, okMsg) {
     text = text || '';
@@ -962,6 +991,8 @@
   function bulkGroup() {
     var ids = Object.keys(LP.state.selected);
     if (!ids.length) return;
+    // F-2: never stack a modal over the guided tour.
+    if (guidedTour.snapshot().active || guidedTour.snapshot().prompt) { toast('Finish or leave the guided tour first.'); return; }
     lpModal({
       title: 'Group ' + ids.length + (ids.length === 1 ? ' lecture' : ' lectures'),
       bodyHtml: '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px">Course / subject</label>' +
@@ -1181,6 +1212,8 @@
     });
   }
   function setJobGroup(job) {
+    // F-2: never stack the Group lecture modal over the guided tour.
+    if (guidedTour.snapshot().active || guidedTour.snapshot().prompt) { toast('Finish or leave the guided tour first.'); return; }
     lpModal({
       title: 'Group lecture',
       bodyHtml: '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px">Course / subject</label>' +
@@ -1934,6 +1967,14 @@
 
   function renderChat() {
     var feed = $('chat-feed');
+    // N-9: with no lecture loaded the assistant must not leak the design-time
+    // sample conversation. Demo Q&A only ever exists inside the demo's own
+    // session; everywhere else an empty feed gets a neutral prompt.
+    if (!LP.state.chat.length) {
+      feed.innerHTML = '<div style="margin:auto;max-width:320px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6;padding:20px">' +
+        (LP.state.jobId ? 'Ask anything about this lecture — answers come from its transcript.' : 'Ask about your lecture once it is ready.') + '</div>';
+      return;
+    }
     feed.innerHTML = LP.state.chat.map(function (m, i) {
       var last = i === LP.state.chat.length - 1;
       var cls = m.role === 'user' ? 'lp-bubble-user' : 'lp-bubble-ai';
@@ -2346,6 +2387,17 @@
         lpBridge.call('get_notification_prefs');
       }
     });
+    // N-5: transient toasts do not survive a screen change.
+    dismissToast();
+    // N-8: the tour follows the student, not the script. If they manually
+    // reach the next expected screen, the tour advances to match; otherwise
+    // re-measure so the spotlight never glows around empty space.
+    if (guidedTour.snapshot().active) {
+      var phaseNow = demoFlowPhase();
+      if (phaseNow === 'review' && name === 'study') { guidedDemoFlow.reviewDecision(); renderGuidedTour(); }
+      else if (phaseNow === 'study' && name === 'exports') { guidedDemoFlow.next(); renderGuidedTour(); }
+      else scheduleTourGeometry();
+    }
   }
 
   function applyTheme(theme, persist) {
@@ -2882,6 +2934,16 @@
       }
       lastRenderedState = next;
     }
+    // F-6: once the runtime is healthy, a hidden overlay must not keep the
+    // stale "Runtime needs repair" gate markup live. Leave it parked on the
+    // neutral healthy panel so an accidental re-show can never claim the
+    // runtime is broken after a healthy bootstrap.
+    function neutralPanels() {
+      var el = overlay(); if (!el) return;
+      Array.prototype.forEach.call(el.querySelectorAll('[data-runtime-state]'), function (panel) {
+        panel.hidden = panel.dataset.runtimeState !== 'ready';
+      });
+    }
     // Shared close sequence: restore the underlying app from inert, hide the
     // overlay, reset the reducer, and return focus. closeReady() and
     // acknowledge() both fully close the overlay this same way.
@@ -2897,6 +2959,7 @@
         eventModel.reset();
         if (preserveHealthy) eventModel.restoreHealthy();
         lastRenderedState = null;
+        neutralPanels();
         return;
       }
       closeInFlight = true;
@@ -2905,6 +2968,7 @@
         setUnderlyingInert(false); el.hidden = true; eventModel.reset();
         if (preserveHealthy) eventModel.restoreHealthy();
         lastRenderedState = null;
+        neutralPanels();
         var target = isNormalFocusable(priorFocus) ? priorFocus : fallbackFocus();
         if (isNormalFocusable(target)) target.focus();
       }
@@ -3463,9 +3527,12 @@
       status.textContent = stageLabel(d.stage) + ' · ' + Math.round(d.progress) + '%';
       action.textContent = d.status === 'starting' ? 'Starting…' : d.status === 'cancelling' ? 'Stopping…' : 'End demo'; return;
     }
-    if (d.status === 'ended') { status.textContent = 'Demo ended and its temporary files were removed.'; action.textContent = 'Try guided demo'; return; }
+    // §6: the demo's outputs stay fully explorable after it ends, so the card
+    // must not claim its files were removed while they are still open.
+    if (d.status === 'ended') { status.textContent = 'Demo complete — its slides, transcript, and study pack stay available to explore.'; action.textContent = 'Run demo again'; return; }
     status.textContent = 'Move this demo video into the lecture drop area, or click to use it.';
     action.textContent = 'Use demo video';
+    refreshControlStates();
   }
   function demoFlowPhase() { return guidedDemoFlow.snapshot().phase; }
   function currentTourPhase() { return TOUR_PHASES[demoFlowPhase()] || null; }
@@ -3583,8 +3650,20 @@
     var state = guidedTour.snapshot(), box = $('tour-spotlight-box'), arrow = $('tour-arrow');
     if (!state.active || !box || !arrow) return;
     var target = currentTourTarget();
-    if (!target) { box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; return; }
+    // N-8: never leave a glow around empty space. A target that is unmounted,
+    // inside a hidden screen, or absent after navigation collapses the
+    // spotlight instead of drawing the fallback box at the viewport corner.
+    if (!target || !target.isConnected || target.closest('[hidden]') || demoFlowPhase() === 'finished') {
+      box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; return;
+    }
     var before = target.getBoundingClientRect();
+    if (before.width === 0 && before.height === 0) {
+      // Mounted but currently unmeasurable (its screen is still painting):
+      // hide rather than point at (0,0), and re-check shortly.
+      box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true;
+      setTimeout(function () { scheduleTourGeometry(); }, 200);
+      return;
+    }
     if (before.top < 0 || before.left < 0 || before.bottom > window.innerHeight || before.right > window.innerWidth) {
       target.scrollIntoView({block: 'nearest', inline: 'nearest'});
     }
@@ -3619,27 +3698,39 @@
     installTourTraceObserver();
     setTourOverlayHidden(!demoAdmissionAvailable || (!state.active && !state.prompt));
     if (overlay.hidden) { setDemoTourInteraction(false); return; }
-    var isPrompt = state.prompt, phase = state.active ? currentTourPhase() : null, flow = guidedDemoFlow.snapshot();
-    $('tour-step-label').textContent = isPrompt ? 'WELCOME' : 'DEMO · ' + flow.phase.toUpperCase();
-    $('tour-title').textContent = isPrompt ? 'A quick look around' : phase.title;
-    $('tour-copy').textContent = isPrompt ? 'Want a short, user-controlled tour of the main parts of LecturePack?' : phase.copy;
+    var isPrompt = state.prompt, flow = guidedDemoFlow.snapshot();
+    // §6: the tour ends on a celebration, not an anticlimax. The exports
+    // step's Finish advances to a completion card with two real destinations.
+    var finished = state.active && flow.phase === 'finished';
+    var phase = state.active && !finished ? currentTourPhase() : null;
+    $('tour-step-label').textContent = isPrompt ? 'WELCOME' : finished ? 'DEMO · COMPLETE' : 'DEMO · ' + flow.phase.toUpperCase();
+    $('tour-title').textContent = isPrompt ? 'A quick look around' : finished ? 'Your first study pack is ready' : phase.title;
+    $('tour-copy').textContent = isPrompt ? 'Want a short, user-controlled tour of the main parts of LecturePack?' :
+      finished ? 'The demo lecture produced real slides, a transcript, and a study pack — all of it stays available to explore.' : phase.copy;
     $('tour-prompt-actions').hidden = !isPrompt;
-    $('tour-step-actions').hidden = !state.active;
-    $('btn-tour-back').disabled = !state.active || !flow.backEnabled;
-    $('btn-tour-next').disabled = !state.active || !flow.nextEnabled;
-    $('btn-tour-next').textContent = state.active ? phase.next : 'Next';
-    $('tour-progress').innerHTML = isPrompt ? '' : Object.keys(TOUR_PHASES).map(function (name) { return '<span class="' + (name === flow.phase ? 'active' : '') + '"></span>'; }).join('');
-    $('tour-spotlight-box').style.display = state.active ? 'block' : 'none';
-    $('tour-arrow').style.display = state.active ? 'block' : 'none';
+    $('tour-step-actions').hidden = !state.active || finished;
+    $('tour-finish-actions').hidden = !finished;
+    if (!finished) {
+      $('btn-tour-back').disabled = !state.active || !flow.backEnabled;
+      $('btn-tour-next').disabled = !state.active || !flow.nextEnabled;
+      $('btn-tour-next').textContent = state.active ? phase.next : 'Next';
+    }
+    $('tour-progress').innerHTML = isPrompt ? '' : Object.keys(TOUR_PHASES).map(function (name) { return '<span class="' + ((finished || name === flow.phase) ? 'active' : '') + '"></span>'; }).join('');
+    $('tour-spotlight-box').style.display = state.active && !finished ? 'block' : 'none';
+    $('tour-arrow').style.display = state.active && !finished ? 'block' : 'none';
     setDemoTourInteraction(state.active && flow.phase === 'import');
+    // Geometry stays scheduled whenever the tour is active (PC polish contract);
+    // positionTourSpotlight itself collapses the glow during the finished phase.
     if (state.active) scheduleTourGeometry();
   }
   function offerGuidedTour() {
     if (!demoAdmissionAvailable || !tourRuntimeHealthy) return;
+    closeAllModals();           // the tour never shares the screen with a modal (F-2)
     guidedTour.offer(); renderGuidedTour();
   }
   function startGuidedTour(replay) {
     if (!demoAdmissionAvailable) return;
+    closeAllModals();           // the tour never shares the screen with a modal (F-2)
     if (replay) guidedTour.replay(); else guidedTour.start();
     guidedDemoFlow.start();
     renderDemoHomeAvailability();
@@ -3659,11 +3750,26 @@
     if (!before.active) return;
     var flow = guidedDemoFlow.snapshot();
     if (direction > 0 && !flow.nextEnabled) return;
-    if (direction > 0 && flow.phase === 'exports') { exitGuidedTour(); return; }
+    // Finish on the exports step advances to the completion card (§6) instead
+    // of dropping the student back at Home with no next move.
+    if (direction > 0 && flow.phase === 'exports') { guidedDemoFlow.next(); renderGuidedTour(); return; }
     if (direction > 0) guidedDemoFlow.next(); else guidedDemoFlow.back();
     var phase = currentTourPhase();
     if (phase) setScreen(phase.screen);
     renderGuidedTour();
+  }
+  // The completion card's two destinations. Both end the tour like a normal
+  // exit (seen-marked, demo settled) and then land somewhere useful.
+  function finishGuidedTour(destination) {
+    guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen(); demoHomeDismissed = true;
+    renderDemoHomeAvailability(); renderGuidedTour();
+    renderSlideDetectionPreset();
+    endGuidedDemo('tour_complete');
+    if (destination === 'pack') setScreen('exports');
+    else if (destination === 'import') {
+      setScreen('home');
+      if (lpBridge.connected()) lpBridge.call('browse_video');
+    }
   }
   function parseBridgeResult(value) {
     if (typeof value === 'string') { try { return JSON.parse(value); } catch (e) { return null; } }
@@ -3759,8 +3865,13 @@
     if (!handled.accepted) return;
     var eventStage = String(event.stage || '').toLowerCase().replace(/[\s-]+/g, '_');
     if (eventStage === 'review_ready') {
+      // A late or duplicate review-ready signal must not yank the student back
+      // once they already made their review choice: the tour follows the
+      // student, not the event stream. Only the processing -> review
+      // transition auto-navigates.
+      var awaitingReview = demoFlowPhase() === 'processing';
       guidedDemoFlow.reviewReady();
-      if (guidedTour.snapshot().active) { setScreen('review'); renderGuidedTour(); }
+      if (awaitingReview && guidedTour.snapshot().active) { setScreen('review'); renderGuidedTour(); }
     } else if ((event.status === 'started' || event.status === 'running') && demoFlowPhase() === 'import') {
       guidedDemoFlow.imported(); guidedDemoFlow.running();
     }
@@ -3777,6 +3888,8 @@
     $('btn-tour-next').addEventListener('click', function () { moveGuidedTour(1); });
     $('btn-tour-back').addEventListener('click', function () { moveGuidedTour(-1); });
     $('btn-tour-exit').addEventListener('click', exitGuidedTour);
+    $('btn-tour-open-pack').addEventListener('click', function () { finishGuidedTour('pack'); });
+    $('btn-tour-import-own').addEventListener('click', function () { finishGuidedTour('import'); });
     $('btn-replay-tour').addEventListener('click', function () { startGuidedTour(true); });
     var demoCard = $('glowing-demo-card');
     demoCard.addEventListener('click', function () {
@@ -4473,7 +4586,15 @@
     });
 
     $('btn-show-empty').addEventListener('click', function () { setJobsEmpty(true); });
-    $('btn-load-jobs').addEventListener('click', function () { setJobsEmpty(false); });
+    // "Try the demo lecture" (N-3): the empty-state recovery action runs the
+    // existing guided demo -- a real bundled lecture through the real
+    // pipeline, with the tour attached -- instead of a dead sample-library
+    // button that seeded nothing.
+    $('btn-load-jobs').addEventListener('click', function () {
+      if (!demoAdmissionAvailable) { toast('The demo will be available once setup finishes.'); return; }
+      if (guidedDemo.snapshot().active) { startGuidedDemo(); return; }
+      flyDemoTileToDropzone(startGuidedDemo);
+    });
 
     // Home grid: per-card menu buttons (delete / set group) take priority,
     // otherwise clicking a card opens the job.
@@ -4572,10 +4693,16 @@
     });
 
     // process
-    $('btn-cancel-job').addEventListener('click', function () { lpBridge.call('cancel_job'); });
+    $('btn-cancel-job').addEventListener('click', function () {
+      if (!LP.state.pipelineRunning && !guidedDemo.snapshot().active) { toast('No lecture is processing right now.'); return; }
+      lpBridge.call('cancel_job');
+    });
     (function () {
       var p = $('btn-pause-job'), r = $('btn-resume-job');
-      if (p) p.addEventListener('click', function () { lpBridge.call('pause_job'); });
+      if (p) p.addEventListener('click', function () {
+        if (!LP.state.pipelineRunning && !guidedDemo.snapshot().active) { toast('No lecture is processing right now.'); return; }
+        lpBridge.call('pause_job');
+      });
       if (r) r.addEventListener('click', function () { lpBridge.call('resume_job', ''); });
       var acts = {
         'cm-open-transcript': function () { setScreen('transcript'); },
@@ -4846,6 +4973,14 @@
       if (e.key === 'Escape') {
         setFocus(false); setOnb(null);
         if (!$('whatsnew-overlay').hidden) hideWhatsNew();
+        // N-7: the guided tour dismisses on Esc exactly like the modals. An
+        // open lpModal owns Esc first (it closes itself), so the tour only
+        // exits when no modal is on top.
+        if (!anyModalOpen()) {
+          var tourSnap = guidedTour.snapshot();
+          if (tourSnap.active) exitGuidedTour();
+          else if (tourSnap.prompt) { guidedTour.exit(); markTourSeen(); demoHomeDismissed = true; renderGuidedTour(); renderDemoHomeAvailability(); }
+        }
         return;
       }
       var overlay = topOverlay();
@@ -4855,6 +4990,23 @@
         return;
       }
       if (editing) return;
+      // N-11: the two documented app shortcuts.
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        var sk = String(e.key || '').toLowerCase();
+        if (sk === 'o') {
+          e.preventDefault();
+          if (lpBridge.connected()) lpBridge.call('browse_video'); else setOnb('drop');
+          return;
+        }
+        if (sk === 'e') {
+          e.preventDefault();
+          var exportJob = (LP.data.jobs || []).filter(function (j) { return j && j.id === LP.state.jobId; })[0];
+          if (exportJob && exportJob.status === 'done') setScreen('exports');
+          else if (LP.state.jobId) toast('Export unlocks when the lecture finishes processing.');
+          else toast('Load a lecture first — there is nothing to export yet.');
+          return;
+        }
+      }
       var map = { 1: 'home', 2: 'process', 3: 'review', 4: 'transcript', 5: 'study', 6: 'exports', 7: 'settings' };
       if (map[e.key]) setScreen(map[e.key]);
       else if (e.key === 'f' || e.key === 'F') setFocus(!LP.state.focus);
@@ -5080,7 +5232,15 @@
 
     lpBridge.on('media_probe', function (json) {
       var info = parseBridgePayload(json || '{}', {});
-      if (!info.ok) { setLinkMsg(info.error || 'That link could not be read.', true); return; }
+      if (!info.ok) {
+        // N-6: map yt-dlp's technical stderr to student copy; keep the raw
+        // text on the tooltip as the optional details view.
+        var probeFriendly = friendlyLinkError(info.error) || 'That link could not be read.';
+        setLinkMsg(probeFriendly, true);
+        var linkMsgEl = $('link-msg');
+        if (linkMsgEl && info.error) linkMsgEl.title = String(info.error);
+        return;
+      }
       if (mediaLink.probeModal) { mediaLink.probeModal.close(); mediaLink.probeModal = null; }
       linkConfirmDialog(info);
     });
@@ -5094,7 +5254,16 @@
       if (mediaLink.progressModal) { mediaLink.progressModal.close(); mediaLink.progressModal = null; }
       if (r.ok) toast('Downloaded ' + (r.name || 'the recording'));
       else if (r.cancelled) toast('Download cancelled');
-      else lpModal({ title: 'Download failed', bodyHtml: esc(r.error || 'Unknown error.'), actions: [{ label: 'Close', primary: true }] });
+      else {
+        // N-6: friendly headline, technical yt-dlp text behind Details.
+        var doneFriendly = friendlyLinkError(r.error) || 'That download could not be completed. Try again.';
+        lpModal({
+          title: 'Download failed',
+          bodyHtml: esc(doneFriendly) +
+            (r.error ? '<details style="margin-top:10px"><summary style="cursor:pointer;font:600 11px \'JetBrains Mono\';color:var(--muted)">Details</summary><div style="font:500 11px \'JetBrains Mono\';color:var(--muted);margin-top:6px;overflow-wrap:anywhere">' + esc(r.error) + '</div></details>' : ''),
+          actions: [{ label: 'Close', primary: true }]
+        });
+      }
     });
     lpBridge.on('job_deleted', function (json) {
       var d = parseBridgePayload(json, null);
@@ -5534,7 +5703,19 @@
       var blank = emptyWorkspace();
       Object.keys(blank).forEach(function (k) { LP.data[k] = blank[k]; });
       LP.data.reviewSegments = [];
+      LP.state.chat = [];   // N-9: no design-time Q&A without a lecture
     }
+    // Last-resort safety net (N-1): no renderer exception may ever surface
+    // raw to a student. Log technically; toast friendly.
+    window.addEventListener('unhandledrejection', function (e) {
+      try { console.error('[lecturepack] unhandled rejection:', e.reason); } catch (err) {}
+      var msg = e.reason && e.reason.message ? e.reason.message : String(e.reason || '');
+      if (msg) toast(friendlyErrorMessage(msg));
+      e.preventDefault();
+    });
+    window.addEventListener('error', function (e) {
+      try { console.error('[lecturepack] uncaught:', e.error || e.message); } catch (err) {}
+    });
     resetJobChrome();           // clear index.html's design-time placeholders
     renderJobs();
     renderPipeline();

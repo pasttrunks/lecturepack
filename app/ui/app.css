@@ -349,6 +349,15 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   [data-screen]{padding-left:12px !important;padding-right:12px !important}
 }
 
+/* N-12: at ~760px the drop-card's CTA row clipped the "Browse for video"
+   button text at the card edge. Let the card and the CTA row wrap so both
+   buttons keep their full labels; spacing and styling are otherwise the
+   design's own. */
+@media (max-width:860px){
+  #dropzone{flex-wrap:wrap !important;row-gap:16px}
+  #dropzone .lp-drop-cta{flex-wrap:wrap;justify-content:flex-end}
+}
+
 /* ============ MOTION SYSTEM v2 -- MECHANICAL (2026-07-27) ================
    v1 (2026-07-26) was treated as a draft and rebuilt. v1's vocabulary was
    "fade + rise" on almost everything -- default SaaS motion, which did not
@@ -729,10 +738,10 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 #tour-progress{display:flex;gap:5px;margin:0 0 15px}
 #tour-progress span{display:block;width:22px;height:4px;border-radius:3px;background:var(--line);transition:background-color var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-spring)}
 #tour-progress span.active{background:var(--orange);transform:translateY(-1px)}
-#tour-prompt-actions,#tour-step-actions{display:flex;align-items:center;gap:8px}
-#tour-prompt-actions button,#tour-step-actions button{font:700 12px 'Space Grotesk';border-radius:8px;padding:9px 12px;cursor:pointer}
-#btn-tour-start,#btn-tour-next{background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink)}
-#btn-tour-skip,#btn-tour-back,#btn-tour-exit{background:var(--panel);color:var(--ink);border:2px solid var(--border)}
+#tour-prompt-actions,#tour-step-actions,#tour-finish-actions{display:flex;align-items:center;gap:8px}
+#tour-prompt-actions button,#tour-step-actions button,#tour-finish-actions button{font:700 12px 'Space Grotesk';border-radius:8px;padding:9px 12px;cursor:pointer}
+#btn-tour-start,#btn-tour-next,#btn-tour-open-pack{background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink)}
+#btn-tour-skip,#btn-tour-back,#btn-tour-exit,#btn-tour-import-own{background:var(--panel);color:var(--ink);border:2px solid var(--border)}
 #btn-tour-exit{color:var(--red);border-color:var(--red)}
 #glowing-demo-card{transition:border-color var(--motion-normal) var(--motion-ease),box-shadow var(--motion-normal) var(--motion-ease),transform var(--motion-normal) var(--motion-spring)}
 #glowing-demo-card:hover{box-shadow:var(--shadow-hard),0 0 22px rgba(255,122,0,.28)}
