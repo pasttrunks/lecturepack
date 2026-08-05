@@ -51,14 +51,18 @@ def test_d02_demo_uses_repaired_command_and_is_click_idempotent() -> None:
     assert "card.disabled =" in block(app, "function renderDemoCard()", "function demoFlowPhase")
 
 
-def test_d03_paste_link_stays_hidden_even_if_an_older_payload_advertises_it() -> None:
+def test_d03_paste_link_restored_when_packaged_runtime_available() -> None:
     app = read(APP)
     html = read(HTML)
     main = read(MAIN)
+    # The Paste Link control ships hidden in markup and is revealed only when
+    # the packaged sidecar reports yt-dlp availability (PC polish fix).
     assert re.search(r'id="btn-paste-link"[^>]*\bhidden\b', html)
-    assert "if (btn) btn.hidden = true;" in app
-    assert "#btn-paste-link" in main
-    assert "lpBridge.call('media_link_support')" not in app
+    assert "btn.hidden = !mediaLink.available;" in app
+    assert "lpBridge.call('media_link_support')" in app
+    # The production scope must not hide the control unconditionally.
+    scope = main.split("const productionScope", 1)[1].split("</style>", 1)[0]
+    assert "#btn-paste-link" not in scope
 
 
 def test_d04_production_window_has_no_electron_menu() -> None:

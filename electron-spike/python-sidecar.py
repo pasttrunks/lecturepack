@@ -739,6 +739,9 @@ class Sidecar:
         Electron main resolves to this file. Generating it here (a fast frame
         at t=0) makes the card thumbnail appear immediately after import,
         before any processing begins. A failure must never prevent the import.
+
+        Uses QProcess so the sidecar keeps its no-shell contract; the existing
+        engine's ffmpeg wrapper owns the binary path.
         """
         try:
             ffmpeg = self.config.get("ffmpeg_exe", "") if hasattr(self, "config") else ""
@@ -749,12 +752,15 @@ class Sidecar:
             dst = root / "poster.webp"
             if dst.is_file():
                 return
-            import subprocess
-            subprocess.run(
-                [ffmpeg, "-y", "-i", str(source), "-frames:v", "1",
-                 "-vf", "scale=320:-2", "-f", "webp", str(dst)],
-                capture_output=True, timeout=30, check=False,
-            )
+            process = QProcess()
+            process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+            process.start(ffmpeg, [
+                "-y", "-i", str(source), "-frames:v", "1",
+                "-vf", "scale=320:-2", "-f", "webp", str(dst),
+            ])
+            if not process.waitForFinished(30000):
+                process.kill()
+                return
         except Exception:  # noqa: BLE001 - thumbnail failure must not block import
             pass
 
