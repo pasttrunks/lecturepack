@@ -732,6 +732,32 @@ class Sidecar:
             shutil.copy2(source, target)
         return target if target.is_file() else source
 
+    def _generate_poster(self, job: Any, source: Path) -> None:
+        """Extract an instant job-card thumbnail at import time.
+
+        The renderer requests ``lpasset://poster/<job_id>/poster`` which the
+        Electron main resolves to this file. Generating it here (a fast frame
+        at t=0) makes the card thumbnail appear immediately after import,
+        before any processing begins. A failure must never prevent the import.
+        """
+        try:
+            ffmpeg = self.config.get("ffmpeg_exe", "") if hasattr(self, "config") else ""
+            if not ffmpeg or not os.path.isfile(ffmpeg):
+                return
+            root = Path(job.paths["root"])
+            root.mkdir(parents=True, exist_ok=True)
+            dst = root / "poster.webp"
+            if dst.is_file():
+                return
+            import subprocess
+            subprocess.run(
+                [ffmpeg, "-y", "-i", str(source), "-frames:v", "1",
+                 "-vf", "scale=320:-2", "-f", "webp", str(dst)],
+                capture_output=True, timeout=30, check=False,
+            )
+        except Exception:  # noqa: BLE001 - thumbnail failure must not block import
+            pass
+
     @staticmethod
     def _import_meta(metadata: dict[str, Any], source: Path) -> str:
         width = int(metadata.get("width", 0) or 0)
@@ -785,6 +811,10 @@ class Sidecar:
             job.settings["whisper"]["model"] = model
         job.settings["whisper"]["transcription_backend"] = "local-whispercpp"
         job.save()
+        # PC polish: generate the job-card thumbnail immediately at import so
+        # the card shows a real video frame before processing starts. A failure
+        # must never prevent the import.
+        self._generate_poster(job, source)
         self._activate_job(job, emit_payloads=True)
         self._emit({
             "event": "onboarding",

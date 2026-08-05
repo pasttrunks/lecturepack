@@ -1758,7 +1758,7 @@
       var chip = b.hotTime
         ? '<span style="font:700 12px \'JetBrains Mono\';color:var(--orange-ink);background:var(--orange-soft);border-radius:7px;padding:3px 7px">' + esc(b.t) + '</span>'
         : '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted)">' + esc(b.t) + '</span>';
-      return '<div style="display:flex;gap:18px"><div style="width:58px;flex:none;text-align:right">' + chip + '</div><p style="margin:0;font-size:17px;line-height:1.72;text-wrap:pretty">' + b.html + '</p></div>';
+      return '<div style="display:flex;gap:18px"><div style="width:58px;flex:none;text-align:right;min-width:58px">' + chip + '</div><p style="margin:0;font-size:17px;line-height:1.72;text-wrap:pretty;flex:1;min-width:0">' + b.html + '</p></div>';
     }).join('');
   }
 
@@ -3453,17 +3453,28 @@
       target.scrollIntoView({block: 'nearest', inline: 'nearest'});
     }
     var r = target.getBoundingClientRect(), pad = 7;
-    var left = Math.max(6, Math.min(Math.round(r.left - pad), window.innerWidth - Math.round(r.width + pad * 2) - 6));
-    var top = Math.max(6, Math.min(Math.round(r.top - pad), window.innerHeight - Math.round(r.height + pad * 2) - 6));
-    var width = Math.max(0, Math.min(Math.round(r.width + pad * 2), window.innerWidth - left - 6));
-    var height = Math.max(0, Math.min(Math.round(r.height + pad * 2), window.innerHeight - top - 6));
+    // PC polish: keep the guided-demo glow visible after navigating to a new
+    // screen. Some targets (e.g. #pipeline-stages before the first pipeline
+    // event) legitimately have zero height; collapsing the box to 0x0 made the
+    // overlay disappear for the rest of the demo. Use a fallback minimum box
+    // so the active step stays emphasised, and re-measure on the next frame.
+    var minW = 120, minH = 40;
+    var effW = Math.max(minW, r.width), effH = Math.max(minH, r.height);
+    var left = Math.max(6, Math.min(Math.round(r.left - pad), window.innerWidth - Math.round(effW + pad * 2) - 6));
+    var top = Math.max(6, Math.min(Math.round(r.top - pad), window.innerHeight - Math.round(effH + pad * 2) - 6));
+    var width = Math.max(0, Math.min(Math.round(effW + pad * 2), window.innerWidth - left - 6));
+    var height = Math.max(0, Math.min(Math.round(effH + pad * 2), window.innerHeight - top - 6));
     box.style.left = left + 'px';
     box.style.top = top + 'px';
     box.style.width = width + 'px';
     box.style.height = height + 'px';
     arrow.hidden = false;
-    arrow.style.left = Math.round(r.left + Math.min(r.width - 18, 24)) + 'px';
+    arrow.style.left = Math.round(r.left + Math.min(Math.max(r.width, minW) - 18, 24)) + 'px';
     arrow.style.top = Math.max(8, Math.round(r.top - 19)) + 'px';
+    var self = this;
+    if (r.width === 0 || r.height === 0) {
+      setTimeout(function () { scheduleTourGeometry(); }, 200);
+    }
     positionLiftedDemoCard();
   }
   function renderGuidedTour() {
@@ -3556,6 +3567,9 @@
     // Do not reset the current run: active attempts returned above.
     if (demoFlowPhase() !== 'import') guidedDemoFlow.beginAttempt();
     guidedDemoFlow.imported(); guidedDemoFlow.running();
+    // PC polish: once the demo job is queued/running, the initial new-job
+    // setup card must not remain visible over the active processing screen.
+    setOnb(null);
     setScreen('process'); renderGuidedTour();
     var startedAttempt = guidedDemo.starting().attempt;
     renderDemoCard();
@@ -3636,6 +3650,9 @@
     });
     demoCard.addEventListener('dragstart', function (e) {
       if (demoCard.disabled) { e.preventDefault(); return; }
+      // PC polish: only the video thumbnail is draggable. The card's title,
+      // metadata, status, and buttons must stay stationary.
+      if (!e.target || e.target.tagName !== 'IMG') { e.preventDefault(); return; }
       if (!e.dataTransfer) return;
       e.dataTransfer.effectAllowed = 'copy';
       e.dataTransfer.setData(DEMO_DRAG_MIME, 'polar-bears-10s');
@@ -4700,8 +4717,9 @@
       normalBridgeActivityPending = false;
       lpBridge.call('get_settings');
       lpBridge.call('list_ollama_models');
-      // D-3: URL import is deferred in this build. Keep its CTA hidden and do
-      // not probe an unsupported backend command during startup.
+      // PC polish: probe the packaged yt-dlp capability so the Paste Link
+      // control appears only when the runtime actually provides it.
+      lpBridge.call('media_link_support');
     }
     lpBridge.on('repair_event', function (json) { RuntimeSetupGate.event(json); });
     lpBridge.on('bootstrap_progress', function (json) { RuntimeSetupGate.progress(json); });
@@ -4871,9 +4889,11 @@
       mediaLink.available = !!s.available;
       mediaLink.version = s.version || '';
       var btn = $('btn-paste-link');
-      // URL import is not part of this build. Keep the CTA hidden even if an
-      // older sidecar advertises the deferred capability.
-      if (btn) btn.hidden = true;
+      // PC polish: restore the Paste Link control when the packaged runtime
+      // actually provides yt-dlp. The sidecar reports availability through
+      // media_link_support; the CTA stays hidden only when the capability is
+      // genuinely absent.
+      if (btn) btn.hidden = !mediaLink.available;
     });
 
     lpBridge.on('media_probe', function (json) {
@@ -4967,6 +4987,7 @@
     lpBridge.on('status_changed', function (json) {
       var s = parseBridgePayload(json, null);
       if (!s || typeof s !== 'object') return;
+      if (!ownsPayload(s)) return;      // stale: belongs to another lecture
       pendingProcessingStatus = Object.assign({}, pendingProcessingStatus, s);
       scheduleProcessingRender('status');
       // D-08: _on_pipeline_failed (Python) never re-emits pipeline_changed
@@ -4975,8 +4996,19 @@
       // here too as a redundant safety net -- the all-"done" stages payload
       // already clears it above.
       var terminalLabel = normalizedProcessingText(s.label);
-      if (s.label === 'Failed' || terminalLabel === 'failed' || terminalLabel === 'done' || terminalLabel === 'complete') {
+      if (s.label === 'Failed' || terminalLabel === 'failed' || terminalLabel === 'done' ||
+          terminalLabel === 'complete' || terminalLabel === 'cancelled') {
         LP.state.pipelineRunning = false;
+        // PC polish: clear stale processing text (e.g. a lingering "Transcribing
+        // audio") so the primary status area returns to Idle when no job is
+        // actively processing.
+        pendingProcessingStatus = {};
+        lastStatusRenderKey = null;
+        var statusLabel = $('status-label');
+        if (statusLabel) statusLabel.textContent = 'Idle';
+        var statusPct = $('status-pct');
+        if (statusPct) statusPct.textContent = '';
+        setFill('status-bar', 0);
         renderSlideDetectionPreset();
       }
     });

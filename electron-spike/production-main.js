@@ -6,7 +6,9 @@ const {
   dialog,
   ipcMain,
   Menu,
+  net,
   Notification,
+  protocol,
   shell
 } = require('electron');
 const fs = require('node:fs');
@@ -76,7 +78,7 @@ function productionDocument(uiDir) {
   const bridge = fs.readFileSync(path.join(__dirname, 'electron-bridge.js'), 'utf8');
   const productionScope = `
     <style id="lecturepack-production-scope">
-      #btn-paste-link, #btn-show-empty, #btn-save, #update-badge {
+      #btn-show-empty, #btn-save, #update-badge {
         display: none !important;
       }
     </style>`;
@@ -128,6 +130,43 @@ function applicationIcon() {
     ? [path.join(process.resourcesPath, 'lecturepack.ico')]
     : [path.join(REPO_ROOT, 'app', 'packaging', 'lecturepack.ico')];
   return candidates.find(pathExists) || undefined;
+}
+
+// The renderer requests job-card posters as lpasset://poster/<job_id>/poster
+// (the historical Qt scheme). The sidecar writes poster.webp into each job
+// directory at import time; this handler serves that file so thumbnails appear
+// immediately. Any other lpasset:// path is rejected.
+function registerAssetProtocol() {
+  protocol.handle('lpasset', (request) => {
+    try {
+      const url = new URL(request.url);
+      if (url.hostname !== 'poster') return new Response('Not found', { status: 404 });
+      const segments = url.pathname.split('/').filter(Boolean);
+      if (segments.length !== 2 || segments[1] !== 'poster') {
+        return new Response('Not found', { status: 404 });
+      }
+      const jobId = decodeURIComponent(segments[0]);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+        return new Response('Not found', { status: 404 });
+      }
+      const dataDir = dataDirectory();
+      const candidates = [
+        path.join(dataDir, 'jobs', jobId, 'poster.webp'),
+        path.join(dataDir, 'jobs', jobId, 'poster.jpg')
+      ];
+      const found = candidates.find(pathExists);
+      if (!found) return new Response('Not found', { status: 404 });
+      const mime = found.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+      return net.fetch(pathToFileURL(found).href, { bypassCustomProtocolHandlers: true })
+        .then((response) => new Response(response.body, {
+          status: 200,
+          headers: { 'Content-Type': mime, 'Cache-Control': 'no-cache' }
+        }))
+        .catch(() => new Response('Not found', { status: 404 }));
+    } catch (_) {
+      return new Response('Not found', { status: 404 });
+    }
+  });
 }
 
 function sidecarScript() {
@@ -576,6 +615,7 @@ if (hasSingleInstanceLock) {
   // Removing the application menu also prevents Alt from resurrecting the
   // default File/Edit/View/Window menu on Windows.
   Menu.setApplicationMenu(null);
+  registerAssetProtocol();
   createProductionWindow();
   const quitAfter = Number(options['quit-after-seconds'] || 0);
   if (Number.isFinite(quitAfter) && quitAfter > 0) {
