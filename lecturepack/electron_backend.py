@@ -223,6 +223,21 @@ def enqueue_job(queue: Any, job_id: str) -> int:
     return queue.enqueue(job_id)
 
 
+def start_or_enqueue(queue: Any, job_id: str) -> tuple[str, Optional[int]]:
+    """Claim the single active slot for ``job_id`` or queue it in order.
+
+    Returns ``("started", position)`` when the slot was free (the job is now
+    the one active job) or ``("queued", position)`` when another job already
+    holds the slot. The one-active-job invariant lives here so the sidecar and
+    its tests share one implementation.
+    """
+    if queue.active is None:
+        queue.enqueue(job_id)
+        queue.promote_next()
+        return "started", queue.position(job_id)
+    return "queued", queue.enqueue(job_id)
+
+
 def reorder_queue(queue: Any, job_id: str, index: int) -> bool:
     return queue.reorder(job_id, int(index))
 

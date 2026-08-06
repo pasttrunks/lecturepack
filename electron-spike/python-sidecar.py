@@ -333,6 +333,7 @@ class Sidecar:
         """Emit queue_changed with the active slot, rows, and schedules."""
         if not hasattr(self, "queue"):
             return
+        self._prune_queue()
         rows = [{"id": jid, "position": pos}
                 for pos, jid in enumerate(self.queue.queued())]
         self._emit({
@@ -341,6 +342,22 @@ class Sidecar:
             "queue": rows,
             "schedules": self.queue.schedules(),
         })
+
+    def _prune_queue(self) -> None:
+        """Drop terminal jobs from the waiting queue so they never render as
+        waiting after they have completed, failed, or been cancelled."""
+        if not hasattr(self, "queue"):
+            return
+        try:
+            statuses = {job.job_id: self._job_status(job) for job in self._job_objects()}
+        except Exception:  # noqa: BLE001 - pruning must never crash an emit
+            return
+        for job_id in list(self.queue.queued()):
+            if statuses.get(job_id) in {"done", "failed", "cancelled", "interrupted"}:
+                try:
+                    self.queue.remove(job_id)
+                except Exception:  # noqa: BLE001
+                    pass
 
     def _reconcile_queue_on_startup(self) -> None:
         """Resolve schedules that came due while the app was closed."""
@@ -368,11 +385,45 @@ class Sidecar:
         # Defer so the just-finished pipeline fully unwinds before the next one.
         QTimer.singleShot(0, lambda: self._start_queued(job))
 
+    def _maybe_resume_queue(self) -> None:
+        """After a restart, resume the persistent queue: when nothing is
+        running and jobs are waiting, promote and start the next one."""
+        if self._shutting_down or self.controller is None or self.current_stage:
+            return
+        if not hasattr(self, "queue") or self.queue is None:
+            return
+        # A stale active slot left by a terminal run (e.g. cancelled during
+        # shutdown) must not block the queue from resuming after a restart.
+        active_id = self.queue.active
+        if active_id:
+            try:
+                statuses = {job.job_id: self._job_status(job) for job in self._job_objects()}
+                if statuses.get(active_id) in {"done", "failed", "cancelled", "interrupted"}:
+                    self.queue.finish_active(active_id)
+            except Exception:  # noqa: BLE001 - startup must never crash on a bad slot
+                self.queue.finish_active(active_id)
+        if self.queue.active is not None:
+            return
+        nxt = self.queue.promote_next()
+        self._push_queue()
+        if not nxt:
+            return
+        try:
+            job = self._job_for({"job_id": nxt})
+        except Exception:  # noqa: BLE001 - a corrupt queued job must not block startup
+            return
+        QTimer.singleShot(0, lambda: self._start_queued(job))
+
     def _start_queued(self, job: Any) -> None:
         """Start a queued job (no request_id; fire-and-forget)."""
         if self.controller is None or self._shutting_down:
             return
         if self.current_stage:
+            return
+        # The previous run's QThreads/QProcesses may still be unwinding after a
+        # cancellation; starting the next pipeline before they fully stop lets
+        # a late worker signal cancel the new job's stage. Drain first.
+        if not self._drain_previous_run():
             return
         self._activate_job(job, emit_payloads=False)
         self.auto_export = True
@@ -381,6 +432,18 @@ class Sidecar:
         self._emit_job_payloads()
         self._push_queue()
         self.controller.run_pipeline()
+
+    def _drain_previous_run(self, timeout_ms: int = 5000) -> bool:
+        """Wait (bounded) for the previous run's workers to fully unwind."""
+        if self.controller is None:
+            return True
+        deadline = time.monotonic() + timeout_ms / 1000.0
+        while time.monotonic() < deadline:
+            if not self._processing_workers_running():
+                return True
+            QCoreApplication.processEvents()
+            time.sleep(0.01)
+        return not self._processing_workers_running()
 
     # ------------------------------------------------------------------ #
     # JSONL process boundary
@@ -409,13 +472,15 @@ class Sidecar:
             **payload,
         })
 
-    def _fail(self, request_id: str | None, command: str, message: str) -> None:
+    def _fail(self, request_id: str | None, command: str, message: str,
+              error_code: str | None = None) -> None:
         self._emit({
             "event": "error",
             "response_to": request_id,
             "command": command,
             "ok": False,
             "error": str(message),
+            **({"error_code": error_code} if error_code else {}),
         })
 
     def _read_stdin(self) -> None:
@@ -694,6 +759,13 @@ class Sidecar:
         )
         active = self.current_stage if same_job else ""
         status = "running" if self._is_active_processing(job) else self._job_status(job)
+        queue_position = None
+        if hasattr(self, "queue"):
+            try:
+                queue_position = self.queue.position(job.job_id)
+            except Exception:  # noqa: BLE001 - a queue failure must not hide the job
+                queue_position = None
+        settings = getattr(job, "settings", None) or {}
         return {
             "id": job.job_id,
             "name": job.manifest.get("title") or source.get("filename") or "Lecture",
@@ -704,6 +776,10 @@ class Sidecar:
             "meta": f"{_duration_label(duration)} - local Electron sidecar" if duration else "local Electron sidecar",
             "duration": duration,
             "updated_at": job.state.get("last_updated", ""),
+            "preset": str(settings.get("preset", "balanced") or "balanced"),
+            "product_mode": str(settings.get("product_mode", "study_pack") or "study_pack"),
+            "queue_position": queue_position,
+            "waiting": queue_position is not None,
         }
 
     @staticmethod
@@ -727,6 +803,8 @@ class Sidecar:
             })
         else:
             self._emit({"event": "active_job", "id": "", "title": ""})
+        self._push_queue()
+        self._maybe_resume_queue()
         self._respond(request_id, command, jobs=summaries)
 
     def _resolve_demo_video(self) -> Path | None:
@@ -909,7 +987,8 @@ class Sidecar:
         if job_id:
             for job in self._job_objects():
                 if job.job_id == job_id:
-                    self._activate_job(job, emit_payloads=False)
+                    if not self.current_stage and self.current_job is None:
+                        self._activate_job(job, emit_payloads=False)
                     return job
             raise FileNotFoundError(f"job not found: {job_id}")
         if self.current_job is not None:
@@ -924,9 +1003,6 @@ class Sidecar:
         if self.controller is None:
             raise RuntimeError(self._engine_error or "engine is not loaded")
         job = self._job_for(payload)
-        if self.current_stage:
-            self._respond(request_id, command, job_id=job.job_id, already_running=True)
-            return
         if payload.get("mode"):
             job.settings["product_mode"] = self._product_mode(payload.get("mode"))
         if payload.get("preset"):
@@ -938,6 +1014,28 @@ class Sidecar:
             job.settings["whisper"]["model"] = model
         job.save()
         self.auto_export = bool(payload.get("auto_export", True))
+        if self.current_stage:
+            # A job already holds the single active slot. If it is this same
+            # job, refuse the duplicate start; otherwise it waits in order.
+            if self.current_job is not None and self.current_job.job_id == job.job_id:
+                self._respond(request_id, command, job_id=job.job_id, already_running=True)
+                return
+            if hasattr(self, "queue") and self.queue is not None:
+                position = self.electron_backend.enqueue_job(self.queue, job.job_id)
+                self._emit({"event": "job_queued", "job_id": job.job_id, "position": position})
+                self._push_queue()
+                self._emit_job_payloads()
+                self._respond(request_id, command, job_id=job.job_id, queued=True, position=position)
+                return
+            # Queue unavailable (startup failure): refuse rather than double-run.
+            self._respond(request_id, command, job_id=job.job_id, already_running=True)
+            return
+        # Nothing is processing: release any stale active slot left by a prior
+        # crash, claim the single slot, and start this job immediately.
+        if hasattr(self, "queue"):
+            self.queue.finish_active()
+            self.electron_backend.start_or_enqueue(self.queue, job.job_id)
+            self._push_queue()
         self.current_stage = "Queued"
         self._emit_job_payloads()
         self.controller.run_pipeline()
@@ -2360,6 +2458,8 @@ class Sidecar:
                 "slides_detected": len(self._slides(self.current_job)),
                 "segment_count": self._transcript(self.current_job)["transcript"].get("segments", 0),
             })
+            # Release the active slot and launch the next queued job (FIFO).
+            self._promote_next()
         if not success:
             if stage == "Export":
                 self.current_stage = ""

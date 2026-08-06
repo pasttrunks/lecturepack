@@ -295,7 +295,8 @@
         payload: {
           auto_export: payload.auto_export !== false,
           mode: processingMode(typeof first === 'string' ? first : payload.mode),
-          preset: payload.preset || bridgeSettings.slide_detection_preset
+          preset: payload.preset || bridgeSettings.slide_detection_preset,
+          job_id: typeof first === 'string' ? '' : String(payload.job_id || '')
         }
       };
     }

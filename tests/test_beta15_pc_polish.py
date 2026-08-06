@@ -180,9 +180,14 @@ def test_demo_onboarding_event_does_not_restore_new_job_overlay() -> None:
     app = read(APP)
     onboarding = block(app, "lpBridge.on('onboarding'", "lpBridge.on('update_available'")
     assert "guidedDemo.snapshot().active" in onboarding
-    assert "demoFlowPhase() !== 'import'" in onboarding
     assert "if (demoIsActive)" in onboarding
     assert "setOnb(null);" in onboarding
+    # Normal imports (no active demo session) must show the pre-processing
+    # setup panel; only an active guided-demo session suppresses it. The old
+    # `demoFlowPhase() !== 'import'` clause also swallowed NORMAL imports
+    # because the flow phase is 'idle' outside the tour.
+    assert "demoFlowPhase() !== 'import'" not in onboarding
+    assert "setOnb('detected');" in onboarding
 
 
 # --------------------------------------------------------------------------- #

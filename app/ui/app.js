@@ -204,6 +204,7 @@
       // Home multi-select: an explicit mode, so a plain click still opens.
       selecting: false, selected: {},
       screen: 'home', theme: 'dark', focus: false, onb: null, jobsEmpty: false,
+      onbMode: 'study', onbSens: 'balanced', setupJobId: '', importing: false,
       exportPhase: 'idle', studyTab: 'chat',
       chat: [
         { role: 'user', text: 'How did they align it to north without a compass?' },
@@ -493,6 +494,7 @@
     // Chrome first: it names the lecture, and it must not be collateral damage
     // if a workspace renderer throws on unusual data.
     renderJobChrome();
+    renderProcOptions();
     renderWorkspace();
     // F-3: settle every status readout to the restored job's terminal state.
     // On relaunch or a job switch no live pipeline events will ever arrive
@@ -731,7 +733,8 @@
 
   // status -> badge {label, bg, fg, dot, blink}
   var JOB_BADGES = {
-    running: { label: 'Running', bg: 'var(--orange-soft)', fg: 'var(--orange-ink)', dot: 'var(--orange)', blink: true },
+    running: { label: 'Processing', bg: 'var(--orange-soft)', fg: 'var(--orange-ink)', dot: 'var(--orange)', blink: true },
+    ready: { label: 'Ready to process', bg: 'var(--blue-tint)', fg: 'var(--blue-ink)', dot: 'var(--blue-ink)' },
     done: { label: 'Complete', bg: 'var(--green-soft)', fg: 'var(--green)', dot: 'var(--green)' },
     cancelled: { label: 'Cancelled', bg: 'var(--sunk)', fg: 'var(--muted)', dot: 'var(--muted)' },
     interrupted: { label: 'Interrupted', bg: 'var(--orange-soft)', fg: 'var(--orange-ink)', dot: 'var(--orange)' },
@@ -744,7 +747,7 @@
   // (idle|running|paused|success|failed|interrupted|complete). Purely a
   // lookup for motion/color feedback -- never consulted for app logic.
   var JOB_STATE_MAP = {
-    running: 'running', done: 'complete', cancelled: 'interrupted', interrupted: 'interrupted',
+    running: 'running', ready: 'idle', done: 'complete', cancelled: 'interrupted', interrupted: 'interrupted',
     failed: 'failed', paused: 'paused', queued: 'idle', scheduled: 'idle'
   };
 
@@ -1045,9 +1048,11 @@
   }
 
   function _jobCardHtml(j) {
-    var b = JOB_BADGES[j.status] || JOB_BADGES.done;
+    var ready = _jobIsReady(j);
+    var displayStatus = ready ? 'ready' : j.status;
+    var b = JOB_BADGES[displayStatus] || JOB_BADGES.done;
     var dot = '<span style="width:6px;height:6px;border-radius:50%;background:' + b.dot + (b.blink ? ';animation:lpblink 1s infinite' : '') + '"></span>';
-    var badge = '<span class="lp-state" data-state="' + (JOB_STATE_MAP[j.status] || 'idle') + '" style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:' + b.bg + ';color:' + b.fg + ';border-radius:6px;padding:3px 8px">' + dot + b.label + '</span>';
+    var badge = '<span class="lp-state" data-state="' + (JOB_STATE_MAP[displayStatus] || 'idle') + '" style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:' + b.bg + ';color:' + b.fg + ';border-radius:6px;padding:3px 8px">' + dot + b.label + '</span>';
     var menu = j.id ? '<div style="position:absolute;top:9px;left:9px;display:flex;gap:6px">' +
       _jobBtn('group', j.id, TAG_SVG, 'Set group') + _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
     var body;
@@ -1058,6 +1063,16 @@
     } else {
       body = '<div style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(j.name) + '</div>' +
         '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted);line-height:1.7">' + esc(j.file || '') + '<br>' + esc(j.meta || '') + '</div>';
+      if (ready) {
+        body += '<div style="font:500 11px \'JetBrains Mono\';color:var(--blue-ink);margin-top:6px">' + esc(_optionsLabel(j)) + '</div>';
+      }
+    }
+    // Ready-to-process jobs stay editable until Start is pressed.
+    if (j.id && ready) {
+      body += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:11px">' +
+        _jobActBtn('start', j.id, 'Start processing', true) +
+        _jobActBtn('options', j.id, 'Set options') +
+        _jobActBtn('remove', j.id, 'Remove') + '</div>';
     }
     // Needs-Attention actions for interrupted/failed jobs.
     if (j.id && (j.status === 'interrupted' || j.status === 'failed')) {
@@ -1277,26 +1292,61 @@
   function jobGroup(job) {
     return (job && job.group) || inferredJobGroup(job && (job.name || job.title));
   }
+  function _jobById(id) {
+    return (LP.data.jobs || []).filter(function (j) { return j && j.id === id; })[0] || null;
+  }
+  function _jobInQueue(id) {
+    var q = (LP.data.queue && LP.data.queue.queue) || [];
+    return q.some(function (r) { return r.id === id; });
+  }
+  function _jobIsReady(j) {
+    return !!j && j.status === 'queued' && !_jobInQueue(j.id) && j.status !== 'running';
+  }
+  // Display labels for the per-job processing options (chosen before start and
+  // locked for that run). The backend stores preset balanced/detailed and
+  // product_mode study_pack/transcript_only/slides_only.
+  function _optionsLabel(j) {
+    var quality = j && j.preset === 'detailed' ? 'High' : (j && j.preset === 'conservative' ? 'Low' : 'Balanced');
+    var output = j && j.product_mode === 'transcript_only' ? 'Transcript only' :
+      (j && j.product_mode === 'slides_only' ? 'Slides only' : 'Study Pack');
+    return quality + ' · ' + output;
+  }
+  function renderProcOptions() {
+    var el = $('proc-options');
+    if (!el) return;
+    var job = _jobById(LP.state.jobId);
+    if (!job || !(job.preset || job.product_mode)) { el.textContent = ''; return; }
+    el.textContent = _optionsLabel(job);
+  }
   function renderQueue() {
     var wrap = $('home-queue'), list = $('queue-list');
     if (!wrap || !list) return;
+    var jobs = LP.data.jobs || [];
     var q = (LP.data.queue && LP.data.queue.queue) || [];
-    if (!q.length) { wrap.hidden = true; list.innerHTML = ''; return; }
+    if (!jobs.length) { wrap.hidden = true; list.innerHTML = ''; return; }
     wrap.hidden = false;
-    var cnt = $('queue-count'); if (cnt) cnt.textContent = q.length + (q.length === 1 ? ' job' : ' jobs');
+    var cnt = $('queue-count');
+    if (cnt) cnt.textContent = q.length ? q.length + (q.length === 1 ? ' job queued' : ' jobs queued') : '0 queued';
+    if (!q.length) {
+      list.innerHTML = '<div style="font:500 12px \'JetBrains Mono\';color:var(--muted);padding:12px 2px">No jobs waiting.</div>';
+      return;
+    }
     list.innerHTML = q.map(function (row, i) {
+      var job = _jobById(row.id) || { id: row.id, preset: 'balanced', product_mode: 'study_pack' };
       var qbtn = function (act, label, disabled) {
         return '<button class="lp-hit" data-queueact="' + act + '" data-queueid="' + esc(row.id) + '"' +
           (disabled ? ' disabled style="opacity:.4;' : ' style="') +
           'font:600 11px \'Space Grotesk\';border-radius:7px;padding:6px 10px;cursor:pointer;background:var(--panel);border:1.5px solid var(--border);color:var(--ink)">' + label + '</button>';
       };
       return '<div class="lp-anim-in" style="display:flex;align-items:center;gap:12px;background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px">' +
-        '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted);min-width:20px">' + (i + 1) + '</span>' +
-        '<span style="flex:1;font-weight:600;font-size:13.5px">' + esc(_jobName(row.id)) + '</span>' +
+        '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted);min-width:22px">' + (i + 1) + '</span>' +
+        '<div style="width:96px;height:54px;flex:none;background:var(--sunk);border:1.5px solid var(--line);border-radius:8px;position:relative;overflow:hidden">' + posterHtml(job) + '</div>' +
+        '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13.5px;margin-bottom:2px">' + esc(_jobName(row.id)) + '</div>' +
+        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(_optionsLabel(job)) + ' · Queued</div></div>' +
         '<div style="display:flex;gap:6px">' +
-          qbtn('runnow', 'Run Now') + qbtn('up', '↑', i === 0) +
-          qbtn('down', '↓', i === q.length - 1) +
-          qbtn('schedule', 'Schedule') + qbtn('remove', 'Remove') +
+          qbtn('up', 'Move up', i === 0) +
+          qbtn('down', 'Move down', i === q.length - 1) +
+          qbtn('remove', 'Remove', false) +
         '</div></div>';
     }).join('');
   }
@@ -4664,6 +4714,50 @@
 
     // Home grid: per-card menu buttons (delete / set group) take priority,
     // otherwise clicking a card opens the job.
+    var ONB_ACTIVE_STYLE = 'flex:1;text-align:center;font:700 12px \'Space Grotesk\';padding:9px 0;border:2px solid var(--orange);border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);box-shadow:var(--shadow-hard-sm);cursor:pointer';
+    var ONB_INACTIVE_STYLE = 'flex:1;text-align:center;font:500 12px \'Space Grotesk\';padding:9px 0;border:2px solid transparent;border-radius:9px;color:var(--muted);box-shadow:var(--shadow-hard-sm);cursor:pointer';
+    function syncOnbModeStyles() {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-onb-mode]'), function (o) {
+        o.style.cssText = o.dataset.onbMode === (LP.state.onbMode || 'study') ? ONB_ACTIVE_STYLE : ONB_INACTIVE_STYLE;
+      });
+    }
+    function syncOnbSensStyles() {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-onb-sens]'), function (o) {
+        o.style.cssText = o.dataset.onbSens === (LP.state.onbSens || 'balanced') ? ONB_ACTIVE_STYLE : ONB_INACTIVE_STYLE;
+      });
+    }
+    function openJobSetup(jobId) {
+      var job = _jobById(jobId);
+      if (!job) return;
+      LP.state.setupJobId = jobId;
+      LP.state.onbMode = job.product_mode === 'transcript_only' ? 'transcript' :
+        (job.product_mode === 'slides_only' ? 'slides' : 'study');
+      LP.state.onbSens = job.preset === 'detailed' ? 'high' : 'balanced';
+      if (job.name) $('onb-file-name').textContent = job.name;
+      if (job.file || job.meta) $('onb-file-meta').textContent = job.meta || '';
+      syncOnbModeStyles();
+      syncOnbSensStyles();
+      setOnb('detected');
+      if (lpBridge.connected()) {
+        try { lpBridge.call('open_job', jobId); } catch (err) { /* setup already shown */ }
+      }
+    }
+    function startJobFromCard(jobId) {
+      var job = _jobById(jobId);
+      if (!job) return;
+      var open = lpBridge.connected() ? lpBridge.call('open_job', jobId) : Promise.resolve({});
+      Promise.resolve(open).then(function () {
+        setOnb(null);
+        setScreen('process');
+        var panel = $('proc-completion'); if (panel) panel.hidden = true;
+        lpBridge.call('start_processing', {
+          mode: job.product_mode === 'transcript_only' ? 'transcript' :
+            (job.product_mode === 'slides_only' ? 'slides' : 'study'),
+          preset: job.preset === 'detailed' ? 'high' : (job.preset === 'conservative' ? 'low' : 'balanced'),
+          job_id: jobId
+        });
+      });
+    }
     $('jobs-grid').addEventListener('click', function (e) {
       // Select mode owns the click: toggle instead of opening the lecture.
       if (LP.state.selecting) {
@@ -4688,6 +4782,8 @@
         if (a === 'resume') { lpBridge.call('resume_job', aid); setScreen('process'); }
         else if (a === 'restart') { lpBridge.call('restart_job', aid); setScreen('process'); }
         else if (a === 'view') { lpBridge.call('open_job', aid); setScreen('process'); }
+        else if (a === 'start') { startJobFromCard(aid); }
+        else if (a === 'options') { openJobSetup(aid); }
         else if (a === 'remove') {
           var jb = LP.data.jobs.filter(function (x) { return x.id === aid; })[0];
           if (jb) confirmDeleteJob(jb);
@@ -4698,6 +4794,11 @@
       if (!card) return;
       var jobId = card.dataset.job;
       var cardJob = LP.data.jobs.filter(function (x) { return x.id === jobId; })[0];
+      // A ready job opens its pre-processing setup, not the Process screen.
+      if (cardJob && _jobIsReady(cardJob)) {
+        openJobSetup(jobId);
+        return;
+      }
       // F-4: the click's visible response never depends on the bridge
       // round-trip. A completed lecture opens Review; anything else (queued,
       // running, failed, cancelled) opens Process with its final/live state.
@@ -4746,6 +4847,17 @@
         LP.state.onbMode = el.dataset.onbMode;
       });
     });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-onb-sens]'), function (el) {
+      el.addEventListener('click', function () {
+        Array.prototype.forEach.call(document.querySelectorAll('[data-onb-sens]'), function (o) {
+          var on = o === el;
+          o.style.cssText = on
+            ? 'flex:1;text-align:center;font:700 12px \'Space Grotesk\';padding:9px 0;border:2px solid var(--orange);border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);box-shadow:var(--shadow-hard-sm);cursor:pointer'
+            : 'flex:1;text-align:center;font:500 12px \'Space Grotesk\';padding:9px 0;border:2px solid transparent;border-radius:9px;color:var(--muted);box-shadow:var(--shadow-hard-sm);cursor:pointer';
+        });
+        LP.state.onbSens = el.dataset.onbSens;
+      });
+    });
     $('btn-start-processing').addEventListener('click', function () {
       setOnb(null);
       setScreen('process');
@@ -4755,7 +4867,11 @@
       if (pause) { pause.hidden = false; pause.disabled = false; pause.textContent = 'Pause'; }
       if (resume) resume.hidden = true;
       if (dot) dot.style.animation = 'lpblink 1s infinite';
-      lpBridge.call('start_processing', LP.state.onbMode || 'study');
+      lpBridge.call('start_processing', {
+        mode: LP.state.onbMode || 'study',
+        preset: LP.state.onbSens || 'balanced',
+        job_id: LP.state.setupJobId || ''
+      });
     });
 
     // process
@@ -5273,6 +5389,7 @@
         renderSelCount();
       }
       renderJobs();           // poster URLs are stable, so loaded ones stay cached
+      renderProcOptions();
       // F-3: settle the readouts once the job list can confirm the active
       // job's terminal state. On relaunch active_job legitimately arrives
       // BEFORE this list exists, so setActiveJob alone cannot settle.
@@ -5618,14 +5735,18 @@
     lpBridge.on('onboarding', function (json) {
       var d = parseBridgePayload(json, null);
       if (!d || typeof d !== 'object') return;
+      setImporting(false);
       // Demo import emits the same onboarding event as a normal file import.
       // The guided demo has already moved to Process before that event arrives;
       // reopening the New Job overlay here covered the real processing screen.
-      var demoIsActive = guidedDemo.snapshot().active || demoFlowPhase() !== 'import';
+      // Normal imports (no active demo session) always show the pre-processing
+      // setup panel so quality and output can be chosen before Start.
+      var demoIsActive = guidedDemo.snapshot().active;
       if (demoIsActive) {
         setOnb(null);
         return;
       }
+      LP.state.setupJobId = d.job || '';
       if (d.name) $('onb-file-name').textContent = d.name;
       if (d.meta) $('onb-file-meta').textContent = d.meta;
       setScreen('home');

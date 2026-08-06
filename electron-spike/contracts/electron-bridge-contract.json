@@ -2144,7 +2144,8 @@
       "request_fields": [
         "mode",
         "auto_export",
-        "preset"
+        "preset",
+        "job_id"
       ],
       "request_id_required": true,
       "response_fields": [

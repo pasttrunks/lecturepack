@@ -1124,3 +1124,67 @@ becomes a normal queued LecturePack job.
 **Rationale:** A fixed compatible client makes the packaged importer
 deterministic for public videos hidden from the default web client, while the
 context-bound handoff preserves the existing processing/import contract.
+
+---
+
+## AD-32: Native import paths, pre-job options, and a visible queue
+
+**Date:** 2026-08-06
+**Status:** Implemented on `deepseek/beta15-import-queue-fix`
+
+**Context:** Beta 15 packaged feedback showed three workflow gaps. Dragging a
+video into the window often did nothing or misreported the video as
+unavailable, and valid videos from normal Windows folders (including
+non-ASCII paths) could fail through both drag-and-drop and Browse. Balanced/High
+and the output choice were not presented at the useful time: once processing
+started the user could not meaningfully change them, and the queue gave no
+visible order, settings, or controls.
+
+**Decision:**
+
+- Resolve dropped files through `webUtils.getPathForFile` in the preload
+  (already exposed) and pass the absolute native path to the sidecar. Browse
+  uses the native dialog's absolute path. Both flows converge on one shared
+  `importLocalVideo` gate in the Electron host that normalizes, proves
+  existence/readability, and forwards the same path to `import_video`; the
+  sidecar re-validates and relies on FFprobe rather than a fixed extension
+  allowlist. Import failures carry stable codes (`RESOLVE_FAILED`,
+  `NOT_FOUND`, `UNREADABLE`, `FFPROBE_FAILED`) that the renderer maps to
+  friendly copy; technical paths stay in the production log. The sidecar
+  reconfigures stdin/stdout/stderr to UTF-8 and the host sets `PYTHONUTF8=1`
+  so apostrophes and Unicode survive the JSONL pipe.
+- After import the renderer shows a pre-processing setup panel with
+  Processing quality (Balanced/High) and Output (Study Pack / Transcript only /
+  Slides only). The chosen options are passed with a job id to `start_job`,
+  persisted on the job, locked for that run, and displayed in job details and
+  queue rows. The Process screen no longer offers editable options mid-run.
+- The queue keeps one active slot. `start_job` either claims the slot (runs
+  now) or enqueues behind the running job; completion, failure, and
+  cancellation release the slot and the next queued job starts automatically
+  (after a bounded worker drain). The queue persists to `queue.json`,
+  restores on relaunch, auto-resumes the next queued job after a restart with
+  a terminal active slot, prunes terminal jobs so they never render as
+  waiting, and renders position, thumbnail, name, options, and status with
+  Move up / Move down / Remove controls. The sidecar never re-constructs the
+  live job (Job's loader would flip a persisted running state to
+  interrupted) and never swaps the controller's job mid-run.
+
+**Alternatives considered:**
+
+- Keeping the renderer's extension allowlist and dialog-only filter: rejected
+  because valid containers unknown to the allowlist were rejected even when
+  FFprobe could read them.
+- Sending a browser File object or a `file://` URL to the sidecar: rejected
+  because modern Electron no longer exposes `File.path` and a URL round-trip
+  can mangle native paths.
+- Building a scheduler with priorities/schedules: rejected because the
+  requirement is a simple visible FIFO with one active job.
+- Swapping the controller's job at import time while a pipeline runs:
+  rejected because it corrupted the running job's persisted state and stage
+  marker.
+
+**Rationale:** A shared native-path gate keeps drag-and-drop and Browse
+behaviorally identical; pre-job options use the existing backend meanings
+(balanced/detailed, study_pack/transcript_only/slides_only) with no new
+presets; and the queue reuses the existing persistent `JobQueue` so order and
+settings survive restarts without a second scheduler.
