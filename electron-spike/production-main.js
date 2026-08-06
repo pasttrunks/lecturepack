@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn, spawnSync } = require('node:child_process');
+const { validateLocalVideoPath } = require('./import-path');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const packageInfo = require('./package.json');
@@ -345,7 +346,7 @@ function startSidecar(session) {
   session.logger.write('sidecar_starting', { command, args, data_dir: dataDir });
   const child = spawn(command, args, {
     cwd,
-    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
     shell: false
@@ -384,10 +385,25 @@ async function browseVideo(session) {
   const result = await dialog.showOpenDialog(session.window, {
     title: 'Import a lecture video',
     properties: ['openFile'],
-    filters: [{ name: 'Lecture videos', extensions: ['mp4', 'mkv', 'mov', 'm4v', 'webm', 'avi'] }]
+    filters: [
+      { name: 'Lecture videos', extensions: ['mp4', 'mkv', 'mov', 'm4v', 'webm', 'avi'] },
+      { name: 'All files', extensions: ['*'] }
+    ]
   });
   if (result.canceled || !result.filePaths.length) return { ok: true, cancelled: true };
-  return sendCommand(session, 'import_video', { path: result.filePaths[0] });
+  return importLocalVideo(session, result.filePaths[0]);
+}
+
+// One shared import gate for both Browse and drag-and-drop. The renderer
+// resolves dropped files through the preload's webUtils.getPathForFile and
+// sends the absolute native path here; Browse arrives with the absolute path
+// from the native dialog. Both normalize, prove existence/readability, and
+// pass the same unchanged path to the sidecar's import_video command.
+async function importLocalVideo(session, rawPath, extra) {
+  const validated = validateLocalVideoPath(rawPath);
+  if (!validated.ok) return validated;
+  const payload = Object.assign({}, extra || {}, { path: validated.path });
+  return sendCommand(session, 'import_video', payload);
 }
 
 async function openJobFolder(session, command, payload) {
@@ -422,6 +438,9 @@ function testDesktopNotification() {
 
 async function handleCommand(session, command, payload) {
   if (command === 'browse_video') return browseVideo(session);
+  if (command === 'import_video' && !payload.bundled_demo && typeof payload.path === 'string' && payload.path) {
+    return importLocalVideo(session, payload.path, payload);
+  }
   if (command === 'open_job_folder' || command === 'open_export_folder') {
     return openJobFolder(session, command, payload);
   }
@@ -565,6 +584,12 @@ function createProductionWindow() {
   });
   window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     logger.write('page_load_failed', { errorCode, errorDescription, validatedURL });
+  });
+  // A dropped file must never navigate the window (the renderer prevents the
+  // default drop action; this is the host-side guarantee that the browser
+  // shell never opens a dragged file).
+  window.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
   });
   window.webContents.on('render-process-gone', (_event, details) => {
     logger.write('render_process_gone', details);

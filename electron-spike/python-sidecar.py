@@ -76,6 +76,18 @@ def _as_uri(path: Path) -> str:
         return ""
 
 
+class ImportVideoError(Exception):
+    """Structured local-video import failure with a renderer-friendly code.
+
+    The renderer maps these codes to short actionable copy; the technical
+    message (including the full path) stays in the production log.
+    """
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 class Sidecar:
     """Own the QtCore event loop and adapt the existing engine to JSONL."""
 
@@ -566,8 +578,14 @@ class Sidecar:
                 self._fail(request_id, command, f"unsupported command: {command!r}")
         except Exception as exc:  # noqa: BLE001 - protocol must report failures
             message_text = f"{type(exc).__name__}: {exc}"
-            self._emit({"event": "error", "command": command, "error": message_text})
-            self._fail(request_id, command, message_text)
+            error_code = getattr(exc, "code", None)
+            self._emit({
+                "event": "error",
+                "command": command,
+                "error": message_text,
+                **({"error_code": error_code} if error_code else {}),
+            })
+            self._fail(request_id, command, message_text, error_code=error_code)
 
     # ------------------------------------------------------------------ #
     # Contract commands
@@ -603,11 +621,18 @@ class Sidecar:
         for directory in sorted(root.iterdir()):
             if not directory.is_dir() or not (directory / "manifest.json").is_file():
                 continue
+            job_id = directory.name
+            # Never re-construct the live job: Job's loader treats a persisted
+            # "running" state as orphaned and flips it to interrupted, which
+            # would corrupt a pipeline that is still running in this session.
+            if self.current_job is not None and self.current_job.job_id == job_id:
+                jobs.append(self.current_job)
+                continue
             try:
-                jobs.append(self.Job(str(self.data_dir), job_id=directory.name,
+                jobs.append(self.Job(str(self.data_dir), job_id=job_id,
                                      current_session_id=self.session_id))
             except Exception as exc:  # noqa: BLE001 - one corrupt job must not hide others
-                self._emit({"event": "error", "error": f"job {directory.name}: {exc}"})
+                self._emit({"event": "error", "error": f"job {job_id}: {exc}"})
         jobs.sort(key=lambda job: str(job.manifest.get("created_at", "")), reverse=True)
         return jobs
 
@@ -797,16 +822,34 @@ class Sidecar:
             # bundled demo video. There is no separate fake demo pipeline.
             source = self._resolve_demo_video()
             if source is None:
-                raise FileNotFoundError("bundled demo video not found")
+                raise ImportVideoError("NOT_FOUND", "bundled demo video not found")
         else:
-            source = Path(path_text).expanduser().resolve() if path_text else self.demo_video
-        if source is None or not source.is_file():
-            raise FileNotFoundError(f"video not found: {source or path_text}")
+            if not path_text:
+                raise ImportVideoError("RESOLVE_FAILED", "no video path was supplied")
+            try:
+                source = Path(path_text).expanduser().resolve()
+            except (OSError, ValueError) as exc:
+                raise ImportVideoError(
+                    "RESOLVE_FAILED", f"could not resolve video path: {path_text}"
+                ) from exc
+        if source is None:
+            raise ImportVideoError("RESOLVE_FAILED", "no video path was supplied")
+        try:
+            is_file = source.is_file()
+        except OSError as exc:  # noqa: BLE001 - a locked/unreadable parent
+            raise ImportVideoError("UNREADABLE", f"could not inspect video path: {source}") from exc
+        if not is_file:
+            raise ImportVideoError("NOT_FOUND", f"video not found: {source}")
+        if not os.access(source, os.R_OK):
+            raise ImportVideoError("UNREADABLE", f"video is not readable: {source}")
         if payload.get("bundled_demo"):
             source = self._copy_demo_if_needed(source)
         if self.controller is None:
             raise RuntimeError(self._engine_error or "engine is not loaded")
-        metadata = self.controller.ffmpeg_wrapper.inspect_video(str(source))
+        try:
+            metadata = self.controller.ffmpeg_wrapper.inspect_video(str(source))
+        except Exception as exc:  # noqa: BLE001 - surfaced as a friendly format error
+            raise ImportVideoError("FFPROBE_FAILED", f"ffprobe could not read the video: {exc}") from exc
         job = self.Job(str(self.data_dir), video_path=str(source))
         job.manifest["title"] = str(payload.get("title") or source.stem or "Lecture")
         job.source.update(metadata)
@@ -837,6 +880,15 @@ class Sidecar:
         )
 
     def _activate_job(self, job: Any, *, emit_payloads: bool) -> None:
+        # A pipeline is already running: never swap the controller's job, clear
+        # the live stage marker, or re-point current_job mid-run -- even when
+        # the requested job is the running one (e.g. a bootstrap restore or an
+        # import of another video). The new job joins the list and is activated
+        # only once the run ends (promote_next / explicit start).
+        if self.current_stage and self.current_job is not None:
+            if emit_payloads:
+                self._emit_job_payloads()
+            return
         self.current_job = job
         self.current_stage = ""
         self.stage_percent = {}
@@ -2524,6 +2576,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main() -> int:
+    # Windows pipes default to the ANSI codepage, which corrupts native paths
+    # containing apostrophes or Unicode characters before the JSONL layer ever
+    # sees them. Force UTF-8 on all three streams so a real path arrives at the
+    # import command unchanged.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001 - not all environments allow reconfigure
+            pass
     args = _parse_args(sys.argv[1:])
     app = QCoreApplication(sys.argv)
     Sidecar(args, app)

@@ -82,12 +82,14 @@
         <div id="dropzone" class="lp-card" style="display:flex;align-items:center;gap:22px;background:var(--panel);border:2px solid var(--border);border-radius:16px;padding:24px 26px;box-shadow:var(--shadow-soft);margin-bottom:40px;position:relative;overflow:hidden;cursor:pointer">
           <div style="position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--orange)"></div>
           <div style="width:52px;height:52px;flex:none;background:var(--blue-soft);border-radius:13px;display:flex;align-items:center;justify-content:center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--blue-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg></div>
-          <div style="flex:1"><div style="font-weight:700;font-size:18px;margin-bottom:3px">Drop a lecture video anywhere</div><div style="font:500 12px 'JetBrains Mono';color:var(--muted)">.mp4 · .mkv · .mov · .m4v · .webm — any length</div></div>
+          <div style="flex:1"><div style="font-weight:700;font-size:18px;margin-bottom:3px">Drop a lecture video anywhere</div><div style="font:500 12px 'JetBrains Mono';color:var(--muted)">Video files — any format — any length</div></div>
           <div class="lp-drop-cta" style="display:flex;gap:10px;align-items:center;flex:none">
             <button id="btn-paste-link" class="lp-hit lp-press-sm" hidden style="font:600 15px 'Space Grotesk';background:var(--panel);color:var(--ink);border:1.5px solid var(--border);border-radius:11px;padding:12px 18px;cursor:pointer;display:flex;align-items:center;gap:8px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Paste a link</button>
             <button id="btn-browse" class="lp-hit lp-press" style="font:600 15px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:11px;padding:12px 22px;cursor:pointer">Browse for video</button>
           </div>
         </div>
+
+        <div id="home-importing" hidden style="display:flex;align-items:center;gap:10px;margin:-22px 0 28px;padding:11px 15px;background:var(--panel2);border:1.5px solid var(--line);border-radius:11px;font:500 12px 'JetBrains Mono';color:var(--secondary-text)"><span style="width:14px;height:14px;border-radius:50%;border:2px solid var(--orange);border-top-color:transparent;animation:lpspin .8s linear infinite;flex:none"></span>Importing <span id="importing-name" style="font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>&#8230;</div>
 
         <div id="home-queue" hidden style="margin-bottom:26px">
           <div style="display:flex;align-items:baseline;gap:11px;margin-bottom:14px"><h2 style="font:500 12px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;margin:0;color:var(--ink)">Processing queue</h2><span id="queue-count" style="font:500 12px 'JetBrains Mono';color:var(--muted)"></span></div>
@@ -606,7 +608,7 @@
         <div style="border:2px dashed var(--orange);background:var(--orange-soft);border-radius:14px;padding:44px 20px;text-align:center">
           <div style="width:64px;height:64px;margin:0 auto 16px;background:var(--panel);border:2px solid var(--orange);border-radius:16px;display:flex;align-items:center;justify-content:center;animation:lpblink 1.4s infinite"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--orange-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg></div>
           <div style="font-weight:700;font-size:19px;margin-bottom:5px">Release to import</div>
-          <div style="font:500 12px 'JetBrains Mono';color:var(--muted)">.mp4 · .mkv · .mov · .m4v · .webm</div>
+          <div style="font:500 12px 'JetBrains Mono';color:var(--muted)">Video files — any format</div>
         </div>
         <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end">
           <button class="lp-hit" data-onb-close style="font:600 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;color:var(--ink)">Cancel</button>

@@ -22,6 +22,16 @@
     }
   }
 
+  // Shared import-state helpers: used by the home import handlers (wire) and
+  // the bridge onboarding listener (wireBridge).
+  var importingFile = null;
+  function setImporting(on, name) {
+    LP.state.importing = !!on;
+    var el = $('home-importing'), nm = $('importing-name');
+    if (el) el.hidden = !on;
+    if (nm && name) nm.textContent = name;
+  }
+
   /* ======================= guided tour models =======================
      These reducers deliberately contain no DOM or bridge calls.  The DOM
      controller below is a thin projection of their state, which keeps the
@@ -788,6 +798,20 @@
     if (command === 'probe_media_url' || command === 'import_media_url') {
       var link = friendlyLinkError(cleaned);
       if (link) return link;
+    }
+    if (command === 'import_video' || command === 'browse_video') {
+      if (/not found|no longer exists|video not found|ENOENT/i.test(cleaned)) {
+        return 'That video could not be found. It may have been moved or removed.';
+      }
+      if (/permission|denied|not readable|unreadable|EACCES|EPERM/i.test(cleaned)) {
+        return 'LecturePack cannot read that video. Check the file permissions or copy it to a local folder.';
+      }
+      if (/ffprobe|could not read this video format/i.test(cleaned)) {
+        return 'LecturePack could not read this video format.';
+      }
+      if (/resolve|could not access|invalid path/i.test(cleaned)) {
+        return 'LecturePack could not access that file. Try Browse for video.';
+      }
     }
     if (/runtimeerror|traceback|exception|errno|0x[0-9a-f]{4}/i.test(cleaned)) {
       try { console.error('[lecturepack]', text); } catch (e) {}
@@ -4506,31 +4530,61 @@
 
     // home / import
     var dz = $('dropzone');
+    function friendlyImportError(result) {
+      if (!result || !result.code) return (result && result.error) || 'The video could not be imported.';
+      var code = String(result.code);
+      if (code === 'RESOLVE_FAILED') return 'LecturePack could not access that file. Try Browse for video.';
+      if (code === 'NOT_FOUND') return 'That video could not be found. It may have been moved or removed.';
+      if (code === 'UNREADABLE') return 'LecturePack cannot read that video. Check the file permissions or copy it to a local folder.';
+      if (code === 'FFPROBE_FAILED') return 'LecturePack could not read this video format.';
+      if (code === 'FEATURE_UNAVAILABLE') return '';
+      return (result && result.error) || 'The video could not be imported.';
+    }
     function importDroppedVideo(file) {
-      if (!file) return;
-      if (!/\.(mp4|mkv|mov|m4v|webm|avi)$/i.test(file.name || '')) {
-        toast('Choose a supported lecture video (.mp4, .mkv, .mov, .m4v, .webm, or .avi).');
-        return;
-      }
+      if (!file || importingFile) return;
       var path = lpBridge.pathForFile ? lpBridge.pathForFile(file) : '';
       if (!path) {
-        toast('LecturePack could not read that dropped file. Use Browse for video instead.');
+        toast('LecturePack could not access that file. Try Browse for video.');
         return;
       }
       if (!lpBridge.connected()) {
         setOnb('detected');
         return;
       }
+      // Drop and Browse converge on the same native import: the path is
+      // resolved here (webUtils in the preload), then the host validates it
+      // and the sidecar inspects it with FFprobe.
+      importingFile = file.name || path;
+      setImporting(true, importingFile);
+      setOnb(null); // remove the drop overlay immediately
       lpBridge.call('import_video', { path: path }).then(function (result) {
-        if (result && result.ok === false) toast(result.error || 'The video could not be imported.');
+        setImporting(false);
+        importingFile = null;
+        if (result && result.ok === false) {
+          var message = friendlyImportError(result);
+          if (message) toast(message);
+        }
+      }, function () {
+        setImporting(false);
+        importingFile = null;
       });
     }
-    dz.addEventListener('click', function () {
-      if (lpBridge.connected()) lpBridge.call('browse_video'); else setOnb('drop');
-    });
+    function beginBrowseImport() {
+      if (!lpBridge.connected()) { setOnb('drop'); return; }
+      setImporting(true, 'video');
+      lpBridge.call('browse_video').then(function (result) {
+        setImporting(false);
+        if (result && result.cancelled) return;
+        if (result && result.ok === false) {
+          var message = friendlyImportError(result);
+          if (message) toast(message);
+        }
+      }, function () { setImporting(false); });
+    }
+    dz.addEventListener('click', beginBrowseImport);
     $('btn-browse').addEventListener('click', function (e) {
       e.stopPropagation();
-      if (lpBridge.connected()) lpBridge.call('browse_video'); else setOnb('drop');
+      beginBrowseImport();
     });
 
     $('btn-paste-link').addEventListener('click', function (e) {
@@ -4578,9 +4632,21 @@
     });
     // Electron owns the document-level drop path too. Ignore the dropzone here
     // because its handler already imported the first file and the event bubbles.
-    window.addEventListener('dragover', function (e) { e.preventDefault(); });
+    window.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      if (hasDemoDrag(e)) return;
+      var types = e.dataTransfer && e.dataTransfer.types;
+      var hasFiles = false;
+      try { hasFiles = Array.prototype.indexOf.call(types || [], 'Files') >= 0; } catch (err) { hasFiles = false; }
+      if (hasFiles && LP.state.onb !== 'detected') setOnb('drop');
+    });
+    window.addEventListener('dragleave', function (e) {
+      if (e.relatedTarget) return;
+      if (LP.state.onb === 'drop') setOnb(null);
+    });
     window.addEventListener('drop', function (e) {
       e.preventDefault();
+      setOnb(null);
       if (e.target && e.target.closest && e.target.closest('#dropzone')) return;
       importDroppedVideo(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
     });
