@@ -528,6 +528,8 @@ class Sidecar:
                 self._cancel_job(request_id, command, payload)
             elif command == "get_job":
                 self._get_job(request_id, command, payload)
+            elif command == "view_job":
+                self._view_job(request_id, command, payload)
             elif command == "get_slides":
                 self._get_slides(request_id, command, payload)
             elif command == "get_transcript":
@@ -1067,6 +1069,34 @@ class Sidecar:
             export_dir=str(job.paths["exports"]),
         )
 
+    def _view_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Fetch and emit one job's workspace payloads WITHOUT re-pointing the
+        sidecar's current job.
+
+        The UI tracks the job being viewed separately from the job being
+        processed. While a pipeline owns the single active slot, ``get_job``
+        must keep refusing to swap ``current_job`` (that would corrupt the
+        running job's events), so viewing any other job needs a fetch that
+        leaves the processing state untouched. The renderer calls this when
+        the user selects a job; the payloads are stamped with the requested
+        job id and the running job's live events keep streaming under its own.
+        """
+        job = self._job_for(payload)
+        self._emit({"event": "jobs_changed", "jobs": [self._summary(item) for item in self._job_objects()]})
+        slides = self._slides(job)
+        self._emit({"event": "slides_changed", "job": job.job_id, **self._slide_payload(job, slides)})
+        self._emit({"event": "transcript_changed", "job": job.job_id, **self._transcript(job)})
+        self._emit_pipeline(job)
+        if hasattr(self, "study_service"):
+            self._emit_study_changed(job)
+        if job.get_stage_status("Export") == "completed":
+            self._emit({
+                "event": "export_done",
+                "job": job.job_id,
+                "files": self._export_files(job),
+                "meta": f"{len(self._export_files(job))} files written to the Study Pack export folder",
+            })
+        self._respond(request_id, command, ok=True, job_id=job.job_id, job=self._summary(job))
     def _get_slides(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         job = self._job_for(payload)
         slides = self._slides(job)
@@ -1884,9 +1914,9 @@ class Sidecar:
 
         threading.Thread(target=worker, daemon=True, name="lp-endpoint-test").start()
 
-    def _emit_study_changed(self) -> None:
-        """Emit the study_changed overview payload for the current job."""
-        job = self.current_job
+    def _emit_study_changed(self, job: Any | None = None) -> None:
+        """Emit the study_changed overview payload for a job."""
+        job = job or self.current_job
         if job is None:
             return
         try:
@@ -2482,14 +2512,30 @@ class Sidecar:
     def _on_transcript_segment(self, segment: dict) -> None:
         # Live transcript data is intentionally not treated as canonical. The
         # canonical raw/normalized files are read after the stage succeeds.
-        if self.current_job is not None:
-            self._emit({
-                "event": "log_line",
-                "job": self.current_job.job_id,
-                "tag": "[Transcribe]",
-                "color": "var(--orange-ink)",
-                "text": str(segment.get("text", "")),
-            })
+        if self.current_job is None:
+            return
+        self._emit({
+            "event": "log_line",
+            "job": self.current_job.job_id,
+            "tag": "[Transcribe]",
+            "color": "var(--orange-ink)",
+            "text": str(segment.get("text", "")),
+        })
+        # Live transcription progress: whisper streams segment timestamps but
+        # emits no stage-percent events during Transcribe, so the UI only saw
+        # stage-boundary jumps (a long lecture sat at the pre-transcribe 43%
+        # the whole time). Derive a real, monotonic percent from the latest
+        # segment's end time against the known duration. This only reads the
+        # existing live stream -- it never changes the transcription engine.
+        if self.current_stage == "Transcribe":
+            duration = float((self.current_job.source or {}).get("duration", 0.0) or 0.0)
+            end_ms = float(segment.get("end_ms") or 0.0)
+            if duration > 0 and end_ms > 0:
+                percent = max(0, min(99, round(end_ms / (duration * 1000.0) * 100)))
+                if percent > self.stage_percent.get("Transcribe", 0):
+                    self.stage_percent["Transcribe"] = percent
+                    self._emit_status("Processing", detail=f"Transcribe - {percent}%")
+                    self._emit_pipeline()
 
     def _on_pipeline_completed(self) -> None:
         if self.current_job is None:
@@ -2540,19 +2586,31 @@ class Sidecar:
             "side": f"{label} - {pct}%" if label == "Processing" else label,
         })
 
-    def _emit_pipeline(self) -> None:
-        if self.current_job is None:
+    def _emit_pipeline(self, job: Any | None = None) -> None:
+        job = job or self.current_job
+        if job is None:
             return
+        same_job = job is self.current_job
+        active = self.current_stage if same_job else ""
+        percent = self.stage_percent if same_job else {}
         self._emit({
             "event": "pipeline_changed",
-            "job": self.current_job.job_id,
-            "title": self.current_job.manifest.get("title", "Lecture"),
-            "meta": f"{self._summary(self.current_job)['meta']} - {self._job_percent(self.current_job)}%",
-            "stages": self._pipeline_stages(self.current_job),
+            "job": job.job_id,
+            "title": job.manifest.get("title", "Lecture"),
+            "meta": f"{self._summary(job)['meta']} - {self._job_percent(job)}%",
+            "stages": self._pipeline_stages(job, active, percent),
         })
 
-    def _pipeline_stages(self, job: Any) -> list[dict[str, Any]]:
-        active = self.current_stage
+    def _pipeline_stages(
+        self,
+        job: Any,
+        active_stage: str | None = None,
+        stage_percent: dict[str, int] | None = None,
+    ) -> list[dict[str, Any]]:
+        # For a job other than the one currently processing, never borrow the
+        # live stage marker or percentages of the running job.
+        active = self.current_stage if active_stage is None else active_stage
+        percent_map = self.stage_percent if stage_percent is None else stage_percent
         stages = []
         for index, stage in enumerate(STAGES):
             status = job.get_stage_status(stage)
@@ -2561,10 +2619,10 @@ class Sidecar:
                 percent = 100
             elif status == "failed":
                 state = "error"
-                percent = self.stage_percent.get(stage, 0)
-            elif stage == active or status == "running":
+                percent = percent_map.get(stage, 0)
+            elif stage == active or (not active and status == "running"):
                 state = "active"
-                percent = self.stage_percent.get(stage, 0)
+                percent = percent_map.get(stage, 0)
             else:
                 state = "pending"
                 percent = 0

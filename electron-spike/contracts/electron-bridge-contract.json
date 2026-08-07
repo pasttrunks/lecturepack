@@ -753,6 +753,28 @@
     {
       "direction": "command",
       "event_fields": [],
+      "mapped_to": "view_job",
+      "name": "view_job",
+      "notes": "Fetches one job's workspace payloads (slides, transcript, pipeline, study, exports) without re-pointing the sidecar's current job, so a job can be viewed while another job is processing.",
+      "phase8": "view a job while another job is processing",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "command",
+        "event",
+        "job",
+        "job_id",
+        "ok",
+        "response_to"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
       "mapped_to": "",
       "name": "get_notification_prefs",
       "notes": "Emits notification_prefs with the persisted toggles.",

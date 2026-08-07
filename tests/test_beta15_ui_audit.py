@@ -161,7 +161,9 @@ def test_d14_global_save_is_hidden_but_specific_save_remains() -> None:
     assert re.search(r'id="btn-save"[^>]*\bhidden\b', html)
     assert "#btn-save" in main
     assert 'id="btn-save-corrections"' in html
-    assert 'id="btn-copy-transcript"' in html
+    # The transcript copy control was split into the two explicit actions.
+    assert 'id="btn-copy-text"' in html
+    assert 'id="btn-copy-stamped"' in html
 
 
 def test_d15_notification_is_an_electron_action_with_in_app_feedback() -> None:
@@ -181,7 +183,11 @@ def test_d16_breadcrumb_uses_the_friendly_job_name() -> None:
     active = block(app, "lpBridge.on('active_job'", "lpBridge.on('pipeline_changed'")
     chrome = block(app, "function renderJobChrome()", "/* The sidebar chip")
     assert "function friendlyJobName(value)" in app
-    assert "friendlyJobName(a.id || '')" in active
+    # The active job is followed through selectJob, which resolves the job
+    # name from the list; setActiveJob still falls back to friendlyJobName so
+    # a raw job id can never reach the breadcrumb.
+    assert "selectJob(a.id, { silent: true })" in active
+    assert "friendlyJobName(id)" in block(app, "function setActiveJob", "function ownsPayload")
     assert "crumb-job" in chrome
     assert "looksLikeJobId" in app
 

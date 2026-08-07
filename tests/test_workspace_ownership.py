@@ -185,16 +185,20 @@ def test_ui_declares_job_ownership_state():
         assert fn in JS, f"missing {fn}"
 
 
-def test_every_workspace_handler_checks_ownership():
+def test_every_workspace_handler_routes_by_job_id():
+    """Every job-scoped payload is routed to the workspace it belongs to
+    (routeJobPayload), so a signal for a different lecture is never painted
+    over the viewed one -- and is kept for when the user switches back."""
     for sig in ("pipeline_changed", "slides_changed", "transcript_changed",
                 "study_changed", "quiz_changed", "flashcards_changed"):
-        block = JS.split(f"lpBridge.on('{sig}'", 1)[1][:420]
-        assert "ownsPayload(" in block, f"{sig} handler has no freshness guard"
+        block = JS.split(f"lpBridge.on('{sig}'", 1)[1][:560]
+        assert "routeJobPayload(" in block, f"{sig} handler has no job routing"
 
 
 def test_ui_follows_active_job_signal():
-    block = JS.split("lpBridge.on('active_job'", 1)[1][:320]
-    assert "setActiveJob(" in block
+    block = JS.split("lpBridge.on('active_job'", 1)[1].split("lpBridge.on('pipeline_changed'", 1)[0]
+    assert "selectJob(" in block
+    assert "autoSelectedActiveId" in block
 
 
 def test_empty_workspace_covers_every_job_scoped_key():
@@ -223,7 +227,7 @@ def test_deleting_the_active_job_empties_the_workspace():
 
 def test_log_lines_are_dropped_when_no_lecture_is_loaded():
     block = JS.split("lpBridge.on('log_line'", 1)[1][:260]
-    assert "if (!LP.state.jobId) return" in block
+    assert "if (!owner) return" in block
 
 
 def test_status_changed_cannot_name_a_lecture_when_none_is_loaded():

@@ -178,9 +178,11 @@ def test_job_card_click_navigates_by_job_status() -> None:
     app = read(APP)
     grid = block(app, "var card = e.target.closest('[data-job]');", "// Processing queue controls")
     assert "cardJob && cardJob.status === 'done' ? 'review' : 'process'" in grid
-    assert "lpBridge.call('open_job', jobId)" in grid
-    # Navigation happens before the bridge round-trip so it can never hang.
-    assert grid.index("setScreen(") < grid.index("lpBridge.call('open_job'")
+    # Selecting is local-first: selectJob switches the workspace and screen
+    # synchronously, then fetches payloads via view_job -- so navigation can
+    # never hang on the bridge, and opening one job never disturbs another
+    # job that is still processing.
+    assert "selectJob(jobId, { screen:" in grid
 
 
 # --------------------------------------------------------------------------- #

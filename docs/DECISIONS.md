@@ -1188,3 +1188,62 @@ behaviorally identical; pre-job options use the existing backend meanings
 (balanced/detailed, study_pack/transcript_only/slides_only) with no new
 presets; and the queue reuses the existing persistent `JobQueue` so order and
 settings survive restarts without a second scheduler.
+
+## AD-33: Processing job and viewed job are separate; live per-job progress
+
+**Date:** 2026-08-06
+**Status:** Implemented on `kimi/job-view-switching-fix`
+
+**Context:** Packaged Beta 15 feedback showed the UI treated the job being
+processed and the job being viewed as the same thing. While a new job
+processed, Home's card froze at the last stage-boundary percent (43% in the
+reported capture), Process kept showing the previously completed job, and the
+user could not open an older lecture mid-run. Long real lectures also exposed
+that the transcription engine streams segment timestamps but no stage-percent
+events, so even Process had no live percent during Transcribe.
+
+**Decision:**
+
+- The renderer tracks the processing job (`LP.state.activeJobId`) separately
+  from the viewed job (`LP.state.jobId`, the workspace owner). `active_job`
+  events auto-follow a genuinely new processing job once, but never re-yank
+  the view after the user opens another job. Job-scoped events
+  (`pipeline_changed`, `status_changed`, `log_line`, `slides_changed`,
+  `transcript_changed`, `study_changed`, `quiz_changed`, `flashcards_changed`,
+  `export_*`) route by `job_id`: the viewed job updates the live workspace;
+  any other job accumulates in its per-job store so switching back is current.
+  Home cards merge the latest `status_changed`/`pipeline_changed` data by job
+  id and patch in place, so progress and completion settle immediately.
+- A new `view_job` sidecar command fetches one job's payloads without
+  re-pointing `current_job`/`current_stage`, so a completed job can be opened
+  while the pipeline keeps running; `_emit_pipeline`/`_emit_study_changed`
+  are parameterized by job and never borrow the running job's stage marker.
+- A shared Previous/Next source switcher (rendered into Process, Review,
+  Transcript, Study, and Exports) selects the adjacent job in the stable job
+  list and disables at the ends. The live log gets a Latest button that
+  resumes auto-follow after an upward scroll.
+- Transcript copy is two explicit actions: "Copy text" (words only) and
+  "Copy with timestamps" (each segment with its visible timestamp), using the
+  transcript already loaded in the renderer.
+- Live Transcribe progress: the sidecar derives a monotonic percent from the
+  latest streamed segment's `end_ms` against the known duration (read-only;
+  the transcription engine is untouched), and pipeline stages render at most
+  one active stage (the explicit current stage), removing the dual-running
+  bar artifact at stage transitions.
+
+**Alternatives considered:**
+
+- Letting the backend `active_job` signal keep driving the viewed workspace:
+  rejected because `get_job` refuses to swap `current_job` mid-pipeline, and
+  re-pointing it would corrupt the running job's events.
+- Time-based progress estimation in the renderer: rejected because the
+  segment timestamps are the real engine data and belong in the sidecar.
+- Modifying the controller to wire whisper progress into `stage_progress`:
+  rejected because the objective forbids changing the transcription engine,
+  and the segment-derived percent needs no engine change.
+
+**Rationale:** Keeping the two identities separate reuses the existing
+per-job workspace store and event stamps; `view_job` adds the one missing
+fetch path without touching the pipeline; and the progress changes only read
+data the engine already emits, so a long real lecture now shows moving,
+consistent progress on Home and Process.

@@ -352,6 +352,7 @@
       return { command: name, payload: { job_id: jobIdPayload(first), title: String(args[1] || '') } };
     }
     if (name === 'open_job') return { command: 'get_job', payload: { job_id: jobIdPayload(first) } };
+    if (name === 'view_job') return { command: 'view_job', payload: { job_id: jobIdPayload(first) } };
     if (name === 'open_job_folder' || name === 'open_export_folder') {
       return { command: name, payload: { job_id: jobIdPayload(first) } };
     }

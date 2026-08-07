@@ -832,3 +832,31 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
      line would just restate the blanket rule. */
   .lp-out,.lp-scrim.out,.lp-pop.out{animation:none !important;opacity:0 !important}
 }
+
+/* --- job source switcher (Previous / Next) --------------------------------
+   Compact shared control rendered by renderJobSwitcher() into every
+   [data-jsw] host (Process Source card, Review timeline, Transcript header,
+   Study timeline, Exports header). Reuses the app's small-button language. */
+.lp-jsw{display:flex;align-items:center;gap:4px;flex:none}
+.lp-jsw[hidden]{display:none}
+.lp-jsw button{
+  width:25px;height:25px;flex:none;display:flex;align-items:center;justify-content:center;
+  border:1.5px solid var(--border);border-radius:7px;background:var(--panel);
+  color:var(--ink);cursor:pointer;padding:0;box-shadow:var(--shadow-soft)}
+.lp-jsw button:hover:not(:disabled){border-color:var(--secondary-border);color:var(--secondary-text)}
+.lp-jsw button:disabled{opacity:.35;cursor:default}
+.lp-jsw .lp-jsw-name{
+  max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font:600 11px 'Space Grotesk';color:var(--muted);padding:0 3px}
+.lp-jsw .lp-jsw-count{font:500 10px 'JetBrains Mono';color:var(--muted)}
+
+/* queued / ready waiting banner in the Process status card */
+.lp-proc-waiting{
+  display:flex;align-items:center;gap:9px;margin:0 0 14px;padding:10px 13px;
+  background:var(--panel2);border:1.5px solid var(--line);border-radius:10px;
+  font:500 12px 'JetBrains Mono';color:var(--secondary-text)}
+.lp-proc-waiting[hidden]{display:none}
+
+/* Live log: keep the newest line readable and give Latest a clear target. */
+#proc-log{padding-bottom:26px}
+#proc-log .lp-log-at-bottom{background:var(--green-soft)}

@@ -234,7 +234,15 @@
       // terminal status_changed label (Done/Failed). Sibling to the guided
       // demo's own lock so a running job's snapshotted settings can never be
       // changed out from under it mid-run.
-      pipelineRunning: false
+      pipelineRunning: false,
+      // The job currently processing (driven by the backend active_job signal
+      // and terminal status events). This is deliberately separate from
+      // jobId, which is the job the user is VIEWING: a new processing job
+      // must never prevent the user from opening an older completed job.
+      activeJobId: '',
+      // Live-log following: true while the user stays at the bottom; cleared
+      // when they scroll up and restored by the Latest button.
+      logFollow: true
     },
     data: {
       // Populated from Electron's packaged app metadata by loadAppVersion().
@@ -442,12 +450,13 @@
   // The blobs that belong to one lecture. Anything NOT listed here is app-wide
   // (theme, settings, export format choices) and must survive a job switch.
   var WORKSPACE_KEYS = ['pipeline', 'slides', 'transcript', 'study',
-                        'quiz', 'flashcards', 'exportFiles'];
+                        'quiz', 'flashcards', 'exportFiles', 'reviewSegments'];
 
   function emptyWorkspace() {
     return {
       pipeline: { title: 'No lecture loaded', meta: '', stages: [], log: [] },
       slides: [],
+      reviewSegments: [],
       transcript: { title: '', duration: '', segments: 0, corrections: 0, blocks: [] },
       study: {
         topics: [], topicBlocks: [], topicLabels: [], keyTerms: [],
@@ -467,6 +476,33 @@
 
   function applyWorkspace(snap) {
     WORKSPACE_KEYS.forEach(function (k) { LP.data[k] = snap[k]; });
+  }
+
+  // Per-job live status memory. status_changed / pipeline_changed payloads for
+  // jobs other than the one being viewed are accumulated here (and in the
+  // per-job workspace blob below) so switching back shows the latest state
+  // without waiting for a new event.
+  var statusByJob = {};
+  var runningByJob = {};
+  // The last processing job the UI auto-followed (once per new active job).
+  // Manual job selection never resets it, so a running job cannot re-yank the
+  // view; a genuinely new active job id triggers the single follow.
+  var autoSelectedActiveId = '';
+
+  function workspaceFor(jobId) {
+    if (!jobId) return null;
+    if (!LP.byJob[jobId]) LP.byJob[jobId] = emptyWorkspace();
+    return LP.byJob[jobId];
+  }
+
+  /* Route a job-scoped event to the workspace it belongs to. Returns true
+     when the payload targets the job being viewed (the caller re-renders),
+     false when it was accumulated for a different job's store. */
+  function routeJobPayload(payload, apply) {
+    var owner = payload && payload.job;
+    if (!owner) { apply(LP.data); return true; }
+    if (owner === LP.state.jobId) { apply(LP.data); return true; }
+    apply(workspaceFor(owner)); return false;
   }
 
   /* Switch which lecture the workspace belongs to. Driven by the backend's
@@ -496,12 +532,30 @@
     renderJobChrome();
     renderProcOptions();
     renderWorkspace();
+    // Per-job live state: the sidebar/status readouts and the pipelineRunning
+    // lock belong to the VIEWED job, not to whichever job happens to be
+    // processing in the background.
+    LP.state.pipelineRunning = !!runningByJob[id];
+    if (id && statusByJob[id]) {
+      pendingProcessingStatus = Object.assign({}, statusByJob[id]);
+      lastStatusRenderKey = null;
+      scheduleProcessingRender('status');
+    } else {
+      pendingProcessingStatus = {};
+      lastStatusRenderKey = null;
+    }
+    renderJobSwitcher();
+    renderProcessJobState();
     // F-3: settle every status readout to the restored job's terminal state.
     // On relaunch or a job switch no live pipeline events will ever arrive
     // for a completed/failed/cancelled lecture, so paint its final state now
     // instead of leaving whatever the previous job left behind.
     var restored = (LP.data.jobs || []).filter(function (j) { return j && j.id === id; })[0];
     if (restored && restored.status === 'done') settleTerminalStatus('complete');
+    if (restored && restored.status === 'done') {
+      if (completionInfo[id]) applyCompletionPanel(completionInfo[id]);
+      else { var panel = $('proc-completion'); if (panel) panel.hidden = true; }
+    }
     else if (restored && restored.status === 'failed') settleTerminalStatus('failed');
     else if (restored && restored.status === 'cancelled') settleTerminalStatus('cancelled');
     else if (restored && restored.status === 'interrupted') settleTerminalStatus('interrupted');
@@ -722,6 +776,28 @@
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () { toast(okMsg || 'Copied'); }, fallback);
     } else { fallback(); }
+  }
+
+  // Transcript copy helpers (pure, tested). Blocks are the renderer's loaded
+  // transcript blocks {t, html|text}; the plain form is words only, the
+  // stamped form keeps each block's visible timestamp.
+  function transcriptBlockText(b) {
+    if (!b) return '';
+    if (b.text != null) return String(b.text);
+    var tmp = document.createElement('div'); tmp.innerHTML = b.html || '';
+    return tmp.textContent;
+  }
+  function formatTranscriptPlain(blocks) {
+    return (blocks || []).map(function (b) {
+      return transcriptBlockText(b).replace(/\s+/g, ' ').trim();
+    }).filter(Boolean).join('\n\n');
+  }
+  function formatTranscriptStamped(blocks) {
+    return (blocks || []).map(function (b) {
+      var text = transcriptBlockText(b).replace(/\s+/g, ' ').trim();
+      if (!text) return '';
+      return (b.t ? b.t + '  ' : '') + text;
+    }).filter(Boolean).join('\n\n');
   }
 
   var TRASH_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>';
@@ -1058,8 +1134,8 @@
     var body;
     if (j.status === 'running') {
       body = '<div style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(j.name) + '</div>' +
-        '<div style="height:8px;border-radius:5px;background:var(--sunk);overflow:hidden;margin-bottom:7px"><div style="width:' + (j.pct || 0) + '%;height:100%;background:var(--orange);background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.3) 6px,rgba(255,255,255,.3) 13px);animation:lpbar 1s linear infinite"></div></div>' +
-        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(friendlyProcessingLabel(j.stage)) + ' · ' + (j.pct || 0) + '% · ' + esc(j.eta || '') + '</div>';
+        '<div style="height:8px;border-radius:5px;background:var(--sunk);overflow:hidden;margin-bottom:7px"><div data-progress style="width:' + (j.pct || 0) + '%;height:100%;background:var(--orange);background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.3) 6px,rgba(255,255,255,.3) 13px);animation:lpbar 1s linear infinite"></div></div>' +
+        '<div data-progress-label style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(friendlyProcessingLabel(j.stage)) + ' · ' + (j.pct || 0) + '% · ' + esc(j.eta || '') + '</div>';
     } else {
       body = '<div style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(j.name) + '</div>' +
         '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted);line-height:1.7">' + esc(j.file || '') + '<br>' + esc(j.meta || '') + '</div>';
@@ -1096,7 +1172,7 @@
         '</span>'
       : '';
     var border = chosen ? 'var(--blue)' : 'var(--border)';
-    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
+    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'data-status="' + esc(displayStatus) + '" style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
       '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + (selecting ? selbox : menu) + badge + '</div>' +
       '<div style="padding:14px 16px">' + body + '</div></div>';
   }
@@ -1318,6 +1394,108 @@
     if (!job || !(job.preset || job.product_mode)) { el.textContent = ''; return; }
     el.textContent = _optionsLabel(job);
   }
+
+  // ---------------- viewed-job selection -------------------------------
+  // Selecting a job makes it the VIEWED job without touching the backend's
+  // active processing slot. Fresh payloads are fetched through view_job so a
+  // completed/queued job can be opened while another job keeps processing.
+  function selectJob(jobId, opts) {
+    opts = opts || {};
+    if (!jobId) return;
+    var entry = _jobById(jobId);
+    setActiveJob(jobId, entry && entry.name ? entry.name : '');
+    if (lpBridge.connected() && !opts.silent) {
+      try { lpBridge.call('view_job', jobId); } catch (err) { /* cached data already shown */ }
+    }
+    if (opts.screen) setScreen(opts.screen);
+    renderJobSwitcher();
+  }
+
+  function selectAdjacentJob(dir) {
+    var jobs = LP.data.jobs || [];
+    if (!jobs.length) return;
+    var idx = -1;
+    jobs.forEach(function (j, i) { if (j.id === LP.state.jobId) idx = i; });
+    var next = idx === -1 ? 0 : idx + (dir < 0 ? -1 : 1);
+    if (next < 0 || next >= jobs.length) return;
+    selectJob(jobs[next].id, {});
+  }
+
+  // One writer for the shared Previous/Next source switcher rendered into every
+  // [data-jsw] host (Process Source card, Review timeline, Transcript header,
+  // Study timeline, Exports header). Buttons disable at the ends of the job
+  // list; the order is the same stable job-list order the Home cards use.
+  function renderJobSwitcher() {
+    var jobs = LP.data.jobs || [];
+    var hosts = document.querySelectorAll('[data-jsw]');
+    if (!hosts.length) return;
+    var idx = -1;
+    jobs.forEach(function (j, i) { if (j.id === LP.state.jobId) idx = i; });
+    var name = idx === -1 ? '' : (jobs[idx].name || friendlyJobName(jobs[idx].id) || 'Lecture');
+    var prevDisabled = idx <= 0;
+    var nextDisabled = idx === -1 || idx >= jobs.length - 1;
+    var html =
+      '<button type="button" data-jdir="-1" title="Previous job" aria-label="Previous job"' + (prevDisabled ? ' disabled' : '') +
+      '><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>' +
+      '<span class="lp-jsw-name" title="' + esc(name) + '">' + esc(name) + '</span>' +
+      '<button type="button" data-jdir="1" title="Next job" aria-label="Next job"' + (nextDisabled ? ' disabled' : '') +
+      '><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>';
+    Array.prototype.forEach.call(hosts, function (host) { host.innerHTML = html; });
+  }
+
+  // Process screen banner for jobs that are not actively running: queued jobs
+  // show their position, ready jobs show their locked options. Live jobs paint
+  // the real pipeline instead and keep this hidden.
+  function renderProcessJobState() {
+    var el = $('proc-waiting'), text = $('proc-waiting-text');
+    if (!el || !text) return;
+    var job = _jobById(LP.state.jobId);
+    if (!job || job.status === 'running') { el.hidden = true; return; }
+    if (job.status === 'queued' && _jobInQueue(job.id)) {
+      // The backend reports 0-based queue positions; the visible queue list is
+      // 1-based ("Position 1" is first in line). Normalize to 1-based here, and
+      // never treat a valid 0 (first in queue) as "no position".
+      var pos = job.queue_position;
+      if (pos === null || pos === undefined || pos === '') {
+        pos = null;
+        (LP.data.queue && LP.data.queue.queue || []).forEach(function (r, i) {
+          if (r.id === job.id) pos = i + 1;
+        });
+      } else {
+        pos = Number(pos) + 1;
+      }
+      text.textContent = 'Waiting to process' + (pos ? ' · Position ' + pos : '');
+      el.hidden = false;
+      return;
+    }
+    if (_jobIsReady(job)) {
+      text.textContent = 'Ready to process · ' + _optionsLabel(job);
+      el.hidden = false;
+      return;
+    }
+    if (job.status === 'paused') {
+      text.textContent = 'Paused';
+      el.hidden = false;
+      return;
+    }
+    el.hidden = true;
+  }
+
+  // Completion card stats arrive on job_completed; keep them per job so
+  // switching back to a completed job re-paints its final summary card.
+  var completionInfo = {};
+  function applyCompletionPanel(m) {
+    if (!m || !m.job_id) return;
+    completionInfo[m.job_id] = m;
+    if (m.job_id !== LP.state.jobId) return;
+    var set = function (id, v) { var el = $(id); if (el) el.textContent = v; };
+    set('cm-time', m.wall_time || '—');
+    set('cm-words', (m.transcript_words != null ? m.transcript_words : '—'));
+    set('cm-segments', (m.segment_count != null ? m.segment_count : '—'));
+    set('cm-slides', (m.slides_detected != null ? m.slides_detected : '—'));
+    var panel = $('proc-completion'); if (panel) panel.hidden = false;
+    _applyLpState(panel, 'complete');
+  }
   function renderQueue() {
     var wrap = $('home-queue'), list = $('queue-list');
     if (!wrap || !list) return;
@@ -1398,6 +1576,45 @@
       return '<div>' + header + cards + '</div>';
     }).join('');
     $('jobs-count').textContent = LP.data.jobs.length;
+  }
+
+  // Live progress updates land on the matching Home card BY JOB ID, never only
+  // on the viewed job. applyJobLive merges into the job list (so any later full
+  // render is correct); updateJobCardDom patches the visible card cheaply.
+  function applyJobLive(jobId, patch) {
+    var entry = _jobById(jobId);
+    if (!entry) return;
+    Object.keys(patch).forEach(function (k) {
+      if (patch[k] !== undefined) entry[k] = patch[k];
+    });
+  }
+
+  // Extract the raw pipeline stage from a status detail such as
+  // "Transcribe - 43%" or "Detecting slides - 12%" so the Home card keeps the
+  // same stage vocabulary the Process screen uses.
+  function stageFromStatusDetail(detail) {
+    var text = String(detail == null ? '' : detail).trim();
+    var m = text.match(/^(.+?)\s*-\s*\d+%/);
+    return m ? m[1].trim() : '';
+  }
+
+  // Patch one Home card in place from live progress events. A structural
+  // status change (running -> done, queued -> running, ...) rebuilds the card;
+  // same-status progress updates only touch the bar and the label line.
+  function updateJobCardDom(jobId) {
+    var job = _jobById(jobId);
+    if (!job) return;
+    var card = null;
+    Array.prototype.forEach.call(document.querySelectorAll('#jobs-grid .lp-card[data-job]'), function (c) {
+      if (c.dataset.job === jobId) card = c;
+    });
+    if (!card) return;
+    if (card.dataset.status !== job.status) { renderJobs(); return; }
+    if (job.status !== 'running') return;
+    var bar = card.querySelector('[data-progress]');
+    if (bar) bar.style.width = (job.pct || 0) + '%';
+    var label = card.querySelector('[data-progress-label]');
+    if (label) label.textContent = friendlyProcessingLabel(job.stage) + ' · ' + (job.pct || 0) + '% · ' + (job.eta || '');
   }
 
   // renderPipeline is called every tick, so skip the rebuild (and the motion
@@ -1483,7 +1700,11 @@
     }).join('');
     if (stagesEl.innerHTML !== stageHtml) { stagesEl.innerHTML = stageHtml; }
     var logEl = $('proc-log');
-    var stick = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8;
+      // Follow the newest line only while the user has not scrolled upward.
+      // LP.logFollow is cleared by the scroll listener on manual scrolling and
+      // restored by the Latest button.
+      var stick = LP.logFollow !== false &&
+        logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8;
     var logHtml = p.log.map(function (l) {
       return '<div><span style="color:' + l.color + '">' + esc(l.tag) + '</span> ' + esc(l.text) + '</div>';
     }).join('');
@@ -1609,25 +1830,28 @@
      if (stick) logEl.scrollTop = logEl.scrollHeight;
    }
 
-   function renderPipeline() {
-     var p = LP.data.pipeline || { title: '', meta: '', stages: [], log: [] };
-     var stages = Array.isArray(p.stages) ? p.stages : [];
-     var logs = Array.isArray(p.log) ? p.log : [];
-     var key = JSON.stringify({ title: p.title || '', meta: p.meta || '', stages: stages, log: logs });
+    function renderPipeline() {
+      var p = LP.data.pipeline || { title: '', meta: '', stages: [], log: [] };
+      var stages = Array.isArray(p.stages) ? p.stages : [];
+      var logs = Array.isArray(p.log) ? p.log : [];
+      renderProcessJobState();
+      var key = JSON.stringify({ title: p.title || '', meta: p.meta || '', stages: stages, log: logs });
      if (key === lastPipelineRenderKey) return;
      lastPipelineRenderKey = key;
-      $('proc-status-title').textContent = friendlyProcessingLabel(p.title || '');
-      $('proc-status-meta').textContent = p.meta || '';
-      var hasJob = !!(p.title && stages.length);
-      $('proc-source-name').textContent = hasJob ? friendlyJobName(p.title) : 'No lecture loaded';
-     $('proc-source-meta').textContent = hasJob ? (p.meta || '') : '';
+       $('proc-status-title').textContent = friendlyProcessingLabel(p.title || '');
+       $('proc-status-meta').textContent = p.meta || '';
+       var hasJob = !!(p.title && stages.length);
+       // Source card: prefer the live pipeline title, fall back to the job
+       // list so a queued/ready job never reads "No lecture loaded".
+       $('proc-source-name').textContent = hasJob ? friendlyJobName(p.title) : (friendlyJobName(LP.state.jobId) || 'No lecture loaded');
+      $('proc-source-meta').textContent = hasJob ? (p.meta || '') : '';
      var stagesEl = $('pipeline-stages');
      while (stagesEl.children.length > stages.length) stagesEl.lastElementChild.remove();
      while (stagesEl.children.length < stages.length) stagesEl.appendChild(pipelineStageNode());
-     stages.forEach(function (st, index) { applyPipelineStage(stagesEl.children[index], st); });
-     renderPipelineLog($('proc-log'), logs);
-     if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') scheduleTourGeometry();
-     refreshControlStates();
+      stages.forEach(function (st, index) { applyPipelineStage(stagesEl.children[index], st); });
+      renderPipelineLog($('proc-log'), logs);
+      if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') scheduleTourGeometry();
+      refreshControlStates();
    }
 
    function renderProcessingStatus() {
@@ -4745,17 +4969,16 @@
     function startJobFromCard(jobId) {
       var job = _jobById(jobId);
       if (!job) return;
-      var open = lpBridge.connected() ? lpBridge.call('open_job', jobId) : Promise.resolve({});
-      Promise.resolve(open).then(function () {
-        setOnb(null);
-        setScreen('process');
-        var panel = $('proc-completion'); if (panel) panel.hidden = true;
-        lpBridge.call('start_processing', {
-          mode: job.product_mode === 'transcript_only' ? 'transcript' :
-            (job.product_mode === 'slides_only' ? 'slides' : 'study'),
-          preset: job.preset === 'detailed' ? 'high' : (job.preset === 'conservative' ? 'low' : 'balanced'),
-          job_id: jobId
-        });
+      // Follow the job being started immediately: it either claims the active
+      // slot (Process shows live progress) or joins the queue (Process shows
+      // "Waiting to process · Position N" while the current job finishes).
+      selectJob(jobId, { screen: 'process' });
+      var panel = $('proc-completion'); if (panel) panel.hidden = true;
+      lpBridge.call('start_processing', {
+        mode: job.product_mode === 'transcript_only' ? 'transcript' :
+          (job.product_mode === 'slides_only' ? 'slides' : 'study'),
+        preset: job.preset === 'detailed' ? 'high' : (job.preset === 'conservative' ? 'low' : 'balanced'),
+        job_id: jobId
       });
     }
     $('jobs-grid').addEventListener('click', function (e) {
@@ -4779,9 +5002,9 @@
       if (act) {
         e.stopPropagation();
         var aid = act.dataset.jobid, a = act.dataset.jobact;
-        if (a === 'resume') { lpBridge.call('resume_job', aid); setScreen('process'); }
-        else if (a === 'restart') { lpBridge.call('restart_job', aid); setScreen('process'); }
-        else if (a === 'view') { lpBridge.call('open_job', aid); setScreen('process'); }
+        if (a === 'resume') { selectJob(aid, { screen: 'process' }); lpBridge.call('resume_job', aid); }
+        else if (a === 'restart') { selectJob(aid, { screen: 'process' }); lpBridge.call('restart_job', aid); }
+        else if (a === 'view') { selectJob(aid, { screen: 'process' }); }
         else if (a === 'start') { startJobFromCard(aid); }
         else if (a === 'options') { openJobSetup(aid); }
         else if (a === 'remove') {
@@ -4802,10 +5025,7 @@
       // F-4: the click's visible response never depends on the bridge
       // round-trip. A completed lecture opens Review; anything else (queued,
       // running, failed, cancelled) opens Process with its final/live state.
-      setScreen(cardJob && cardJob.status === 'done' ? 'review' : 'process');
-      if (lpBridge.connected()) {
-        try { lpBridge.call('open_job', jobId); } catch (err) { /* navigation already happened */ }
-      }
+      selectJob(jobId, { screen: cardJob && cardJob.status === 'done' ? 'review' : 'process' });
     });
 
     // Processing queue controls (Run Now / reorder / remove).
@@ -4860,7 +5080,8 @@
     });
     $('btn-start-processing').addEventListener('click', function () {
       setOnb(null);
-      setScreen('process');
+      if (LP.state.setupJobId) selectJob(LP.state.setupJobId, { screen: 'process' });
+      else setScreen('process');
       // Reset any stale completion/pause UI from a prior run.
       var panel = $('proc-completion'); if (panel) panel.hidden = true;
       var pause = $('btn-pause-job'), resume = $('btn-resume-job'), dot = $('proc-status-dot');
@@ -4897,6 +5118,32 @@
         var b = $(id); if (b) b.addEventListener('click', acts[id]);
       });
     })();
+
+    // Shared Previous/Next source switcher (Process / Review / Transcript /
+    // Study / Exports). Delegated on document so re-rendered switcher buttons
+    // keep working without rebinding. Selecting stays on the current screen.
+    document.addEventListener('click', function (e) {
+      var sw = e.target && e.target.closest ? e.target.closest('[data-jsw] button[data-jdir]') : null;
+      if (!sw) return;
+      e.preventDefault();
+      selectAdjacentJob(parseInt(sw.dataset.jdir, 10) || 0);
+    });
+
+    // Live log: Latest jumps to the newest line and resumes auto-follow.
+    // Scrolling upward deliberately pauses following until Latest is pressed.
+    var procLogEl = $('proc-log');
+    if (procLogEl) {
+      procLogEl.addEventListener('scroll', function () {
+        LP.logFollow = procLogEl.scrollTop + procLogEl.clientHeight >= procLogEl.scrollHeight - 8;
+      });
+    }
+    var btnLogLatest = $('btn-log-latest');
+    if (btnLogLatest) btnLogLatest.addEventListener('click', function () {
+      var el = $('proc-log');
+      if (!el) return;
+      LP.logFollow = true;
+      el.scrollTop = el.scrollHeight;
+    });
 
     // review
     var strip = $('timeline-strip');
@@ -4979,12 +5226,12 @@
     });
 
     // transcript
-    $('btn-copy-transcript').addEventListener('click', function () {
-      var text = LP.data.transcript.blocks.map(function (b) {
-        var tmp = document.createElement('div'); tmp.innerHTML = b.html;
-        return b.t + '  ' + tmp.textContent;
-      }).join('\n\n');
-      if (navigator.clipboard) navigator.clipboard.writeText(text);
+    var btnCopyText = $('btn-copy-text'), btnCopyStamped = $('btn-copy-stamped');
+    if (btnCopyText) btnCopyText.addEventListener('click', function () {
+      copyText(formatTranscriptPlain(LP.data.transcript.blocks), 'Transcript copied');
+    });
+    if (btnCopyStamped) btnCopyStamped.addEventListener('click', function () {
+      copyText(formatTranscriptStamped(LP.data.transcript.blocks), 'Transcript copied with timestamps');
     });
 
     // study
@@ -5284,6 +5531,8 @@
       LP.data.queue = queue;
       renderQueue();
       renderScheduled();
+      renderJobSwitcher();
+      renderProcessJobState();
     });
 
     lpBridge.on('study_progress', function (json) {
@@ -5331,18 +5580,14 @@
       var m = parseBridgePayload(json, null);
       if (!m || typeof m !== 'object') return;
       LP.state.completedJob = m.job_id || '';
-      var set = function (id, v) { var el = $(id); if (el) el.textContent = v; };
-      set('cm-time', m.wall_time || '—');
-      set('cm-words', (m.transcript_words != null ? m.transcript_words : '—'));
-      set('cm-segments', (m.segment_count != null ? m.segment_count : '—'));
-      set('cm-slides', (m.slides_detected != null ? m.slides_detected : '—'));
-      var panel = $('proc-completion'); if (panel) panel.hidden = false;
+      // Paint the completion card only when the completed job is the one being
+      // viewed; the stats are kept per job so switching back re-paints them.
+      applyCompletionPanel(m);
       var pause = $('btn-pause-job'), resume = $('btn-resume-job');
       if (pause) pause.hidden = true;
       if (resume) resume.hidden = true;
-      _applyLpState(panel, 'complete');
       // F-3: every readout settles to the terminal state from one place.
-      settleTerminalStatus('complete');
+      if (m.job_id === LP.state.jobId) settleTerminalStatus('complete');
     });
     lpBridge.on('notification_prefs', function (json) {
       var payload = parseBridgePayload(json, null);
@@ -5390,6 +5635,17 @@
       }
       renderJobs();           // poster URLs are stable, so loaded ones stay cached
       renderProcOptions();
+      // Track the processing slot from the list truth: the running job is the
+      // active one; a terminal active job has released the slot.
+      var runningId = '';
+      LP.data.jobs.forEach(function (j) { if (j && j.status === 'running' && !runningId) runningId = j.id; });
+      if (runningId) LP.state.activeJobId = runningId;
+      else if (LP.state.activeJobId) {
+        var activeStill = _jobById(LP.state.activeJobId);
+        if (!activeStill || activeStill.status !== 'running') LP.state.activeJobId = '';
+      }
+      renderJobSwitcher();
+      renderProcessJobState();
       // F-3: settle the readouts once the job list can confirm the active
       // job's terminal state. On relaunch active_job legitimately arrives
       // BEFORE this list exists, so setActiveJob alone cannot settle.
@@ -5462,8 +5718,11 @@
           // setActiveJob snapshots the outgoing lecture into byJob, so dropping
           // the cache entry before the switch would put it straight back.
           if (id === LP.state.jobId) setActiveJob('', '');
+          if (id === LP.state.activeJobId) LP.state.activeJobId = '';
           delete LP.byJob[id];
           delete LP.state.selected[id];
+          delete statusByJob[id];
+          delete runningByJob[id];
         });
         renderSelCount();
         if (lpBridge.connected()) lpBridge.call('list_jobs');
@@ -5476,12 +5735,18 @@
         // Deactivate FIRST: setActiveJob snapshots the outgoing lecture into
         // byJob, so deleting before the switch would put it straight back.
         if (d.id === LP.state.jobId) setActiveJob('', '');
+        if (d.id === LP.state.activeJobId) LP.state.activeJobId = '';
         delete LP.byJob[d.id];
+        delete statusByJob[d.id];
+        delete runningByJob[d.id];
       }
       if (d.ok && lpBridge.connected()) lpBridge.call('list_jobs');
     });
 
-    // The backend owns which lecture the workspace belongs to; the UI follows.
+    // The backend owns which job is PROCESSING; the UI decides which job is
+    // VIEWED. active_job updates the processing slot and auto-selects a NEW
+    // active job once (so Process follows a job the moment it starts), but it
+    // never yanks the user away from an older job they have opened since.
     lpBridge.on('active_job', function (json) {
       var a = parseBridgePayload(json || '{}', {});
       if (a.id && LP.data.jobs.length && !LP.data.jobs.some(function (job) { return job.id === a.id; })) {
@@ -5489,92 +5754,168 @@
         if (LP.state.jobId === a.id) setActiveJob('', '');
         return;
       }
-      setActiveJob(a.id || '', a.title || friendlyJobName(a.id || ''));
+      if (!a.id) {
+        LP.state.activeJobId = '';
+        autoSelectedActiveId = '';
+        renderJobSwitcher();
+        return;
+      }
+      // Only a job the list actually reports as running is "processing". The
+      // backend also re-asserts a non-running restored/default slot; that
+      // never counts as the active processing job.
+      var running = LP.data.jobs.some(function (j) { return j && j.id === a.id && j.status === 'running'; });
+      LP.state.activeJobId = running ? a.id : '';
+      // Auto-follow ONCE per genuinely new processing job. On relaunch with no
+      // view yet, also follow the restored slot so the workspace is not empty.
+      if (a.id !== autoSelectedActiveId && (running || !LP.state.jobId)) {
+        autoSelectedActiveId = a.id;
+        selectJob(a.id, { silent: true });
+      }
+      renderJobSwitcher();
     });
     lpBridge.on('pipeline_changed', function (json) {
       var p = parseBridgePayload(json, null);
       if (!p || typeof p !== 'object') return;
-      if (!ownsPayload(p)) return;      // stale: belongs to another lecture
-      if (p.log) LP.data.pipeline.log = p.log;
-      LP.data.pipeline.title = p.title || LP.data.pipeline.title;
-      LP.data.pipeline.meta = p.meta || LP.data.pipeline.meta;
-      LP.data.pipeline.stages = p.stages || LP.data.pipeline.stages;
+      var owner = p.job || LP.state.jobId;
+      // Route by job id: the pipeline of the job being viewed updates the live
+      // workspace; any other job's pipeline accumulates in its per-job store so
+      // switching back shows the latest stages without waiting for a replay.
+      var viewed = routeJobPayload(p, function (data) {
+        if (p.log) data.pipeline.log = p.log;
+        data.pipeline.title = p.title || data.pipeline.title;
+        data.pipeline.meta = p.meta || data.pipeline.meta;
+        data.pipeline.stages = p.stages || data.pipeline.stages;
+      });
       // D-08: pipeline_changed only ever reaches here for a NORMAL job
       // (demo signals are filtered by _forward_normal on the Python side),
       // so any non-"done" stage means a real job is actively running.
       // _on_pipeline_completed sets every stage to "done" before its final
       // emit, so this naturally clears on success too; the failure path
       // clears via the terminal status_changed label below.
-      LP.state.pipelineRunning = Array.isArray(LP.data.pipeline.stages) &&
-        LP.data.pipeline.stages.some(function (st) { return st && st.state !== 'done'; });
-      schedulePipelineRender();
-      renderSlideDetectionPreset();
+      var running = Array.isArray(p.stages) &&
+        p.stages.some(function (st) { return st && st.state !== 'done'; });
+      runningByJob[owner] = running;
+      if (viewed) {
+        LP.state.pipelineRunning = running;
+        schedulePipelineRender();
+        renderSlideDetectionPreset();
+      }
+      // Keep the Home card's stage label current from the pipeline payload.
+      var activeStage = '';
+      if (Array.isArray(p.stages)) {
+        p.stages.forEach(function (st) {
+          if (st && st.state === 'active' && !activeStage) activeStage = st.label || st.name || '';
+        });
+      }
+      if (activeStage) applyJobLive(owner, { stage: activeStage });
     });
     lpBridge.on('log_line', function (json) {
-      if (!LP.state.jobId) return;      // no lecture owns this log yet
       var line = parseBridgePayload(json, null);
       if (!line || typeof line !== 'object') return;
-      LP.data.pipeline.log.push(line);
-      if (LP.data.pipeline.log.length > 500) LP.data.pipeline.log.shift();
-      schedulePipelineRender();   // was renderPipeline() per line -- see the comment there
+      var owner = line.job || LP.state.jobId;
+      if (!owner) return;
+      var viewed = routeJobPayload(line, function (data) {
+        data.pipeline.log.push(line);
+        if (data.pipeline.log.length > 500) data.pipeline.log.shift();
+      });
+      if (viewed) schedulePipelineRender();   // was renderPipeline() per line -- see the comment there
     });
     lpBridge.on('status_changed', function (json) {
       var s = parseBridgePayload(json, null);
       if (!s || typeof s !== 'object') return;
-      if (!ownsPayload(s)) return;      // stale: belongs to another lecture
-      // F-3: the job list is the truth about whether the active lecture is
-      // finished. On relaunch the backend replays the last LIVE status of a
-      // restored job ("Processing - 100%", "Detecting slides"); no terminal
-      // event ever follows it. A non-terminal status for a lecture the list
-      // already calls done/failed/cancelled/interrupted is that replay —
-      // ignore it and re-assert the settled terminal readout instead.
-      var listEntry = (LP.data.jobs || []).filter(function (j) { return j && j.id === LP.state.jobId; })[0];
-      var listTerminal = listEntry && (listEntry.status === 'done' || listEntry.status === 'failed' ||
-        listEntry.status === 'cancelled' || listEntry.status === 'interrupted') ? listEntry.status : null;
+      var owner = s.job || LP.state.jobId;
+      if (!owner) return;
       var incomingTerminal = s.label === 'Failed' || (function (t) {
         return t === 'failed' || t === 'done' || t === 'complete' || t === 'cancelled';
       })(normalizedProcessingText(s.label));
+      var terminalLabel = normalizedProcessingText(s.label);
+
+      var listEntry = _jobById(owner);
+      // F-3: the job list is the truth about whether a job is finished. On
+      // relaunch the backend replays the last LIVE status of a restored job
+      // ("Processing - 100%", "Detecting slides"); no terminal event ever
+      // follows it. A non-terminal status for a job the list already calls
+      // done/failed/cancelled/interrupted is that replay — ignore it entirely
+      // so neither the sidebar nor the Home card reverts to Processing.
+      var listTerminal = listEntry && (listEntry.status === 'done' || listEntry.status === 'failed' ||
+        listEntry.status === 'cancelled' || listEntry.status === 'interrupted') ? listEntry.status : null;
       if (listTerminal && !incomingTerminal) {
-        settleTerminalStatus(listTerminal === 'done' ? 'complete' : listTerminal);
+        if (owner === LP.state.jobId) settleTerminalStatus(listTerminal === 'done' ? 'complete' : listTerminal);
         return;
       }
-      pendingProcessingStatus = Object.assign({}, pendingProcessingStatus, s);
-      scheduleProcessingRender('status');
-      // D-08: _on_pipeline_failed (Python) never re-emits pipeline_changed
-      // with the failed stage cleared, so pipelineRunning must be released
-      // explicitly on the terminal "Failed" status label. "Done" is handled
-      // here too as a redundant safety net -- the all-"done" stages payload
-      // already clears it above.
-      var terminalLabel = normalizedProcessingText(s.label);
-      if (s.label === 'Failed' || terminalLabel === 'failed' || terminalLabel === 'done' ||
-          terminalLabel === 'complete' || terminalLabel === 'cancelled') {
-        LP.state.pipelineRunning = false;
-        // PC polish: clear stale processing text (e.g. a lingering "Transcribing
-        // audio") so the primary status area returns to Idle when no job is
-        // actively processing.
-        pendingProcessingStatus = {};
-        lastStatusRenderKey = null;
-        var statusLabel = $('status-label');
-        if (statusLabel) statusLabel.textContent = 'Idle';
-        var statusPct = $('status-pct');
-        if (statusPct) statusPct.textContent = '';
-        setFill('status-bar', 0);
-        renderSlideDetectionPreset();
-        // F-3: the terminal event's own readouts were previously dropped with
-        // the cleared pending dict, freezing the sidebar/status bar mid-stage
-        // ("Processing - 86%" / "Detecting slides") forever. Paint the settled
-        // terminal state directly from the current job state.
-        settleTerminalStatus(terminalLabel === 'failed' || s.label === 'Failed' ? 'failed' :
-          terminalLabel === 'cancelled' ? 'cancelled' : 'complete');
+
+      // 1) Keep the matching Home card live BY JOB ID — never only the viewed
+      // job. Status transitions rebuild the card; progress-only updates patch
+      // the bar and label in place so Home never freezes mid-transcription.
+      if (listEntry) {
+        var patch = {};
+        if (incomingTerminal) {
+          patch.status = (s.label === 'Failed' || terminalLabel === 'failed') ? 'failed'
+            : terminalLabel === 'cancelled' ? 'cancelled'
+            : terminalLabel === 'interrupted' ? 'interrupted' : 'done';
+          patch.pct = patch.status === 'done' ? 100 : 0;
+          runningByJob[owner] = false;
+          if (owner === LP.state.activeJobId) LP.state.activeJobId = '';
+          // The slot is released: a next queued job that starts is a NEW active
+          // job and is allowed to auto-follow once.
+          if (owner === autoSelectedActiveId) autoSelectedActiveId = '';
+        } else {
+          var processingLabel = s.label === 'Processing' || /- \d+%$/.test(String(s.detail || ''));
+          if (processingLabel) patch.status = 'running';
+          var stage = stageFromStatusDetail(s.detail);
+          if (stage) patch.stage = stage;
+          if (s.pct !== undefined) patch.pct = s.pct;
+        }
+        applyJobLive(owner, patch);
+        updateJobCardDom(owner);
       }
+
+      // 2) The sidebar/status readouts follow the VIEWED job. Live labels are
+      // remembered per job so switching back repaints without waiting for a
+      // replay; a job processing in the background never overwrites the screen.
+      if (owner === LP.state.jobId) {
+        pendingProcessingStatus = Object.assign({}, pendingProcessingStatus, s);
+        scheduleProcessingRender('status');
+        // D-08: _on_pipeline_failed (Python) never re-emits pipeline_changed
+        // with the failed stage cleared, so pipelineRunning must be released
+        // explicitly on the terminal "Failed" status label. "Done" is handled
+        // here too as a redundant safety net -- the all-"done" stages payload
+        // already clears it above.
+        if (incomingTerminal) {
+          LP.state.pipelineRunning = false;
+          runningByJob[owner] = false;
+          // PC polish: clear stale processing text (e.g. a lingering
+          // "Transcribing audio") so the primary status area returns to Idle
+          // when no job is actively processing.
+          pendingProcessingStatus = {};
+          lastStatusRenderKey = null;
+          var statusLabel = $('status-label');
+          if (statusLabel) statusLabel.textContent = 'Idle';
+          var statusPct = $('status-pct');
+          if (statusPct) statusPct.textContent = '';
+          setFill('status-bar', 0);
+          renderSlideDetectionPreset();
+          // F-3: the terminal event's own readouts were previously dropped with
+          // the cleared pending dict, freezing the sidebar/status bar mid-stage
+          // ("Processing - 86%" / "Detecting slides") forever. Paint the
+          // settled terminal state directly from the current job state.
+          settleTerminalStatus(terminalLabel === 'failed' || s.label === 'Failed' ? 'failed' :
+            terminalLabel === 'cancelled' ? 'cancelled' : 'complete');
+        }
+      } else {
+        statusByJob[owner] = Object.assign({}, statusByJob[owner], s);
+      }
+      refreshControlStates();
     });
     lpBridge.on('slides_changed', function (json) {
       var d = parseBridgePayload(json, null);
       if (!d || typeof d !== 'object') return;
-      if (!ownsPayload(d)) return;
-      LP.data.slides = d.slides || LP.data.slides;
-      if (d.duration) LP.data.duration = d.duration;
-      if (d.durationMid) LP.data.durationMid = d.durationMid;
+      var viewed = routeJobPayload(d, function (data) {
+        data.slides = d.slides || data.slides;
+        if (d.duration) data.duration = d.duration;
+        if (d.durationMid) data.durationMid = d.durationMid;
+      });
+      if (!viewed) return;
       if (LP.state.viewingSlide >= LP.data.slides.length) LP.state.viewingSlide = 0;
       hideScrub();  // job changed — drop any stale hover preview
       renderSlides();
@@ -5583,15 +5924,20 @@
     lpBridge.on('transcript_changed', function (json) {
       var d = parseBridgePayload(json, null);
       if (!d || typeof d !== 'object') return;
-      if (!ownsPayload(d)) return;
-      if (d.reviewSegments) { LP.data.reviewSegments = d.reviewSegments; renderReviewTranscript(); }
-      if (d.transcript) { LP.data.transcript = d.transcript; renderTranscript(); }
+      var viewed = routeJobPayload(d, function (data) {
+        if (d.reviewSegments) data.reviewSegments = d.reviewSegments;
+        if (d.transcript) data.transcript = d.transcript;
+      });
+      if (!viewed) return;
+      if (d.reviewSegments) renderReviewTranscript();
+      if (d.transcript) renderTranscript();
     });
     lpBridge.on('study_changed', function (json) {
       var sd = parseBridgePayload(json, null);
       if (!sd || typeof sd !== 'object') return;
-      if (!ownsPayload(sd)) return;
-      LP.data.study = sd; renderStudy();
+      var viewed = routeJobPayload(sd, function (data) { data.study = sd; });
+      if (!viewed) return;
+      renderStudy();
       var na = $('notes-area');
       if (na && document.activeElement !== na) na.value = LP.data.study.notes || '';
     });
@@ -5599,8 +5945,10 @@
       var d = parseBridgePayload(json, null);
       if (!d || typeof d !== 'object') return;
       var q = LP.state.quiz;
-      if (!ownsPayload(d)) return;
-      LP.data.quiz = { questions: d.questions || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
+      var viewed = routeJobPayload(d, function (data) {
+        data.quiz = { questions: d.questions || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
+      });
+      if (!viewed) return;
       if (d.session && typeof d.session === 'object' && Object.keys(d.session).length) {
         q.index = d.session.index || 0; q.answers = d.session.answers || {}; q.flags = d.session.flags || {};
         q.autoAdvance = !!d.session.autoAdvance; q.phase = d.session.phase === 'summary' ? 'summary' : 'session';
@@ -5622,8 +5970,10 @@
       var d = parseBridgePayload(json, null);
       if (!d || typeof d !== 'object') return;
       var f = LP.state.flash;
-      if (!ownsPayload(d)) return;
-      LP.data.flashcards = { cards: d.cards || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
+      var viewed = routeJobPayload(d, function (data) {
+        data.flashcards = { cards: d.cards || [], provider: d.provider || '', model: d.model || '', meta: d.meta || {} };
+      });
+      if (!viewed) return;
       if (d.session && typeof d.session === 'object' && Object.keys(d.session).length) {
         f.index = d.session.index || 0; f.known = d.session.known || {}; f.unsure = d.session.unsure || {};
         f.bookmarks = d.session.bookmarks || {}; f.order = d.session.order || []; f.phase = 'session';
@@ -5644,6 +5994,7 @@
     lpBridge.on('export_progress', function (json) {
       var p = parseBridgePayload(json, null);
       if (!p || typeof p !== 'object') return;
+      if (p.job && p.job !== LP.state.jobId) return;   // another job's export
       LP.state.exportPhase = 'running'; renderExportPhase();
       setFill('export-progress-bar', p.pct || 0);
       $('export-progress-label').textContent = p.label || '';
@@ -5651,8 +6002,12 @@
     lpBridge.on('export_done', function (json) {
       var d = parseBridgePayload(json, null);
       if (!d || typeof d !== 'object') return;
-      LP.data.exportFiles = d.files || LP.data.exportFiles;
-      LP.state.exportPhase = 'done'; renderExportPhase();
+      var viewed = routeJobPayload(d, function (data) {
+        data.exportFiles = d.files || data.exportFiles;
+      });
+      if (!viewed) return;
+      LP.state.exportPhase = 'done';
+      renderExportPhase();
       if (d.meta) $('export-done-meta').textContent = d.meta;
     });
     lpBridge.on('ai_token', function (text) { appendAiText(text, false); });
