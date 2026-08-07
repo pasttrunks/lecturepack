@@ -75,3 +75,31 @@ Each implementation request must restate:
 - Required completion evidence
 
 ## Imported Claude Cowork project instructions
+
+## Workspace and Repository Layout (post-cleanup)
+
+- Canonical repository: `C:\Users\marsh\Documents\LecturePack`
+- Never clone or copy the repository into another LecturePack folder.
+- Additional agents must use Git worktrees under:
+  `C:\Users\marsh\Documents\LecturePack-worktrees\<task-name>`
+- Disposable test data:
+  `C:\LecturePackScratch\data\<task-name>`
+- Test results:
+  `C:\LecturePackScratch\results\<task-name>`
+- Builds:
+  `C:\LecturePackScratch\builds\<task-name>`
+- Logs:
+  `C:\LecturePackScratch\logs\<task-name>`
+- Never use:
+  `C:\Users\marsh\LecturePackData`
+- Before editing, every agent must run:
+
+  ```text
+  git rev-parse --show-toplevel
+  git status --short
+  git branch --show-current
+  git rev-parse HEAD
+  git worktree list
+  ```
+
+- Agents must not create new top-level LecturePack folders.
