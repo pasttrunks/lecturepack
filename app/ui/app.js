@@ -6497,10 +6497,14 @@
   var pendingTranscriptJump = null;
 
   // ---- Feature 4: per-job resume state ----
+  // Persistence goes through the shared browserStorage() helper so the app
+  // keeps exactly one direct localStorage call site for the setup flag — the
+  // invariant enforced by
+  // test_no_third_browser_storage_call_site_is_added_for_the_setup_flag.
   var resumeStore = (function () {
     var key = 'lecturepack.resume.v1';
-    function read() { try { return JSON.parse(window.localStorage.getItem(key) || '{}'); } catch (_) { return {}; } }
-    function write(data) { try { window.localStorage.setItem(key, JSON.stringify(data)); } catch (_) {} }
+    function read() { try { return JSON.parse(browserStorage().getItem(key) || '{}'); } catch (_) { return {}; } }
+    function write(data) { try { browserStorage().setItem(key, JSON.stringify(data)); } catch (_) {} }
     return {
       save: function (jobId, state) {
         if (!jobId) return;
