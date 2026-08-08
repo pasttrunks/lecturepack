@@ -3911,6 +3911,11 @@
   }
 
   function bindStudyV2Events() {
+    // Boot can be re-entered after a restored job or a bridge reconnect. Keep
+    // the delegated Study handlers single-owner so one click cannot submit
+    // the same edit, delete, or answer multiple times.
+    if (bindStudyV2Events._bound) return;
+    bindStudyV2Events._bound = true;
     document.querySelectorAll('.study-mode-tab').forEach(function (btn) {
       btn.addEventListener('click', function () { setStudyV2Mode(btn.dataset.studyMode); });
     });
