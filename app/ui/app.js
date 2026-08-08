@@ -2681,6 +2681,9 @@
       }
       if (name === 'process') renderSlideDetectionPreset();
       if (name === 'exports') updateExportPdfDescription();
+      if (name === 'study') {
+        studyV2Load();   // load grounded Study V2 content + progress
+      }
       if ((name === 'study' || name === 'settings') && lpBridge.connected()) {
         lpBridge.call('smart_study_status');
       }
@@ -3590,6 +3593,394 @@
     renderSidePoster('');
     var w = $('storage-widget');
     if (w) w.hidden = true;
+  }
+
+  // ------------------------------------------------------------------ //
+  // Study V2: grounded concepts, mastery, flashcards, quiz, quick study
+  // ------------------------------------------------------------------ //
+  var studyV2 = {
+    content: null,
+    progress: null,
+    summary: null,
+    mode: 'overview',
+    flashIndex: 0,
+    flashRevealed: false,
+    flashResults: { got: 0, missed: 0, missedIds: [] },
+    quizIndex: 0,
+    quizAnswers: [],
+    quizCorrect: 0,
+    quizAsked: [],
+    quickSession: null,
+    quickIndex: 0,
+    quickCorrect: 0,
+    quickTotal: 0
+  };
+
+  function fmtTime(ms) {
+    if (ms == null) return '';
+    var s = Math.max(0, Math.round(Number(ms) / 1000));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    if (h) return h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+    return m + ':' + String(sec).padStart(2, '0');
+  }
+
+  function escText(v) {
+    return String(v == null ? '' : v).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"');
+  }
+
+  function studyV2Load() {
+    if (!lpBridge.connected()) return;
+    lpBridge.call('study_v2_status', {}).then(function (res) {
+      if (!res || !res.content) return;
+      studyV2.content = res.content;
+      studyV2.progress = res.progress || { concepts: {}, flashcard_results: {}, quiz_attempts: [] };
+      studyV2.summary = res.summary || {};
+      renderStudyV2Overview();
+    }).catch(function () {});
+  }
+
+  function conceptMastery(cid) {
+    var p = (studyV2.progress && studyV2.progress.concepts) || {};
+    return (p[cid] && p[cid].mastery) || 'NEW';
+  }
+
+  function renderStudyV2Overview() {
+    var content = studyV2.content || { concepts: [], flashcards: [], quiz: [] };
+    var summary = studyV2.summary || {};
+    var title = (LP.data.job && LP.data.job.name) || 'Lecture';
+    $('study-ready-title').textContent = title;
+    $('study-ready-meta').textContent = content.concepts.length + ' concepts · ' + content.flashcards.length + ' cards · ' + content.quiz.length + ' questions';
+    var pct = summary.progress_percent || 0;
+    $('study-progress-pct').textContent = pct + '%';
+    $('study-progress-bar').style.transform = 'scaleX(' + (pct / 100) + ')';
+    var needsReview = summary.needs_review || 0;
+    $('study-needs-review-line').textContent = needsReview + ' concepts left to review';
+
+    // Key concepts
+    var conceptsHtml = '';
+    (content.concepts || []).forEach(function (c) {
+      var mastery = conceptMastery(c.id);
+      var masteryLabel = { NEW: 'New', LEARNING: 'Learning', MASTERED: 'Mastered', NEEDS_REVIEW: 'Needs review' }[mastery] || 'New';
+      var sources = (c.sources || []).map(function (s) {
+        var parts = [];
+        if (s.segment_id != null) parts.push('<button class="lp-hit study-source study-source-time" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
+        if (s.slide_id != null) parts.push('<button class="lp-hit study-source study-source-slide" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
+        return parts.join(' ');
+      }).join('');
+      var emphasisBadge = c.emphasis ? '<span style="font:600 9px JetBrains Mono;color:var(--orange-ink);background:var(--orange-soft);border:1.5px solid var(--orange);border-radius:5px;padding:2px 6px;text-transform:uppercase">Emphasized</span>' : '';
+      conceptsHtml += '<div class="study-concept" style="background:var(--sunk);border:1.5px solid var(--line);border-radius:10px;padding:14px 16px">' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-weight:700;font-size:14px;flex:1">' + escText(c.title) + '</span>' + emphasisBadge + '<span style="font:600 10px JetBrains Mono;color:var(--muted)">' + masteryLabel + '</span></div>' +
+        '<div style="font-size:13px;color:var(--secondary-text);line-height:1.55;margin-bottom:8px">' + escText(c.explanation) + '</div>' +
+        (sources ? '<div style="display:flex;gap:6px;flex-wrap:wrap">' + sources + '</div>' : '') +
+        '<div style="display:flex;gap:6px;margin-top:8px"><button class="lp-hit study-explain" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--ink)">Explain</button>' +
+        '<button class="lp-hit study-edit" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--muted)">Edit</button>' +
+        '<button class="lp-hit study-delete" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--red)">Delete</button></div></div>';
+    });
+    $('study-concepts-list').innerHTML = conceptsHtml || '<div style="font:500 12px JetBrains Mono;color:var(--muted)">No concepts yet. Process a lecture to build Study content.</div>';
+
+    // Needs review list
+    var needsReviewHtml = '';
+    (content.concepts || []).forEach(function (c) {
+      if (conceptMastery(c.id) === 'NEEDS_REVIEW') {
+        needsReviewHtml += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px"><span style="font-weight:600">' + escText(c.title) + '</span></div>';
+      }
+    });
+    $('study-needs-review-list').innerHTML = needsReviewHtml || '<div style="font:500 12px JetBrains Mono;color:var(--muted)">Nothing to review — nice work.</div>';
+
+    // Study stats
+    $('study-stats-v2').innerHTML =
+      statRow('Mastered', summary.mastered || 0) +
+      statRow('Learning', summary.learning || 0) +
+      statRow('Needs review', summary.needs_review || 0) +
+      statRow('Cards done', summary.cards_completed || 0) +
+      statRow('Quiz correct', summary.quiz_correct || 0);
+  }
+
+  function statRow(label, value) {
+    return '<div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--muted)">' + label + '</span><span style="font-weight:700">' + value + '</span></div>';
+  }
+
+  function studySlideLabel(slideId) {
+    // Slide IDs are image filenames or indices; show a short label.
+    var idx = String(slideId).replace(/[^0-9]/g, '');
+    return idx || '?';
+  }
+
+  function renderStudyFlashcards() {
+    var cards = (studyV2.content && studyV2.content.flashcards) || [];
+    var root = $('study-flashcards-root');
+    if (!cards.length) {
+      root.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font:500 13px JetBrains Mono">No flashcards yet.</div>';
+      return;
+    }
+    var card = cards[studyV2.flashIndex];
+    if (!card) {
+      // Session complete
+      root.innerHTML = '<div style="text-align:center;padding:40px">' +
+        '<div style="font-weight:700;font-size:20px;margin-bottom:8px">Cards reviewed</div>' +
+        '<div style="font:500 13px JetBrains Mono;color:var(--muted);margin-bottom:20px">' + cards.length + ' cards · ' + studyV2.flashResults.got + ' got it · ' + studyV2.flashResults.missed + ' need review</div>' +
+        (studyV2.flashResults.missed ? '<button id="btn-study-review-missed" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer">Review the ' + studyV2.flashResults.missed + ' I missed</button>' : '') +
+        '<button id="btn-study-flash-restart" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;color:var(--ink);margin-left:8px">Start over</button></div>';
+      bindStudyFlashcardSessionButtons();
+      return;
+    }
+    var sources = (card.sources || []).map(function (s) {
+      var parts = [];
+      if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
+      if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
+      return parts.join(' ');
+    }).join('');
+    var progress = 'Card ' + (studyV2.flashIndex + 1) + ' of ' + cards.length;
+    root.innerHTML = '<div style="max-width:560px;margin:0 auto">' +
+      '<div style="text-align:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:16px">' + progress + '</div>' +
+      '<div id="study-flash-card" class="lp-card" style="background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);padding:34px 30px;min-height:220px;display:flex;flex-direction:column;justify-content:center;text-align:center">' +
+      '<div style="font-size:22px;font-weight:700;line-height:1.4;margin-bottom:14px">' + escText(card.front) + '</div>' +
+      (studyV2.flashRevealed ? '<div style="border-top:2px solid var(--line);padding-top:16px;font-size:16px;color:var(--ink);line-height:1.5">' + escText(card.back) + '</div>' : '<button id="btn-study-flash-show" class="lp-hit lp-press" style="font:700 14px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:11px 20px;cursor:pointer;margin:0 auto">Show answer</button>') +
+      '</div>' +
+      (sources ? '<div style="display:flex;justify-content:center;gap:6px;margin-top:14px">' + sources + '</div>' : '') +
+      (studyV2.flashRevealed ?
+        '<div style="display:flex;justify-content:center;gap:10px;margin-top:20px">' +
+        '<button id="btn-study-flash-again" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 18px;cursor:pointer;color:var(--ink)">Review again</button>' +
+        '<button id="btn-study-flash-got" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--green-fill);color:var(--on-signal);border:2px solid var(--green);border-radius:9px;padding:10px 18px;cursor:pointer">Got it</button></div>' : '') +
+      '</div>';
+    bindStudyFlashcardButtons();
+  }
+
+  function bindStudyFlashcardButtons() {
+    var show = $('btn-study-flash-show');
+    if (show) show.addEventListener('click', function () { studyV2.flashRevealed = true; renderStudyFlashcards(); });
+    var again = $('btn-study-flash-again');
+    if (again) again.addEventListener('click', function () { recordFlashReview(false); });
+    var got = $('btn-study-flash-got');
+    if (got) got.addEventListener('click', function () { recordFlashReview(true); });
+  }
+
+  function recordFlashReview(correct) {
+    var cards = (studyV2.content && studyV2.content.flashcards) || [];
+    var card = cards[studyV2.flashIndex];
+    if (!card) return;
+    if (correct) studyV2.flashResults.got++;
+    else { studyV2.flashResults.missed++; studyV2.flashResults.missedIds.push(card.id); }
+    if (lpBridge.connected()) {
+      lpBridge.call('study_v2_record_flashcard', {
+        card_id: card.id,
+        concept_ids: card.concept_ids || [],
+        correct: correct
+      }).then(function () { studyV2Load(); }).catch(function () {});
+    }
+    studyV2.flashIndex++;
+    studyV2.flashRevealed = false;
+    renderStudyFlashcards();
+  }
+
+  function bindStudyFlashcardSessionButtons() {
+    var restart = $('btn-study-flash-restart');
+    if (restart) restart.addEventListener('click', function () {
+      studyV2.flashIndex = 0; studyV2.flashRevealed = false;
+      studyV2.flashResults = { got: 0, missed: 0, missedIds: [] };
+      renderStudyFlashcards();
+    });
+    var missed = $('btn-study-review-missed');
+    if (missed) missed.addEventListener('click', function () {
+      var cards = (studyV2.content && studyV2.content.flashcards) || [];
+      studyV2.flashResults.missedIds.forEach(function (id) {
+        var idx = cards.findIndex(function (c) { return c.id === id; });
+        if (idx >= 0) { studyV2.flashIndex = idx; studyV2.flashRevealed = false; renderStudyFlashcards(); }
+      });
+    });
+  }
+
+  function renderStudyQuiz() {
+    var questions = (studyV2.content && studyV2.content.quiz) || [];
+    var root = $('study-quiz-root');
+    if (!questions.length) {
+      root.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font:500 13px JetBrains Mono">No quiz questions yet.</div>';
+      return;
+    }
+    var q = questions[studyV2.quizIndex];
+    if (!q) {
+      // Quiz complete
+      root.innerHTML = '<div style="text-align:center;padding:40px">' +
+        '<div style="font-weight:700;font-size:20px;margin-bottom:8px">Quiz complete</div>' +
+        '<div style="font:500 13px JetBrains Mono;color:var(--muted);margin-bottom:20px">' + studyV2.quizCorrect + ' / ' + questions.length + ' correct</div>' +
+        '<button id="btn-study-quiz-restart" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer">Take again</button></div>';
+      var restart = $('btn-study-quiz-restart');
+      if (restart) restart.addEventListener('click', function () {
+        studyV2.quizIndex = 0; studyV2.quizCorrect = 0; studyV2.quizAnswers = [];
+        renderStudyQuiz();
+      });
+      return;
+    }
+    var optionsHtml = (q.options || []).map(function (opt, i) {
+      return '<button class="lp-hit study-quiz-opt" data-opt="' + i + '" style="display:block;width:100%;text-align:left;font:600 14px Space Grotesk;background:var(--sunk);border:2px solid var(--border);border-radius:9px;padding:11px 14px;cursor:pointer;color:var(--ink);margin-bottom:8px">' + escText(opt) + '</button>';
+    }).join('');
+    root.innerHTML = '<div style="max-width:620px;margin:0 auto">' +
+      '<div style="text-align:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:16px">Question ' + (studyV2.quizIndex + 1) + ' of ' + questions.length + '</div>' +
+      '<div style="font-size:18px;font-weight:700;line-height:1.4;margin-bottom:18px;text-align:center">' + escText(q.question) + '</div>' +
+      optionsHtml +
+      '<div id="study-quiz-feedback" style="margin-top:14px"></div></div>';
+    bindStudyQuizButtons();
+  }
+
+  function bindStudyQuizButtons() {
+    var opts = document.querySelectorAll('.study-quiz-opt');
+    opts.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var idx = Number(btn.dataset.opt);
+        var questions = (studyV2.content && studyV2.content.quiz) || [];
+        var q = questions[studyV2.quizIndex];
+        if (!q || studyV2.quizAnswers.indexOf(studyV2.quizIndex) >= 0) return;
+        var correct = (q.correct_index === idx);
+        if (correct) studyV2.quizCorrect++;
+        studyV2.quizAnswers.push(studyV2.quizIndex);
+        if (lpBridge.connected()) {
+          lpBridge.call('study_v2_record_quiz', {
+            question_id: q.id,
+            concept_ids: q.concept_ids || [],
+            correct: correct
+          }).then(function () { studyV2Load(); }).catch(function () {});
+        }
+        var srcHtml = (q.sources || []).map(function (s) {
+          var parts = [];
+          if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
+          if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
+          return parts.join(' ');
+        }).join('');
+        var fb = $('study-quiz-feedback');
+        fb.innerHTML = (correct ? '<div style="color:var(--green);font-weight:700;font-size:15px;margin-bottom:6px">✓ Correct</div>' : '<div style="color:var(--red);font-weight:700;font-size:15px;margin-bottom:6px">✕ Not quite</div>') +
+          (q.explanation ? '<div style="font-size:13px;color:var(--secondary-text);line-height:1.5;margin-bottom:8px">' + escText(q.explanation) + '</div>' : '') +
+          (srcHtml ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' + srcHtml + '</div>' : '') +
+          '<button id="btn-study-quiz-next" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer">Next</button>';
+        var next = $('btn-study-quiz-next');
+        if (next) next.addEventListener('click', function () { studyV2.quizIndex++; renderStudyQuiz(); });
+      });
+    });
+  }
+
+  function renderStudyAsk() {
+    // Feed already has messages; add suggestion chips when empty.
+    if ($('study-ask-feed').children.length) return;
+    $('study-ask-feed').innerHTML =
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px">' +
+      '<button class="lp-hit study-ask-chip" data-q="Explain this lecture simply" style="font:600 12px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;color:var(--ink)">Explain simply</button>' +
+      '<button class="lp-hit study-ask-chip" data-q="What are the key concepts?" style="font:600 12px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;color:var(--ink)">Key concepts</button>' +
+      '<button class="lp-hit study-ask-chip" data-q="Quiz me on this" style="font:600 12px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;color:var(--ink)">Quiz me</button>' +
+      '</div>';
+    document.querySelectorAll('.study-ask-chip').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        $('study-ask-input').value = chip.dataset.q;
+        studyAskSend();
+      });
+    });
+  }
+
+  function studyAskSend() {
+    var input = $('study-ask-input');
+    var q = input.value.trim();
+    if (!q) return;
+    input.value = '';
+    var feed = $('study-ask-feed');
+    feed.innerHTML += '<div style="display:flex;justify-content:flex-end"><div style="background:var(--orange-soft);border:2px solid var(--orange);border-radius:11px;padding:10px 14px;font-size:14px;max-width:80%">' + escText(q) + '</div></div>';
+    feed.innerHTML += '<div style="display:flex;justify-content:flex-start"><div style="background:var(--panel);border:2px solid var(--border);border-radius:11px;padding:10px 14px;font-size:14px;max-width:80%;color:var(--secondary-text)">Thinking…</div></div>';
+    feed.scrollTop = feed.scrollHeight;
+    if (lpBridge.connected()) {
+      lpBridge.call('ask_ai', { prompt: q }).then(function () {}).catch(function () {});
+    } else {
+      setTimeout(function () {
+        var msgs = feed.querySelectorAll('div');
+        if (msgs.length) msgs[msgs.length - 1].textContent = 'Built-in Study: I could not find that in this lecture.';
+      }, 600);
+    }
+  }
+
+  function setStudyV2Mode(mode) {
+    studyV2.mode = mode;
+    document.querySelectorAll('.study-mode-tab').forEach(function (btn) {
+      var active = btn.dataset.studyMode === mode;
+      btn.className = 'lp-hit lp-tab study-mode-tab' + (active ? ' active' : '');
+      btn.style.background = active ? 'var(--orange)' : 'var(--panel)';
+      btn.style.color = active ? 'var(--on-signal)' : 'var(--ink)';
+      btn.style.borderColor = active ? 'var(--orange-ink)' : 'var(--border)';
+    });
+    ['overview', 'flashcards', 'quiz', 'ask'].forEach(function (m) {
+      $('study-mode-' + m).hidden = mode !== m;
+    });
+    if (mode === 'flashcards') { studyV2.flashIndex = 0; studyV2.flashRevealed = false; renderStudyFlashcards(); }
+    if (mode === 'quiz') { studyV2.quizIndex = 0; studyV2.quizCorrect = 0; renderStudyQuiz(); }
+    if (mode === 'ask') renderStudyAsk();
+  }
+
+  function bindStudyV2Events() {
+    document.querySelectorAll('.study-mode-tab').forEach(function (btn) {
+      btn.addEventListener('click', function () { setStudyV2Mode(btn.dataset.studyMode); });
+    });
+    var quick = $('btn-study-quick');
+    if (quick) quick.addEventListener('click', function () {
+      if (!lpBridge.connected()) return;
+      lpBridge.call('study_v2_quick_study', {}).then(function (res) {
+        if (res && res.session) {
+          studyV2.quickSession = res.session;
+          studyV2.quickIndex = 0; studyV2.quickCorrect = 0;
+          // Route to flashcards as the quick study surface (V1).
+          setStudyV2Mode('flashcards');
+          studyV2.flashIndex = 0; studyV2.flashRevealed = false;
+          renderStudyFlashcards();
+        }
+      }).catch(function () {});
+    });
+    var cont = $('btn-study-continue');
+    if (cont) cont.addEventListener('click', function () {
+      var needsReview = (studyV2.summary && studyV2.summary.needs_review > 0);
+      setStudyV2Mode(needsReview ? 'flashcards' : 'overview');
+    });
+    var review = $('btn-study-review');
+    if (review) review.addEventListener('click', function () { setStudyV2Mode('flashcards'); });
+    var send = $('btn-study-ask-send');
+    if (send) send.addEventListener('click', studyAskSend);
+    var askInput = $('study-ask-input');
+    if (askInput) askInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); studyAskSend(); }
+    });
+    // Source navigation (delegated)
+    var concepts = $('study-concepts-list');
+    if (concepts) concepts.addEventListener('click', function (e) {
+      var t = e.target.closest('.study-source');
+      if (t) navigateStudySource(t);
+    });
+    var flashRoot = $('study-flashcards-root');
+    if (flashRoot) flashRoot.addEventListener('click', function (e) {
+      var t = e.target.closest('.study-source');
+      if (t) navigateStudySource(t);
+    });
+    var quizRoot = $('study-quiz-root');
+    if (quizRoot) quizRoot.addEventListener('click', function (e) {
+      var t = e.target.closest('.study-source');
+      if (t) navigateStudySource(t);
+    });
+  }
+
+  function navigateStudySource(el) {
+    var segment = el.dataset.segment;
+    var ms = Number(el.dataset.ms || 0);
+    var slide = el.dataset.slide;
+    if (slide != null) {
+      // Navigate to the slides/review source.
+      setScreen('review');
+      var slides = LP.data.slides || [];
+      var idx = slides.findIndex(function (s) { return String(s.image_filename) === String(slide) || String(s.index) === String(slide); });
+      if (idx >= 0 && typeof showSlideByIndex === 'function') showSlideByIndex(idx);
+      return;
+    }
+    if (segment != null) {
+      setScreen('transcript');
+      // Scroll to the transcript segment by timestamp.
+      setTimeout(function () {
+        var blocks = document.querySelectorAll('#transcript-blocks [data-start]');
+        blocks.forEach(function (b) {
+          if (Number(b.dataset.start) <= ms / 1000) b.scrollIntoView({ block: 'center' });
+        });
+      }, 50);
+    }
   }
 
   function setStudyTab(tab) {
@@ -6731,6 +7122,8 @@
     wireGuidedTour();
     wireModelTooltip();
     wireBridge();
+    bindStudyV2Events();
+    renderStudyV2Overview();
     window.addEventListener('resize', function () { LP.motion.indicator(); });
   }
 
