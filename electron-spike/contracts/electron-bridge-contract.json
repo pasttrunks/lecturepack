@@ -2000,6 +2000,160 @@
       "direction": "command",
       "event_fields": [],
       "mapped_to": "",
+      "name": "study_v2_status",
+      "notes": "Returns the full Study V2 snapshot: content, progress, summary, and Rust core diagnostic. Ensures Study V2 content exists (old-job migration) before returning.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "content",
+        "progress",
+        "summary",
+        "core_info"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_record_flashcard",
+      "notes": "Records a flashcard review result through the Rust core and updates concept mastery.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "card_id",
+        "concept_ids",
+        "correct"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "progress",
+        "summary"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_record_quiz",
+      "notes": "Records a quiz answer result through the Rust core and updates concept mastery.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "question_id",
+        "concept_ids",
+        "correct"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "progress",
+        "summary"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_quick_study",
+      "notes": "Builds a Quick Study session using the Rust core, prioritizing weak/unlearned content.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "session"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_summary",
+      "notes": "Returns the study summary (mastery counts, progress percent).",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "summary"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_edit",
+      "notes": "Edits one concept/card/question.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "kind",
+        "id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_delete",
+      "notes": "Deletes one concept/card/question.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "kind",
+        "id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_regenerate",
+      "notes": "Regenerates one concept/card/question (targeted, not the whole pack).",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "kind",
+        "id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "content"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
       "name": "set_study_preset",
       "notes": "Persists the chosen Smart Study preset + its model; emits settings_changed.",
       "phase8": "",
