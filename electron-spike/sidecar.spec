@@ -44,9 +44,24 @@ hiddenimports = [
     "lecturepack.services.transcript_service",
     "lecturepack.services.transcript_formats",
     "lecturepack.services.study_service",
+    "lecturepack.services.study_v2",
     "lecturepack.infrastructure.whisper_detector",
     "lecturepack.infrastructure.whisper_path_staging",
 ]
+
+# The Rust Study Core native extension (lecturepack_study_core.pyd) is a
+# build-time dependency. It is built with maturin and installed into the
+# project venv; PyInstaller collects it as a binary so the packaged sidecar
+# can import it without customer Rust.
+_study_core_pyd = Path(os.environ.get(
+    "LECTUREPACK_STUDY_CORE_PYD",
+    str(REPO_ROOT / ".venv" / "Lib" / "site-packages" / "lecturepack_study_core" /
+        "lecturepack_study_core.cp312-win_amd64.pyd"),
+)).expanduser().resolve()
+if _study_core_pyd.is_file():
+    binaries = [(str(_study_core_pyd), "lecturepack_study_core")]
+else:
+    binaries = []
 try:
     # yt-dlp resolves extractors by name at runtime. Collecting its extractor
     # modules is required for URL import to work without customer Python.
@@ -60,7 +75,7 @@ except Exception:
 a = Analysis(
     [str(SPIKE_ROOT / "python-sidecar.py")],
     pathex=[str(REPO_ROOT)],
-    binaries=[],
+    binaries=binaries,
     datas=runtime_datas,
     hiddenimports=hiddenimports,
     hookspath=[],

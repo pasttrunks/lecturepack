@@ -1,0 +1,12 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "lecturepack-study-core"
+version = "0.1.0"
+description = "Deterministic mastery and review-state logic for LecturePack Study"
+requires-python = ">=3.9"
+
+[tool.maturin]
+module-name = "lecturepack_study_core"

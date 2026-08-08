@@ -1,0 +1,21 @@
+[package]
+name = "lecturepack-study-core"
+version = "0.1.0"
+edition = "2021"
+description = "Deterministic mastery and review-state logic for LecturePack Study"
+license = "MIT"
+
+[lib]
+name = "lecturepack_study_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.24", features = ["extension-module"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

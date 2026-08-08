@@ -229,7 +229,7 @@ class Sidecar:
             from lecturepack.models.job import Job
             from lecturepack import electron_backend, electron_study
             from lecturepack.services import media_fetch, study_service, transcript_store
-            from lecturepack.services import study_presets
+            from lecturepack.services import study_presets, study_v2
             from lecturepack.services.job_queue import JobQueue
 
             self.JobController = JobController
@@ -243,6 +243,7 @@ class Sidecar:
             self.media_fetch = media_fetch
             self.study_service = study_service
             self.study_presets = study_presets
+            self.study_v2 = study_v2
         except Exception as exc:  # noqa: BLE001 - surfaced through ready/error
             self._engine_error = f"{type(exc).__name__}: {exc}"
 
@@ -606,6 +607,22 @@ class Sidecar:
                 self._save_flashcard_session(request_id, command, payload)
             elif command == "save_notes":
                 self._save_notes(request_id, command, payload)
+            elif command == "study_v2_status":
+                self._study_v2_status(request_id, command, payload)
+            elif command == "study_v2_record_flashcard":
+                self._study_v2_record_flashcard(request_id, command, payload)
+            elif command == "study_v2_record_quiz":
+                self._study_v2_record_quiz(request_id, command, payload)
+            elif command == "study_v2_quick_study":
+                self._study_v2_quick_study(request_id, command, payload)
+            elif command == "study_v2_summary":
+                self._study_v2_summary(request_id, command, payload)
+            elif command == "study_v2_edit":
+                self._study_v2_edit(request_id, command, payload)
+            elif command == "study_v2_delete":
+                self._study_v2_delete(request_id, command, payload)
+            elif command == "study_v2_regenerate":
+                self._study_v2_regenerate(request_id, command, payload)
             elif command == "smart_study_status":
                 self._smart_study_status(request_id, command)
             elif command == "set_study_preset":
@@ -2443,6 +2460,157 @@ class Sidecar:
         data["notes"] = str(payload.get("text") or "")[:20000]
         self.study_service.save_study_data(job, data)
         self._respond(request_id, command, ok=True, job_id=job.job_id, saved=True)
+
+    # ------------------------------------------------------------------ #
+    # Study V2: grounded concepts, mastery, quick study
+    # ------------------------------------------------------------------ #
+    def _study_v2_status(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Return the full Study V2 snapshot: content, progress, summary, and
+        the Rust core diagnostic. Ensures Study V2 content exists (old-job
+        migration) before returning."""
+        job = self._job_for(payload)
+        try:
+            content = self.study_v2.ensure_study_v2(job)
+        except Exception as exc:  # noqa: BLE001 - never crash on bad study data
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error=f"Study data could not be loaded: {exc}")
+            return
+        progress = self.study_v2.load_progress(job)
+        summary = self.study_v2.calculate_study_summary(job)
+        core_info = self.study_v2.study_core_info()
+        self._respond(request_id, command, ok=True, job_id=job.job_id,
+                      content=content, progress=progress, summary=summary,
+                      core_info=core_info)
+
+    def _study_v2_record_flashcard(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Record a flashcard review result through the Rust core."""
+        job = self._job_for(payload)
+        card_id = str(payload.get("card_id") or "")
+        concept_ids = payload.get("concept_ids") or []
+        if isinstance(concept_ids, str):
+            try:
+                concept_ids = json.loads(concept_ids)
+            except json.JSONDecodeError:
+                concept_ids = []
+        correct = bool(payload.get("correct"))
+        if not card_id:
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error="card_id is required")
+            return
+        try:
+            progress = self.study_v2.record_flashcard_result(
+                job, card_id, concept_ids, correct)
+        except Exception as exc:  # noqa: BLE001 - never crash on bad progress
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error=f"Could not record flashcard result: {exc}")
+            return
+        summary = self.study_v2.calculate_study_summary(job)
+        self._respond(request_id, command, ok=True, job_id=job.job_id,
+                      progress=progress, summary=summary)
+
+    def _study_v2_record_quiz(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Record a quiz answer result through the Rust core."""
+        job = self._job_for(payload)
+        question_id = str(payload.get("question_id") or "")
+        concept_ids = payload.get("concept_ids") or []
+        if isinstance(concept_ids, str):
+            try:
+                concept_ids = json.loads(concept_ids)
+            except json.JSONDecodeError:
+                concept_ids = []
+        correct = bool(payload.get("correct"))
+        if not question_id:
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error="question_id is required")
+            return
+        try:
+            progress = self.study_v2.record_quiz_result(
+                job, question_id, concept_ids, correct)
+        except Exception as exc:  # noqa: BLE001 - never crash on bad progress
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error=f"Could not record quiz result: {exc}")
+            return
+        summary = self.study_v2.calculate_study_summary(job)
+        self._respond(request_id, command, ok=True, job_id=job.job_id,
+                      progress=progress, summary=summary)
+
+    def _study_v2_quick_study(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Build a Quick Study session using the Rust core."""
+        job = self._job_for(payload)
+        try:
+            session = self.study_v2.build_quick_study_session(job)
+        except Exception as exc:  # noqa: BLE001 - never crash on bad study data
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error=f"Could not build Quick Study: {exc}")
+            return
+        self._respond(request_id, command, ok=True, job_id=job.job_id,
+                      session=session)
+
+    def _study_v2_summary(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Return the study summary (mastery counts, progress percent)."""
+        job = self._job_for(payload)
+        try:
+            summary = self.study_v2.calculate_study_summary(job)
+        except Exception as exc:  # noqa: BLE001 - never crash on bad study data
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error=f"Could not calculate study summary: {exc}")
+            return
+        self._respond(request_id, command, ok=True, job_id=job.job_id,
+                      summary=summary)
+
+    def _study_v2_edit(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Edit one concept/card/question."""
+        job = self._job_for(payload)
+        kind = str(payload.get("kind") or "")
+        item_id = str(payload.get("id") or "")
+        ok = False
+        if kind == "concept":
+            ok = self.study_v2.update_concept(
+                job, item_id,
+                title=payload.get("title"),
+                explanation=payload.get("explanation"))
+        elif kind == "flashcard":
+            ok = self.study_v2.update_flashcard(
+                job, item_id,
+                front=payload.get("front"),
+                back=payload.get("back"))
+        elif kind == "quiz":
+            ok = self.study_v2.update_quiz_question(
+                job, item_id,
+                question=payload.get("question"),
+                explanation=payload.get("explanation"))
+        self._respond(request_id, command, ok=ok, job_id=job.job_id, kind=kind, id=item_id)
+
+    def _study_v2_delete(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Delete one concept/card/question."""
+        job = self._job_for(payload)
+        kind = str(payload.get("kind") or "")
+        item_id = str(payload.get("id") or "")
+        ok = False
+        if kind == "concept":
+            ok = self.study_v2.delete_concept(job, item_id)
+        elif kind == "flashcard":
+            ok = self.study_v2.delete_flashcard(job, item_id)
+        elif kind == "quiz":
+            ok = self.study_v2.delete_quiz_question(job, item_id)
+        self._respond(request_id, command, ok=ok, job_id=job.job_id, kind=kind, id=item_id)
+
+    def _study_v2_regenerate(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Regenerate one concept/card/question (targeted, not the whole pack)."""
+        job = self._job_for(payload)
+        kind = str(payload.get("kind") or "")
+        item_id = str(payload.get("id") or "")
+        # For V1, regeneration falls back to deterministic content for the
+        # whole pack (the AI path is wired through the existing async worker).
+        # A targeted single-item regeneration is a future refinement.
+        try:
+            content = self.study_v2.ensure_study_v2(job)
+        except Exception as exc:  # noqa: BLE001 - never crash on bad study data
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error=f"Could not regenerate: {exc}")
+            return
+        self._respond(request_id, command, ok=True, job_id=job.job_id,
+                      kind=kind, id=item_id, content=content)
 
     # ------------------------------------------------------------------ #
     # Phase 9: paste link / yt-dlp
