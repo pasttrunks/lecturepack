@@ -1402,10 +1402,17 @@
   function selectJob(jobId, opts) {
     opts = opts || {};
     if (!jobId) return;
+    // Feature 4: when leaving the currently viewed job, persist its view state.
+    if (LP.state.jobId && LP.state.jobId !== jobId) captureResumeState(LP.state.jobId);
     var entry = _jobById(jobId);
     setActiveJob(jobId, entry && entry.name ? entry.name : '');
     if (lpBridge.connected() && !opts.silent) {
       try { lpBridge.call('view_job', jobId); } catch (err) { /* cached data already shown */ }
+    }
+    // Feature 4: restore the viewed job's last position unless an explicit
+    // navigation (search result / Process) overrides it.
+    if (!opts.screen || opts.screen === 'review' || opts.screen === 'transcript' || opts.screen === 'study') {
+      applyResumeState(jobId);
     }
     if (opts.screen) setScreen(opts.screen);
     renderJobSwitcher();
@@ -4902,7 +4909,7 @@
     dz.addEventListener('drop', function (e) {
       e.preventDefault();
       if (hasDemoDrag(e)) { clearDemoDropState(); useDroppedDemo(); return; }
-      importDroppedVideo(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+      importDroppedFiles(e.dataTransfer && e.dataTransfer.files);
     });
     // Electron owns the document-level drop path too. Ignore the dropzone here
     // because its handler already imported the first file and the event bubbles.
@@ -4922,7 +4929,7 @@
       e.preventDefault();
       setOnb(null);
       if (e.target && e.target.closest && e.target.closest('#dropzone')) return;
-      importDroppedVideo(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+      importDroppedFiles(e.dataTransfer && e.dataTransfer.files);
     });
 
     $('btn-show-empty').addEventListener('click', function () { setJobsEmpty(true); });
@@ -5392,11 +5399,90 @@
       }).then(function () { testBtn.disabled = false; });
     });
 
+    // ---- QOL wiring: batch import, processing strip, transcript search,
+    //      Ctrl+K command palette, per-job resume state ----
+    var batchOverlay = $('batch-overlay');
+    if (batchOverlay) {
+      var batchClose = $('batch-close');
+      if (batchClose) batchClose.addEventListener('click', closeBatchImport);
+      batchOverlay.addEventListener('click', function (e) { if (e.target === batchOverlay) closeBatchImport(); });
+      $('btn-batch-apply').addEventListener('click', batchApplyAll);
+      $('btn-batch-queue').addEventListener('click', batchQueueAll);
+      $('btn-batch-done').addEventListener('click', closeBatchImport);
+      Array.prototype.forEach.call(document.querySelectorAll('#batch-quality [data-bq]'), function (o) {
+        o.addEventListener('click', function () { batchQuality = o.dataset.bq; setBatchStyles(); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('#batch-output [data-bo]'), function (o) {
+        o.addEventListener('click', function () { batchMode = o.dataset.bo; setBatchStyles(); });
+      });
+    }
+
+    // Processing strip: click selects the active job and opens Process.
+    var procStrip = $('proc-strip');
+    if (procStrip) procStrip.addEventListener('click', function () {
+      if (LP.state.activeJobId) selectJob(LP.state.activeJobId, { screen: 'process' });
+      else {
+        var running = LP.data.jobs.filter(function (j) { return j && j.status === 'running'; })[0];
+        if (running) selectJob(running.id, { screen: 'process' });
+      }
+    });
+
+    // Global transcript search trigger + interactions.
+    var searchInput = $('search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        if (searchDebounce) clearTimeout(searchDebounce);
+        var value = this.value;
+        searchDebounce = setTimeout(function () { runGlobalSearch(value); }, 220);
+      });
+      searchInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { closeGlobalSearch(); }
+      });
+    }
+    var searchResults = $('search-results');
+    if (searchResults) searchResults.addEventListener('click', function (e) {
+      var r = e.target.closest('[data-result]');
+      if (r) openSearchResult(r.dataset.job, r.dataset.ts);
+    });
+
+    // Ctrl+K command palette: open + input + keyboard navigation.
+    var paletteInput = $('palette-input');
+    if (paletteInput) {
+      paletteInput.addEventListener('input', function () { paletteIndex = 0; renderPalette(this.value); });
+      paletteInput.addEventListener('keydown', function (e) {
+        var host = $('palette-results'), items = (host && host._items) || [];
+        if (e.key === 'Escape') { closePalette(); return; }
+        if (e.key === 'Enter') { e.preventDefault(); activatePaletteItem(paletteIndex, items); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); paletteIndex = Math.min(paletteIndex + 1, items.length - 1); renderPalette(this.value); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); paletteIndex = Math.max(paletteIndex - 1, 0); renderPalette(this.value); }
+      });
+    }
+    var paletteOverlayEl = $('palette-overlay');
+    if (paletteOverlayEl) paletteOverlayEl.addEventListener('click', function (e) {
+      var item = e.target.closest('[data-palette-item]');
+      if (item) { activatePaletteItem(+item.dataset.index, (paletteOverlayEl.querySelector('#palette-results') || {})._items || []); }
+      else if (e.target === paletteOverlayEl) closePalette();
+    });
+
     // Keyboard shortcuts.  An open overlay OWNS the keyboard: digit/F shortcuts
     // must not change the screen behind a modal, and Tab must not escape to
     // controls the user cannot see (both were live defects -- see BUG_LIST.md
     // BUG-01 and BUG-02).
     window.addEventListener('keydown', function (e) {
+      // Ctrl+K opens the command palette (or closes it if open). Runs before
+      // the editing guard so it works even while typing elsewhere.
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && String(e.key || '').toLowerCase() === 'k') {
+        e.preventDefault();
+        if (paletteOverlayEl && !paletteOverlayEl.hidden) closePalette();
+        else openPalette();
+        return;
+      }
+      // Escape closes the palette / search / batch overlays.
+      if (e.key === 'Escape') {
+        if (paletteOverlayEl && !paletteOverlayEl.hidden) { closePalette(); return; }
+        if ($('search-overlay') && !$('search-overlay').hidden) { closeGlobalSearch(); return; }
+        if (batchOverlay && !batchOverlay.hidden) { closeBatchImport(); return; }
+      }
       var tag = (e.target && e.target.tagName) || '';
       var editing = /INPUT|TEXTAREA|SELECT/.test(tag) || (e.target && e.target.isContentEditable);
       if (e.key === 'Escape') {
@@ -5533,6 +5619,16 @@
       renderScheduled();
       renderJobSwitcher();
       renderProcessJobState();
+      renderProcessingStrip();
+    });
+    // Multi-file import returns a batch_import event; the renderer's
+    // importDroppedFiles handles the response directly, but browse_video also
+    // resolves with the jobs for a multi-selection. Open the batch setup panel.
+    lpBridge.on('batch_import', function (json) {
+      var d = parseBridgePayload(json, null);
+      if (!d || typeof d !== 'object') return;
+      var jobs = (d && d.jobs) || [];
+      if (jobs.length) openBatchImport(jobs);
     });
 
     lpBridge.on('study_progress', function (json) {
@@ -5646,6 +5742,7 @@
       }
       renderJobSwitcher();
       renderProcessJobState();
+      renderProcessingStrip();
       // F-3: settle the readouts once the job list can confirm the active
       // job's terminal state. On relaunch active_job legitimately arrives
       // BEFORE this list exists, so setActiveJob alone cannot settle.
@@ -6223,6 +6320,303 @@
         });
       } else startNormalBridgeActivity();
     });
+  }
+
+  /* ======================= QOL features (multi-import, strip, search,
+       resume state, command palette) ======================= */
+
+  // ---- Feature 1: multi-video import + batch setup ----
+  var batchJobs = [];   // [{id, name}] imported in the current batch
+  var batchMode = 'study', batchQuality = 'balanced';
+
+  function importDroppedFiles(files) {
+    if (!files || !files.length || importingFile) return;
+    var paths = [];
+    for (var i = 0; i < files.length; i++) {
+      var path = lpBridge.pathForFile ? lpBridge.pathForFile(files[i]) : '';
+      if (path) paths.push(path);
+    }
+    if (!paths.length) {
+      toast('LecturePack could not access those files. Try Browse for video.');
+      return;
+    }
+    if (!lpBridge.connected()) {
+      setOnb('detected');
+      return;
+    }
+    if (paths.length === 1) {
+      importDroppedVideo(files[0]);
+      return;
+    }
+    // Batch: import every file through the normal import path via the sidecar.
+    importingFile = files[0].name || paths[0];
+    setImporting(true, importingFile);
+    setOnb(null);
+    lpBridge.call('import_videos', { paths: paths }).then(function (result) {
+      setImporting(false);
+      importingFile = null;
+      if (!result || result.ok === false) {
+        var message = friendlyImportError(result);
+        if (message) toast(message);
+        return;
+      }
+      var jobs = (result && result.jobs) || [];
+      if (!jobs.length) {
+        if (result.failures && result.failures.length) toast('None of the selected videos could be imported.');
+        return;
+      }
+      openBatchImport(jobs);
+    }, function () {
+      setImporting(false);
+      importingFile = null;
+    });
+  }
+
+  function openBatchImport(jobs) {
+    batchJobs = jobs.map(function (j) { return { id: j.id, name: j.name || j.file || 'Lecture' }; });
+    batchMode = 'study'; batchQuality = 'balanced';
+    var overlay = $('batch-overlay');
+    if (!overlay) return;
+    $('batch-count').textContent = batchJobs.length;
+    var list = $('batch-list');
+    list.innerHTML = batchJobs.map(function (j) {
+      return '<div style="display:flex;align-items:center;gap:9px;font:500 12px \'Space Grotesk\';background:var(--sunk);border:1.5px solid var(--line);border-radius:8px;padding:7px 10px">' +
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>' +
+        '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(j.name) + '</span></div>';
+    }).join('');
+    setBatchStyles();
+    $('batch-msg').textContent = 'Each lecture keeps its own controls — change one before starting it.';
+    overlay.hidden = false;
+  }
+
+  function closeBatchImport() {
+    batchJobs = [];
+    var overlay = $('batch-overlay');
+    if (overlay) overlay.hidden = true;
+  }
+
+  function setBatchStyles() {
+    var ACTIVE = 'flex:1;text-align:center;font:700 12px \'Space Grotesk\';padding:9px 0;border:2px solid var(--orange);border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);box-shadow:var(--shadow-hard-sm);cursor:pointer';
+    var INACTIVE = 'flex:1;text-align:center;font:500 12px \'Space Grotesk\';padding:9px 0;border:2px solid transparent;border-radius:9px;color:var(--muted);box-shadow:var(--shadow-hard-sm);cursor:pointer';
+    Array.prototype.forEach.call(document.querySelectorAll('#batch-quality [data-bq]'), function (o) {
+      o.style.cssText = o.dataset.bq === batchQuality ? ACTIVE : INACTIVE;
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#batch-output [data-bo]'), function (o) {
+      o.style.cssText = o.dataset.bo === batchMode ? ACTIVE : INACTIVE;
+    });
+  }
+
+  function batchApplyAll() {
+    if (!batchJobs.length) return;
+    lpBridge.call('apply_job_settings', {
+      job_ids: batchJobs.map(function (j) { return j.id; }),
+      mode: batchMode,
+      preset: batchQuality === 'high' ? 'detailed' : 'balanced'
+    }).then(function (result) {
+      var applied = (result && result.applied) || [];
+      $('batch-msg').textContent = applied.length + ' lecture' + (applied.length === 1 ? '' : 's') + ' updated to ' +
+        (batchMode === 'study' ? 'Study Pack' : batchMode === 'transcript' ? 'Transcript only' : 'Slides only') +
+        (batchQuality === 'high' ? ' · High' : ' · Balanced') + '.';
+      renderJobs();
+    });
+  }
+
+  function batchQueueAll() {
+    if (!batchJobs.length) return;
+    lpBridge.call('queue_jobs', { job_ids: batchJobs.map(function (j) { return j.id; }) }).then(function (result) {
+      var count = (result && result.count) || 0;
+      closeBatchImport();
+      if (count) toast(count + ' lecture' + (count === 1 ? '' : 's') + ' queued');
+      renderJobs();
+    });
+  }
+
+  // ---- Feature 2: persistent processing strip ----
+  function renderProcessingStrip() {
+    var strip = $('proc-strip');
+    if (!strip) return;
+    var running = LP.data.jobs.filter(function (j) { return j && j.status === 'running'; })[0];
+    if (!running) {
+      strip.hidden = true;
+      return;
+    }
+    strip.hidden = false;
+    $('proc-strip-name').textContent = running.name || 'Processing';
+    var pct = running.pct || 0;
+    setFill('proc-strip-bar', pct);
+    var stage = running.stage || '';
+    $('proc-strip-meta').textContent = stage ? (stage + ' · ' + pct + '%') : (pct + '%');
+    var waiting = (LP.data.queue && LP.data.queue.queue) ? LP.data.queue.queue.length : 0;
+    $('proc-strip-waiting').textContent = waiting > 0 ? (waiting + ' job' + (waiting === 1 ? '' : 's') + ' waiting') : '';
+  }
+
+  // ---- Feature 3: global transcript search ----
+  var searchDebounce = null;
+  function openGlobalSearch() {
+    var overlay = $('search-overlay');
+    if (!overlay) return;
+    overlay.hidden = false;
+    $('search-results').innerHTML = '<div style="padding:18px;text-align:center;font:500 12px \'JetBrains Mono\';color:var(--muted)">Type to search across your lectures’ transcripts.</div>';
+    var input = $('search-input');
+    input.value = '';
+    setTimeout(function () { input.focus(); }, 30);
+  }
+  function closeGlobalSearch() {
+    var overlay = $('search-overlay');
+    if (overlay) overlay.hidden = true;
+    if (searchDebounce) { clearTimeout(searchDebounce); searchDebounce = null; }
+  }
+  function runGlobalSearch(query) {
+    var results = $('search-results');
+    var q = (query || '').trim();
+    if (!q) {
+      results.innerHTML = '<div style="padding:18px;text-align:center;font:500 12px \'JetBrains Mono\';color:var(--muted)">Type to search across your lectures’ transcripts.</div>';
+      return;
+    }
+    results.innerHTML = '<div style="padding:18px;text-align:center;font:500 12px \'JetBrains Mono\';color:var(--muted)">Searching…</div>';
+    lpBridge.call('search_transcripts', { query: q, limit: 20 }).then(function (result) {
+      var matches = (result && result.results) || [];
+      if (!matches.length) {
+        results.innerHTML = '<div style="padding:18px;text-align:center;font:500 12px \'Space Grotesk\';color:var(--muted)">No transcript matches for “' + esc(q) + '”</div>';
+        return;
+      }
+      results.innerHTML = matches.map(function (m) {
+        return '<button data-result data-job="' + esc(m.job_id) + '" data-ts="' + esc(m.timestamp) + '" style="display:block;width:100%;text-align:left;background:transparent;border:none;border-bottom:1.5px solid var(--line);padding:11px 14px;cursor:pointer;color:var(--ink)">' +
+          '<div style="display:flex;align-items:baseline;gap:9px;margin-bottom:4px"><span style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m.name) + '</span><span style="font:600 11px \'JetBrains Mono\';color:var(--blue-ink);flex:none">' + esc(m.timestamp) + '</span></div>' +
+          '<div style="font:500 12px \'Space Grotesk\';color:var(--muted);line-height:1.5">“' + esc(m.snippet) + '”</div></button>';
+      }).join('');
+    });
+  }
+  function openSearchResult(jobId, timestamp) {
+    closeGlobalSearch();
+    // Explicit navigation: opens this lecture at this transcript segment. It
+    // must override any restored per-job resume position.
+    pendingTranscriptJump = { jobId: jobId, timestamp: timestamp };
+    selectJob(jobId, { screen: 'transcript' });
+  }
+  var pendingTranscriptJump = null;
+
+  // ---- Feature 4: per-job resume state ----
+  var resumeStore = (function () {
+    var key = 'lecturepack.resume.v1';
+    function read() { try { return JSON.parse(window.localStorage.getItem(key) || '{}'); } catch (_) { return {}; } }
+    function write(data) { try { window.localStorage.setItem(key, JSON.stringify(data)); } catch (_) {} }
+    return {
+      save: function (jobId, state) {
+        if (!jobId) return;
+        var all = read();
+        all[jobId] = state;
+        write(all);
+      },
+      load: function (jobId) {
+        var all = read();
+        return all[jobId] || null;
+      },
+      clear: function (jobId) {
+        if (!jobId) return;
+        var all = read();
+        delete all[jobId];
+        write(all);
+      }
+    };
+  })();
+
+  function captureResumeState(jobId) {
+    if (!jobId) return;
+    var state = {
+      screen: LP.state.screen || 'home',
+      studyTab: LP.state.studyTab || 'chat'
+    };
+    var transcriptEl = $('transcript-blocks');
+    if (transcriptEl) state.transcriptScroll = transcriptEl.scrollTop || 0;
+    if (LP.data.slides && LP.data.slides.length) state.viewingSlide = LP.state.viewingSlide || 0;
+    resumeStore.save(jobId, state);
+  }
+
+  function applyResumeState(jobId) {
+    if (!jobId) return;
+    var state = resumeStore.load(jobId);
+    if (!state) return;
+    // Only restore the screen when it is a workspace screen and no explicit
+    // navigation overrides it (search result / Process for active job).
+    if (pendingTranscriptJump && pendingTranscriptJump.jobId === jobId) return;
+    if (state.screen && state.screen !== 'home' && state.screen !== 'settings') {
+      setScreen(state.screen);
+    }
+    if (state.studyTab) setStudyTab(state.studyTab);
+    if (state.viewingSlide != null && LP.data.slides && LP.data.slides.length) {
+      LP.state.viewingSlide = Math.min(state.viewingSlide, LP.data.slides.length - 1);
+    }
+    if (state.transcriptScroll != null) {
+      var transcriptEl = $('transcript-blocks');
+      if (transcriptEl) {
+        setTimeout(function () { transcriptEl.scrollTop = state.transcriptScroll; }, 60);
+      }
+    }
+  }
+
+  // ---- Feature 5: Ctrl+K command palette ----
+  var paletteIndex = 0;
+  var paletteCommands = [
+    { label: 'Import video', run: function () { if (lpBridge.connected()) lpBridge.call('browse_video'); else setOnb('drop'); } },
+    { label: 'Paste link', run: function () { linkImportDialog(); } },
+    { label: 'Go to Home', run: function () { setScreen('home'); } },
+    { label: 'Go to Process', run: function () { setScreen('process'); } },
+    { label: 'Go to Review', run: function () { setScreen('review'); } },
+    { label: 'Go to Transcript', run: function () { setScreen('transcript'); } },
+    { label: 'Go to Study', run: function () { setScreen('study'); } },
+    { label: 'Go to Exports', run: function () { setScreen('exports'); } },
+    { label: 'Next lecture', run: function () { selectAdjacentJob(1); } },
+    { label: 'Previous lecture', run: function () { selectAdjacentJob(-1); } },
+    { label: 'Copy transcript', run: function () { if (LP.data.transcript && LP.data.transcript.blocks) copyText(formatTranscriptPlain(LP.data.transcript.blocks), 'Transcript copied'); } },
+    { label: 'Export Study Pack', run: function () { if (lpBridge.connected()) lpBridge.call('export_all', JSON.stringify(['pdf', 'html', 'txt', 'srt', 'md'])); } },
+    { label: 'Open Settings', run: function () { setScreen('settings'); } }
+  ];
+
+  function openPalette() {
+    var overlay = $('palette-overlay');
+    if (!overlay) return;
+    overlay.hidden = false;
+    paletteIndex = 0;
+    $('palette-input').value = '';
+    renderPalette('');
+    setTimeout(function () { $('palette-input').focus(); }, 30);
+  }
+  function closePalette() {
+    var overlay = $('palette-overlay');
+    if (overlay) overlay.hidden = true;
+  }
+  function renderPalette(query) {
+    var q = (query || '').toLowerCase().trim();
+    var jobResults = [];
+    if (q) {
+      (LP.data.jobs || []).forEach(function (j) {
+        if (j && j.name && j.name.toLowerCase().indexOf(q) >= 0 && jobResults.length < 8) {
+          jobResults.push({ label: 'Open: ' + j.name, run: (function (id) { return function () { selectJob(id, { screen: 'done' in { id: true } ? 'review' : 'process' }); }; })(j.id) });
+        }
+      });
+    }
+    var commands = paletteCommands.filter(function (c) {
+      return !q || c.label.toLowerCase().indexOf(q) >= 0;
+    });
+    var items = commands.concat(jobResults);
+    var host = $('palette-results');
+    if (!items.length) {
+      host.innerHTML = '<div style="padding:16px;text-align:center;font:500 12px \'JetBrains Mono\';color:var(--muted)">No commands match “' + esc(q) + '”</div>';
+      paletteIndex = 0;
+      return;
+    }
+    paletteIndex = Math.max(0, Math.min(paletteIndex, items.length - 1));
+    host.innerHTML = items.map(function (item, i) {
+      return '<button data-palette-item data-index="' + i + '" style="display:block;width:100%;text-align:left;background:' + (i === paletteIndex ? 'var(--blue-tint)' : 'transparent') + ';border:1.5px solid ' + (i === paletteIndex ? 'var(--blue)' : 'transparent') + ';border-radius:8px;padding:9px 13px;cursor:pointer;color:var(--ink);font:500 13px \'Space Grotesk\'">' + esc(item.label) + '</button>';
+    }).join('');
+    host._items = items;
+  }
+  function activatePaletteItem(index, items) {
+    var item = items[index];
+    if (!item) return;
+    closePalette();
+    try { item.run(); } catch (e) { console.error('palette command', e); }
   }
 
   /* ======================= boot ======================= */

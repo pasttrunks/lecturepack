@@ -522,6 +522,14 @@ class Sidecar:
                 self._list_jobs(request_id, command)
             elif command == "import_video":
                 self._import_video(request_id, command, payload)
+            elif command == "import_videos":
+                self._import_videos(request_id, command, payload)
+            elif command == "apply_job_settings":
+                self._apply_job_settings(request_id, command, payload)
+            elif command == "queue_jobs":
+                self._queue_jobs(request_id, command, payload)
+            elif command == "search_transcripts":
+                self._search_transcripts(request_id, command, payload)
             elif command == "start_job":
                 self._start_job(request_id, command, payload)
             elif command == "cancel_job":
@@ -895,9 +903,13 @@ class Sidecar:
             "slides": "slides_only",
         }.get(str(value or "study").strip().lower(), "study_pack")
 
-    def _import_video(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
-        path_text = str(payload.get("path") or "")
-        if payload.get("bundled_demo"):
+    def _import_one(self, path_text: str, *, title: str = "", preset: Any = None,
+                    bundled_demo: bool = False) -> tuple[Any, dict[str, Any], dict[str, Any]]:
+        """Import ONE video through the normal single-video path and return
+        (job, summary, metadata). Shared by the single import command and the
+        batch import command so a multi-file import creates every job through
+        exactly the same code path as a single Browse/Drop import."""
+        if bundled_demo:
             # D-2: the demo flows through the normal import path using the
             # bundled demo video. There is no separate fake demo pipeline.
             source = self._resolve_demo_video()
@@ -922,7 +934,7 @@ class Sidecar:
             raise ImportVideoError("NOT_FOUND", f"video not found: {source}")
         if not os.access(source, os.R_OK):
             raise ImportVideoError("UNREADABLE", f"video is not readable: {source}")
-        if payload.get("bundled_demo"):
+        if bundled_demo:
             source = self._copy_demo_if_needed(source)
         if self.controller is None:
             raise RuntimeError(self._engine_error or "engine is not loaded")
@@ -931,9 +943,9 @@ class Sidecar:
         except Exception as exc:  # noqa: BLE001 - surfaced as a friendly format error
             raise ImportVideoError("FFPROBE_FAILED", f"ffprobe could not read the video: {exc}") from exc
         job = self.Job(str(self.data_dir), video_path=str(source))
-        job.manifest["title"] = str(payload.get("title") or source.stem or "Lecture")
+        job.manifest["title"] = str(title or source.stem or "Lecture")
         job.source.update(metadata)
-        job.settings["preset"] = self._preset(payload.get("preset"))
+        job.settings["preset"] = self._preset(preset)
         job.settings.setdefault("whisper", {})["engine"] = "cpu"
         model = self.config.get("whisper_model", "")
         if model and os.path.isfile(model):
@@ -944,20 +956,203 @@ class Sidecar:
         # the card shows a real video frame before processing starts. A failure
         # must never prevent the import.
         self._generate_poster(job, source)
+        return job, self._summary(job), metadata
+
+    def _import_video(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        job, summary, metadata = self._import_one(
+            str(payload.get("path") or ""),
+            title=str(payload.get("title") or ""),
+            preset=payload.get("preset"),
+            bundled_demo=bool(payload.get("bundled_demo")),
+        )
         self._activate_job(job, emit_payloads=True)
         self._emit({
             "event": "onboarding",
             "job": job.job_id,
-            "name": source.name,
-            "meta": self._import_meta(metadata, source),
+            "name": job.manifest.get("title", "Lecture"),
+            "meta": summary.get("meta", ""),
         })
         self._respond(
             request_id,
             command,
-            job=self._summary(job),
+            job=summary,
             job_id=job.job_id,
             source=metadata,
         )
+
+    def _import_videos(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Import several videos in one action. Every file flows through the
+        normal single-video import path (_import_one); duplicate resolved paths
+        are skipped; one failed file does not fail the rest of the batch. The
+        batch is reported with one batch_import event so the renderer can show
+        a compact setup state before any processing begins."""
+        raw_paths = payload.get("paths") or []
+        if isinstance(raw_paths, str):
+            try:
+                raw_paths = json.loads(raw_paths)
+            except json.JSONDecodeError:
+                raw_paths = []
+        if not isinstance(raw_paths, list):
+            raise ImportVideoError("RESOLVE_FAILED", "no video paths were supplied")
+        seen: set[str] = set()
+        imported: list[dict[str, Any]] = []
+        failures: list[dict[str, Any]] = []
+        active_job = None
+        for entry in raw_paths:
+            path_text = str(entry.get("path") if isinstance(entry, dict) else entry or "")
+            if not path_text:
+                continue
+            try:
+                resolved = str(Path(path_text).expanduser().resolve())
+            except (OSError, ValueError):
+                resolved = path_text
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            try:
+                job, summary, _metadata = self._import_one(
+                    path_text,
+                    title=str(entry.get("title") if isinstance(entry, dict) else "" or ""),
+                    preset=entry.get("preset") if isinstance(entry, dict) else None,
+                )
+            except ImportVideoError as exc:
+                failures.append({"path": path_text, "code": exc.code, "error": str(exc)})
+                continue
+            except Exception as exc:  # noqa: BLE001 - one failed import must not fail the batch
+                failures.append({"path": path_text, "code": "IMPORT_FAILED", "error": str(exc)})
+                continue
+            imported.append(summary)
+            active_job = job
+        if active_job is not None:
+            self._activate_job(active_job, emit_payloads=True)
+        self._emit({"event": "batch_import", "jobs": imported, "failures": failures})
+        self._respond(
+            request_id,
+            command,
+            jobs=imported,
+            failures=failures,
+            count=len(imported),
+        )
+
+    def _apply_job_settings(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Apply one output mode / quality choice to every unstarted job in a
+        batch. Jobs that are already running or already completed are left
+        untouched so an explicit start is never overwritten."""
+        job_ids = payload.get("job_ids") or []
+        if isinstance(job_ids, str):
+            try:
+                job_ids = json.loads(job_ids)
+            except json.JSONDecodeError:
+                job_ids = []
+        if not isinstance(job_ids, list):
+            job_ids = []
+        mode = payload.get("mode")
+        preset = payload.get("preset")
+        applied: list[str] = []
+        skipped: list[str] = []
+        for job_id in [str(job_id) for job_id in job_ids if job_id]:
+            try:
+                job = self._job_for({"job_id": job_id})
+            except Exception:  # noqa: BLE001 - a missing job is skipped, not fatal
+                skipped.append(job_id)
+                continue
+            status = self._job_status(job)
+            if status in {"running", "paused", "done", "failed", "cancelled", "interrupted"}:
+                skipped.append(job_id)
+                continue
+            if mode:
+                job.settings["product_mode"] = self._product_mode(mode)
+            if preset:
+                job.settings["preset"] = self._preset(preset)
+            job.save()
+            applied.append(job_id)
+        self._emit_job_payloads()
+        self._respond(request_id, command, applied=applied, skipped=skipped)
+
+    def _queue_jobs(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Enqueue a batch of jobs in their visible order. The queue respects
+        the single active slot: the first job claims it on start, the rest
+        wait in FIFO order. Nothing is started merely by queuing."""
+        job_ids = payload.get("job_ids") or []
+        if isinstance(job_ids, str):
+            try:
+                job_ids = json.loads(job_ids)
+            except json.JSONDecodeError:
+                job_ids = []
+        if not isinstance(job_ids, list):
+            job_ids = []
+        positions: list[dict[str, Any]] = []
+        for job_id in [str(job_id) for job_id in job_ids if job_id]:
+            try:
+                position = self.electron_backend.enqueue_job(self.queue, job_id)
+            except Exception:  # noqa: BLE001 - one bad job must not stop the batch
+                continue
+            positions.append({"job_id": job_id, "position": position})
+        self._push_queue()
+        self._emit_job_payloads()
+        self._respond(request_id, command, queued=positions, count=len(positions))
+
+    def _search_transcripts(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Search processed transcript text across completed jobs.
+
+        Plain case-insensitive text search over the working transcript of every
+        completed job (no AI, no embeddings, no index). Phrase matches rank
+        first, then word matches. Each result carries the job id/name, the
+        matching segment's start timestamp, and a short snippet around the
+        match so the renderer can open the lecture at that segment.
+        """
+        query = str(payload.get("query") or "").strip()
+        limit = payload.get("limit")
+        try:
+            limit = max(1, min(int(limit or 20), 50))
+        except (TypeError, ValueError):
+            limit = 20
+        if not query:
+            self._respond(request_id, command, query="", results=[], count=0)
+            return
+        needle = query.casefold()
+        needle_phrase = True if " " in query.strip() else needle
+        results: list[dict[str, Any]] = []
+        for job in self._job_objects():
+            if self._job_status(job) != "done":
+                continue
+            segments = []
+            try:
+                segments = self.transcript_store.load_working(job.paths) or []
+            except Exception:  # noqa: BLE001 - one bad job must not break search
+                continue
+            job_name = job.manifest.get("title") or str(job.manifest.get("source", {}).get("filename", "")) or "Lecture"
+            for segment in segments:
+                raw = str(segment.get("text", ""))
+                text = raw.strip()
+                if not text:
+                    continue
+                folded = raw.casefold()
+                idx = folded.find(needle)
+                if idx < 0:
+                    continue
+                # Phrase matches (exact multi-word) rank above single-word matches.
+                is_phrase = len(query.split()) > 1 and needle in folded
+                start_char = max(0, idx - 40)
+                end_char = min(len(raw), idx + len(query) + 80)
+                snippet = raw[start_char:end_char].replace("\n", " ").strip()
+                if len(snippet) > 140:
+                    snippet = snippet[:140] + "…"
+                results.append({
+                    "job_id": job.job_id,
+                    "name": job_name,
+                    "timestamp": _clock(float(segment.get("start", 0.0) or 0.0)),
+                    "segment": len(results),
+                    "snippet": snippet,
+                    "phrase": is_phrase,
+                })
+                if len(results) >= limit:
+                    break
+            if len(results) >= limit:
+                break
+        # Phrase matches first, then insertion order (earliest job/segment).
+        results.sort(key=lambda r: (0 if r["phrase"] else 1))
+        self._respond(request_id, command, query=query, results=results, count=len(results))
 
     def _activate_job(self, job: Any, *, emit_payloads: bool) -> None:
         # A pipeline is already running: never swap the controller's job, clear

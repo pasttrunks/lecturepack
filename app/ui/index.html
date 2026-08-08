@@ -657,6 +657,71 @@
     </div>
   </div>
 
+  <!-- ===== GLOBAL PROCESSING STRIP ===== -->
+  <div id="proc-strip" hidden style="position:fixed;left:0;right:0;bottom:34px;z-index:40;display:flex;align-items:center;gap:12px;padding:8px 18px;background:var(--panel);border-top:2px solid var(--border);box-shadow:0 -6px 20px rgba(0,0,0,.18);cursor:pointer">
+    <span style="width:9px;height:9px;flex:none;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>
+    <span id="proc-strip-name" style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">Processing</span>
+    <div style="flex:1;height:7px;border-radius:5px;overflow:hidden;background:var(--sunk);max-width:340px"><div id="proc-strip-bar" class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(0)"></div></div>
+    <span id="proc-strip-meta" style="font:500 11px 'JetBrains Mono';color:var(--muted);white-space:nowrap">Transcribing audio · 63%</span>
+    <span id="proc-strip-waiting" style="font:500 11px 'JetBrains Mono';color:var(--muted);white-space:nowrap"></span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2.2"><path d="m9 18 6-6-6-6"/></svg>
+  </div>
+
+  <!-- ===== COMMAND PALETTE (Ctrl+K) ===== -->
+  <div id="palette-overlay" hidden role="dialog" aria-modal="true" class="lp-scrim" style="position:fixed;inset:0;z-index:70;background:rgba(8,10,14,.55);display:flex;align-items:flex-start;justify-content:center;padding:64px 24px">
+    <div id="palette-panel" class="lp-pop" style="width:520px;max-width:100%;background:var(--panel);border:2px solid var(--border);border-radius:16px;box-shadow:var(--shadow-hi);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:2px solid var(--line)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="palette-input" placeholder="Type a command or lecture…" spellcheck="false" autocomplete="off" style="flex:1;border:none;background:transparent;font:500 14px 'Space Grotesk';color:var(--ink);outline:none">
+        <span style="font:600 10px 'JetBrains Mono';color:var(--muted);border:1.5px solid var(--line);border-radius:6px;padding:3px 7px">ESC</span>
+      </div>
+      <div id="palette-results" style="max-height:340px;overflow-y:auto;padding:6px"></div>
+    </div>
+  </div>
+
+  <!-- ===== GLOBAL TRANSCRIPT SEARCH ===== -->
+  <div id="search-overlay" hidden role="dialog" aria-modal="true" class="lp-scrim" style="position:fixed;inset:0;z-index:65;background:rgba(8,10,14,.55);display:flex;align-items:flex-start;justify-content:center;padding:56px 24px">
+    <div id="search-panel" class="lp-pop" style="width:560px;max-width:100%;background:var(--panel);border:2px solid var(--border);border-radius:16px;box-shadow:var(--shadow-hi);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:2px solid var(--line)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="search-input" placeholder="Search transcripts across your lectures…" spellcheck="false" autocomplete="off" style="flex:1;border:none;background:transparent;font:500 14px 'Space Grotesk';color:var(--ink);outline:none">
+        <span style="font:600 10px 'JetBrains Mono';color:var(--muted);border:1.5px solid var(--line);border-radius:6px;padding:3px 7px">ESC</span>
+      </div>
+      <div id="search-results" style="max-height:380px;overflow-y:auto;padding:6px"></div>
+    </div>
+  </div>
+
+  <!-- ===== BATCH IMPORT SETUP (multi-video) ===== -->
+  <div id="batch-overlay" hidden role="dialog" aria-modal="true" class="lp-scrim" style="position:fixed;inset:0;z-index:60;background:rgba(8,10,14,.62);display:flex;align-items:center;justify-content:center;padding:32px">
+    <div id="batch-panel" class="lp-pop" style="width:600px;max-width:100%;background:var(--panel);border:2px solid var(--border);border-radius:18px;box-shadow:var(--shadow-hi);overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 20px;border-bottom:2px solid var(--line)">
+        <div style="display:flex;align-items:center;gap:9px"><div style="width:26px;height:26px;background:var(--orange);border-radius:8px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--on-signal)" stroke-width="2.2"><path d="M12 15V3"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg></div><span style="font-weight:700;font-size:15px">Import <span id="batch-count">N</span> lectures</span></div>
+        <button id="batch-close" class="lp-hit" style="width:30px;height:30px;border:2px solid var(--border);border-radius:8px;background:var(--panel);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div style="padding:20px 22px">
+        <div id="batch-list" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;margin-bottom:16px"></div>
+        <div style="font:500 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:9px">Quality</div>
+        <div id="batch-quality" style="display:flex;gap:8px;margin-bottom:16px">
+          <span data-bq="balanced" style="flex:1;text-align:center;font:700 12px 'Space Grotesk';padding:9px 0;border:2px solid var(--orange);border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);box-shadow:var(--shadow-hard-sm);cursor:pointer">Balanced</span>
+          <span data-bq="high" style="flex:1;text-align:center;font:500 12px 'Space Grotesk';padding:9px 0;border:2px solid transparent;border-radius:9px;color:var(--muted);box-shadow:var(--shadow-hard-sm);cursor:pointer">High</span>
+        </div>
+        <div style="font:500 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:9px">Output</div>
+        <div id="batch-output" style="display:flex;gap:8px;margin-bottom:18px">
+          <span data-bo="study" style="flex:1;text-align:center;font:700 12px 'Space Grotesk';padding:9px 0;border:2px solid var(--orange);border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);box-shadow:var(--shadow-hard-sm);cursor:pointer">Study Pack</span>
+          <span data-bo="transcript" style="flex:1;text-align:center;font:500 12px 'Space Grotesk';padding:9px 0;border:2px solid transparent;border-radius:9px;color:var(--muted);box-shadow:var(--shadow-hard-sm);cursor:pointer">Transcript only</span>
+          <span data-bo="slides" style="flex:1;text-align:center;font:500 12px 'Space Grotesk';padding:9px 0;border:2px solid transparent;border-radius:9px;color:var(--muted);box-shadow:var(--shadow-hard-sm);cursor:pointer">Slides only</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <button id="btn-batch-apply" class="lp-hit" style="font:600 12px 'Space Grotesk';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:9px;padding:9px 14px;cursor:pointer">Apply to all</button>
+          <div style="flex:1"></div>
+          <button id="btn-batch-done" class="lp-hit" style="font:600 12px 'Space Grotesk';background:var(--panel);color:var(--muted);border:2px solid var(--border);border-radius:9px;padding:9px 14px;cursor:pointer">Done</button>
+          <button id="btn-batch-queue" class="lp-hit lp-press" style="display:flex;align-items:center;gap:7px;font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 20px;cursor:pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 4.5l12 7.5-12 7.5z"/></svg>Queue all</button>
+        </div>
+        <div id="batch-msg" style="margin-top:12px;font:500 12px 'JetBrains Mono';line-height:1.5;color:var(--muted)"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== WHAT'S NEW OVERLAY (auto-update) ===== -->
   <div id="whatsnew-overlay" hidden role="dialog" aria-modal="true" class="lp-scrim" style="position:fixed;inset:0;z-index:55;background:rgba(8,10,14,.62);display:flex;align-items:center;justify-content:center;padding:32px">
     <div class="lp-pop" style="width:560px;max-width:100%;background:var(--panel);border:2px solid var(--border);border-radius:18px;box-shadow:var(--shadow-hi);overflow:hidden">

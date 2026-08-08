@@ -389,6 +389,26 @@
         }
       };
     }
+    if (name === 'import_videos') {
+      // Batch import: several native paths already resolved by the renderer.
+      return { command: 'import_videos', payload: { paths: Array.isArray(payload.paths) ? payload.paths : [] } };
+    }
+    if (name === 'apply_job_settings') {
+      return {
+        command: 'apply_job_settings',
+        payload: {
+          job_ids: Array.isArray(payload.job_ids) ? payload.job_ids : [],
+          mode: payload.mode,
+          preset: payload.preset
+        }
+      };
+    }
+    if (name === 'queue_jobs') {
+      return { command: 'queue_jobs', payload: { job_ids: Array.isArray(payload.job_ids) ? payload.job_ids : [] } };
+    }
+    if (name === 'search_transcripts') {
+      return { command: 'search_transcripts', payload: { query: String(payload.query || ''), limit: payload.limit } };
+    }
     if (name === 'get_job' || name === 'get_slides' || name === 'get_transcript' || name === 'cancel_job') {
       return { command: name, payload: { job_id: jobIdPayload(first) } };
     }

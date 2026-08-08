@@ -256,6 +256,37 @@ function sendCommand(session, command, payload = {}) {
   });
 }
 
+// Mirror the active processing job's progress on the Windows taskbar. Uses the
+// exact job percent the sidecar already puts in status_changed (the same
+// value driving the renderer's Home/Process progress), so no second progress
+// calculation exists. Terminal labels clear the bar; a failed/error state
+// flashes the taskbar red before clearing.
+function updateTaskbarProgress(session, message) {
+  const win = session.window;
+  if (!win || win.isDestroyed()) return;
+  const event = message.event || '';
+  if (event === 'status_changed') {
+    const label = String(message.label || '').toLowerCase();
+    const pct = Number(message.pct);
+    if (label === 'processing') {
+      win.setProgressBar(Math.max(0, Math.min(1, (pct || 0) / 100)));
+    } else if (label === 'failed' || label === 'cancelled' || label === 'interrupted') {
+      win.setProgressBar(0, { mode: 'error' });
+      setTimeout(() => { if (!win.isDestroyed()) win.setProgressBar(-1); }, 1500);
+    } else {
+      win.setProgressBar(-1); // done / review-ready / idle -> clear
+    }
+  } else if (event === 'job_completed' || event === 'pipeline_changed') {
+    // pipeline_changed carries the same overall percent; keep the bar in sync.
+    if (event === 'pipeline_changed' && Array.isArray(message.stages)) {
+      const anyActive = message.stages.some((s) => s && (s.state === 'active' || s.state === 'running'));
+      if (anyActive) {
+        win.setProgressBar(0.15, { mode: 'indeterminate' });
+      }
+    }
+  }
+}
+
 function handleSidecarMessage(session, message) {
   if (!message || typeof message !== 'object') return;
   session.logger.write('sidecar_message', {
@@ -264,6 +295,8 @@ function handleSidecarMessage(session, message) {
     response_to: message.response_to || ''
   });
   if (message.event === 'active_job') session.activeJobId = message.id || '';
+  // Taskbar progress mirrors the active job's live status/pipeline events.
+  updateTaskbarProgress(session, message);
   if (message.response_to) {
     settleResponse(session, message);
     if (message.event === 'error') sendToPage(session, message);
@@ -383,15 +416,24 @@ async function restoreJob(session, summary) {
 
 async function browseVideo(session) {
   const result = await dialog.showOpenDialog(session.window, {
-    title: 'Import a lecture video',
-    properties: ['openFile'],
+    title: 'Import lecture videos',
+    properties: ['openFile', 'multiSelections'],
     filters: [
       { name: 'Lecture videos', extensions: ['mp4', 'mkv', 'mov', 'm4v', 'webm', 'avi'] },
       { name: 'All files', extensions: ['*'] }
     ]
   });
   if (result.canceled || !result.filePaths.length) return { ok: true, cancelled: true };
-  return importLocalVideo(session, result.filePaths[0]);
+  if (result.filePaths.length === 1) return importLocalVideo(session, result.filePaths[0]);
+  const paths = result.filePaths.filter((p) => importLocalVideoIsValid(p));
+  if (!paths.length) return { ok: false, error: 'LecturePack could not access any of the selected files.' };
+  return sendCommand(session, 'import_videos', { paths });
+}
+
+// Validate one path for a multi-file Browse import without importing it yet.
+function importLocalVideoIsValid(rawPath) {
+  const validated = validateLocalVideoPath(rawPath);
+  return validated.ok;
 }
 
 // One shared import gate for both Browse and drag-and-drop. The renderer
