@@ -358,6 +358,20 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   #dropzone .lp-drop-cta{flex-wrap:wrap;justify-content:flex-end}
 }
 
+/* QOL global controls stay useful at the supported compact window size. */
+@media (max-width:1080px){
+  #btn-global-search .lp-global-search-label{display:none}
+  #btn-global-search{padding-left:9px !important;padding-right:9px !important}
+  #proc-strip-name{max-width:160px !important}
+}
+@media (max-width:760px){
+  #proc-strip-waiting{display:none}
+  #proc-strip-name{max-width:110px !important}
+}
+@media (max-width:700px){
+  header .lp-breadcrumb{display:none !important}
+}
+
 /* ============ MOTION SYSTEM v2 -- MECHANICAL (2026-07-27) ================
    v1 (2026-07-26) was treated as a draft and rebuilt. v1's vocabulary was
    "fade + rise" on almost everything -- default SaaS motion, which did not

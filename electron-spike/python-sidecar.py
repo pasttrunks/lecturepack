@@ -1091,6 +1091,10 @@ class Sidecar:
         self._push_queue()
         self._emit_job_payloads()
         self._respond(request_id, command, queued=positions, count=len(positions))
+        # "Queue all" is an action, not a parked-state editor. When the active
+        # slot is idle, immediately promote and start the first queued job;
+        # the existing completion path continues the remaining FIFO entries.
+        self._maybe_resume_queue()
 
     def _search_transcripts(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         """Search processed transcript text across completed jobs.

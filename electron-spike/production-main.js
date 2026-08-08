@@ -269,19 +269,30 @@ function updateTaskbarProgress(session, message) {
     const label = String(message.label || '').toLowerCase();
     const pct = Number(message.pct);
     if (label === 'processing') {
+      if (session.taskbarClearTimer) {
+        clearTimeout(session.taskbarClearTimer);
+        session.taskbarClearTimer = null;
+      }
+      session.taskbarProgressJob = String(message.job || session.activeJobId || '');
       win.setProgressBar(Math.max(0, Math.min(1, (pct || 0) / 100)));
     } else if (label === 'failed' || label === 'cancelled' || label === 'interrupted') {
       win.setProgressBar(0, { mode: 'error' });
-      setTimeout(() => { if (!win.isDestroyed()) win.setProgressBar(-1); }, 1500);
+      session.taskbarClearTimer = setTimeout(() => {
+        session.taskbarClearTimer = null;
+        if (!win.isDestroyed()) win.setProgressBar(-1);
+      }, 1500);
     } else {
+      session.taskbarProgressJob = '';
       win.setProgressBar(-1); // done / review-ready / idle -> clear
     }
   } else if (event === 'job_completed' || event === 'pipeline_changed') {
-    // pipeline_changed carries the same overall percent; keep the bar in sync.
+    // A pipeline event follows every live status update. The status payload's
+    // overall job percentage is authoritative; only use indeterminate mode if
+    // a pipeline became active before any status payload for that job arrived.
     if (event === 'pipeline_changed' && Array.isArray(message.stages)) {
-      const anyActive = message.stages.some((s) => s && (s.state === 'active' || s.state === 'running'));
-      if (anyActive) {
-        win.setProgressBar(0.15, { mode: 'indeterminate' });
+      const active = message.stages.find((s) => s && (s.state === 'active' || s.state === 'running'));
+      if (active && session.taskbarProgressJob !== String(message.job || session.activeJobId || '')) {
+        win.setProgressBar(0.5, { mode: 'indeterminate' });
       }
     }
   }

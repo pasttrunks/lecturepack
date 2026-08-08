@@ -2232,8 +2232,9 @@
       var chip = b.hotTime
         ? '<span style="font:700 12px \'JetBrains Mono\';color:var(--orange-ink);background:var(--orange-soft);border-radius:7px;padding:3px 7px">' + esc(b.t) + '</span>'
         : '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted)">' + esc(b.t) + '</span>';
-      return '<div style="display:flex;gap:18px"><div style="width:104px;flex:none;text-align:right;min-width:104px;white-space:nowrap">' + chip + '</div><p style="margin:0;font-size:17px;line-height:1.72;text-wrap:pretty;flex:1;min-width:0;overflow-wrap:anywhere">' + b.html + '</p></div>';
+      return '<div data-transcript-time="' + esc(b.t) + '" style="display:flex;gap:18px;border-radius:9px;transition:background var(--motion-fast) ease,box-shadow var(--motion-fast) ease"><div style="width:104px;flex:none;text-align:right;min-width:104px;white-space:nowrap">' + chip + '</div><p style="margin:0;font-size:17px;line-height:1.72;text-wrap:pretty;flex:1;min-width:0;overflow-wrap:anywhere">' + b.html + '</p></div>';
     }).join('');
+    applyPendingTranscriptJump();
   }
 
   function renderStudy() {
@@ -2802,7 +2803,8 @@
   // Highest-z-index open overlay, or null when none is open.
   function topOverlay() {
     var open = [];
-    ['runtime-setup-overlay', 'onb-overlay', 'whatsnew-overlay'].forEach(function (id) {
+    ['runtime-setup-overlay', 'onb-overlay', 'whatsnew-overlay',
+      'batch-overlay', 'search-overlay', 'palette-overlay'].forEach(function (id) {
       var el = $(id);
       if (el && !el.hidden) open.push(el);
     });
@@ -5428,6 +5430,8 @@
     });
 
     // Global transcript search trigger + interactions.
+    var globalSearchButton = $('btn-global-search');
+    if (globalSearchButton) globalSearchButton.addEventListener('click', openGlobalSearch);
     var searchInput = $('search-input');
     if (searchInput) {
       searchInput.addEventListener('input', function () {
@@ -5525,6 +5529,11 @@
       var map = { 1: 'home', 2: 'process', 3: 'review', 4: 'transcript', 5: 'study', 6: 'exports', 7: 'settings' };
       if (map[e.key]) setScreen(map[e.key]);
       else if (e.key === 'f' || e.key === 'F') setFocus(!LP.state.focus);
+    });
+    // Electron closes the renderer without necessarily switching lectures.
+    // Persist the currently viewed lecture at the final reliable page event.
+    window.addEventListener('beforeunload', function () {
+      if (LP.state.jobId) captureResumeState(LP.state.jobId);
     });
   }
 
@@ -6003,6 +6012,7 @@
         statusByJob[owner] = Object.assign({}, statusByJob[owner], s);
       }
       refreshControlStates();
+      renderProcessingStrip();
     });
     lpBridge.on('slides_changed', function (json) {
       var d = parseBridgePayload(json, null);
@@ -6397,7 +6407,7 @@
 
   function setBatchStyles() {
     var ACTIVE = 'flex:1;text-align:center;font:700 12px \'Space Grotesk\';padding:9px 0;border:2px solid var(--orange);border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);box-shadow:var(--shadow-hard-sm);cursor:pointer';
-    var INACTIVE = 'flex:1;text-align:center;font:500 12px \'Space Grotesk\';padding:9px 0;border:2px solid transparent;border-radius:9px;color:var(--muted);box-shadow:var(--shadow-hard-sm);cursor:pointer';
+    var INACTIVE = 'flex:1;text-align:center;font:500 12px \'Space Grotesk\';padding:9px 0;border:2px solid transparent;border-radius:9px;background:transparent;color:var(--muted);box-shadow:var(--shadow-hard-sm);cursor:pointer';
     Array.prototype.forEach.call(document.querySelectorAll('#batch-quality [data-bq]'), function (o) {
       o.style.cssText = o.dataset.bq === batchQuality ? ACTIVE : INACTIVE;
     });
@@ -6423,11 +6433,22 @@
 
   function batchQueueAll() {
     if (!batchJobs.length) return;
-    lpBridge.call('queue_jobs', { job_ids: batchJobs.map(function (j) { return j.id; }) }).then(function (result) {
+    var ids = batchJobs.map(function (j) { return j.id; });
+    var settings = {
+      job_ids: ids,
+      mode: batchMode,
+      preset: batchQuality === 'high' ? 'detailed' : 'balanced'
+    };
+    $('batch-msg').textContent = 'Applying settings and starting the queue…';
+    lpBridge.call('apply_job_settings', settings).then(function () {
+      return lpBridge.call('queue_jobs', { job_ids: ids });
+    }).then(function (result) {
       var count = (result && result.count) || 0;
       closeBatchImport();
-      if (count) toast(count + ' lecture' + (count === 1 ? '' : 's') + ' queued');
+      if (count) toast(count + ' lecture' + (count === 1 ? '' : 's') + ' queued — processing started');
       renderJobs();
+    }, function () {
+      $('batch-msg').textContent = 'The batch could not be queued. Your imported lectures are still safe in the library.';
     });
   }
 
@@ -6496,6 +6517,32 @@
   }
   var pendingTranscriptJump = null;
 
+  function transcriptScrollHost() {
+    return document.querySelector('main [data-screen="transcript"]');
+  }
+
+  function applyPendingTranscriptJump() {
+    if (!pendingTranscriptJump || pendingTranscriptJump.jobId !== LP.state.jobId) return;
+    var wanted = pendingTranscriptJump.timestamp;
+    var rows = document.querySelectorAll('#transcript-blocks [data-transcript-time]');
+    var target = null;
+    Array.prototype.some.call(rows, function (row) {
+      if (row.dataset.transcriptTime === wanted) { target = row; return true; }
+      return false;
+    });
+    if (!target) return; // keep the request until transcript_changed supplies the block
+    pendingTranscriptJump = null;
+    setTimeout(function () {
+      target.scrollIntoView({ block: 'center', inline: 'nearest' });
+      target.style.background = 'var(--orange-soft)';
+      target.style.boxShadow = '0 0 0 2px var(--orange)';
+      setTimeout(function () {
+        target.style.background = '';
+        target.style.boxShadow = '';
+      }, 1600);
+    }, 80);
+  }
+
   // ---- Feature 4: per-job resume state ----
   // Persistence goes through the shared browserStorage() helper so the app
   // keeps exactly one direct localStorage call site for the setup flag — the
@@ -6531,7 +6578,7 @@
       screen: LP.state.screen || 'home',
       studyTab: LP.state.studyTab || 'chat'
     };
-    var transcriptEl = $('transcript-blocks');
+    var transcriptEl = transcriptScrollHost();
     if (transcriptEl) state.transcriptScroll = transcriptEl.scrollTop || 0;
     if (LP.data.slides && LP.data.slides.length) state.viewingSlide = LP.state.viewingSlide || 0;
     resumeStore.save(jobId, state);
@@ -6552,7 +6599,7 @@
       LP.state.viewingSlide = Math.min(state.viewingSlide, LP.data.slides.length - 1);
     }
     if (state.transcriptScroll != null) {
-      var transcriptEl = $('transcript-blocks');
+      var transcriptEl = transcriptScrollHost();
       if (transcriptEl) {
         setTimeout(function () { transcriptEl.scrollTop = state.transcriptScroll; }, 60);
       }
@@ -6563,6 +6610,7 @@
   var paletteIndex = 0;
   var paletteCommands = [
     { label: 'Import video', run: function () { if (lpBridge.connected()) lpBridge.call('browse_video'); else setOnb('drop'); } },
+    { label: 'Search all transcripts', run: function () { openGlobalSearch(); } },
     { label: 'Paste link', run: function () { linkImportDialog(); } },
     { label: 'Go to Home', run: function () { setScreen('home'); } },
     { label: 'Go to Process', run: function () { setScreen('process'); } },
@@ -6596,7 +6644,12 @@
     if (q) {
       (LP.data.jobs || []).forEach(function (j) {
         if (j && j.name && j.name.toLowerCase().indexOf(q) >= 0 && jobResults.length < 8) {
-          jobResults.push({ label: 'Open: ' + j.name, run: (function (id) { return function () { selectJob(id, { screen: 'done' in { id: true } ? 'review' : 'process' }); }; })(j.id) });
+          jobResults.push({
+            label: 'Open: ' + j.name,
+            run: (function (id, status) {
+              return function () { selectJob(id, { screen: status === 'done' ? 'review' : 'process' }); };
+            })(j.id, j.status)
+          });
         }
       });
     }
