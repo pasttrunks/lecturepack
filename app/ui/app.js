@@ -3941,11 +3941,17 @@
     if (askInput) askInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); studyAskSend(); }
     });
-    // Source navigation (delegated)
+    // Source navigation + edit/delete/explain (delegated)
     var concepts = $('study-concepts-list');
     if (concepts) concepts.addEventListener('click', function (e) {
       var t = e.target.closest('.study-source');
-      if (t) navigateStudySource(t);
+      if (t) { navigateStudySource(t); return; }
+      var edit = e.target.closest('.study-edit');
+      if (edit) { studyV2EditItem(edit.dataset.kind, edit.dataset.id); return; }
+      var del = e.target.closest('.study-delete');
+      if (del) { studyV2DeleteItem(del.dataset.kind, del.dataset.id); return; }
+      var explain = e.target.closest('.study-explain');
+      if (explain) { studyV2ExplainItem(explain.dataset.id); }
     });
     var flashRoot = $('study-flashcards-root');
     if (flashRoot) flashRoot.addEventListener('click', function (e) {
@@ -3957,6 +3963,69 @@
       var t = e.target.closest('.study-source');
       if (t) navigateStudySource(t);
     });
+  }
+
+  function studyV2EditItem(kind, id) {
+    if (!id || !lpBridge.connected()) return;
+    var content = studyV2.content || { concepts: [], flashcards: [], quiz: [] };
+    var item = null, field = 'title', label = 'Title';
+    if (kind === 'concept') {
+      item = (content.concepts || []).filter(function (c) { return c.id === id; })[0];
+      field = 'title'; label = 'Title';
+    } else if (kind === 'flashcard') {
+      item = (content.flashcards || []).filter(function (c) { return c.id === id; })[0];
+      field = 'front'; label = 'Front';
+    } else if (kind === 'quiz') {
+      item = (content.quiz || []).filter(function (c) { return c.id === id; })[0];
+      field = 'question'; label = 'Question';
+    }
+    if (!item) return;
+    var current = item[field] || '';
+    lpModal({
+      title: 'Edit ' + (kind || 'item'),
+      bodyHtml: '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px">' + esc(label) + '</label>' +
+        '<input id="lp-study-edit-input" type="text" spellcheck="false" value="' + esc(current) + '" style="width:100%;box-sizing:border-box;font:600 14px \'JetBrains Mono\';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--ink)">',
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Save', primary: true, onClick: function () {
+          var input = $('lp-study-edit-input');
+          var value = (input && input.value || '').trim();
+          if (!value || !lpBridge.connected()) return true;
+          var payload = { kind: kind, id: id };
+          if (kind === 'concept') payload.title = value;
+          else if (kind === 'flashcard') payload.front = value;
+          else if (kind === 'quiz') payload.question = value;
+          lpBridge.call('study_v2_edit', payload).then(function () { studyV2Load(); }).catch(function () {});
+        } }
+      ]
+    });
+    setTimeout(function () { var i = $('lp-study-edit-input'); if (i) { i.focus(); i.select(); } }, 30);
+  }
+
+  function studyV2DeleteItem(kind, id) {
+    if (!id || !lpBridge.connected()) return;
+    var noun = kind === 'concept' ? 'concept' : kind === 'flashcard' ? 'flashcard' : 'question';
+    lpModal({
+      title: 'Delete this ' + noun + '?',
+      bodyHtml: 'This removes it from the Study pack. Related cards and questions are removed too.',
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Delete', danger: true, onClick: function () {
+          lpBridge.call('study_v2_delete', { kind: kind, id: id }).then(function () { studyV2Load(); }).catch(function () {});
+        } }
+      ]
+    });
+  }
+
+  function studyV2ExplainItem(id) {
+    if (!id || !lpBridge.connected()) return;
+    var content = studyV2.content || { concepts: [] };
+    var concept = (content.concepts || []).filter(function (c) { return c.id === id; })[0];
+    if (!concept) return;
+    setStudyV2Mode('ask');
+    var input = $('study-ask-input');
+    if (input) input.value = 'Explain "' + (concept.title || 'this concept') + '" in this lecture';
+    studyAskSend();
   }
 
   function navigateStudySource(el) {
