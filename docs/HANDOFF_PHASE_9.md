@@ -76,3 +76,57 @@ the build Beta 15 until that manual result is recorded.
 
 Updater, historical spike modes, and other contract operations marked
 DEFERRED remain outside this handoff.
+
+---
+
+## QOL/Productivity stabilization re-audit — 2026-08-08
+
+**Branch:** `kimi/qol-productivity-pass`
+
+### Fixed
+
+- Global transcript search is reachable from the header and Ctrl+K, waits for
+  the selected lecture payload, then centers/highlights the exact timestamp.
+- Queue all applies the selected batch mode/quality and starts the first job
+  immediately when the active slot is idle; FIFO promotion remains unchanged.
+- Windows taskbar progress keeps the authoritative overall percent instead of
+  being overwritten by indeterminate pipeline events. The global strip now
+  refreshes on every live status update.
+- Resume state stores the transcript section's real scroll offset, saves on
+  app close, and continues to honor explicit navigation overrides.
+- Completed lectures opened from Ctrl+K route to Review; live/queued lectures
+  route to Process.
+- Search, palette, batch import, and the global processing strip now participate
+  in native keyboard semantics, dialog labeling, live announcements, and the
+  shared focus trap. The header no longer overflows at the 640px minimum width.
+
+### Verification
+
+- `npm run validate`: passed.
+- Focused Electron/QOL suite: `96 passed`.
+- Full suite: `1279 passed, 1 skipped`; the only two failures require the
+  external `LECTUREPACK_ONEDIR_FIXTURE` and are unrelated to this pass.
+- Packaged Electron acceptance: PASS for launch, sidecar/runtime readiness,
+  real demo processing, slides, transcript, 13 exports, clean exit,
+  relaunch/restore, no renderer/bridge/unexpected errors, and no orphan
+  processes. Evidence:
+  `C:\LecturePackScratch\results\qol-packaged-acceptance-20260808\acceptance-result.json`.
+
+### Correct release artifact
+
+- Portable Electron ZIP:
+  `C:\LecturePackScratch\builds\qol-electron-release-20260808\LecturePack-0.9.0-beta.15-Portable.zip`
+- SHA-256:
+  `18780b972386d3d915bd7c650b5b43dce8c4f26e2cc887ac5a12f7cd78fd5caa`
+- Manifest:
+  `C:\LecturePackScratch\builds\qol-electron-release-20260808\LecturePack-0.9.0-beta.15-SHA256SUMS.txt`
+
+`dist-release\LecturePack-portable-1.2.0.zip` is a legacy PyInstaller/Qt
+artifact and does not contain the Electron QOL implementation. Do not use it
+as the Phase 9/QOL candidate.
+
+### Remaining manual gate
+
+The affected-laptop fresh-data acceptance gate remains required before calling
+the candidate Beta 15. This re-audit does not replace the separate physical
+flicker/idle/resize observation.

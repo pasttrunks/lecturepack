@@ -35,3 +35,42 @@
 ## 2. Verdict
 
 All 6 pillars of UI visual design and accessibility are **100% Verified & Approved**.
+
+---
+
+# Phase 9 QOL/Productivity UI Re-audit
+
+**Date:** August 8, 2026
+**Candidate:** Electron `0.9.0-beta.15`
+**Status:** **PASS WITH POLISH APPLIED (23/24)**
+
+| Pillar | Score | Evidence |
+|---|---:|---|
+| Copywriting | 4/4 | Search, batch, queue, empty, success, and recovery copy state a clear action and outcome. |
+| Visuals | 4/4 | Search, palette, processing strip, and batch panel reuse the established bordered-card language and icon system. |
+| Color | 4/4 | New surfaces use existing semantic tokens in light/dark themes; focus and selected states remain distinguishable. |
+| Typography | 4/4 | Space Grotesk and JetBrains Mono hierarchy is consistent with the product shell and remains readable at compact widths. |
+| Spacing | 3/4 | Desktop spacing is strong; compact layout requires the intentional breadcrumb collapse and condensed processing metadata. |
+| Experience Design | 4/4 | Search is discoverable and exact, Queue all starts real work, live progress stays current, resume restores the real viewport, and every overlay is keyboard-contained. |
+
+## Fixed findings
+
+1. Added a persistent Search action and command-palette entry; results now jump
+   to and highlight the exact transcript timestamp.
+2. Made Queue all apply the visible batch settings and start an idle FIFO.
+3. Preserved authoritative overall taskbar progress and refreshed the global
+   processing strip on live status updates.
+4. Persisted the actual transcript scroll container on lecture switch and app
+   close.
+5. Corrected palette lecture routing for completed versus live jobs.
+6. Added native button semantics, dialog labels, live regions, focus trapping,
+   and minimum-width header reflow.
+
+## Automated and visual evidence
+
+- 96 focused tests passed, including 7 new QOL regression tests.
+- Packaged Electron acceptance passed launch, real demo processing, slides,
+  transcript, 13 exports, clean exit, relaunch/restore, renderer/bridge checks,
+  and orphan-process checks.
+- CDP screenshots verified the normal header, Search overlay, Ctrl+K palette,
+  batch panel, and compact 760px/640px reflow.

@@ -2,6 +2,62 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-34: QOL batch actions are transactional, live progress has one authority, and Electron artifacts are explicit
+
+**Date:** 2026-08-08
+**Status:** Implemented on `kimi/qol-productivity-pass`
+
+**Context:** The five-feature QOL/Productivity pass added multi-video import,
+global processing progress, global transcript search, per-lecture resume state,
+and a Ctrl+K command palette. A stabilization audit found that the UI surfaces
+were present but several end-to-end actions were incomplete: Search had no
+reachable trigger and did not consume its timestamp jump; Queue all parked jobs
+without applying the visible settings or starting an idle queue; taskbar
+progress was overwritten by a later indeterminate pipeline event; resume state
+read the non-scrollable transcript content node and was not saved on app close;
+and the reported portable ZIP came from the legacy PyInstaller/Qt release
+builder rather than the Electron product entry point.
+
+**Decision:**
+
+- Make global transcript search a persistent header action and a command-palette
+  action. Transcript rows carry their source timestamp; a result selection keeps
+  a pending jump until the requested lecture's transcript payload is available,
+  then centers and briefly highlights the exact segment.
+- Treat Queue all as one user action: apply the selected output mode and quality
+  before enqueueing, then immediately promote the first job when the active slot
+  is idle. Existing FIFO completion promotion handles the remaining jobs.
+- Keep `status_changed.pct` as the sole Windows taskbar authority for overall job
+  progress. A `pipeline_changed` event may show indeterminate state only before
+  the first status payload for that job; it may not overwrite determinate
+  progress. Refresh the in-app global strip on every status payload.
+- Store transcript resume scroll from the transcript section (the actual scroll
+  container), persist the current lecture during `beforeunload`, and preserve
+  explicit search/Process navigation as an override.
+- Include the new overlays in the existing focus trap, use native buttons for
+  batch choices and the processing strip, label dialogs, and collapse the
+  breadcrumb at the minimum supported window width.
+- Build and label Electron release candidates only through
+  `scripts/build_electron_release.py` / `electron-spike/package-win.mjs`.
+  `scripts/build_release.py` output is the legacy Qt product and must not be
+  cited as evidence for Electron QOL features.
+
+**Alternatives considered:** Leaving Queue all as a queue editor was rejected
+because its label and placement communicate immediate execution. Deriving a
+second taskbar percentage from active-stage events was rejected because the
+sidecar already emits the authoritative overall percentage. Storing a transcript
+block index instead of a timestamp was rejected because edits and regenerated
+segments can change array positions. Replacing the legacy Qt ZIP in place was
+rejected because it would make two different product shells share an ambiguous
+artifact name.
+
+**Rationale:** Each user action now has one observable outcome and one state
+authority. The fixes remain within the Phase 9 renderer/host/sidecar seam,
+preserve the existing engine and persisted job format, and make release evidence
+traceable to the product that contains the feature.
+
+---
+
 ## AD-28: Package the disposable Electron acceptance demo as a resource
 
 **Date:** 2026-08-04
