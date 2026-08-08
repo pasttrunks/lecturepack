@@ -408,8 +408,6 @@ fn build_quick_study_session(
     content_json: &str,
     now: Option<String>,
 ) -> PyResult<String> {
-    let progress: StudyProgress = serde_json::from_str(progress_json)
-        .map_err(|e| PyValueError::new_err(format!("invalid progress: {e}")))?;
     let content: StudyContent = serde_json::from_str(content_json)
         .map_err(|e| PyValueError::new_err(format!("invalid content: {e}")))?;
 
