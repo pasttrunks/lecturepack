@@ -73,6 +73,38 @@ def test_generate_deterministic_content_grounded():
     assert emphasized
 
 
+def test_deterministic_content_prefers_claims_and_non_duplicate_retrieval(monkeypatch):
+    class FakeJob:
+        paths = {"root": "/tmp", "transcript": "/tmp/transcript"}
+
+    monkeypatch.setattr(study_v2, "_load_segments", lambda job: [
+        {"start": 0.0, "end": 4.0,
+         "text": "Okay everyone, today we are going to see archaeology."},
+        {"start": 4.0, "end": 9.0,
+         "text": "Archaeology is the study of human activity through material culture."},
+        {"start": 9.0, "end": 14.0,
+         "text": "The archaeological record includes artifacts and architecture."},
+        {"start": 14.0, "end": 19.0,
+         "text": "The archaeological record is the evidence left by past societies."},
+    ])
+    monkeypatch.setattr(study_v2, "_load_accepted_slides", lambda job: [
+        {"image_filename": "slide-1.png", "timestamp_seconds": 9.0,
+         "decision": "accepted"},
+    ])
+
+    content = study_v2.generate_deterministic_content(FakeJob())
+    titles = {concept["title"].casefold() for concept in content["concepts"]}
+    assert "okay" not in titles
+    assert "everyone" not in titles
+    assert len(content["flashcards"]) == len(content["concepts"])
+    assert all(card["back"] for card in content["flashcards"])
+    assert all(len(question["options"]) >= 2 for question in content["quiz"])
+    if len(content["quiz"]) > 1:
+        assert len({question["correct_index"] for question in content["quiz"]}) > 1
+    assert any(source.get("slide_id") == "slide-1.png"
+               for concept in content["concepts"] for source in concept["sources"])
+
+
 # ---- old-job migration --------------------------------------------------- #
 def test_ensure_study_v2_generates_from_existing_assets(tmp_path):
     class FakeJob:

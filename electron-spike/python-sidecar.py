@@ -2185,6 +2185,8 @@ class Sidecar:
         if not local_ready:
             answer = self.electron_study.builtin_answer(prompt, segments)
             self._emit({"event": "ai_token", "text": answer})
+            self._emit({"event": "ai_sources",
+                        "sources": self.electron_study.builtin_sources(prompt, segments)})
             self._emit({"event": "ai_done"})
             self._emit({"event": "ai_status",
                         "label": self.study_presets.PROVIDER_BUILTIN, "model": ""})
@@ -2207,6 +2209,8 @@ class Sidecar:
             answer = (result or {}).get("answer", "") if isinstance(result, dict) else ""
             answer = answer or "I couldn't find an answer in the transcript."
             self._emit({"event": "ai_token", "text": answer})
+            self._emit({"event": "ai_sources",
+                        "sources": self.electron_study.builtin_sources(prompt, segments)})
             self._emit({"event": "ai_done"})
             self._emit({"event": "ai_status",
                         "label": self.study_presets.PROVIDER_LOCAL, "model": o.get("model")})

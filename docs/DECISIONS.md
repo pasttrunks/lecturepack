@@ -1303,3 +1303,41 @@ per-job workspace store and event stamps; `view_job` adds the one missing
 fetch path without touching the pipeline; and the progress changes only read
 data the engine already emits, so a long real lecture now shows moving,
 consistent progress on Home and Process.
+
+## AD-34: Built-in Study content is claim-led and citation-conservative
+
+**Date:** 2026-08-08
+
+**Status:** Implemented on `luna/study-v1-product-polish`
+
+**Context:** The first real-lecture acceptance run exposed a serious quality
+failure in the original deterministic Study path: frequent transcript filler
+words became concepts, every card used the same term-definition prompt, and
+quiz answers were long, repeated extracts. That made the Study pack look full
+without making it useful for exam preparation.
+
+**Decision:** Built-in Study now selects definition-style claims and repeated
+subject-matter phrases, removes obvious transcript noise, suppresses narrow
+detail phrases and duplicate concepts, creates one retrieval card per concept,
+uses varied retrieval prompts, and keeps quiz distractors as compact extracts
+from other real lecture claims. Every persisted source reference is still
+validated against the actual transcript or accepted slide index. Slide
+references use a tight timestamp window so a nearby but unrelated slide is not
+presented as evidence. Ask Lecture emits the same real transcript anchors for
+the renderer to display as clickable sources.
+
+**Alternatives considered:**
+
+- Generating more items to hit a fixed count: rejected because filler volume
+  was the observed failure mode.
+- Adding an embedding/NLP pipeline: rejected because simple lexical claim
+  filtering and deduplication address the demonstrated problem without
+  changing the Study architecture or adding a dependency.
+- Treating every nearby slide as supporting evidence: rejected because the
+  real lecture showed that section-level proximity can still produce an
+  irrelevant citation.
+
+**Rationale:** The content remains deterministic, inspectable, and source
+separated while moving the student experience from “term list” toward focused
+retrieval practice. When the transcript itself is noisy, the UI exposes the
+real source rather than silently presenting an invented correction.

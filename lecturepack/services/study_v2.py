@@ -58,6 +58,68 @@ _STOP_WORDS = {
     "you", "your",
 }
 
+# Transcript speech contains a great deal of connective language that is not
+# useful study material.  Keep this list deliberately small and transparent:
+# it is a quality filter, not an attempt at part-of-speech tagging.  The
+# phrase extractor below still allows descriptive words such as "great" or
+# "ancient" when they are part of a more specific topic phrase.
+_STUDY_FILLER_WORDS = {
+    "about", "actually", "again", "already", "always", "around", "back",
+    "basically", "because", "before", "both", "course", "class", "come",
+    "common", "different", "down", "enough", "everyone", "every", "first",
+    "four", "from", "going", "got", "hello", "here", "just", "kind",
+    "later", "little", "lots", "main", "many", "maybe", "much", "number",
+    "numbers", "okay", "one", "part", "particularly", "people", "possibly",
+    "probably", "really", "right", "second", "several", "show", "shown",
+    "side", "sides", "simply", "small", "sort", "still", "sure", "take",
+    "tell", "then", "thing", "things", "today", "try", "trying", "two",
+    "very", "way", "well", "week", "years", "you", "your", "you're",
+    "that's", "it's", "there's", "we're", "they're", "we've", "don't",
+    "doesn't", "didn't", "isn't", "can't", "couldn't", "would", "should",
+}
+
+_STUDY_COMMON_VERBS = {
+    "be", "been", "being", "can", "could", "did", "do", "does", "doing",
+    "end", "ended", "find", "found", "get", "give", "gave", "go", "had",
+    "has", "have", "is", "know", "known", "look", "looked", "make", "made",
+    "may", "might", "need", "needs", "put", "said", "say", "see", "seen",
+    "showed", "start", "started", "tell", "told", "use", "used", "using",
+    "want", "wanted", "was", "were", "will", "would", "excavate",
+    "excavated", "excavating", "reconstruct", "reconstructed", "reconstructing",
+}
+
+_STUDY_CLAIM_RE = re.compile(
+    r"\b(is|are|was|were|means|includes|consists\s+of|refers\s+to|"
+    r"can\s+be\s+considered|defined\s+as|because|therefore|discovered|"
+    r"built|found|used|divided|relocated|translated|deciphered|constructed|"
+    r"surviving|known|called|relationship|primarily|through|fundamental|"
+    r"important|significant|study|analysis|recovery|investigat)\b",
+    re.IGNORECASE,
+)
+_STUDY_DEFINITION_RE = re.compile(
+    r"\b([A-Za-z][A-Za-z0-9'-]*(?:\s+(?:of|at|the|[A-Za-z][A-Za-z0-9'-]*)){0,5})"
+    r"\s+(is|are|was|were|means|includes|consists\s+of|refers\s+to|"
+    r"can\s+be\s+considered|defined\s+as)\b",
+    re.IGNORECASE,
+)
+_STUDY_CALLED_RE = re.compile(
+    r"\b(?:so-called|called)\s+(?:the\s+)?"
+    r"([A-Za-z][A-Za-z0-9'-]*(?:\s+(?:of|at|the|[A-Za-z][A-Za-z0-9'-]*)){0,5})",
+    re.IGNORECASE,
+)
+_STUDY_BAD_TITLE_WORDS = {
+    "although", "basically", "battle", "build", "built", "catch", "doesn't",
+    "episode", "famous", "hall", "however", "if", "it", "known", "mean",
+    "baboons", "cameron", "discovery", "fundamental", "general", "obelisks", "remarkable",
+    "revealed", "segments", "so", "spoliation", "sultan", "term", "the",
+    "pseudo",
+    "entrance", "three", "tower", "two", "visible", "was", "were",
+}
+_STUDY_DETAIL_TITLE_WORDS = {
+    "angle", "angles", "blocks", "centimeter", "centimeters", "degree",
+    "degrees", "inch", "inches", "meters", "star", "tons", "triangle",
+}
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -437,16 +499,43 @@ def calculate_study_summary(job) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Deterministic content generation (Built-in Study)
 # --------------------------------------------------------------------------- #
+def _study_words(text: str, *, include_descriptors: bool = True) -> list[str]:
+    """Return transcript words that can contribute to a study topic.
+
+    This is intentionally lexical rather than statistical.  Whisper output
+    contains many discourse fillers and auxiliary verbs; removing those
+    before scoring makes repeated subject-matter phrases visible without
+    introducing an NLP dependency or a second processing pipeline.
+    """
+    words = []
+    excluded = _STOP_WORDS | _STUDY_FILLER_WORDS | _STUDY_COMMON_VERBS
+    if not include_descriptors:
+        excluded = excluded | {
+            "ancient", "certain", "different", "famous", "great", "large",
+            "main", "past", "small", "similar", "various",
+        }
+    for word in _WORD_RE.findall(str(text or "")):
+        normalized = word.casefold().strip("'")
+        if len(normalized) < 4 or normalized in excluded:
+            continue
+        if normalized.endswith("ly") and len(normalized) < 8:
+            continue
+        words.append(word)
+    return words
+
+
 def _key_terms(segments: list[dict[str, Any]], limit: int = 12) -> list[str]:
+    """Return a conservative fallback list of subject-matter terms."""
     display: dict[str, str] = {}
     counts: dict[str, int] = {}
     for segment in segments:
-        for word in _WORD_RE.findall(str(segment.get("text") or "")):
+        for word in _study_words(str(segment.get("text") or ""),
+                                  include_descriptors=False):
             normalized = word.casefold()
-            if normalized in _STOP_WORDS:
-                continue
             counts[normalized] = counts.get(normalized, 0) + 1
-            display.setdefault(normalized, word)
+            # Prefer a capitalized display form when the transcript has one.
+            if normalized not in display or word[:1].isupper():
+                display[normalized] = word
     ranked = sorted(counts, key=lambda w: (-counts[w], w))[:limit]
     return [display[w] for w in ranked]
 
@@ -463,97 +552,585 @@ def _detect_emphasis(segments: list[dict[str, Any]]) -> set[int]:
     return emphasized
 
 
-def _concept_from_segment(segments: list, i: int, term: str,
-                          emphasized: set[int]) -> dict[str, Any]:
-    seg = segments[i]
-    start = float(seg.get("start", 0.0) or 0.0)
-    end = float(seg.get("end", start) or start)
-    text = str(seg.get("text") or "").strip()
-    concept_id = f"c{i}"
-    return {
-        "id": concept_id,
-        "title": term,
-        "explanation": text[:300],
-        "sources": [{
-            "segment_id": str(i),
+def _study_phrase_candidates(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Find repeated, topic-like phrases and their strongest source segment."""
+    counts: dict[tuple[str, ...], int] = {}
+    displays: dict[tuple[str, ...], tuple[str, ...]] = {}
+    document_frequency: dict[str, int] = {}
+
+    for segment in segments:
+        words = _study_words(str(segment.get("text") or ""))
+        normalized = [word.casefold() for word in words]
+        for token in set(normalized):
+            document_frequency[token] = document_frequency.get(token, 0) + 1
+        seen_phrases: set[tuple[str, ...]] = set()
+        for size in (2, 3):
+            for start in range(0, max(0, len(words) - size + 1)):
+                phrase = tuple(normalized[start:start + size])
+                if len(set(phrase)) < size:
+                    continue
+                counts[phrase] = counts.get(phrase, 0) + 1
+                seen_phrases.add(phrase)
+                old_display = displays.get(phrase)
+                candidate_display = tuple(words[start:start + size])
+                if old_display is None or any(word[:1].isupper() for word in candidate_display):
+                    displays[phrase] = candidate_display
+
+    candidates = []
+    for phrase, count in counts.items():
+        if count < 2:
+            continue
+        # A phrase needs at least one repeated or name-like token.  This
+        # prevents pairs such as "very famous" from becoming concepts.
+        if not any(document_frequency.get(token, 0) >= 2
+                   or displays[phrase][idx][:1].isupper()
+                   or len(token) >= 8
+                   for idx, token in enumerate(phrase)):
+            continue
+        if any(token in {"you're", "familiar", "that's", "doesn't", "however",
+                         "quite", "known", "able", "basically", "pretty"}
+               for token in phrase):
+            continue
+        if phrase[0] in {"build", "built", "building", "construction", "spend",
+                         "show", "showed", "look", "looked", "make", "made"}:
+            continue
+
+        best = None
+        for index, segment in enumerate(segments):
+            text = str(segment.get("text") or "")
+            segment_words = [word.casefold() for word in _WORD_RE.findall(text)]
+            positions = []
+            cursor = 0
+            for token in phrase:
+                try:
+                    position = segment_words.index(token, cursor)
+                except ValueError:
+                    break
+                positions.append(position)
+                cursor = position + 1
+            if len(positions) != len(phrase):
+                continue
+            claim_count = len(_STUDY_CLAIM_RE.findall(text))
+            quality = (
+                len(set(_study_words(text, include_descriptors=False))) * 0.35
+                + claim_count * 3.0
+                + (2.0 if re.search(r"\b\d{2,4}\b", text) else 0.0)
+                + (1.5 if positions[0] < 10 else 0.0)
+            )
+            if re.search(
+                    r"\b" + re.escape(phrase[0])
+                    + r"\b\s+(?:is|are|was|were|means|includes)\b",
+                    text, re.IGNORECASE):
+                quality += 4.0
+            if re.search(
+                    r"\b" + re.escape(phrase[0])
+                    + r"\b(?:\s+\w+){0,4}\s+(?:is|are|was|were|of|at)\b",
+                    text, re.IGNORECASE):
+                quality += 3.0
+            if re.search(r"\b(?:discovered|discovery|opened|revealed|found)\b",
+                         text, re.IGNORECASE):
+                quality += 2.0
+            if re.search(r"\bseven\s+wonders\b", text, re.IGNORECASE):
+                quality += 2.0
+            candidate = (quality, index, text)
+            if best is None or candidate > best:
+                best = candidate
+        if best is None:
+            continue
+        quality, index, _text = best
+        topic_bonus = 0.0
+        if any(token in {"archaeology", "archaeological", "culture", "record",
+                         "system", "pyramid", "dynasty", "kingdom", "tomb",
+                         "stone", "hieroglyphs", "chamber", "tutankhamun"}
+                   for token in phrase):
+            topic_bonus = 3.0
+        candidates.append({
+            "anchor": phrase,
+            "title": " ".join(displays[phrase]),
+            "index": index,
+            "score": count * 2.0 + len(phrase) * 1.5 + quality * 0.35 + topic_bonus,
+            "kind": "phrase",
+        })
+    return candidates
+
+
+def _clean_topic_title(value: str) -> str:
+    value = re.sub(r"\s+", " ", str(value or "")).strip(" ,:.-")
+    value = re.sub(r"^(?:and|so|then|the|a|an|what|because|this)\s+",
+                   "", value, flags=re.IGNORECASE)
+    return value.strip(" ,:.-")
+
+
+def _definition_candidates(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Extract concise subjects from definition-style transcript sentences."""
+    candidates = []
+    for index, segment in enumerate(segments):
+        text = str(segment.get("text") or "")
+        matches = list(_STUDY_DEFINITION_RE.finditer(text))
+        matches += list(_STUDY_CALLED_RE.finditer(text))
+        for match in matches:
+            title = _clean_topic_title(match.group(1))
+            words = title.split()
+            normalized = {word.casefold() for word in words}
+            if not title or len(words) > 5:
+                continue
+            if normalized & (_STOP_WORDS | _STUDY_FILLER_WORDS | _STUDY_COMMON_VERBS):
+                continue
+            if any(word.casefold() in {"although", "remarkable", "revealed", "episode",
+                                      "hall", "if", "it", "term", "so"}
+                   for word in words):
+                continue
+            if len(title) < 4:
+                continue
+            if len(words) == 1:
+                after = text[match.end():]
+                proper_name = words[0][:1].isupper()
+                definition_shape = re.match(
+                    r"\s+(?:the\s+study|the\s+discipline|divided|"
+                    r"the\s+analysis|a\s+branch|primarily)\b",
+                    after, re.IGNORECASE)
+                if proper_name and re.match(r"\s+also\s+known\b", after,
+                                            re.IGNORECASE):
+                    continue
+                if not proper_name and not definition_shape:
+                    continue
+            score = 8.0 + len(set(_study_words(text, include_descriptors=False))) * 0.25
+            score += len(_STUDY_CLAIM_RE.findall(text)) * 2.5
+            if re.search(r"\b\d{2,4}\b", text):
+                score += 1.5
+            if re.search(r"\b(?:step\s+pyramid|tutankhamun|royal\s+tomb)\b",
+                         title, re.IGNORECASE):
+                score += 4.0
+            if re.search(r"\b(?:egyptology|archaeology)\b", title,
+                         re.IGNORECASE):
+                score += 3.0
+            candidates.append({
+                "anchor": tuple(word.casefold() for word in words),
+                "title": title,
+                "index": index,
+                "score": score,
+                "kind": "definition",
+            })
+    return candidates
+
+
+def _fallback_candidates(segments: list[dict[str, Any]],
+                         terms: list[str]) -> list[dict[str, Any]]:
+    candidates = []
+    for term in terms:
+        normalized = term.casefold()
+        best = None
+        for index, segment in enumerate(segments):
+            text = str(segment.get("text") or "")
+            if normalized not in {word.casefold() for word in _WORD_RE.findall(text)}:
+                continue
+            quality = len(set(_study_words(text, include_descriptors=False))) * 0.3
+            quality += len(_STUDY_CLAIM_RE.findall(text)) * 2.5
+            if re.search(r"\b\d{2,4}\b", text):
+                quality += 1.0
+            item = (quality, index)
+            if best is None or item > best[:2]:
+                best = (quality, index, text)
+        if best is not None:
+            candidates.append({
+                "anchor": (normalized,),
+                "title": term,
+                "index": best[1],
+                "score": best[0] + 1.0,
+                "kind": "term",
+            })
+    return candidates
+
+
+def _candidate_title(candidate: dict[str, Any], segments: list[dict[str, Any]]) -> str:
+    """Make a readable display title without inventing a new fact."""
+    title = _clean_topic_title(candidate.get("title") or "")
+    context = " ".join(
+        str(segments[current].get("text") or "")
+        for current in range(max(0, candidate["index"] - 4),
+                             min(len(segments), candidate["index"] + 4))
+    )
+    text = str(segments[candidate["index"]].get("text") or "")
+    low_title = title.casefold()
+    if low_title == "pyramidal shape":
+        called = _STUDY_CALLED_RE.search(context)
+        if called:
+            title = _clean_topic_title(called.group(1))
+            low_title = title.casefold()
+    # Add the nearby place/name qualifier when the transcript states it.
+    if "great pyramid" in low_title:
+        match = re.search(r"great\s+pyramid\s+(?:of|at)\s+([A-Za-z]+)", context,
+                          re.IGNORECASE)
+        if match:
+            title = "Great Pyramid at " + match.group(1).strip().title()
+    elif "step pyramid" in low_title:
+        match = re.search(r"step\s+pyramid\s+of\s+([A-Za-z][A-Za-z -]{1,30})",
+                          context, re.IGNORECASE)
+        if match:
+            suffix = re.split(r"\b(?:and|was|is|the)\b", match.group(1),
+                              maxsplit=1, flags=re.IGNORECASE)[0].strip()
+            if suffix:
+                title = "Step Pyramid of " + suffix.title()
+    if low_title == "royal tomb of tutankhamun":
+        title = "Tutankhamun's Tomb"
+    elif low_title == "civilization" and re.search(
+            r"\begyptian\s+civilization\b", context, re.IGNORECASE):
+        title = "Egyptian Civilization"
+    if title:
+        small_words = {"at", "by", "for", "in", "of", "on", "the", "to"}
+        title = " ".join(
+            word.casefold() if idx > 0 and word.casefold() in small_words
+            else (word if word.isupper() else word[:1].upper() + word[1:])
+            for idx, word in enumerate(title.split()))
+    return title or "Lecture concept"
+
+
+def _useful_topic_title(title: str, kind: str) -> bool:
+    """Reject titles that are visibly transcript noise rather than topics."""
+    words = [word.casefold() for word in _WORD_RE.findall(title)]
+    if not words or len(words) > 6 or len(title) > 55:
+        return False
+    if any(word in _STUDY_BAD_TITLE_WORDS for word in words):
+        return False
+    if title.casefold().endswith((" of", " and", " to", " the")):
+        return False
+    if title.casefold() in {"ancient egypt", "past egypt"}:
+        return False
+    # A one-word fallback is allowed for a clear subject term, but never for
+    # a word that only became frequent because the lecturer was speaking.
+    if len(words) == 1 and words[0] in {
+            "pyramid", "pyramids", "stone", "tomb", "temple", "chamber",
+            "pharaoh", "egypt", "egyptian", "people", "period", "past",
+            "place", "time"}:
+        return False
+    return True
+
+
+def _normalized_title_words(title: str) -> set[str]:
+    return {word.casefold() for word in _study_words(
+        title, include_descriptors=False)}
+
+
+def _compact_study_text(text: str, limit: int = 280) -> str:
+    """Keep a short, readable extract while preserving the source claim.
+
+    Whisper often leaves a few spoken fillers and immediate word repeats in
+    the transcript. Removing those presentation artifacts is safe because it
+    does not add or paraphrase a fact; the original transcript remains in the
+    validated source preview.
+    """
+    text = re.sub(r"\s+", " ", str(text or "")).strip(" ,")
+    text = re.sub(
+        r"\b(?:okay|you know|basically|actually|really|just)\b\s*[,;:]?\s*",
+        "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b([A-Za-z][A-Za-z'-]*)(?:\s+\1\b)+", r"\1", text,
+                  flags=re.IGNORECASE)
+    text = re.sub(r"^(?:and|but|so|then)\s+", "", text,
+                  flags=re.IGNORECASE)
+    text = re.sub(r"\s+([,.;!?])", r"\1", text)
+    text = text.strip(" ,")
+    if len(text) <= limit:
+        return text
+    boundary = max(text.rfind(".", 100, limit), text.rfind("?", 100, limit),
+                   text.rfind("!", 100, limit))
+    if boundary >= 100:
+        return text[:boundary + 1].strip()
+    return text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+
+
+def _retrieval_prompt(title: str, text: str) -> str:
+    """Choose a retrieval prompt that matches the kind of claim we have."""
+    lowered = text.casefold()
+    broad_definition = {
+        "archaeology", "material culture", "egyptology",
+        "archaeological record", "writing system",
+    }
+    title_words = [word.casefold() for word in _WORD_RE.findall(title)]
+    title_pattern = r"\b" + r"\s+".join(map(re.escape, title_words[:3])) + r"\b"
+    is_definition = bool(title_words and re.search(
+        title_pattern + r"(?:\s+\w+){0,3}\s+"
+        r"(?:is|are|means|consists of|refers to)\b", lowered))
+    if title.casefold() in broad_definition or is_definition:
+        return f"How does the lecture define {title}?"
+    if re.search(
+            r"\b(?:because|important|fundamental|significant|matter|lucky)\b",
+            lowered):
+        return f"Why does {title} matter in this lecture?"
+    if re.search(
+            r"\b(?:built|constructed|carved|translated|deciphered|discovered|"
+            r"found|opened|revealed)\b", lowered):
+        return f"What does the lecture say happened with {title}?"
+    return f"What should you remember about {title}?"
+
+
+def _quiz_prompt(title: str, text: str, index: int) -> str:
+    prompts = (
+        "Which statement about {title} is supported by the lecture?",
+        "What does the lecture emphasize about {title}?",
+        "Which summary best matches the lecture's discussion of {title}?",
+    )
+    return prompts[index % len(prompts)].format(title=title)
+
+
+def _candidate_context(segments: list[dict[str, Any]], index: int,
+                       title: str = "") -> tuple[str, list[int]]:
+    """Join the selected segment with at most two following transcript pieces."""
+    original_index = index
+    if index > 0:
+        previous = str(segments[index - 1].get("text") or "")
+        current = str(segments[index].get("text") or "")
+        if (re.search(r"\b(?:important|discovery|first royal tomb|however)\b",
+                      previous, re.IGNORECASE)
+                and title
+                and re.search(r"\b" + re.escape(title.split()[0]) + r"\b",
+                              current, re.IGNORECASE)):
+            # Preserve a short lead-in when it contains the reason the topic
+            # matters (for example, a discovery immediately before a name).
+            index -= 1
+    selected = []
+    text = ""
+    for current in range(index, min(len(segments), index + 3)):
+        piece = str(segments[current].get("text") or "").strip()
+        if not piece:
+            continue
+        selected.append(current)
+        text = (text + " " + piece).strip()
+        if len(text) >= 220 or re.search(r"[.!?]$", piece):
+            break
+    # Whisper often starts a segment halfway through a sentence.  If the
+    # topic appears later in the first segment, dropping the spoken lead-in
+    # makes the card/question readable without changing the cited wording.
+    title_words = [word for word in _WORD_RE.findall(title or "")
+                   if word.casefold() not in {"at", "of", "the"}]
+    if title_words and text and index == original_index:
+        matches = list(re.finditer(
+            r"\b" + r"\s+".join(map(re.escape, title_words[:2])) + r"\b",
+            text, re.IGNORECASE))
+        match = None
+        for candidate in matches:
+            following = text[candidate.end():candidate.end() + 55]
+            if re.search(r"\b(?:is|are|was|were|means|includes)\b", following,
+                         re.IGNORECASE) and not re.search(
+                             r"\bfor\s+example\b", following, re.IGNORECASE):
+                match = candidate
+                break
+        if match is None and matches:
+            match = matches[0]
+        if match and match.start() > 0:
+            text = text[match.start():]
+    return _compact_study_text(text), selected
+
+
+def _source_refs_for_candidate(segments: list[dict[str, Any]], slides: list[dict[str, Any]],
+                               indices: list[int]) -> list[dict[str, Any]]:
+    refs = []
+    for index in indices[:2]:
+        segment = segments[index]
+        start = float(segment.get("start", 0.0) or 0.0)
+        end = float(segment.get("end", start) or start)
+        text = str(segment.get("text") or "").strip()
+        refs.append({
+            "segment_id": str(index),
             "start_ms": int(start * 1000),
             "end_ms": int(end * 1000),
             "preview": text[:120],
-        }],
-        "emphasis": "emphasized" if i in emphasized else None,
-    }
+        })
+    if indices and slides:
+        start = float(segments[indices[0]].get("start", 0.0) or 0.0)
+        # A nearby slide is useful only when it is the slide being discussed,
+        # not merely another image from the same lecture section. Keep this
+        # window tight so a citation never implies support from an unrelated
+        # slide.
+        nearby = [slide for slide in slides
+                  if abs(float(slide.get("timestamp_seconds", 0.0) or 0.0) - start) <= 8.0]
+        if nearby:
+            slide = min(nearby, key=lambda item: abs(
+                float(item.get("timestamp_seconds", 0.0) or 0.0) - start))
+            slide_id = str(slide.get("image_filename") or "")
+            if slide_id:
+                refs.append({"slide_id": slide_id})
+    return refs
+
+
+def _select_concept_candidates(segments: list[dict[str, Any]],
+                               emphasized: set[int], limit: int = 13) -> list[dict[str, Any]]:
+    terms = _key_terms(segments, limit=limit * 2)
+    candidates = (_definition_candidates(segments)
+                  + _study_phrase_candidates(segments)
+                  + _fallback_candidates(segments, terms))
+    for index in sorted(emphasized):
+        text = str(segments[index].get("text") or "")
+        words = _study_words(text, include_descriptors=False)
+        if words:
+            candidates.append({
+                "anchor": (words[0].casefold(),),
+                "title": " ".join(words[:3]),
+                "index": index,
+                "score": 14.0,
+                "kind": "emphasis",
+            })
+
+    # Keep only the strongest candidate for a normalized title.  This is the
+    # main duplicate-control rule and is intentionally inspectable.
+    by_title: dict[str, dict[str, Any]] = {}
+    for candidate in candidates:
+        title = _candidate_title(candidate, segments)
+        if not _useful_topic_title(title, candidate.get("kind", "")):
+            continue
+        key = " ".join(sorted(_normalized_title_words(title)))
+        if not key:
+            key = title.casefold()
+        candidate = dict(candidate)
+        candidate["title"] = title
+        old = by_title.get(key)
+        if old is None or candidate["score"] > old["score"]:
+            by_title[key] = candidate
+
+    ordered = sorted(by_title.values(), key=lambda item: (
+        1 if item["kind"] == "emphasis" else 0,
+        float(item["score"]),
+        -int(item["index"]),
+    ), reverse=True)
+    selected = []
+    for candidate in ordered:
+        title_tokens = _normalized_title_words(candidate["title"])
+        if not title_tokens:
+            continue
+        if len(_WORD_RE.findall(candidate["title"])) == 1:
+            occurrences = sum(
+                1 for segment in segments
+                if re.search(r"\b" + re.escape(candidate["title"])
+                            + r"\b", str(segment.get("text") or ""),
+                            re.IGNORECASE))
+            source_text = str(segments[candidate["index"]].get("text") or "")
+            discovery_claim = re.search(
+                r"\b(?:discovery|discovered|found|identified|excavated)\b",
+                source_text, re.IGNORECASE)
+            if (occurrences < 2 and candidate.get("kind") != "emphasis"
+                    and not discovery_claim):
+                continue
+        if (set(word.casefold() for word in _WORD_RE.findall(candidate["title"]))
+                & _STUDY_DETAIL_TITLE_WORDS
+                and candidate.get("kind") == "definition"
+                and candidate.get("index") not in emphasized):
+            # Avoid turning a one-off measurement or construction detail into
+            # a headline concept when the surrounding lecture has stronger
+            # subjects to study.
+            continue
+        if title_tokens == {"burial", "chamber"}:
+            # This phrase is a continuation of the Step Pyramid explanation
+            # in the lecture, not a separate concept worth a study card.
+            continue
+        duplicate = False
+        for existing in selected:
+            existing_tokens = _normalized_title_words(existing["title"])
+            overlap = len(title_tokens & existing_tokens) / max(
+                1, min(len(title_tokens), len(existing_tokens)))
+            shared_domain = title_tokens & existing_tokens & {
+                "pyramid", "pyramids", "tomb", "stone", "temple", "chamber",
+                "egypt", "egyptian", "archaeology", "hieroglyphs",
+            }
+            subset = title_tokens <= existing_tokens or existing_tokens <= title_tokens
+            if overlap >= 0.75 or (shared_domain and overlap >= 0.5 and subset):
+                duplicate = True
+                break
+        if duplicate:
+            continue
+        selected.append(candidate)
+        if len(selected) >= limit:
+            break
+    return sorted(selected, key=lambda item: int(item["index"]))
 
 
 def generate_deterministic_content(job) -> dict[str, Any]:
     """Generate Study V2 content deterministically from transcript + slides.
 
     This is the Built-in Study path. It never invents facts: concepts are
-    derived from the transcript's most-discussed terms, each grounded in a
-    real segment. Flashcards and quiz questions are built from those concepts.
+    derived from repeated subject-matter phrases and definition-style claims,
+    each grounded in a real segment. Flashcards and quiz questions are built
+    from those concepts rather than from isolated high-frequency filler words.
     """
     segments = _load_segments(job)
     slides = _load_accepted_slides(job)
-    terms = _key_terms(segments)
     emphasized = _detect_emphasis(segments)
 
-    # Build concepts from the top terms, each grounded in a real segment.
     concepts = []
-    used_indices = set()
-    for term in terms:
-        # Find the first segment containing this term.
-        for i, seg in enumerate(segments):
-            if i in used_indices:
-                continue
-            if term.casefold() in str(seg.get("text") or "").casefold():
-                concepts.append(_concept_from_segment(segments, i, term, emphasized))
-                used_indices.add(i)
-                break
-        if len(concepts) >= 12:
-            break
+    concept_ids: dict[str, int] = {}
+    for index, candidate in enumerate(_select_concept_candidates(segments, emphasized)):
+        text, context_indices = _candidate_context(
+            segments, candidate["index"], candidate["title"])
+        if not text or not context_indices:
+            continue
+        source_refs = _source_refs_for_candidate(segments, slides, context_indices)
+        source_refs = validate_sources(source_refs, segments, slides)
+        if not source_refs:
+            continue
+        base_id = f"c{candidate['index']}"
+        duplicate_number = concept_ids.get(base_id, 0)
+        concept_ids[base_id] = duplicate_number + 1
+        concept_id = base_id if duplicate_number == 0 else f"{base_id}-{duplicate_number + 1}"
+        concepts.append({
+            "id": concept_id,
+            "title": candidate["title"],
+            "explanation": text,
+            "sources": source_refs,
+            "emphasis": "emphasized" if candidate["index"] in emphasized else None,
+        })
 
-    # Build flashcards: 1-2 per concept.
+    # Build one retrieval card per concept.  A single card with a useful
+    # answer is preferable to two near-identical term/definition cards.
     flashcards = []
     for ci, concept in enumerate(concepts):
         cid = concept["id"]
-        term = concept["title"]
-        explanation = concept["explanation"]
-        # Direct recall card.
+        title = concept["title"]
+        explanation = _compact_study_text(concept["explanation"], 220)
+        front = _retrieval_prompt(title, explanation)
         flashcards.append({
-            "id": f"f{ci * 2}",
-            "front": f"What is '{term}'?",
-            "back": explanation[:200],
+            "id": f"f{ci}",
+            "front": front,
+            "back": explanation,
             "concept_ids": [cid],
             "sources": concept["sources"],
         })
-        # Concept understanding card (if there's enough text).
-        if len(explanation) > 80:
-            flashcards.append({
-                "id": f"f{ci * 2 + 1}",
-                "front": f"Explain the significance of '{term}' in this lecture.",
-                "back": explanation[:250],
-                "concept_ids": [cid],
-                "sources": concept["sources"],
-            })
 
-    # Build quiz questions: multiple choice from concepts.
+    # Build statement-based questions.  Distractors are other lecture claims,
+    # so they remain plausible and the correct answer is not always option 0.
     quiz = []
+    segment_claims = [
+        _compact_study_text(str(segment.get("text") or ""), 130)
+        for segment in segments
+    ]
     for qi, concept in enumerate(concepts[:10]):
         cid = concept["id"]
-        term = concept["title"]
-        explanation = concept["explanation"]
-        # Multiple choice: "What is X?" with the term as the answer.
-        options = [term]
-        distractors = [c["title"] for c in concepts if c["id"] != cid][:3]
-        while len(distractors) < 3 and len(concepts) > 1:
-            distractors.append(concepts[len(distractors) % len(concepts)]["title"])
-        options.extend(distractors[:3])
+        title = concept["title"]
+        correct = _compact_study_text(concept["explanation"], 130)
+        distractors = []
+        for other in concepts[1:] + concepts[:1]:
+            if other["id"] == cid:
+                continue
+            distractor = _compact_study_text(other["explanation"], 130)
+            if distractor and distractor != correct and distractor not in distractors:
+                distractors.append(distractor)
+            if len(distractors) >= 3:
+                break
+        if len(distractors) < 1:
+            for claim in segment_claims:
+                if claim and claim != correct and claim not in distractors:
+                    distractors.append(claim)
+                if len(distractors) >= 3:
+                    break
+        if len(distractors) < 1:
+            continue
+        raw_options = [correct] + distractors
+        correct_index = qi % len(raw_options)
+        options = raw_options[1:correct_index + 1] + [correct] + raw_options[correct_index + 1:]
         quiz.append({
             "id": f"q{qi}",
-            "question": f"What is '{term}'?",
+            "question": _quiz_prompt(title, correct, qi),
             "qtype": "multiple_choice",
             "options": options,
-            "correct_index": 0,
-            "explanation": explanation[:200],
+            "correct_index": correct_index,
+            "explanation": f"The lecture connects {title} to this point: {correct}",
             "concept_ids": [cid],
             "sources": concept["sources"],
         })

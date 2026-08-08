@@ -89,3 +89,24 @@ Command:
 git status
 ```
 Result: Working tree is clean on branch `v1.2-hybrid-study` with no modified or untracked files remaining. HEAD is at commit `4a43f5a`.
+
+## Study V1 product polish follow-up — 2026-08-08
+
+- **Authorized branch:** `luna/study-v1-product-polish`, based on
+  `71661bd51f1edfd6679ee8cc4a3ed33b25eb269e` from `kimi/study-overhaul-v1`.
+- **Real acceptance lecture:** `CL100 - Day 2 - Egypt and Archaeology.m4v`,
+  approximately 71 minutes 40 seconds, processed into the disposable
+  `C:\LecturePackScratch\data\study-v1-product-polish` workspace.
+- **Completed:** packaged baseline processing/export acceptance; first real
+  Study content audit; focused renderer interaction coverage; deterministic
+  claim-led content generation; source validation tightening; Ask Lecture
+  transcript-source events; Study view persistence and Quick Study/Needs Review
+  interaction refinements; initial calmer Study UI pass.
+- **Focused checks so far:** renderer `1 passed`; Study V2 focused tests
+  `12 passed, 1 deselected`; Electron Study tests `13 passed`; JavaScript syntax
+  check passed. The full suite and final packaged candidate acceptance remain
+  required before this follow-up can be marked complete.
+- **Known quality caveat:** the lecture's Whisper transcript contains proper
+  noun errors (for example, the transcript renders Zoser/Khufu imperfectly),
+  so the final manual audit must distinguish transcript-grounded claims from
+  slide-supported wording and must not claim the issue is solved by UI polish.

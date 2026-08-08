@@ -58,6 +58,17 @@ def test_builtin_answer_no_match():
     assert "couldn't find" in answer.lower()
 
 
+def test_builtin_sources_only_returns_matching_real_segments():
+    segments = [
+        {"start": 0.0, "end": 4.0, "text": "Welcome to physics."},
+        {"start": 10.0, "end": 15.0, "text": "Quantum entanglement is discussed."},
+    ]
+    sources = es.builtin_sources("Explain quantum", segments)
+    assert [source["segment_id"] for source in sources] == ["1"]
+    assert sources[0]["start_ms"] == 10000
+    assert es.builtin_sources("Explain chemistry", segments) == []
+
+
 # ---- fallback quiz / flashcards ------------------------------------------ #
 def test_generate_quiz_fallback():
     questions = es.generate_quiz_fallback(["term-a", "term-b", "term-c"], 3,

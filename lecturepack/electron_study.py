@@ -115,6 +115,36 @@ def builtin_answer(prompt: str, segments: list) -> str:
               "AI-written answers.")
 
 
+def builtin_sources(prompt: str, segments: list, limit: int = 3) -> list[dict[str, Any]]:
+    """Return real transcript anchors used by the extractive Study answer.
+
+    The renderer turns these into timestamp buttons.  IDs and timestamps are
+    derived from the loaded transcript only; an unmatched question returns no
+    citation instead of inventing one.
+    """
+    terms = [w for w in re.findall(r"[a-z0-9]{3,}", (prompt or "").lower())
+             if w not in _COMMON_STOPWORDS]
+    scored = []
+    for index, segment in enumerate(segments or []):
+        text = str(segment.get("text") or "").strip()
+        if not text:
+            continue
+        low = text.lower()
+        score = sum(low.count(term) for term in terms) if terms else 0
+        if score <= 0:
+            continue
+        start = float(segment.get("start", 0.0) or 0.0)
+        end = float(segment.get("end", start) or start)
+        scored.append((score, start, index, end, text))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [{
+        "segment_id": str(index),
+        "start_ms": int(start * 1000),
+        "end_ms": int(end * 1000),
+        "preview": text[:120],
+    } for _score, start, index, end, text in scored[:max(1, limit)]]
+
+
 def _fmt_mmss(seconds: float) -> str:
     value = max(0, int(round(float(seconds or 0.0))))
     hours, rem = divmod(value, 3600)
