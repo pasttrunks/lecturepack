@@ -220,7 +220,10 @@
     var payload = objectPayload(first);
 
     if (name === 'ask_ai') {
-      return { command: name, payload: { prompt: stringPayload(first) } };
+      return { command: name, payload: {
+        prompt: stringPayload(Object.prototype.hasOwnProperty.call(payload, 'prompt')
+          ? payload.prompt : first)
+      } };
     }
     if (name === 'generate_quiz') {
       return {

@@ -1304,6 +1304,36 @@ fetch path without touching the pipeline; and the progress changes only read
 data the engine already emits, so a long real lecture now shows moving,
 consistent progress on Home and Process.
 
+## AD-35: Study Ask keeps structured prompts and grounded overview answers
+
+**Date:** 2026-08-08
+
+**Status:** Implemented on `luna/study-v1-product-polish`
+
+**Context:** The packaged acceptance run exposed an integration bug at the
+Electron/Python boundary: the Study renderer sent Ask as an object, while the
+bridge converted the whole object to the literal string `[object Object]`.
+The built-in extractor then returned unrelated transcript segments containing
+the word "object".
+
+**Decision:** The bridge reads `payload.prompt` when Ask is called with a
+structured object. Built-in Ask uses the persisted Study concepts for overview
+questions, falls back to early lecture claims when no Study pack is available,
+and emits only transcript anchors that exist in the loaded transcript. It does
+not expose model/setup language in the student response.
+
+**Alternatives considered:**
+
+- Parsing `[object Object]` in Python: rejected because it hides a renderer
+  contract error and cannot recover the student's intended prompt.
+- Making every Ask response a generic transcript search: rejected because the
+  real acceptance flow needs a useful lecture overview while remaining
+  citation-conservative.
+
+**Rationale:** Fixing the payload at the existing bridge boundary preserves
+the Study architecture, makes the packaged and source paths agree, and keeps
+the response visibly tied to the lecture content the student is studying.
+
 ## AD-34: Built-in Study content is claim-led and citation-conservative
 
 **Date:** 2026-08-08

@@ -827,18 +827,28 @@ def _compact_study_text(text: str, limit: int = 280) -> str:
                   flags=re.IGNORECASE)
     text = re.sub(r"^(?:and|but|so|then)\s+", "", text,
                   flags=re.IGNORECASE)
+    text = re.sub(
+        r"\s+(?:that all of these things is|these what|that is)$", "",
+        text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+(?:and|but|or|which|that|to|of|the|a|an|is|are)$",
+                  "", text, flags=re.IGNORECASE)
     text = re.sub(r"\s+([,.;!?])", r"\1", text)
     text = text.strip(" ,")
+    if text:
+        text = text[:1].upper() + text[1:]
     if len(text) <= limit:
         return text
     boundary = max(text.rfind(".", 100, limit), text.rfind("?", 100, limit),
                    text.rfind("!", 100, limit))
     if boundary >= 100:
         return text[:boundary + 1].strip()
-    return text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+    shortened = text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:")
+    shortened = re.sub(r"\s+(?:and|but|or|which|that|to|of)$", "",
+                       shortened, flags=re.IGNORECASE)
+    return shortened.rstrip(" ,;:") + "..."
 
 
-def _retrieval_prompt(title: str, text: str) -> str:
+def _retrieval_prompt(title: str, text: str, index: int = 0) -> str:
     """Choose a retrieval prompt that matches the kind of claim we have."""
     lowered = text.casefold()
     broad_definition = {
@@ -850,15 +860,33 @@ def _retrieval_prompt(title: str, text: str) -> str:
     is_definition = bool(title_words and re.search(
         title_pattern + r"(?:\s+\w+){0,3}\s+"
         r"(?:is|are|means|consists of|refers to)\b", lowered))
+    if re.search(r"\b(?:built|constructed|carved|placed|discovered|opened|"
+                 r"revealed|found|excavated)\b", lowered):
+        return f"What does the lecture say happened with {title}?"
+    if re.search(r"\b(?:divided|timeline|dynasties)\b", lowered):
+        return f"How does the lecture organize {title}?"
+    if re.search(r"\b(?:includes|consists of)\b", lowered):
+        return f"What does the lecture include under {title}?"
+    if re.search(r"\b(?:discipline|studying|period)\b", lowered):
+        return f"What does the lecture say {title} covers?"
+    if "writing system" in title.casefold() and re.search(
+            r"\b(?:translate|translated|translation)\b", lowered):
+        return "Why did the writing system matter in the lecture?"
+    if re.search(r"\b(?:seven wonders|oldest|surviving|fundamental|significant)\b",
+                 lowered):
+        return f"Why is {title} notable in this lecture?"
     if title.casefold() in broad_definition or is_definition:
-        return f"How does the lecture define {title}?"
+        prompts = (
+            f"How does the lecture define {title}?",
+            f"What does the lecture say {title} refers to?",
+            f"What is the lecture's main point about {title}?",
+        )
+        return prompts[index % len(prompts)]
     if re.search(
             r"\b(?:because|important|fundamental|significant|matter|lucky)\b",
             lowered):
         return f"Why does {title} matter in this lecture?"
-    if re.search(
-            r"\b(?:built|constructed|carved|translated|deciphered|discovered|"
-            r"found|opened|revealed)\b", lowered):
+    if re.search(r"\b(?:translated|deciphered)\b", lowered):
         return f"What does the lecture say happened with {title}?"
     return f"What should you remember about {title}?"
 
@@ -1072,7 +1100,7 @@ def generate_deterministic_content(job) -> dict[str, Any]:
         concepts.append({
             "id": concept_id,
             "title": candidate["title"],
-            "explanation": text,
+            "explanation": _compact_study_text(text, 220),
             "sources": source_refs,
             "emphasis": "emphasized" if candidate["index"] in emphasized else None,
         })
@@ -1130,7 +1158,10 @@ def generate_deterministic_content(job) -> dict[str, Any]:
             "qtype": "multiple_choice",
             "options": options,
             "correct_index": correct_index,
-            "explanation": f"The lecture connects {title} to this point: {correct}",
+            "explanation": (
+                f"This matches the lecture's discussion of {title}; the other "
+                "choices describe different lecture concepts."
+            ),
             "concept_ids": [cid],
             "sources": concept["sources"],
         })

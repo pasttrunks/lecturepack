@@ -2238,6 +2238,11 @@
   }
 
   function renderStudy() {
+    // Study V2 owns the visible Study workspace. The legacy topic timeline is
+    // retained only for backward-compatible data, and its old markup is no
+    // longer mounted in the V2 screen. Do not let that hidden renderer throw
+    // during startup when the legacy-only nodes are absent.
+    if (!$('study-topic-blocks')) return;
     var st = LP.data.study;
     var overview = $('study-overview');
     if (overview) overview.textContent = studyOverviewText(st);
@@ -2287,6 +2292,11 @@
       var caret = (m.role === 'ai' && last && LP.state.streaming) ? '<span class="lp-caret"></span>' : '';
       return '<div class="' + cls + '">' + esc(m.text) + caret + '</div>';
     }).join('');
+    var pending = feed.lastElementChild;
+    if (pending) {
+      pending.classList.add('study-ask-answer-wrap');
+      if (pending.firstElementChild) pending.firstElementChild.classList.add('study-ask-thinking');
+    }
     feed.scrollTop = feed.scrollHeight;
   }
 
@@ -3608,13 +3618,89 @@
     flashResults: { got: 0, missed: 0, missedIds: [] },
     quizIndex: 0,
     quizAnswers: [],
+    quizPicks: {},
     quizCorrect: 0,
     quizAsked: [],
     quickSession: null,
     quickIndex: 0,
     quickCorrect: 0,
-    quickTotal: 0
+    quickTotal: 0,
+    quickMissed: [],
+    quickRevealed: false,
+    quickAnswered: false,
+    quickSelected: null,
+    quickSummary: null,
+    reviewOnly: false,
+    flashFilterIds: null,
+    askStreaming: false,
+    askAnswer: null,
+    viewJobId: '',
+    restoredView: false,
+    resumeMode: 'flashcards',
+    restoredQuickActive: false
   };
+
+  function studyV2StorageKey() {
+    var jobId = typeof LP !== 'undefined' && LP.state && LP.state.jobId;
+    return jobId ? 'lecturepack.study.v2.view.' + jobId : '';
+  }
+
+  function studyV2PersistView() {
+    var key = studyV2StorageKey();
+    if (!key || !localStorage) return;
+    try {
+      localStorage.setItem(key, JSON.stringify({
+        lastMode: studyV2.mode,
+        resumeMode: studyV2.resumeMode,
+        flashIndex: studyV2.flashIndex,
+        flashGot: studyV2.flashResults.got,
+        flashMissed: studyV2.flashResults.missed,
+        flashMissedIds: studyV2.flashResults.missedIds,
+        quizIndex: studyV2.quizIndex,
+        quizCorrect: studyV2.quizCorrect,
+        quizAnswers: studyV2.quizAnswers,
+        quizPicks: studyV2.quizPicks,
+        quickIndex: studyV2.quickIndex,
+        quickCorrect: studyV2.quickCorrect,
+        quickTotal: studyV2.quickTotal,
+        quickMissed: studyV2.quickMissed,
+        quickActive: !!studyV2.quickSession,
+        quickSummary: studyV2.quickSummary,
+        reviewOnly: !!studyV2.reviewOnly
+      }));
+    } catch (e) { /* browser storage is a convenience, not a dependency */ }
+  }
+
+  function studyV2RestoreView() {
+    var key = studyV2StorageKey();
+    if (!key || !localStorage) return false;
+    try {
+      var saved = JSON.parse(localStorage.getItem(key) || 'null');
+      if (!saved || typeof saved !== 'object') return false;
+      if (saved.lastMode === 'overview' || saved.lastMode === 'flashcards' || saved.lastMode === 'quiz' || saved.lastMode === 'ask') studyV2.mode = saved.lastMode;
+      if (saved.resumeMode === 'flashcards' || saved.resumeMode === 'quiz' || saved.resumeMode === 'ask') studyV2.resumeMode = saved.resumeMode;
+      else if (saved.lastMode === 'flashcards' || saved.lastMode === 'quiz' || saved.lastMode === 'ask') studyV2.resumeMode = saved.lastMode;
+      studyV2.flashIndex = Math.max(0, Number(saved.flashIndex) || 0);
+      studyV2.flashResults = {
+        got: Math.max(0, Number(saved.flashGot) || 0),
+        missed: Math.max(0, Number(saved.flashMissed) || 0),
+        missedIds: Array.isArray(saved.flashMissedIds) ? saved.flashMissedIds : []
+      };
+      studyV2.quizIndex = Math.max(0, Number(saved.quizIndex) || 0);
+      studyV2.quizCorrect = Math.max(0, Number(saved.quizCorrect) || 0);
+      studyV2.quizAnswers = Array.isArray(saved.quizAnswers) ? saved.quizAnswers : [];
+      studyV2.quizPicks = saved.quizPicks && typeof saved.quizPicks === 'object' ? saved.quizPicks : {};
+      studyV2.quickIndex = Math.max(0, Number(saved.quickIndex) || 0);
+      studyV2.quickCorrect = Math.max(0, Number(saved.quickCorrect) || 0);
+      studyV2.quickTotal = Math.max(0, Number(saved.quickTotal) || 0);
+      studyV2.quickMissed = Array.isArray(saved.quickMissed) ? saved.quickMissed : [];
+      studyV2.quickSummary = saved.quickSummary || null;
+      studyV2.reviewOnly = !!saved.reviewOnly;
+      studyV2.restoredQuickActive = !!saved.quickActive;
+      return true;
+    } catch (e) { /* ignore malformed local view state */ }
+    return false;
+  }
 
   function fmtTime(ms) {
     if (ms == null) return '';
@@ -3625,17 +3711,34 @@
   }
 
   function escText(v) {
-    return String(v == null ? '' : v).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"');
+    return esc(v);
   }
 
   function studyV2Load() {
     if (!lpBridge.connected()) return;
     lpBridge.call('study_v2_status', {}).then(function (res) {
       if (!res || !res.content) return;
+      var restoreMode = false;
+      if (studyV2.viewJobId !== (LP.state.jobId || '')) {
+        studyV2.viewJobId = LP.state.jobId || '';
+        restoreMode = studyV2RestoreView();
+        studyV2.restoredView = true;
+      }
       studyV2.content = res.content;
       studyV2.progress = res.progress || { concepts: {}, flashcard_results: {}, quiz_attempts: [] };
       studyV2.summary = res.summary || {};
+      if (studyV2.quickSession == null && studyV2.progress.quick_study &&
+          studyV2.progress.quick_study.items && studyV2.progress.quick_study.items.length &&
+          (studyV2.quickIndex > 0 || studyV2.restoredQuickActive)) {
+        studyV2.quickSession = studyV2.progress.quick_study;
+      }
+      studyV2.restoredQuickActive = false;
       renderStudyV2Overview();
+      if (restoreMode && studyV2.mode !== 'overview') {
+        setStudyV2Mode(studyV2.mode, !!studyV2.quickSession);
+      } else if (studyV2.mode === 'flashcards' && studyV2.quickSession) renderQuickStudy();
+      else if (studyV2.mode === 'flashcards') renderStudyFlashcards();
+      else if (studyV2.mode === 'quiz') renderStudyQuiz();
     }).catch(function () {});
   }
 
@@ -3647,7 +3750,11 @@
   function renderStudyV2Overview() {
     var content = studyV2.content || { concepts: [], flashcards: [], quiz: [] };
     var summary = studyV2.summary || {};
-    var title = (LP.data.job && LP.data.job.name) || 'Lecture';
+    var studyJob = _jobById(LP.state.jobId) || LP.data.job || {};
+    var title = studyJob.title ||
+      (studyJob.name && studyJob.name !== 'Lecture' ? studyJob.name : '') ||
+      studyJob.filename || studyJob.source_name || studyJob.file || 'Lecture';
+    title = String(title).replace(/\.[^.]+$/, '');
     $('study-ready-title').textContent = title;
     $('study-ready-meta').textContent = content.concepts.length + ' concepts · ' + content.flashcards.length + ' cards · ' + content.quiz.length + ' questions';
     var pct = summary.progress_percent || 0;
@@ -3701,16 +3808,46 @@
   }
 
   function studySlideLabel(slideId) {
-    // Slide IDs are image filenames or indices; show a short label.
-    var idx = String(slideId).replace(/[^0-9]/g, '');
+    // Slide IDs are image filenames or indices; show a readable source time.
+    var raw = String(slideId || '');
+    var timestamp = raw.match(/_(\d{4,})(?:\.[^.]+)?$/);
+    if (timestamp) return fmtTime(Number(timestamp[1]));
+    var idx = raw.replace(/[^0-9]/g, '');
     return idx || '?';
   }
 
-  function renderStudyFlashcards() {
+  function studyV2FlashcardList() {
     var cards = (studyV2.content && studyV2.content.flashcards) || [];
+    if (studyV2.flashFilterIds && studyV2.flashFilterIds.length) {
+      return cards.filter(function (card) {
+        return studyV2.flashFilterIds.indexOf(card.id) >= 0;
+      });
+    }
+    if (studyV2.reviewOnly) {
+      return cards.filter(function (card) {
+        return (card.concept_ids || []).some(function (cid) {
+          return conceptMastery(cid) === 'NEEDS_REVIEW';
+        });
+      });
+    }
+    return cards;
+  }
+
+  function renderStudyFlashcards() {
+    if (studyV2.quickSession) { renderQuickStudy(); return; }
+    var cards = studyV2FlashcardList();
     var root = $('study-flashcards-root');
     if (!cards.length) {
-      root.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font:500 13px JetBrains Mono">No flashcards yet.</div>';
+      root.innerHTML = '<div class="study-empty-state" style="text-align:center;padding:56px 24px;color:var(--muted)">' +
+        '<div style="font:700 18px Space Grotesk;color:var(--ink);margin-bottom:8px">Nothing needs another look</div>' +
+        '<div style="font:500 13px JetBrains Mono;margin-bottom:18px">You have cleared the current weak areas.</div>' +
+        (studyV2.reviewOnly ? '<button id="btn-study-review-all" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:8px;padding:9px 15px;cursor:pointer;color:var(--ink)">Study all cards</button>' : '') +
+        '</div>';
+      var all = $('btn-study-review-all');
+      if (all) all.addEventListener('click', function () {
+        studyV2.reviewOnly = false; studyV2.flashFilterIds = null; studyV2.flashIndex = 0;
+        studyV2PersistView(); renderStudyFlashcards();
+      });
       return;
     }
     var card = cards[studyV2.flashIndex];
@@ -3731,17 +3868,18 @@
       return parts.join(' ');
     }).join('');
     var progress = 'Card ' + (studyV2.flashIndex + 1) + ' of ' + cards.length;
-    root.innerHTML = '<div style="max-width:560px;margin:0 auto">' +
-      '<div style="text-align:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:16px">' + progress + '</div>' +
-      '<div id="study-flash-card" class="lp-card" style="background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);padding:34px 30px;min-height:220px;display:flex;flex-direction:column;justify-content:center;text-align:center">' +
-      '<div style="font-size:22px;font-weight:700;line-height:1.4;margin-bottom:14px">' + escText(card.front) + '</div>' +
-      (studyV2.flashRevealed ? '<div style="border-top:2px solid var(--line);padding-top:16px;font-size:16px;color:var(--ink);line-height:1.5">' + escText(card.back) + '</div>' : '<button id="btn-study-flash-show" class="lp-hit lp-press" style="font:700 14px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:11px 20px;cursor:pointer;margin:0 auto">Show answer</button>') +
+    root.innerHTML = '<div class="study-focus-content" style="max-width:620px;margin:0 auto">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>' + progress + '</span><span>Space to reveal</span></div>' +
+      '<div style="height:4px;border-radius:3px;background:var(--sunk);overflow:hidden;margin-bottom:22px"><div style="width:' + (((studyV2.flashIndex + 1) / cards.length) * 100) + '%;height:100%;background:var(--orange)"></div></div>' +
+      '<div id="study-flash-card" class="lp-card study-focus-card" style="background:var(--panel);border:1.5px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);padding:40px 34px;min-height:220px;display:flex;flex-direction:column;justify-content:center;text-align:center">' +
+      '<div style="font-size:22px;font-weight:700;line-height:1.4;margin-bottom:18px">' + escText(card.front) + '</div>' +
+      (studyV2.flashRevealed ? '<div style="border-top:1.5px solid var(--line);padding-top:18px;font-size:16px;color:var(--ink);line-height:1.55">' + escText(card.back) + '</div>' : '<button id="btn-study-flash-show" class="lp-hit lp-press" style="font:700 14px Space Grotesk;background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:9px;padding:11px 20px;cursor:pointer;margin:0 auto">Show answer</button>') +
       '</div>' +
       (sources ? '<div style="display:flex;justify-content:center;gap:6px;margin-top:14px">' + sources + '</div>' : '') +
       (studyV2.flashRevealed ?
         '<div style="display:flex;justify-content:center;gap:10px;margin-top:20px">' +
-        '<button id="btn-study-flash-again" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 18px;cursor:pointer;color:var(--ink)">Review again</button>' +
-        '<button id="btn-study-flash-got" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--green-fill);color:var(--on-signal);border:2px solid var(--green);border-radius:9px;padding:10px 18px;cursor:pointer">Got it</button></div>' : '') +
+        '<button id="btn-study-flash-again" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:9px;padding:10px 18px;cursor:pointer;color:var(--ink)">Review again</button>' +
+        '<button id="btn-study-flash-got" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--green-fill);color:var(--on-signal);border:1.5px solid var(--green);border-radius:9px;padding:10px 18px;cursor:pointer">Got it</button></div>' : '') +
       '</div>';
     bindStudyFlashcardButtons();
   }
@@ -3756,7 +3894,7 @@
   }
 
   function recordFlashReview(correct) {
-    var cards = (studyV2.content && studyV2.content.flashcards) || [];
+    var cards = studyV2FlashcardList();
     var card = cards[studyV2.flashIndex];
     if (!card) return;
     if (correct) studyV2.flashResults.got++;
@@ -3770,7 +3908,103 @@
     }
     studyV2.flashIndex++;
     studyV2.flashRevealed = false;
+    studyV2PersistView();
     renderStudyFlashcards();
+  }
+
+  function quickStudyItemData(item) {
+    var content = studyV2.content || { concepts: [], flashcards: [], quiz: [] };
+    if (!item) return null;
+    if (item.kind === 'concept') return (content.concepts || []).find(function (c) { return c.id === item.id; });
+    if (item.kind === 'flashcard') return (content.flashcards || []).find(function (c) { return c.id === item.id; });
+    if (item.kind === 'quiz') return (content.quiz || []).find(function (q) { return q.id === item.id; });
+    return null;
+  }
+
+  function quickStudySources(sources) {
+    return (sources || []).map(function (s) {
+      var parts = [];
+      if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
+      if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
+      return parts.join(' ');
+    }).join('');
+  }
+
+  function renderQuickStudy() {
+    var root = $('study-flashcards-root');
+    var session = studyV2.quickSession;
+    if (!root || !session) return;
+    var items = session.items || [];
+    if (studyV2.quickIndex >= items.length) {
+      studyV2.quickSummary = {
+        correct: studyV2.quickCorrect,
+        total: studyV2.quickTotal,
+        missed: studyV2.quickMissed.length
+      };
+      studyV2PersistView();
+      root.innerHTML = '<div class="study-complete-state" style="max-width:620px;margin:0 auto;text-align:center;padding:52px 24px">' +
+        '<div style="font:700 22px Space Grotesk;margin-bottom:8px">Study complete</div>' +
+        '<div style="font:500 13px JetBrains Mono;color:var(--muted);margin-bottom:8px">' + studyV2.quickCorrect + ' / ' + studyV2.quickTotal + ' correct</div>' +
+        '<div style="font-size:14px;color:var(--secondary-text);margin-bottom:22px">' + (studyV2.quickMissed.length ? studyV2.quickMissed.length + ' concepts need another look' : 'Nothing needs another look') + '</div>' +
+        (studyV2.quickMissed.length ? '<button class="lp-hit lp-press" data-quick-action="review-weak" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer">Review weak areas</button>' : '') +
+        '<button class="lp-hit" data-quick-action="done" style="font:600 13px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:9px;padding:10px 18px;cursor:pointer;color:var(--ink);margin-left:8px">Done</button></div>';
+      return;
+    }
+    var item = items[studyV2.quickIndex];
+    var data = quickStudyItemData(item);
+    if (!data) {
+      studyV2.quickIndex++; renderQuickStudy(); return;
+    }
+    var header = '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>Quick Study</span><span>' + (studyV2.quickIndex + 1) + ' of ' + items.length + '</span></div>' +
+      '<div style="height:4px;border-radius:3px;background:var(--sunk);overflow:hidden;margin-bottom:24px"><div style="width:' + (((studyV2.quickIndex + 1) / items.length) * 100) + '%;height:100%;background:var(--orange)"></div></div>';
+    var body = '';
+    var sources = quickStudySources(data.sources);
+    if (item.kind === 'quiz') {
+      var options = (data.options || []).map(function (option, idx) {
+        var selected = studyV2.quickSelected === idx;
+        var color = studyV2.quickAnswered ? (idx === data.correct_index ? 'var(--green)' : selected ? 'var(--red)' : 'var(--border)') : 'var(--border)';
+        return '<button class="lp-hit study-quick-opt" data-quick-opt="' + idx + '" style="display:block;width:100%;text-align:left;font:600 14px Space Grotesk;background:var(--sunk);border:1.5px solid ' + color + ';border-radius:9px;padding:11px 14px;cursor:pointer;color:var(--ink);margin-bottom:8px"' + (studyV2.quickAnswered ? ' disabled' : '') + '>' + escText(option) + '</button>';
+      }).join('');
+      body = '<div style="font-size:19px;font-weight:700;line-height:1.45;margin-bottom:18px">' + escText(data.question) + '</div>' + options;
+      if (studyV2.quickAnswered) body += '<div style="margin-top:14px;padding:13px 15px;background:var(--panel2);border-radius:9px"><div style="font-weight:700;color:' + (studyV2.quickSelected === data.correct_index ? 'var(--green)' : 'var(--red)') + ';margin-bottom:5px">' + (studyV2.quickSelected === data.correct_index ? 'Correct' : 'Not quite') + '</div><div style="font-size:13px;line-height:1.5;color:var(--secondary-text)">' + escText(data.explanation || '') + '</div>' + (sources ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:9px">' + sources + '</div>' : '') + '<button class="lp-hit lp-press" data-quick-action="continue" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:8px;padding:9px 16px;cursor:pointer;margin-top:12px">Continue</button></div>';
+    } else {
+      var title = item.kind === 'concept' ? data.title : data.front;
+      var answer = item.kind === 'concept' ? data.explanation : data.back;
+      body = '<div style="font-size:21px;font-weight:700;line-height:1.45;margin-bottom:20px">' + escText(title) + '</div>' +
+        (studyV2.quickRevealed ? '<div style="border-top:1.5px solid var(--line);padding-top:18px;font-size:15px;line-height:1.55">' + escText(answer || '') + '</div>' : '<button class="lp-hit lp-press" data-quick-action="reveal" style="font:700 14px Space Grotesk;background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:9px;padding:11px 20px;cursor:pointer">Show explanation</button>');
+      if (studyV2.quickRevealed) body += '<div style="display:flex;justify-content:center;gap:10px;margin-top:20px"><button class="lp-hit" data-quick-action="result-wrong" style="font:600 13px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:9px;padding:10px 18px;cursor:pointer;color:var(--ink)">Need another look</button><button class="lp-hit lp-press" data-quick-action="result-right" style="font:700 13px Space Grotesk;background:var(--green-fill);color:var(--on-signal);border:1.5px solid var(--green);border-radius:9px;padding:10px 18px;cursor:pointer">Got it</button></div>';
+    }
+    root.innerHTML = '<div class="study-focus-content" style="max-width:680px;margin:0 auto">' + header + '<div class="study-focus-card" style="background:var(--panel);border:1.5px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);padding:38px 34px;text-align:center">' + body + '</div>' + (sources && item.kind !== 'quiz' ? '<div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap;margin-top:14px">' + sources + '</div>' : '') + '</div>';
+  }
+
+  function quickStudyFinishItem(correct) {
+    var items = (studyV2.quickSession && studyV2.quickSession.items) || [];
+    var item = items[studyV2.quickIndex];
+    var data = quickStudyItemData(item);
+    if (!item || !data) return;
+    studyV2.quickTotal++;
+    if (correct) studyV2.quickCorrect++;
+    else if (item.concept_id && studyV2.quickMissed.indexOf(item.concept_id) < 0) studyV2.quickMissed.push(item.concept_id);
+    if (lpBridge.connected()) {
+      if (item.kind === 'quiz') lpBridge.call('study_v2_record_quiz', { question_id: item.id, concept_ids: [item.concept_id], correct: correct }).catch(function () {});
+      else lpBridge.call('study_v2_record_flashcard', { card_id: item.kind === 'concept' ? 'quick-' + item.id : item.id, concept_ids: [item.concept_id], correct: correct }).catch(function () {});
+    }
+    studyV2.quickIndex++; studyV2.quickRevealed = false; studyV2.quickAnswered = false; studyV2.quickSelected = null;
+    studyV2PersistView(); renderQuickStudy();
+  }
+
+  function quickStudySelectQuiz(index) {
+    var items = (studyV2.quickSession && studyV2.quickSession.items) || [];
+    var item = items[studyV2.quickIndex];
+    var data = quickStudyItemData(item);
+    if (!item || !data || studyV2.quickAnswered) return;
+    var correct = Number(data.correct_index) === Number(index);
+    studyV2.quickTotal++;
+    if (correct) studyV2.quickCorrect++;
+    else if (item.concept_id && studyV2.quickMissed.indexOf(item.concept_id) < 0) studyV2.quickMissed.push(item.concept_id);
+    studyV2.quickAnswered = true; studyV2.quickSelected = Number(index);
+    if (lpBridge.connected()) lpBridge.call('study_v2_record_quiz', { question_id: item.id, concept_ids: [item.concept_id], correct: correct }).catch(function () {});
+    studyV2PersistView(); renderQuickStudy();
   }
 
   function bindStudyFlashcardSessionButtons() {
@@ -3778,15 +4012,20 @@
     if (restart) restart.addEventListener('click', function () {
       studyV2.flashIndex = 0; studyV2.flashRevealed = false;
       studyV2.flashResults = { got: 0, missed: 0, missedIds: [] };
+      studyV2PersistView();
       renderStudyFlashcards();
     });
     var missed = $('btn-study-review-missed');
     if (missed) missed.addEventListener('click', function () {
-      var cards = (studyV2.content && studyV2.content.flashcards) || [];
-      studyV2.flashResults.missedIds.forEach(function (id) {
-        var idx = cards.findIndex(function (c) { return c.id === id; });
-        if (idx >= 0) { studyV2.flashIndex = idx; studyV2.flashRevealed = false; renderStudyFlashcards(); }
-      });
+      studyV2.flashFilterIds = studyV2.flashResults.missedIds.slice();
+      studyV2.flashIndex = 0; studyV2.flashRevealed = false;
+      studyV2PersistView();
+      renderStudyFlashcards();
+    });
+    var reviewAll = $('btn-study-review-all');
+    if (reviewAll) reviewAll.addEventListener('click', function () {
+      studyV2.reviewOnly = false; studyV2.flashFilterIds = null; studyV2.flashIndex = 0;
+      studyV2PersistView(); renderStudyFlashcards();
     });
   }
 
@@ -3806,20 +4045,47 @@
         '<button id="btn-study-quiz-restart" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer">Take again</button></div>';
       var restart = $('btn-study-quiz-restart');
       if (restart) restart.addEventListener('click', function () {
-        studyV2.quizIndex = 0; studyV2.quizCorrect = 0; studyV2.quizAnswers = [];
+        studyV2.quizIndex = 0; studyV2.quizCorrect = 0; studyV2.quizAnswers = []; studyV2.quizPicks = {};
+        studyV2PersistView();
         renderStudyQuiz();
       });
       return;
     }
+    var savedPick = Object.prototype.hasOwnProperty.call(studyV2.quizPicks, studyV2.quizIndex) ? Number(studyV2.quizPicks[studyV2.quizIndex]) : null;
+    var answered = savedPick !== null && !Number.isNaN(savedPick);
     var optionsHtml = (q.options || []).map(function (opt, i) {
-      return '<button class="lp-hit study-quiz-opt" data-opt="' + i + '" style="display:block;width:100%;text-align:left;font:600 14px Space Grotesk;background:var(--sunk);border:2px solid var(--border);border-radius:9px;padding:11px 14px;cursor:pointer;color:var(--ink);margin-bottom:8px">' + escText(opt) + '</button>';
+      var color = answered ? (i === q.correct_index ? 'var(--green)' : i === savedPick ? 'var(--red)' : 'var(--border)') : 'var(--border)';
+      return '<button class="lp-hit study-quiz-opt" data-opt="' + i + '" style="display:block;width:100%;text-align:left;font:600 14px Space Grotesk;background:var(--sunk);border:1.5px solid ' + color + ';border-radius:9px;padding:11px 14px;cursor:pointer;color:var(--ink);margin-bottom:8px"' + (answered ? ' disabled' : '') + '>' + escText(opt) + '</button>';
     }).join('');
-    root.innerHTML = '<div style="max-width:620px;margin:0 auto">' +
-      '<div style="text-align:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:16px">Question ' + (studyV2.quizIndex + 1) + ' of ' + questions.length + '</div>' +
+    root.innerHTML = '<div class="study-focus-content" style="max-width:680px;margin:0 auto">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>Question ' + (studyV2.quizIndex + 1) + ' of ' + questions.length + '</span><span>Choose one</span></div>' +
+      '<div style="height:4px;border-radius:3px;background:var(--sunk);overflow:hidden;margin-bottom:24px"><div style="width:' + (((studyV2.quizIndex + 1) / questions.length) * 100) + '%;height:100%;background:var(--orange)"></div></div>' +
       '<div style="font-size:18px;font-weight:700;line-height:1.4;margin-bottom:18px;text-align:center">' + escText(q.question) + '</div>' +
       optionsHtml +
       '<div id="study-quiz-feedback" style="margin-top:14px"></div></div>';
     bindStudyQuizButtons();
+    if (answered) renderStudyQuizFeedback(q, savedPick);
+  }
+
+  function renderStudyQuizFeedback(q, selectedIndex) {
+    var correct = (q.correct_index === selectedIndex);
+    var srcHtml = (q.sources || []).map(function (s) {
+      var parts = [];
+      if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
+      if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
+      return parts.join(' ');
+    }).join('');
+    var fb = $('study-quiz-feedback');
+    if (!fb) return;
+    fb.innerHTML = (correct ? '<div style="color:var(--green);font-weight:700;font-size:15px;margin-bottom:6px">âœ“ Correct</div>' : '<div style="color:var(--red);font-weight:700;font-size:15px;margin-bottom:6px">âœ• Not quite</div>') +
+      (q.explanation ? '<div style="font-size:13px;color:var(--secondary-text);line-height:1.5;margin-bottom:8px">' + escText(q.explanation) + '</div>' : '') +
+      (srcHtml ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' + srcHtml + '</div>' : '') +
+      '<button id="btn-study-quiz-next" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer">Next</button>';
+    if (fb.firstElementChild) fb.firstElementChild.textContent = correct ? 'Correct' : 'Not quite';
+    var next = $('btn-study-quiz-next');
+    if (next) next.addEventListener('click', function () {
+      studyV2.quizIndex++; studyV2PersistView(); renderStudyQuiz();
+    });
   }
 
   function bindStudyQuizButtons() {
@@ -3833,6 +4099,7 @@
         var correct = (q.correct_index === idx);
         if (correct) studyV2.quizCorrect++;
         studyV2.quizAnswers.push(studyV2.quizIndex);
+        studyV2.quizPicks[studyV2.quizIndex] = idx;
         if (lpBridge.connected()) {
           lpBridge.call('study_v2_record_quiz', {
             question_id: q.id,
@@ -3840,6 +4107,7 @@
             correct: correct
           }).then(function () { studyV2Load(); }).catch(function () {});
         }
+        studyV2PersistView();
         var srcHtml = (q.sources || []).map(function (s) {
           var parts = [];
           if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
@@ -3851,8 +4119,11 @@
           (q.explanation ? '<div style="font-size:13px;color:var(--secondary-text);line-height:1.5;margin-bottom:8px">' + escText(q.explanation) + '</div>' : '') +
           (srcHtml ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' + srcHtml + '</div>' : '') +
           '<button id="btn-study-quiz-next" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer">Next</button>';
+        if (fb.firstElementChild) fb.firstElementChild.textContent = correct ? 'Correct' : 'Not quite';
         var next = $('btn-study-quiz-next');
-        if (next) next.addEventListener('click', function () { studyV2.quizIndex++; renderStudyQuiz(); });
+        if (next) next.addEventListener('click', function () {
+          studyV2.quizIndex++; studyV2PersistView(); renderStudyQuiz();
+        });
       });
     });
   }
@@ -3866,22 +4137,19 @@
       '<button class="lp-hit study-ask-chip" data-q="What are the key concepts?" style="font:600 12px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;color:var(--ink)">Key concepts</button>' +
       '<button class="lp-hit study-ask-chip" data-q="Quiz me on this" style="font:600 12px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;color:var(--ink)">Quiz me</button>' +
       '</div>';
-    document.querySelectorAll('.study-ask-chip').forEach(function (chip) {
-      chip.addEventListener('click', function () {
-        $('study-ask-input').value = chip.dataset.q;
-        studyAskSend();
-      });
-    });
   }
 
   function studyAskSend() {
+    if (studyV2.askStreaming) return;
     var input = $('study-ask-input');
     var q = input.value.trim();
     if (!q) return;
     input.value = '';
     var feed = $('study-ask-feed');
+    studyV2.askStreaming = true;
+    studyV2.askAnswer = null;
     feed.innerHTML += '<div style="display:flex;justify-content:flex-end"><div style="background:var(--orange-soft);border:2px solid var(--orange);border-radius:11px;padding:10px 14px;font-size:14px;max-width:80%">' + escText(q) + '</div></div>';
-    feed.innerHTML += '<div style="display:flex;justify-content:flex-start"><div style="background:var(--panel);border:2px solid var(--border);border-radius:11px;padding:10px 14px;font-size:14px;max-width:80%;color:var(--secondary-text)">Thinking…</div></div>';
+    feed.innerHTML += '<div style="display:flex;justify-content:flex-start"><div class="study-ask-thinking" style="background:var(--panel);border:2px solid var(--border);border-radius:11px;padding:10px 14px;font-size:14px;max-width:80%;color:var(--secondary-text)">Thinking…</div></div>';
     feed.scrollTop = feed.scrollHeight;
     if (lpBridge.connected()) {
       lpBridge.call('ask_ai', { prompt: q }).then(function () {}).catch(function () {});
@@ -3889,24 +4157,70 @@
       setTimeout(function () {
         var msgs = feed.querySelectorAll('div');
         if (msgs.length) msgs[msgs.length - 1].textContent = 'Built-in Study: I could not find that in this lecture.';
+        studyV2.askStreaming = false;
       }, 600);
     }
   }
 
-  function setStudyV2Mode(mode) {
+  function appendStudyAskText(text, done) {
+    if (!studyV2.askStreaming) return;
+    var feed = $('study-ask-feed');
+    if (!feed) return;
+    var answers = feed.querySelectorAll('.study-ask-thinking, .study-ask-answer');
+    var answer = answers.length ? answers[answers.length - 1] : null;
+    if (!answer && feed.lastElementChild) {
+      answer = feed.lastElementChild.lastElementChild;
+    }
+    if (!answer) return;
+    answer.classList.remove('study-ask-thinking');
+    answer.classList.add('study-ask-answer');
+    studyV2.askAnswer = String(text == null ? '' : text);
+    answer.textContent = studyV2.askAnswer || 'I could not find that in this lecture.';
+    if (done) studyV2.askStreaming = false;
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  function appendStudyAskSources(sources) {
+    if (!studyV2.askAnswer || !Array.isArray(sources) || !sources.length) return;
+    var feed = $('study-ask-feed');
+    var answers = feed && feed.querySelectorAll('.study-ask-answer');
+    var answer = answers && answers.length ? answers[answers.length - 1] : null;
+    if (!answer) return;
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-top:9px';
+    sources.forEach(function (source) {
+      var button = document.createElement('button');
+      button.className = 'lp-hit study-source';
+      button.dataset.segment = source.segment_id == null ? '' : source.segment_id;
+      button.dataset.ms = source.start_ms || 0;
+      button.textContent = source.start_ms != null ? 'Transcript ' + fmtTime(source.start_ms) : 'Transcript source';
+      button.style.cssText = 'font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer';
+      wrap.appendChild(button);
+    });
+    answer.parentNode.appendChild(wrap);
+  }
+
+  function setStudyV2Mode(mode, keepQuick) {
+    if (mode === 'flashcards' && !keepQuick && studyV2.quickSession) {
+      studyV2.quickSession = null;
+      studyV2.quickSummary = null;
+      studyV2.quickIndex = 0;
+      studyV2.quickCorrect = 0;
+      studyV2.quickTotal = 0;
+      studyV2.quickMissed = [];
+    }
     studyV2.mode = mode;
+    if (mode !== 'overview') studyV2.resumeMode = mode;
+    studyV2PersistView();
     document.querySelectorAll('.study-mode-tab').forEach(function (btn) {
       var active = btn.dataset.studyMode === mode;
       btn.className = 'lp-hit lp-tab study-mode-tab' + (active ? ' active' : '');
-      btn.style.background = active ? 'var(--orange)' : 'var(--panel)';
-      btn.style.color = active ? 'var(--on-signal)' : 'var(--ink)';
-      btn.style.borderColor = active ? 'var(--orange-ink)' : 'var(--border)';
     });
     ['overview', 'flashcards', 'quiz', 'ask'].forEach(function (m) {
       $('study-mode-' + m).hidden = mode !== m;
     });
-    if (mode === 'flashcards') { studyV2.flashIndex = 0; studyV2.flashRevealed = false; renderStudyFlashcards(); }
-    if (mode === 'quiz') { studyV2.quizIndex = 0; studyV2.quizCorrect = 0; renderStudyQuiz(); }
+    if (mode === 'flashcards') renderStudyFlashcards();
+    if (mode === 'quiz') renderStudyQuiz();
     if (mode === 'ask') renderStudyAsk();
   }
 
@@ -3917,7 +4231,15 @@
     if (bindStudyV2Events._bound) return;
     bindStudyV2Events._bound = true;
     document.querySelectorAll('.study-mode-tab').forEach(function (btn) {
-      btn.addEventListener('click', function () { setStudyV2Mode(btn.dataset.studyMode); });
+      btn.addEventListener('click', function () {
+        if (btn.dataset.studyMode === 'flashcards' &&
+            (studyV2.reviewOnly || studyV2.flashFilterIds)) {
+          studyV2.reviewOnly = false;
+          studyV2.flashFilterIds = null;
+          studyV2.flashIndex = 0;
+        }
+        setStudyV2Mode(btn.dataset.studyMode);
+      });
     });
     var quick = $('btn-study-quick');
     if (quick) quick.addEventListener('click', function () {
@@ -3925,21 +4247,31 @@
       lpBridge.call('study_v2_quick_study', {}).then(function (res) {
         if (res && res.session) {
           studyV2.quickSession = res.session;
-          studyV2.quickIndex = 0; studyV2.quickCorrect = 0;
-          // Route to flashcards as the quick study surface (V1).
-          setStudyV2Mode('flashcards');
-          studyV2.flashIndex = 0; studyV2.flashRevealed = false;
-          renderStudyFlashcards();
+          studyV2.quickIndex = 0; studyV2.quickCorrect = 0; studyV2.quickTotal = 0;
+          studyV2.quickMissed = []; studyV2.quickRevealed = false;
+          studyV2.quickAnswered = false; studyV2.quickSelected = null; studyV2.quickSummary = null;
+          setStudyV2Mode('flashcards', true);
         }
       }).catch(function () {});
     });
     var cont = $('btn-study-continue');
     if (cont) cont.addEventListener('click', function () {
+      if (studyV2.quickSession && studyV2.quickIndex < (studyV2.quickSession.items || []).length) {
+        setStudyV2Mode('flashcards', true); return;
+      }
       var needsReview = (studyV2.summary && studyV2.summary.needs_review > 0);
-      setStudyV2Mode(needsReview ? 'flashcards' : 'overview');
+      if (needsReview) {
+        studyV2.reviewOnly = true; studyV2.flashFilterIds = null; studyV2.flashIndex = 0;
+        setStudyV2Mode('flashcards');
+      } else {
+        setStudyV2Mode(studyV2.resumeMode || 'flashcards');
+      }
     });
     var review = $('btn-study-review');
-    if (review) review.addEventListener('click', function () { setStudyV2Mode('flashcards'); });
+    if (review) review.addEventListener('click', function () {
+      studyV2.reviewOnly = true; studyV2.flashFilterIds = null; studyV2.flashIndex = 0;
+      setStudyV2Mode('flashcards');
+    });
     var send = $('btn-study-ask-send');
     if (send) send.addEventListener('click', studyAskSend);
     var askInput = $('study-ask-input');
@@ -3962,9 +4294,47 @@
     if (flashRoot) flashRoot.addEventListener('click', function (e) {
       var t = e.target.closest('.study-source');
       if (t) navigateStudySource(t);
+      var quickAction = e.target.closest('[data-quick-action]');
+      if (quickAction) {
+        var action = quickAction.dataset.quickAction;
+        if (action === 'reveal') { studyV2.quickRevealed = true; renderQuickStudy(); }
+        else if (action === 'result-right') quickStudyFinishItem(true);
+        else if (action === 'result-wrong') quickStudyFinishItem(false);
+        else if (action === 'continue') {
+          studyV2.quickIndex++; studyV2.quickAnswered = false; studyV2.quickSelected = null;
+          studyV2PersistView(); renderQuickStudy();
+        } else if (action === 'review-weak') {
+          studyV2.quickSession = null; studyV2.quickSummary = null; studyV2.reviewOnly = true;
+          studyV2.flashFilterIds = null; studyV2.flashIndex = 0; setStudyV2Mode('flashcards');
+        } else if (action === 'done') {
+          studyV2.quickSession = null; studyV2.quickSummary = null; setStudyV2Mode('overview');
+        }
+        return;
+      }
+      var quickOpt = e.target.closest('[data-quick-opt]');
+      if (quickOpt) quickStudySelectQuiz(Number(quickOpt.dataset.quickOpt));
     });
+    if (flashRoot) {
+      flashRoot.tabIndex = 0;
+      flashRoot.addEventListener('keydown', function (e) {
+        if (e.code !== 'Space' || studyV2.mode !== 'flashcards') return;
+        var action = flashRoot.querySelector('[data-quick-action="reveal"], #btn-study-flash-show');
+        if (action) { e.preventDefault(); action.click(); }
+      });
+    }
     var quizRoot = $('study-quiz-root');
     if (quizRoot) quizRoot.addEventListener('click', function (e) {
+      var t = e.target.closest('.study-source');
+      if (t) navigateStudySource(t);
+    });
+    var askFeed = $('study-ask-feed');
+    if (askFeed) askFeed.addEventListener('click', function (e) {
+      var chip = e.target.closest('.study-ask-chip');
+      if (chip) {
+        $('study-ask-input').value = chip.dataset.q;
+        studyAskSend();
+        return;
+      }
       var t = e.target.closest('.study-source');
       if (t) navigateStudySource(t);
     });
@@ -4042,18 +4412,28 @@
       setScreen('review');
       var slides = LP.data.slides || [];
       var idx = slides.findIndex(function (s) { return String(s.image_filename) === String(slide) || String(s.index) === String(slide); });
-      if (idx >= 0 && typeof showSlideByIndex === 'function') showSlideByIndex(idx);
+      if (idx >= 0) {
+        LP.state.viewingSlide = idx;
+        renderSlides();
+      }
       return;
     }
     if (segment != null) {
       setScreen('transcript');
       // Scroll to the transcript segment by timestamp.
       setTimeout(function () {
-        var blocks = document.querySelectorAll('#transcript-blocks [data-start]');
+        var blocks = document.querySelectorAll('#transcript-blocks [data-transcript-time], #transcript-blocks [data-start]');
+        var target = null;
         blocks.forEach(function (b) {
-          if (Number(b.dataset.start) <= ms / 1000) b.scrollIntoView({ block: 'center' });
+          var raw = b.dataset.start;
+          if (raw == null) {
+            var parts = String(b.dataset.transcriptTime || '').split(':').map(Number);
+            raw = parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : Number(parts[0] || 0);
+          }
+          if (Number(raw) <= ms / 1000) target = b;
         });
-      }, 50);
+        if (target) target.scrollIntoView({ block: 'center' });
+      }, 180);
     }
   }
 
@@ -6582,9 +6962,17 @@
       renderExportPhase();
       if (d.meta) $('export-done-meta').textContent = d.meta;
     });
-    lpBridge.on('ai_token', function (text) { appendAiText(text, false); });
+    lpBridge.on('ai_token', function (text) {
+      if (studyV2.askStreaming) appendStudyAskText(text, false);
+      else appendAiText(text, false);
+    });
     lpBridge.on('ai_done', function () {
-      LP.state.streaming = false; renderChat();
+      if (studyV2.askStreaming) appendStudyAskText(studyV2.askAnswer, true);
+      else { LP.state.streaming = false; renderChat(); }
+    });
+    lpBridge.on('ai_sources', function (json) {
+      var payload = parseBridgePayload(json, null);
+      appendStudyAskSources(payload && payload.sources ? payload.sources : []);
     });
     lpBridge.on('groq_status', function (json) {
       var d = parseBridgePayload(json, null), el = $('groq-status');

@@ -98,7 +98,11 @@ def test_deterministic_content_prefers_claims_and_non_duplicate_retrieval(monkey
     assert "everyone" not in titles
     assert len(content["flashcards"]) == len(content["concepts"])
     assert all(card["back"] for card in content["flashcards"])
+    fronts = [card["front"] for card in content["flashcards"]]
+    assert len(fronts) == len(set(fronts))
     assert all(len(question["options"]) >= 2 for question in content["quiz"])
+    assert all("The lecture connects" not in question["explanation"]
+               for question in content["quiz"])
     if len(content["quiz"]) > 1:
         assert len({question["correct_index"] for question in content["quiz"]}) > 1
     assert any(source.get("slide_id") == "slide-1.png"

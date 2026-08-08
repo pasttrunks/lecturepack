@@ -81,6 +81,24 @@
       "status": "IMPLEMENTED"
     },
     {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "sources"
+      ],
+      "mapped_to": "study_ask_sources",
+      "name": "ai_sources",
+      "notes": "Provides transcript source references for the active Study Ask response.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [
+        "sources"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
       "direction": "command",
       "event_fields": [],
       "mapped_to": "",

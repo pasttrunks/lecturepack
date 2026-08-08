@@ -110,3 +110,76 @@ Result: Working tree is clean on branch `v1.2-hybrid-study` with no modified or 
   noun errors (for example, the transcript renders Zoser/Khufu imperfectly),
   so the final manual audit must distinguish transcript-grounded claims from
   slide-supported wording and must not claim the issue is solved by UI polish.
+
+## Final Study V1 product-polish acceptance - 2026-08-08
+
+- **Branch and base:** `luna/study-v1-product-polish`, based on
+  `71661bd51f1edfd6679ee8cc4a3ed33b25eb269e` from
+  `kimi/study-overhaul-v1`.
+- **Real lecture:** `CL100 - Day 2 - Egypt and Archaeology.m4v`, 4300.4
+  seconds (about 1:11:40), job
+  `2ab4443b-1474-4bf3-abe2-265e602553e1`.
+- **Disposable acceptance data:**
+  `C:\LecturePackScratch\data\study-v1-product-polish`.
+- **Packaged candidate:**
+  `electron-spike\dist\LecturePack-win32-x64\LecturePack.exe`.
+- **Final production log:**
+  `C:\LecturePackScratch\results\study-v1-product-polish\final-packaged\production-2026-08-09T01-41-13-738Z.jsonl`.
+
+### Content audit
+
+The final pack contains 13 concepts, 13 flashcards, and 10 quiz questions.
+The first real-lecture audit found filler-derived concepts, duplicate term
+definition cards, long repeated quiz extracts, narrow detail concepts, and
+loose slide proximity. The deterministic generator now favors claim-led and
+repeated subject matter, removes obvious transcript filler and duplicate
+titles, uses one useful retrieval card per concept, keeps answers compact,
+selects plausible claim-based distractors, and validates transcript and slide
+references before persistence.
+
+Manual checks against transcript segments and slide images confirmed that the
+sampled concept, flashcard, quiz, and Ask references point to real source
+locations. No fabricated timestamps or nonexistent slide ids were found. The
+remaining caveat is source quality: Whisper proper names such as Zoser, Khufu,
+and Champollion remain imperfect in raw transcript text, while the matching
+slides provide the clearer spelling.
+
+### Product and visual audit
+
+- Overview is a calm ready-to-study landing surface with title, counts,
+  progress, Continue studying, Quick Study, concepts, Needs Review, and
+  restrained stats.
+- Flashcards and Quiz are focused one-item flows. The packaged candidate
+  restored Flashcards at Card 3 of 13 and displayed real transcript and slide
+  sources.
+- Quick Study starts with one click, shows a mixed three-item session in this
+  persisted acceptance state, and reopened at item 2 of 3 after a normal
+  close/relaunch.
+- Needs Review visibly reflected the intentionally missed Archaeology item.
+- Ask helper chips produced grounded concept responses, a distinct quiz handoff,
+  and clickable transcript sources after the bridge payload bug was fixed.
+- Edit, Delete, and Explain were exercised in the packaged candidate; Explain
+  routes into the lecture-specific Ask action and Edit/Delete refresh the pack.
+- Transcript source navigation landed at 3:26. Slide source navigation landed
+  on the accepted 5:37 Egyptology slide.
+
+### Validation evidence
+
+- Rust Study Core: 11 passed, 0 failed.
+- Final focused suite: 124 passed, 0 failed in 7.28 seconds; Python syntax
+  compilation and both JavaScript syntax checks passed.
+- The one-time full suite result was 1294 passed, 1 skipped, and 2 fixture-
+  gated failures because `LECTUREPACK_ONEDIR_FIXTURE` was not configured for
+  the two packaged runtime fixture tests.
+- The final packaged log contains normal `study_changed`, `ai_token`,
+  `ai_sources`, `ai_done`, `job_restored`, and clean `shutdown`/`sidecar_exit`
+  events, with no renderer, sidecar, bootstrap, or page-message error events.
+- The candidate was closed normally and no LecturePack or LecturePackSidecar
+  processes remained.
+
+### Remaining work
+
+The highest-value follow-up is transcript normalization or a reviewed glossary
+for proper names, with slide-aware correction kept separate from source text.
+The current pack is useful for exam review, but raw ASR wording should remain
+visible as a trust caveat until that source-quality improvement exists.

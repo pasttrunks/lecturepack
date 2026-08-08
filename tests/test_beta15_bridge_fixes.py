@@ -313,6 +313,42 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_study_ask_object_payload_preserves_prompt(tmp_path):
+    """Study Ask maps its object payload to the actual prompt string."""
+    result = _run_node_harness(tmp_path, "study-ask-payload.js", r"""
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+const calls = [];
+const context = {
+  console: { error() {} },
+  window: {
+    localStorage: { setItem() {} },
+    lecturePackElectron: {
+      request(command, payload) {
+        calls.push({ command, payload });
+        return Promise.resolve({ ok: true });
+      },
+      onMessage() {}
+    }
+  }
+};
+vm.createContext(context);
+vm.runInContext(source, context, { filename: 'electron-bridge.js' });
+(async () => {
+  await context.window.lpBridge.call('ask_ai', { prompt: 'Explain this lecture simply' });
+  if (calls.length !== 1 || calls[0].command !== 'ask_ai') {
+    throw new Error(`ask_ai was not forwarded: ${JSON.stringify(calls)}`);
+  }
+  if (calls[0].payload.prompt !== 'Explain this lecture simply') {
+    throw new Error(`ask_ai prompt was mangled: ${JSON.stringify(calls[0].payload)}`);
+  }
+})().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
+""")
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_visible_noop_commands_do_not_return_null(tmp_path):
     """Visible no-op commands return a structured FEATURE_UNAVAILABLE response, never null."""
     result = _run_node_harness(tmp_path, "visible-noops.js", r"""

@@ -2180,13 +2180,18 @@ class Sidecar:
             self._respond(request_id, command, ok=True, job_id="")
             return
         segments = self.transcript_store.load_working(job.paths) or []
+        try:
+            study_content = self.study_v2.ensure_study_v2(job)
+        except Exception:
+            study_content = self.study_v2.load_content(job)
         o = self._ollama_settings()
         local_ready = bool(o.get("enabled") and o.get("model"))
         if not local_ready:
-            answer = self.electron_study.builtin_answer(prompt, segments)
+            answer = self.electron_study.builtin_answer(prompt, segments, study_content)
             self._emit({"event": "ai_token", "text": answer})
             self._emit({"event": "ai_sources",
-                        "sources": self.electron_study.builtin_sources(prompt, segments)})
+                        "sources": self.electron_study.builtin_sources(
+                            prompt, segments, content=study_content)})
             self._emit({"event": "ai_done"})
             self._emit({"event": "ai_status",
                         "label": self.study_presets.PROVIDER_BUILTIN, "model": ""})
@@ -2210,7 +2215,8 @@ class Sidecar:
             answer = answer or "I couldn't find an answer in the transcript."
             self._emit({"event": "ai_token", "text": answer})
             self._emit({"event": "ai_sources",
-                        "sources": self.electron_study.builtin_sources(prompt, segments)})
+                        "sources": self.electron_study.builtin_sources(
+                            prompt, segments, content=study_content)})
             self._emit({"event": "ai_done"})
             self._emit({"event": "ai_status",
                         "label": self.study_presets.PROVIDER_LOCAL, "model": o.get("model")})

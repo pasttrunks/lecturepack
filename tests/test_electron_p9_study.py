@@ -58,6 +58,24 @@ def test_builtin_answer_no_match():
     assert "couldn't find" in answer.lower()
 
 
+def test_builtin_overview_uses_study_concepts_without_internal_ai_hint():
+    segments = [
+        {"start": 0.0, "end": 4.0, "text": "This lecture defines archaeology."},
+        {"start": 10.0, "end": 15.0, "text": "Material culture includes artifacts."},
+    ]
+    content = {"concepts": [{
+        "title": "Archaeology",
+        "explanation": "The study of human activity through material remains.",
+        "sources": [{"segment_id": "0", "start_ms": 0, "end_ms": 4000}],
+    }], "quiz": [{"question": "Ready?"}]}
+    answer = es.builtin_answer("Explain this lecture simply", segments, content)
+    assert "Archaeology" in answer
+    assert "Smart Study" not in answer
+    assert "AI-written" not in answer
+    sources = es.builtin_sources("Explain this lecture simply", segments, content=content)
+    assert [source["segment_id"] for source in sources] == ["0"]
+
+
 def test_builtin_sources_only_returns_matching_real_segments():
     segments = [
         {"start": 0.0, "end": 4.0, "text": "Welcome to physics."},
