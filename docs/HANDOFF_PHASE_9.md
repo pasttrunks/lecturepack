@@ -103,8 +103,30 @@ DEFERRED remain outside this handoff.
   active cancel, waiting removal, retry, details, and clearing completed rows;
   successful transfers enter the unchanged normal import path.
 
+### Follow-up audit hardening
+
+- Each background download now uses an item-specific destination directory,
+  preventing repeated or same-title URLs from reusing another transfer's file.
+- Probed media titles survive the handoff into the normal import path.
+- The lecture switcher always retains both the selected and actively processing
+  lectures even when they are older than the 12-row recent list.
+- Download action replies include the current authoritative snapshot, reliable
+  yt-dlp speed is visible in the panel, long indicator titles truncate safely,
+  and Escape closes the lecture switcher/context menu cleanly.
+- The obsolete blocking single-download modal code was removed; live progress
+  now updates the compact background panel and remains reconciled by
+  `downloads_changed` events.
+
 ### Evidence
 
+- Follow-up audit: `npm run validate` passed; the expanded bridge,
+  queue/import, media, and QoL set passed `187 passed`; the corrected full run
+  returned `1303 passed, 1 skipped, 2 failed`, with only the same two missing
+  `LECTUREPACK_ONEDIR_FIXTURE` gates failing.
+- Follow-up packaged rebuild and launch smoke passed. Disposable candidate:
+  `C:\LecturePackScratch\builds\desktop-qol-audit-touchups\LecturePack-win32-x64`;
+  executable SHA-256:
+  `7604E2D5B9F0CA7CED960FD128C4D112E6298658ED116A3404307435538AC3CA`.
 - JS validation: `npm run validate` passed.
 - Focused desktop/bridge/queue/import set: `108 passed`.
 - Final full-suite run: `1303 passed, 1 skipped, 2 failed`. Both failures are

@@ -54,10 +54,13 @@ def test_clean_title_and_rename_preserve_source_identity(tmp_path: Path):
 
 def test_switcher_changes_viewed_job_without_mutating_processing_slot():
     select_source = _function_source("selectJob")
+    switcher_source = _function_source("renderLectureSwitcher")
     assert "setActiveJob(jobId" in select_source
     assert "lpBridge.call('view_job', jobId)" in select_source
     assert "activeJobId =" not in select_source
     assert "selectJob(job.id, { screen: sensibleJobScreen(job) })" in APP
+    assert "LP.state.activeJobId, LP.state.jobId" in switcher_source
+    assert "12 - pinned.length" in switcher_source
 
 
 def test_eta_and_queue_strip_use_authoritative_job_state():
@@ -110,6 +113,7 @@ def test_batch_url_entries_are_queued_without_waiting_for_download(tmp_path: Pat
     assert responses[-1]["count"] == 2
     assert [sidecar._downloads[item]["status"] for item in sidecar._download_order] == ["waiting", "waiting"]
     assert "linkProgressDialog(info.title" not in APP
+    assert "function linkProgressDialog" not in APP
     assert "lpBridge.call('import_media_url', { items:" in APP
 
 
@@ -121,6 +125,7 @@ def test_completed_background_download_uses_normal_import_path(tmp_path: Path, m
     class Fetcher:
         def download(self, url, destination, progress_cb=None, cancel_check=None, title=None):
             assert not cancel_check()
+            destinations.append(Path(destination))
             progress_cb({"status": "downloading", "pct": 42, "eta": 60})
             return str(target)
 
@@ -144,14 +149,16 @@ def test_completed_background_download_uses_normal_import_path(tmp_path: Path, m
     sidecar.media_fetch = SimpleNamespace(MediaFetcher=Fetcher, MediaFetchCancelled=RuntimeError)
     sidecar._downloads_dir = lambda: str(tmp_path)
     events = []
+    destinations = []
     imported = []
     sidecar._emit = events.append
     sidecar._emit_downloads = lambda: None
-    sidecar._import_video = lambda request_id, command, payload: imported.append(payload["path"])
+    sidecar._import_video = lambda request_id, command, payload: imported.append(payload)
 
     sidecar._download_worker()
 
-    assert imported == [str(target)]
+    assert imported == [{"path": str(target), "title": "Week 4"}]
+    assert destinations == [tmp_path / "download-1"]
     assert sidecar._downloads["download-1"]["status"] == "complete"
     assert any(event.get("event") == "media_progress" and event.get("pct") == 42 for event in events)
     assert any(event.get("event") == "media_done" and event.get("ok") for event in events)

@@ -2706,18 +2706,17 @@ class Sidecar:
         return {key: value for key, value in item.items()
                 if key not in {"path"}}
 
-    def _emit_downloads(self) -> None:
+    def _download_snapshot(self) -> list[dict[str, Any]]:
         with self._download_lock:
-            items = [self._download_public(dict(self._downloads[item_id]))
-                     for item_id in self._download_order if item_id in self._downloads]
-        self._emit({"event": "downloads_changed", "downloads": items})
+            return [self._download_public(dict(self._downloads[item_id]))
+                    for item_id in self._download_order if item_id in self._downloads]
+
+    def _emit_downloads(self) -> None:
+        self._emit({"event": "downloads_changed", "downloads": self._download_snapshot()})
 
     def _get_media_downloads(self, request_id: str | None, command: str) -> None:
         self._emit_downloads()
-        with self._download_lock:
-            items = [self._download_public(dict(self._downloads[item_id]))
-                     for item_id in self._download_order if item_id in self._downloads]
-        self._respond(request_id, command, downloads=items)
+        self._respond(request_id, command, downloads=self._download_snapshot())
 
     def _cancel_media_url(self, request_id: str | None, command: str,
                           payload: dict[str, Any] | None = None) -> None:
@@ -2737,7 +2736,8 @@ class Sidecar:
                     event.set()
                     cancelled = True
         self._emit_downloads()
-        self._respond(request_id, command, ok=True, cancelled=cancelled)
+        self._respond(request_id, command, ok=True, cancelled=cancelled,
+                      downloads=self._download_snapshot())
 
     def _remove_media_download(self, request_id: str | None, command: str,
                                payload: dict[str, Any]) -> None:
@@ -2751,7 +2751,8 @@ class Sidecar:
                     self._download_order.remove(download_id)
                 removed = True
         self._emit_downloads()
-        self._respond(request_id, command, ok=True, removed=removed)
+        self._respond(request_id, command, ok=True, removed=removed,
+                      downloads=self._download_snapshot())
 
     def _retry_media_download(self, request_id: str | None, command: str,
                               payload: dict[str, Any]) -> None:
@@ -2766,7 +2767,8 @@ class Sidecar:
         if retried:
             self._start_download_worker()
         self._emit_downloads()
-        self._respond(request_id, command, ok=True, retried=retried)
+        self._respond(request_id, command, ok=True, retried=retried,
+                      downloads=self._download_snapshot())
 
     def _clear_media_downloads(self, request_id: str | None, command: str) -> None:
         with self._download_lock:
@@ -2776,7 +2778,8 @@ class Sidecar:
                 self._downloads.pop(item_id, None)
                 self._download_order.remove(item_id)
         self._emit_downloads()
-        self._respond(request_id, command, ok=True, cleared=len(removable))
+        self._respond(request_id, command, ok=True, cleared=len(removable),
+                      downloads=self._download_snapshot())
 
     def _import_media_url(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         raw_items = payload.get("items")
@@ -2862,8 +2865,10 @@ class Sidecar:
                 self._emit_downloads()
 
             try:
+                destination = Path(self._downloads_dir()) / item_id
+                destination.mkdir(parents=True, exist_ok=True)
                 path = self.media_fetch.MediaFetcher().download(
-                    item["url"], self._downloads_dir(), progress_cb=progress,
+                    item["url"], str(destination), progress_cb=progress,
                     cancel_check=cancel.is_set, title=item.get("title") or None)
                 if cancel.is_set():
                     raise self.media_fetch.MediaFetchCancelled()
@@ -2878,7 +2883,8 @@ class Sidecar:
                 # The existing normal import path remains the only way a
                 # downloaded recording becomes a LecturePack job.
                 QTimer.singleShot(0, self._poll_timer,
-                                  lambda p=path: self._import_video(None, "import_media_url", {"path": p}))
+                                  lambda p=path, t=item.get("title"): self._import_video(None, "import_media_url",
+                                                                                         {"path": p, "title": t}))
             except self.media_fetch.MediaFetchCancelled:
                 with self._download_lock:
                     if item_id in self._downloads:

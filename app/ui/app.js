@@ -1182,7 +1182,7 @@
      paste -> confirm what was found -> transfer with progress/cancel.
      The backend hands the finished file to the normal import path, so the
      existing New-job overlay takes over from there. */
-  var mediaLink = { available: false, version: '', progressModal: null, done: null, downloads: [] };
+  var mediaLink = { available: false, version: '', done: null, downloads: [] };
 
   function mediaUrls(text) {
     var seen = {};
@@ -1264,31 +1264,6 @@
     });
   }
 
-  function linkProgressDialog(title) {
-    var m = lpModal({
-      title: 'Downloading',
-      bodyHtml: '<div style="font-weight:600;font-size:14px;margin-bottom:10px;word-break:break-word">' + esc(title || 'Fetching…') + '</div>' +
-        '<div style="height:9px;border-radius:6px;background:var(--sunk);overflow:hidden"><div id="link-bar" class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(0)"></div></div>' +
-        '<div id="link-stat" role="status" style="font:500 11px \'JetBrains Mono\';color:var(--muted);margin-top:8px">starting…</div>',
-      actions: [{ label: 'Cancel download', danger: true, onClick: function () {
-        lpBridge.call('cancel_media_url');
-      } }]
-    });
-    mediaLink.progressModal = m;
-  }
-
-  function onMediaProgress(p) {
-    var bar = $('link-bar'), stat = $('link-stat');
-    if (!bar || !stat) return;
-    setFill(bar, p.pct || 0);
-    var bits = [(p.pct || 0) + '%'];
-    if (p.total) bits.push(fmtBytes(p.downloaded) + ' / ' + fmtBytes(p.total));
-    else if (p.downloaded) bits.push(fmtBytes(p.downloaded));
-    if (p.speed) bits.push(fmtBytes(p.speed) + '/s');
-    if (p.eta) bits.push('~' + fmtDuration(p.eta) + ' left');
-    stat.textContent = p.status === 'finished' ? 'finishing up…' : bits.join(' · ');
-  }
-
   function renderDownloads() {
     var items = mediaLink.downloads || [];
     var indicator = $('downloads-indicator'), panel = $('downloads-panel'), list = $('downloads-list');
@@ -1307,7 +1282,7 @@
         ? '<div style="height:6px;border-radius:4px;background:var(--sunk);overflow:hidden;margin:7px 0 4px"><div class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(' + Math.max(0, Math.min(1, (item.pct || 0) / 100)) + ')"></div></div>'
         : '';
       var meta = status === 'downloading'
-        ? ((item.pct || 0) + '%' + (item.eta ? ' · ~' + fmtDuration(item.eta) + ' left' : ''))
+        ? ((item.pct || 0) + '%' + (item.speed ? ' · ' + fmtBytes(item.speed) + '/s' : '') + (item.eta ? ' · ~' + fmtDuration(item.eta) + ' left' : ''))
         : status.charAt(0).toUpperCase() + status.slice(1);
       var action = status === 'downloading'
         ? '<button data-download-act="cancel" data-download-id="' + esc(item.id) + '">Cancel</button>'
@@ -1450,7 +1425,17 @@
     if (!panel || !toggle) return;
     toggle.disabled = !(LP.data.jobs || []).length;
     $('lecture-switcher-arrow').hidden = toggle.disabled;
-    panel.innerHTML = (LP.data.jobs || []).slice(0, 12).map(function (job) {
+    var allJobs = LP.data.jobs || [];
+    var pinned = [];
+    [LP.state.activeJobId, LP.state.jobId].forEach(function (id) {
+      var job = allJobs.filter(function (candidate) { return candidate.id === id; })[0];
+      if (job && !pinned.some(function (candidate) { return candidate.id === job.id; })) pinned.push(job);
+    });
+    var pinnedIds = pinned.map(function (job) { return job.id; });
+    var switcherJobs = pinned.concat(allJobs.filter(function (job) {
+      return pinnedIds.indexOf(job.id) < 0;
+    }).slice(0, Math.max(0, 12 - pinned.length)));
+    panel.innerHTML = switcherJobs.map(function (job) {
       return '<button type="button" role="option" data-switch-job="' + esc(job.id) + '" aria-selected="' + (job.id === LP.state.jobId ? 'true' : 'false') + '" style="width:100%;display:flex;align-items:center;gap:10px;padding:8px;background:' + (job.id === LP.state.jobId ? 'var(--panel2)' : 'transparent') + ';border:0;border-radius:8px;color:var(--ink);cursor:pointer;text-align:left">' +
         '<span style="width:54px;height:34px;flex:none;border-radius:6px;overflow:hidden;background:var(--sunk);position:relative">' + posterHtml(job) + '</span>' +
         '<span style="flex:1;min-width:0;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(job.name || 'Lecture') + '</span>' +
@@ -6558,6 +6543,12 @@
         if (paletteOverlayEl && !paletteOverlayEl.hidden) { closePalette(); return; }
         if ($('search-overlay') && !$('search-overlay').hidden) { closeGlobalSearch(); return; }
         if (batchOverlay && !batchOverlay.hidden) { closeBatchImport(); return; }
+        if ($('lecture-context-menu') && !$('lecture-context-menu').hidden) { hideLectureContextMenu(); return; }
+        if ($('lecture-switcher') && !$('lecture-switcher').hidden) {
+          $('lecture-switcher').hidden = true;
+          if ($('lecture-switcher-toggle')) $('lecture-switcher-toggle').setAttribute('aria-expanded', 'false');
+          return;
+        }
       }
       var tag = (e.target && e.target.tagName) || '';
       var editing = /INPUT|TEXTAREA|SELECT/.test(tag) || (e.target && e.target.isContentEditable);
@@ -6866,7 +6857,16 @@
     });
 
     lpBridge.on('media_progress', function (json) {
-      try { onMediaProgress(parseBridgePayload(json || '{}', {})); } catch (err) { /* ignore */ }
+      try {
+        var update = parseBridgePayload(json || '{}', {});
+        var item = mediaLink.downloads.filter(function (candidate) { return candidate.id === update.download_id; })[0];
+        if (item) {
+          ['status', 'pct', 'eta', 'speed', 'downloaded', 'total'].forEach(function (key) {
+            if (update[key] !== undefined) item[key] = update[key];
+          });
+          renderDownloads();
+        }
+      } catch (err) { /* downloads_changed remains authoritative */ }
     });
 
     lpBridge.on('downloads_changed', function (json) {
@@ -6877,7 +6877,6 @@
 
     lpBridge.on('media_done', function (json) {
       var r = parseBridgePayload(json || '{}', {});
-      if (mediaLink.progressModal) { mediaLink.progressModal.close(); mediaLink.progressModal = null; }
       if (r.ok) toast('Downloaded ' + (r.name || 'the recording'));
       else if (r.cancelled) toast('Download cancelled');
       // Raw failure text stays in renderDownloads() behind its <details>
