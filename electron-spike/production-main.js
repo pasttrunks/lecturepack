@@ -9,6 +9,7 @@ const {
   net,
   Notification,
   protocol,
+  screen,
   shell
 } = require('electron');
 const fs = require('node:fs');
@@ -296,6 +297,43 @@ function updateTaskbarProgress(session, message) {
       }
     }
   }
+}
+
+function windowStatePath() {
+  return path.join(app.getPath('userData'), 'window-state.json');
+}
+
+function visibleWindowBounds(bounds) {
+  if (!bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) ||
+      bounds.width < 640 || bounds.height < 480 || !Number.isFinite(bounds.x) || !Number.isFinite(bounds.y)) {
+    return false;
+  }
+  return screen.getAllDisplays().some((display) => {
+    const area = display.workArea;
+    const width = Math.max(0, Math.min(bounds.x + bounds.width, area.x + area.width) - Math.max(bounds.x, area.x));
+    const height = Math.max(0, Math.min(bounds.y + bounds.height, area.y + area.height) - Math.max(bounds.y, area.y));
+    return width >= 120 && height >= 80;
+  });
+}
+
+function loadWindowState() {
+  try {
+    const state = JSON.parse(fs.readFileSync(windowStatePath(), 'utf8'));
+    return visibleWindowBounds(state.bounds) ? state : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveWindowState(win) {
+  if (!win || win.isDestroyed()) return;
+  try {
+    const bounds = win.isMaximized() && typeof win.getNormalBounds === 'function'
+      ? win.getNormalBounds() : win.getBounds();
+    const state = { bounds, maximized: win.isMaximized() };
+    fs.mkdirSync(path.dirname(windowStatePath()), { recursive: true });
+    fs.writeFileSync(windowStatePath(), JSON.stringify(state), 'utf8');
+  } catch (_) { /* window restore must never block shutdown */ }
 }
 
 function handleSidecarMessage(session, message) {
@@ -590,9 +628,9 @@ function createProductionWindow() {
   const logger = makeLogger();
   const uiDir = uiDirectory();
   const icon = applicationIcon();
+  const restoredWindow = loadWindowState();
   const window = new BrowserWindow({
-    width: 1360,
-    height: 860,
+    ...(restoredWindow ? restoredWindow.bounds : { width: 1360, height: 860 }),
     minWidth: 640,
     minHeight: 480,
     show: false,
@@ -623,7 +661,23 @@ function createProductionWindow() {
   };
   activeSession = session;
 
-  window.once('ready-to-show', () => window.show());
+  window.once('ready-to-show', () => {
+    if (restoredWindow && restoredWindow.maximized) window.maximize();
+    window.show();
+  });
+  let windowSaveTimer = null;
+  const scheduleWindowSave = () => {
+    if (windowSaveTimer) clearTimeout(windowSaveTimer);
+    windowSaveTimer = setTimeout(() => {
+      windowSaveTimer = null;
+      saveWindowState(window);
+    }, 250);
+  };
+  window.on('move', scheduleWindowSave);
+  window.on('resize', scheduleWindowSave);
+  window.on('maximize', scheduleWindowSave);
+  window.on('unmaximize', scheduleWindowSave);
+  window.on('close', () => saveWindowState(window));
   window.webContents.on('did-finish-load', () => {
     session.pageReady = true;
     logger.write('page_ready', { ui_dir: uiDir });

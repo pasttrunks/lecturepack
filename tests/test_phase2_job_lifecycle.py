@@ -83,7 +83,7 @@ def test_import_video_emits_active_job_with_correct_identity(tmp_path, monkeypat
     assert payloads, "active_job signal never emitted"
     last = payloads[-1]
     assert last["id"] == job.job_id
-    assert last["title"] == "synthetic_lecture"
+    assert last["title"] == "synthetic lecture"
     assert last["title"]
 
 
@@ -203,7 +203,7 @@ def test_set_active_job_emits_signal_with_id_and_title(tmp_path, monkeypatch):
 
     payload = _emitted_payloads(backend.active_job)[-1]
     assert payload["id"] == job.job_id
-    assert payload["title"] == "synthetic_lecture"
+    assert payload["title"] == "synthetic lecture"
     assert payload["title"]
 
 

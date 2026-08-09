@@ -113,6 +113,11 @@ class Sidecar:
         self._shutdown_started_at = 0.0
         self._shutdown_timer: QTimer | None = None
         self._engine_error = ""
+        self._download_lock = threading.Lock()
+        self._downloads: dict[str, dict[str, Any]] = {}
+        self._download_order: list[str] = []
+        self._download_worker_running = False
+        self._download_cancel: dict[str, threading.Event] = {}
 
         self.repo_root = self._resolve_repo_root()
         if self.repo_root and str(self.repo_root) not in sys.path:
@@ -228,7 +233,7 @@ class Sidecar:
             from lecturepack.infrastructure.file_manager import FileManager
             from lecturepack.models.job import Job
             from lecturepack import electron_backend, electron_study
-            from lecturepack.services import media_fetch, study_service, transcript_store
+            from lecturepack.services import job_ops, media_fetch, study_service, transcript_store
             from lecturepack.services import study_presets, study_v2
             from lecturepack.services.job_queue import JobQueue
 
@@ -241,6 +246,7 @@ class Sidecar:
             self.electron_backend = electron_backend
             self.electron_study = electron_study
             self.media_fetch = media_fetch
+            self.job_ops = job_ops
             self.study_service = study_service
             self.study_presets = study_presets
             self.study_v2 = study_v2
@@ -588,7 +594,15 @@ class Sidecar:
             elif command == "import_media_url":
                 self._import_media_url(request_id, command, payload)
             elif command == "cancel_media_url":
-                self._cancel_media_url(request_id, command)
+                self._cancel_media_url(request_id, command, payload)
+            elif command == "remove_media_download":
+                self._remove_media_download(request_id, command, payload)
+            elif command == "retry_media_download":
+                self._retry_media_download(request_id, command, payload)
+            elif command == "clear_media_downloads":
+                self._clear_media_downloads(request_id, command)
+            elif command == "get_media_downloads":
+                self._get_media_downloads(request_id, command)
             elif command == "get_settings":
                 self._get_settings(request_id, command)
             elif command == "ask_ai":
@@ -793,10 +807,15 @@ class Sidecar:
             except Exception:  # noqa: BLE001 - a queue failure must not hide the job
                 queue_position = None
         settings = getattr(job, "settings", None) or {}
+        stages = job.state.get("stages", {}) if isinstance(job.state, dict) else {}
+        failed_stage = next((name for name, details in stages.items()
+                             if isinstance(details, dict) and details.get("status") == "failed"), "")
+        error = str(stages.get(failed_stage, {}).get("error", "")) if failed_stage else ""
         return {
             "id": job.job_id,
             "name": job.manifest.get("title") or source.get("filename") or "Lecture",
             "file": source.get("filename", ""),
+            "source_title": source.get("filename", ""),
             "status": status,
             "pct": self._job_percent(job),
             "stage": active or self._last_stage(job),
@@ -807,6 +826,7 @@ class Sidecar:
             "product_mode": str(settings.get("product_mode", "study_pack") or "study_pack"),
             "queue_position": queue_position,
             "waiting": queue_position is not None,
+            "error": error[:500],
         }
 
     @staticmethod
@@ -960,7 +980,9 @@ class Sidecar:
         except Exception as exc:  # noqa: BLE001 - surfaced as a friendly format error
             raise ImportVideoError("FFPROBE_FAILED", f"ffprobe could not read the video: {exc}") from exc
         job = self.Job(str(self.data_dir), video_path=str(source))
-        job.manifest["title"] = str(title or source.stem or "Lecture")
+        # Keep the immutable source filename/path in manifest["source"] and a
+        # separate, editable display title in manifest["title"].
+        job.manifest["title"] = str(title or self.job_ops.clean_display_title(source.name))
         job.source.update(metadata)
         job.settings["preset"] = self._preset(preset)
         job.settings.setdefault("whisper", {})["engine"] = "cpu"
@@ -2636,23 +2658,39 @@ class Sidecar:
         self._respond(request_id, command, available=available, version=version)
 
     def _probe_media_url(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
-        url = str(payload.get("url") or "").strip()
-        if not self.media_fetch.looks_like_url(url):
-            self._emit({"event": "media_probe", "ok": False,
-                        "error": "That doesn't look like a web link."})
-            self._respond(request_id, command, ok=False,
-                          error="That doesn't look like a web link.")
+        raw_urls = payload.get("urls")
+        if isinstance(raw_urls, str):
+            raw_urls = raw_urls.splitlines()
+        if not isinstance(raw_urls, list):
+            raw_urls = [payload.get("url")]
+        urls = []
+        for value in raw_urls:
+            url = str(value or "").strip()
+            if url and url not in urls:
+                urls.append(url)
+        if not urls or any(not self.media_fetch.looks_like_url(url) for url in urls):
+            error = "Enter one full http(s) link per line."
+            self._emit({"event": "media_probe", "ok": False, "error": error})
+            self._respond(request_id, command, ok=False, error=error)
             return
 
         def worker():
-            try:
-                info = self.media_fetch.MediaFetcher().probe(url)
-                info["ok"] = True
-                payload_out = info
-            except self.media_fetch.MediaFetchError as exc:
-                payload_out = {"ok": False, "error": str(exc)}
-            except Exception as exc:  # noqa: BLE001 - never kill the thread
-                payload_out = {"ok": False, "error": str(exc)[:300]}
+            items = []
+            for url in urls:
+                try:
+                    info = self.media_fetch.MediaFetcher().probe(url)
+                    items.append({"ok": True, "url": url, **info})
+                except self.media_fetch.MediaFetchError as exc:
+                    items.append({"ok": False, "url": url, "error": str(exc)})
+                except Exception as exc:  # noqa: BLE001 - never kill the thread
+                    items.append({"ok": False, "url": url, "error": str(exc)[:300]})
+            payload_out = {
+                "ok": all(item.get("ok") for item in items),
+                "items": items,
+                "count": len(items),
+            }
+            if len(items) == 1:
+                payload_out.update(items[0])
             self._emit({"event": "media_probe", **payload_out})
 
         threading.Thread(target=worker, daemon=True,
@@ -2664,68 +2702,203 @@ class Sidecar:
         d.mkdir(parents=True, exist_ok=True)
         return str(d)
 
-    def _cancel_media_url(self, request_id: str | None, command: str) -> None:
-        ev = getattr(self, "_media_cancel", None)
-        if ev is not None:
-            ev.set()
-        self._respond(request_id, command, ok=True, cancelled=ev is not None)
+    def _download_public(self, item: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in item.items()
+                if key not in {"path"}}
+
+    def _emit_downloads(self) -> None:
+        with self._download_lock:
+            items = [self._download_public(dict(self._downloads[item_id]))
+                     for item_id in self._download_order if item_id in self._downloads]
+        self._emit({"event": "downloads_changed", "downloads": items})
+
+    def _get_media_downloads(self, request_id: str | None, command: str) -> None:
+        self._emit_downloads()
+        with self._download_lock:
+            items = [self._download_public(dict(self._downloads[item_id]))
+                     for item_id in self._download_order if item_id in self._downloads]
+        self._respond(request_id, command, downloads=items)
+
+    def _cancel_media_url(self, request_id: str | None, command: str,
+                          payload: dict[str, Any] | None = None) -> None:
+        download_id = str((payload or {}).get("download_id") or "")
+        cancelled = False
+        with self._download_lock:
+            targets = [download_id] if download_id else list(self._download_order)
+            for item_id in targets:
+                item = self._downloads.get(item_id)
+                if not item or item.get("status") not in {"waiting", "downloading"}:
+                    continue
+                if item.get("status") == "waiting":
+                    item["status"] = "cancelled"
+                    cancelled = True
+                event = self._download_cancel.get(item_id)
+                if event is not None:
+                    event.set()
+                    cancelled = True
+        self._emit_downloads()
+        self._respond(request_id, command, ok=True, cancelled=cancelled)
+
+    def _remove_media_download(self, request_id: str | None, command: str,
+                               payload: dict[str, Any]) -> None:
+        download_id = str(payload.get("download_id") or "")
+        removed = False
+        with self._download_lock:
+            item = self._downloads.get(download_id)
+            if item and item.get("status") in {"waiting", "failed", "cancelled", "complete"}:
+                self._downloads.pop(download_id, None)
+                if download_id in self._download_order:
+                    self._download_order.remove(download_id)
+                removed = True
+        self._emit_downloads()
+        self._respond(request_id, command, ok=True, removed=removed)
+
+    def _retry_media_download(self, request_id: str | None, command: str,
+                              payload: dict[str, Any]) -> None:
+        download_id = str(payload.get("download_id") or "")
+        retried = False
+        with self._download_lock:
+            item = self._downloads.get(download_id)
+            if item and item.get("status") in {"failed", "cancelled"}:
+                item.update({"status": "waiting", "pct": 0, "eta": 0,
+                             "speed": 0, "error": ""})
+                retried = True
+        if retried:
+            self._start_download_worker()
+        self._emit_downloads()
+        self._respond(request_id, command, ok=True, retried=retried)
+
+    def _clear_media_downloads(self, request_id: str | None, command: str) -> None:
+        with self._download_lock:
+            removable = [item_id for item_id in self._download_order
+                         if self._downloads.get(item_id, {}).get("status") == "complete"]
+            for item_id in removable:
+                self._downloads.pop(item_id, None)
+                self._download_order.remove(item_id)
+        self._emit_downloads()
+        self._respond(request_id, command, ok=True, cleared=len(removable))
 
     def _import_media_url(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
-        url = str(payload.get("url") or "").strip()
-        title = str(payload.get("title") or "")
-        if not self.media_fetch.looks_like_url(url):
-            self._emit({"event": "media_done", "ok": False,
-                        "error": "That doesn't look like a web link."})
-            self._respond(request_id, command, ok=False,
-                          error="That doesn't look like a web link.")
+        raw_items = payload.get("items")
+        if not isinstance(raw_items, list):
+            raw_items = [{"url": payload.get("url"), "title": payload.get("title")}]
+        added = []
+        with self._download_lock:
+            for raw in raw_items:
+                if not isinstance(raw, dict):
+                    raw = {"url": raw}
+                url = str(raw.get("url") or raw.get("webpage_url") or "").strip()
+                if not self.media_fetch.looks_like_url(url):
+                    continue
+                item_id = f"download-{time.time_ns()}-{len(added)}"
+                item = {
+                    "id": item_id,
+                    "url": url,
+                    "title": str(raw.get("title") or "Lecture download"),
+                    "status": "waiting",
+                    "pct": 0,
+                    "eta": 0,
+                    "speed": 0,
+                    "error": "",
+                }
+                self._downloads[item_id] = item
+                self._download_order.append(item_id)
+                added.append(self._download_public(dict(item)))
+        if not added:
+            error = "Enter one full http(s) link per line."
+            self._respond(request_id, command, ok=False, error=error)
             return
-        if getattr(self, "_media_busy", False):
-            self._emit({"event": "media_done", "ok": False,
-                        "error": "A link download is already running."})
-            self._respond(request_id, command, ok=False,
-                          error="A link download is already running.")
-            return
+        self._emit_downloads()
+        self._start_download_worker()
+        self._respond(request_id, command, ok=True, started=True,
+                      count=len(added), downloads=added)
 
-        self._media_busy = True
-        cancel = threading.Event()
-        self._media_cancel = cancel
-        dest = self._downloads_dir()
+    def _start_download_worker(self) -> None:
+        with self._download_lock:
+            if self._download_worker_running:
+                return
+            self._download_worker_running = True
+        threading.Thread(target=self._download_worker, daemon=True,
+                         name="lp-media-download-queue").start()
 
-        def worker():
+    def _next_waiting_download(self) -> dict[str, Any] | None:
+        with self._download_lock:
+            for item_id in self._download_order:
+                item = self._downloads.get(item_id)
+                if item and item.get("status") == "waiting":
+                    item["status"] = "downloading"
+                    event = threading.Event()
+                    self._download_cancel[item_id] = event
+                    return dict(item)
+        return None
+
+    def _download_worker(self) -> None:
+        while not self._shutting_down:
+            item = self._next_waiting_download()
+            if item is None:
+                with self._download_lock:
+                    self._download_worker_running = False
+                    # Close the race where a command queued an item between the
+                    # empty scan and clearing this flag.
+                    has_waiting = any(value.get("status") == "waiting"
+                                      for value in self._downloads.values())
+                    if has_waiting:
+                        self._download_worker_running = True
+                        continue
+                return
+            item_id = item["id"]
+            cancel = self._download_cancel[item_id]
+            self._emit_downloads()
+
+            def progress(update: dict[str, Any]) -> None:
+                with self._download_lock:
+                    current = self._downloads.get(item_id)
+                    if not current:
+                        return
+                    current.update({key: update.get(key, current.get(key))
+                                    for key in ("status", "pct", "eta", "speed", "downloaded", "total")})
+                    current["status"] = "downloading"
+                self._emit({"event": "media_progress", "download_id": item_id, **update})
+                self._emit_downloads()
+
             try:
                 path = self.media_fetch.MediaFetcher().download(
-                    url, dest,
-                    progress_cb=lambda p: self._emit({"event": "media_progress", **p}),
-                    cancel_check=cancel.is_set,
-                    title=title or None,
-                )
+                    item["url"], self._downloads_dir(), progress_cb=progress,
+                    cancel_check=cancel.is_set, title=item.get("title") or None)
                 if cancel.is_set():
-                    payload_out = {"ok": False, "cancelled": True}
-                else:
-                    payload_out = {"ok": True, "path": path,
-                                   "name": os.path.basename(path)}
-            except self.media_fetch.MediaFetchCancelled:
-                payload_out = {"ok": False, "cancelled": True}
-            except self.media_fetch.MediaFetchError as exc:
-                payload_out = {"ok": False, "error": str(exc)}
-            except Exception as exc:  # noqa: BLE001 - never kill the thread
-                payload_out = {"ok": False, "error": str(exc)[:300]}
-            finally:
-                self._media_busy = False
-                self._media_cancel = None
-            self._emit({"event": "media_done", **payload_out})
-            if payload_out.get("ok"):
-                # Hand off on the main thread: import_video touches Qt + engine.
-                # The download worker has no Qt event loop. Give the timer a
-                # main-thread QObject context so the handoff reaches the
-                # sidecar's event loop and the downloaded file becomes a job.
+                    raise self.media_fetch.MediaFetchCancelled()
+                with self._download_lock:
+                    current = self._downloads.get(item_id)
+                    if current:
+                        current.update({"status": "complete", "pct": 100,
+                                        "eta": 0, "path": path,
+                                        "name": os.path.basename(path)})
+                payload_out = {"ok": True, "download_id": item_id,
+                               "name": os.path.basename(path)}
+                # The existing normal import path remains the only way a
+                # downloaded recording becomes a LecturePack job.
                 QTimer.singleShot(0, self._poll_timer,
-                                  lambda: self._import_video(None, "import_media_url",
-                                                             {"path": payload_out["path"]}))
-
-        threading.Thread(target=worker, daemon=True,
-                         name="lp-media-download").start()
-        self._respond(request_id, command, ok=True, started=True)
+                                  lambda p=path: self._import_video(None, "import_media_url", {"path": p}))
+            except self.media_fetch.MediaFetchCancelled:
+                with self._download_lock:
+                    if item_id in self._downloads:
+                        self._downloads[item_id]["status"] = "cancelled"
+                payload_out = {"ok": False, "cancelled": True,
+                               "download_id": item_id}
+            except Exception as exc:  # media_fetch already makes yt-dlp errors friendly
+                with self._download_lock:
+                    if item_id in self._downloads:
+                        self._downloads[item_id].update({"status": "failed",
+                                                        "error": str(exc)[:300]})
+                payload_out = {"ok": False, "error": str(exc)[:300],
+                               "download_id": item_id}
+            finally:
+                with self._download_lock:
+                    self._download_cancel.pop(item_id, None)
+            self._emit({"event": "media_done", **payload_out})
+            self._emit_downloads()
+        with self._download_lock:
+            self._download_worker_running = False
 
     def _processing_workers_running(self) -> bool:
         """Keep QThread/QProcess owners alive while a cancellation drains.
@@ -2737,6 +2910,9 @@ class Sidecar:
         sidecar. The host still owns the final timeout/tree-kill guard; this
         short drain avoids that race when the engine can finish normally.
         """
+        with self._download_lock:
+            if self._download_worker_running:
+                return True
         controller = self.controller
         if controller is None:
             return False
@@ -2784,6 +2960,12 @@ class Sidecar:
             return
         self._shutting_down = True
         self._shutdown_started_at = time.monotonic()
+        with self._download_lock:
+            for event in self._download_cancel.values():
+                event.set()
+            for item in self._downloads.values():
+                if item.get("status") == "waiting":
+                    item["status"] = "cancelled"
         if self.controller is not None:
             try:
                 self.controller.cancel()

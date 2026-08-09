@@ -304,15 +304,29 @@
       };
     }
     if (name === 'probe_media_url') {
-      return { command: name, payload: { url: String(typeof first === 'string' ? first : payload.url || '') } };
+      return {
+        command: name,
+        payload: Array.isArray(payload.urls)
+          ? { urls: payload.urls.map(String) }
+          : { url: String(typeof first === 'string' ? first : payload.url || '') }
+      };
     }
     if (name === 'import_media_url') {
       return {
         command: name,
-        payload: { url: String(typeof first === 'string' ? first : payload.url || ''), title: String(args[1] || payload.title || '') }
+        payload: Array.isArray(payload.items)
+          ? { items: payload.items }
+          : { url: String(typeof first === 'string' ? first : payload.url || ''), title: String(args[1] || payload.title || '') }
       };
     }
-    if (name === 'cancel_media_url' || name === 'media_link_support') {
+    if (name === 'cancel_media_url') {
+      var cancelId = String(payload.download_id || first || '');
+      return { command: name, payload: cancelId ? { download_id: cancelId } : {} };
+    }
+    if (name === 'remove_media_download' || name === 'retry_media_download') {
+      return { command: name, payload: { download_id: String(payload.download_id || first || '') } };
+    }
+    if (name === 'clear_media_downloads' || name === 'get_media_downloads' || name === 'media_link_support') {
       return { command: name, payload: {} };
     }
     if (name === 'delete_job') {

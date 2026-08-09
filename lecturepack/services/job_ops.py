@@ -24,6 +24,35 @@ POST_COMPLETION_VALUES = frozenset(
     {OPEN_COMPLETED_LECTURE, STAY_ON_PROCESSING, ASK})
 
 
+_VIDEO_EXTENSIONS = {
+    ".avi", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".webm", ".wmv",
+}
+_TITLE_NOISE = {"recording", "recorded", "final", "export", "render", "output"}
+
+
+def clean_display_title(source_name: str) -> str:
+    """Derive a conservative display title without touching source metadata.
+
+    Only a known video extension, underscore separators, repeated whitespace,
+    and obvious *trailing* production noise are removed.  A trailing ISO date
+    is removed only when it directly precedes noise that was removed, which
+    avoids guessing at meaningful dates in ordinary lecture titles.
+    """
+    raw = os.path.basename(str(source_name or "")).strip()
+    stem, extension = os.path.splitext(raw)
+    text = stem if extension.lower() in _VIDEO_EXTENSIONS else raw
+    text = re.sub(r"_+", " ", text)
+    words = re.sub(r"\s+", " ", text).strip().split(" ")
+    removed_noise = False
+    while words and words[-1].strip("-().[]{}").lower() in _TITLE_NOISE:
+        words.pop()
+        removed_noise = True
+    if removed_noise and words and re.fullmatch(r"(?:19|20)\d{2}-\d{2}-\d{2}", words[-1]):
+        words.pop()
+    cleaned = re.sub(r"\s+", " ", " ".join(words)).strip(" -_.")
+    return cleaned or (stem.strip() if stem.strip() else "Lecture")
+
+
 # --- stage-aware retry ----------------------------------------------------- #
 def plan_stage_retry(stage_order: list, stage_status: dict, failed_stage: str,
                      skipped: Optional[Iterable[str]] = None) -> dict:

@@ -48,7 +48,10 @@ class Job:
 
         now = datetime.now(timezone.utc).isoformat()
         filename = os.path.basename(video_path)
-        stem = os.path.splitext(filename)[0]
+        # Imported media keeps its exact source identity while the library gets
+        # a conservative, editable display title.
+        from lecturepack.services.job_ops import clean_display_title
+        display_title = clean_display_title(filename)
 
         self.manifest = {
             "schema_version": 1,
@@ -59,7 +62,7 @@ class Job:
                 "original_path": os.path.abspath(video_path),
                 "filename": filename,
             },
-            "title": stem,
+            "title": display_title,
         }
 
         self.source = {}
