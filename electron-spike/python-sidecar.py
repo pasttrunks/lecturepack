@@ -10,7 +10,7 @@ Commands:
     get_slides, get_transcript, export, set_setting, shutdown
 
 Events:
-    ready, bootstrap_progress, bootstrap_complete, jobs_changed,
+    ready, bootstrap_progress, jobs_changed,
     pipeline_changed, status_changed, log_line, slides_changed,
     transcript_changed, export_progress, error
 """
@@ -710,13 +710,26 @@ class Sidecar:
             }]
             health = {"passed": False, "startup_ok": False, "checks": checks}
         else:
+            fault = self.args.self_test_fault if self.args.self_test else ""
+            study_core_info = self.study_v2.study_core_info
+            media_available = self.media_fetch.is_available
+            media_version = self.media_fetch.version
+            if fault == "study_core":
+                study_core_info = lambda: {
+                    "available": False,
+                    "implementation": "python",
+                    "error": "release self-test injected missing native module",
+                }
+            elif fault == "yt_dlp":
+                media_available = lambda: False
+                media_version = lambda: ""
             health = self.packaged_health.run_packaged_health(
                 runtime_root=self.runtime_root,
                 data_dir=self.data_dir,
                 controller=self.controller,
-                study_core_info=self.study_v2.study_core_info,
-                media_available=self.media_fetch.is_available,
-                media_version=self.media_fetch.version,
+                study_core_info=study_core_info,
+                media_available=media_available,
+                media_version=media_version,
             )
         checks = list(health["checks"])
         if include_sidecar:
@@ -3335,6 +3348,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--data-dir", required=True, help="Writable persistent LecturePack data directory")
     parser.add_argument("--demo-video", default="", help="Bundled demo video used by the vertical slice")
     parser.add_argument("--self-test", action="store_true", help="Run the packaged health contract and exit")
+    parser.add_argument(
+        "--self-test-fault",
+        choices=("study_core", "yt_dlp"),
+        default="",
+        help="Release-validator-only injection used with --self-test",
+    )
     return parser.parse_args(argv)
 
 

@@ -725,10 +725,10 @@ def _run_sidecar_gate(
         checks["sidecar_ready"] = ready.get("engine_loaded") is True
 
         health = session.request("health_check")
-        paths = health.get("paths") if isinstance(health.get("paths"), dict) else {}
-        checks["runtime_paths_ready"] = bool(paths) and all(
-            bool(p.get("exists")) for p in paths.values()
-        ) and all(p.get("exists") for p in paths.values() if isinstance(p, dict))
+        packaged_checks = health.get("checks") if isinstance(health.get("checks"), list) else []
+        checks["runtime_paths_ready"] = bool(packaged_checks) and health.get("passed") is True and all(
+            isinstance(item, dict) and item.get("ok") is True for item in packaged_checks
+        )
 
         imported = session.request(
             "import_video", {"path": str(demo_video), "bundled_demo": True}

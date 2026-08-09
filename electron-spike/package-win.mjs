@@ -6,13 +6,19 @@ import { fileURLToPath } from 'node:url';
 const spikeRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(spikeRoot, '..');
 const uiDir = path.join(repoRoot, 'app', 'ui');
-const sidecar = path.join(spikeRoot, 'python-sidecar.py');
 const packagedSidecar = path.join(spikeRoot, 'dist-sidecar', 'LecturePackSidecar');
 const demoAssets = path.join(spikeRoot, 'assets');
 const icon = path.join(repoRoot, 'app', 'packaging', 'lecturepack.ico');
 const outputDir = path.join(spikeRoot, 'dist');
+const productionAsarFiles = new Set([
+  'package.json',
+  'production-main.js',
+  'production-preload.js',
+  'electron-bridge.js',
+  'import-path.js'
+]);
 
-for (const required of [uiDir, sidecar, packagedSidecar, demoAssets, icon]) {
+for (const required of [uiDir, packagedSidecar, demoAssets, icon]) {
   if (!pathExists(required)) throw new Error(`Required Electron package input is missing: ${required}`);
 }
 
@@ -47,33 +53,12 @@ const output = await packager({
     // `dir` (for example `/assets/demo-lecture.mp4`), not the absolute path
     // named by the callback option. Strip the leading slash before matching.
     const relative = String(absolutePath).replaceAll('\\', '/').replace(/^\/+/, '');
-    return [
-      /^main\.js$/,
-      /^preload\.js$/,
-      /^launcher\.html$/,
-      /^mock-workload\.js$/,
-      /^python-mode\.js$/,
-      /^static-theme\.js$/,
-      /^package-sidecar\.mjs$/,
-      /^package-win\.mjs$/,
-      /^sidecar\.spec$/,
-      /^assets(?:\/|$)/,
-      /^dist(?:\/|$)/,
-      /^dist-sidecar(?:\/|$)/,
-      /^build-sidecar(?:\/|$)/,
-      /^renderer-spike-results(?:\/|$)/,
-      /^electron-production-results(?:\/|$)/,
-      /(?:^|\/)node_modules(?:\/|$)/,
-      /^package-lock\.json$/,
-      /^python-sidecar\.py$/,
-      /(?:^|\/)__pycache__(?:\/|$)/,
-      /^\.git(?:\/|$)/,
-      /^(?:final-|packaged-|transfer(?:\/|$))/
-    ].some((pattern) => pattern.test(relative));
+    if (!relative) return false;
+    return !productionAsarFiles.has(relative);
   },
   // Keep the disposable acceptance demo outside app.asar so the documented
   // packaged gate can pass it to the sidecar as resources/assets/demo-lecture.mp4.
-  extraResource: [uiDir, sidecar, packagedSidecar, demoAssets, icon]
+  extraResource: [uiDir, packagedSidecar, demoAssets, icon]
 });
 
 console.log('Packaged LecturePack candidate:', output.join('\n'));

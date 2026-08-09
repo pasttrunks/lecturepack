@@ -42,7 +42,9 @@ def test_production_host_is_single_real_app_entry_point():
     assert "startMigrationSidecar" not in source
     assert "name: 'LecturePack'" in package_script
     assert "demoVideo" not in package_script
-    assert "^main\\.js$" in package_script
+    assert "const productionAsarFiles = new Set([" in package_script
+    assert "'production-main.js'" in package_script
+    assert "'main.js'" not in package_script
 
 
 def test_production_ui_keeps_real_sections_and_hardens_bridge_payloads():

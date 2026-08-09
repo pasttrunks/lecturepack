@@ -155,6 +155,14 @@ def test_sidecar_event_history_preserves_completion_evidence():
     assert observed["job"] == "job-1"
 
 
+def test_packaged_gate_consumes_authoritative_health_checklist():
+    source = SCRIPT_PATH.read_text(encoding="utf-8")
+    gate = source[source.index("def _run_sidecar_gate"):source.index("def _close_app_window")]
+    assert 'health.get("checks")' in gate
+    assert 'health.get("passed") is True' in gate
+    assert 'health.get("paths")' not in gate
+
+
 def test_restart_restore_evidence_required_for_pass():
     # A host run that never restored a completed job must fail the gate.
     records = [

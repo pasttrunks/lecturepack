@@ -102,6 +102,13 @@ def test_support_diagnostics_reuse_authoritative_packaged_health():
     assert 'diag["packaged_health"] = self._last_health or self._packaged_self_test' in diagnostic
 
 
+def test_packaged_self_test_has_bounded_optional_feature_fault_injection():
+    sidecar = (ROOT / "electron-spike" / "python-sidecar.py").read_text(encoding="utf-8")
+    assert 'choices=("study_core", "yt_dlp")' in sidecar
+    assert 'fault = self.args.self_test_fault if self.args.self_test else ""' in sidecar
+    assert 'elif fault == "yt_dlp":' in sidecar
+
+
 def test_electron_startup_has_one_deadline_and_actionable_terminal_state():
     main = (ROOT / "electron-spike" / "production-main.js").read_text(encoding="utf-8")
     renderer = (ROOT / "app" / "ui" / "app.js").read_text(encoding="utf-8")
@@ -141,6 +148,10 @@ def test_packaged_source_has_no_personal_developer_paths():
     assert "C:\\Users\\marsh" not in source
     assert "OneDrive" not in source
     assert "const engine =" not in package_script
+    assert "const sidecar =" not in package_script
+    assert "extraResource: [uiDir, packagedSidecar, demoAssets, icon]" in package_script
+    assert "const productionAsarFiles = new Set([" in package_script
+    assert "return !productionAsarFiles.has(relative);" in package_script
 
 
 def test_paste_link_remains_visible_and_disabled_when_yt_dlp_is_unavailable():
@@ -153,3 +164,17 @@ def test_paste_link_remains_visible_and_disabled_when_yt_dlp_is_unavailable():
     assert "btn.hidden = false" in handler
     assert "btn.disabled = !mediaLink.available" in handler
     assert "bundled yt-dlp runtime could not load" in handler
+
+
+def test_clean_machine_validator_has_no_development_runtime_dependency():
+    validator = (ROOT / "scripts" / "clean_machine_validation.ps1").read_text(encoding="utf-8")
+    for field in (
+        "windows_edition", "architecture", "python_present", "node_present", "rust_present",
+        "vc_runtime_registered", "vc_runtime_result", "startup_health_result", "ffmpeg_result", "ffprobe_result",
+        "whisper_smoke_result", "model_result", "rust_study_core_result", "yt_dlp_result",
+        "real_job_result", "study_result", "export_result", "shutdown_result", "orphan_process_result",
+    ):
+        assert field in validator
+    assert "python -m" not in validator.lower()
+    assert "node.exe" in validator  # presence is recorded, never required to run the gate
+    assert "git.exe" not in validator
