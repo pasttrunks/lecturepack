@@ -61,5 +61,18 @@ const output = await packager({
   extraResource: [uiDir, packagedSidecar, demoAssets, icon]
 });
 
+// LecturePack's production UI is English-only. Electron Packager copies every
+// Chromium locale by default; retain both supported English variants and drop
+// only the unreachable locale packs from the generated candidate.
+const retainedLocales = new Set(['en-US.pak', 'en-GB.pak']);
+for (const candidate of output) {
+  const localesDir = path.join(candidate, 'locales');
+  for (const entry of fs.readdirSync(localesDir, { withFileTypes: true })) {
+    if (entry.isFile() && !retainedLocales.has(entry.name)) {
+      fs.rmSync(path.join(localesDir, entry.name));
+    }
+  }
+}
+
 console.log('Packaged LecturePack candidate:', output.join('\n'));
 console.log('The executable is inside the generated win32-x64 directory.');

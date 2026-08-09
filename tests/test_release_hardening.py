@@ -154,6 +154,18 @@ def test_packaged_source_has_no_personal_developer_paths():
     assert "return !productionAsarFiles.has(relative);" in package_script
 
 
+def test_release_packaging_prunes_only_unreachable_locale_and_headless_qt_payloads():
+    sidecar_packager = (ROOT / "electron-spike" / "package-sidecar.mjs").read_text(encoding="utf-8")
+    electron_packager = (ROOT / "electron-spike" / "package-win.mjs").read_text(encoding="utf-8")
+
+    assert "PySide6', 'opengl32sw.dll'" in sidecar_packager
+    assert "PySide6', 'translations'" in sidecar_packager
+    assert "Qt6Core.dll" not in sidecar_packager
+    assert "QtCore.pyd" not in sidecar_packager
+    assert "retainedLocales = new Set(['en-US.pak', 'en-GB.pak'])" in electron_packager
+    assert "LICENSES.chromium.html" not in electron_packager
+
+
 def test_paste_link_remains_visible_and_disabled_when_yt_dlp_is_unavailable():
     html = (ROOT / "app" / "ui" / "index.html").read_text(encoding="utf-8")
     renderer = (ROOT / "app" / "ui" / "app.js").read_text(encoding="utf-8")
