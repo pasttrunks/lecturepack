@@ -7,15 +7,28 @@ removal, queue persistence across restarts, and the one-active-job invariant.
 """
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 import shutil
 import subprocess
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SPIKE = ROOT / "electron-spike"
+
+
+def _sidecar_module():
+    spec = importlib.util.spec_from_file_location(
+        "lecturepack_queue_fix_sidecar", SPIKE / "python-sidecar.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 # --------------------------------------------------------------------------- #
@@ -86,6 +99,54 @@ def test_sidecar_start_job_enqueues_when_another_job_is_active():
     assert 'self._respond(request_id, command, job_id=job.job_id, queued=True, position=position)' in sidecar
     assert "self.electron_backend.start_or_enqueue(self.queue, job.job_id)" in sidecar
     assert 'self._emit({"event": "job_queued", "job_id": job.job_id, "position": position})' in sidecar
+
+
+def test_idle_start_activates_requested_job_before_controller_runs(tmp_path):
+    """An idle sidecar may still point at the last viewed/completed job.
+
+    The requested job must become both the controller job and queue owner
+    before ``run_pipeline``; otherwise one id appears active while another
+    lecture is actually processed.
+    """
+    module = _sidecar_module()
+    from lecturepack import electron_backend
+    from lecturepack.services.job_queue import JobQueue
+
+    old_job = SimpleNamespace(job_id="job-old", manifest={"title": "Old"})
+    requested = SimpleNamespace(
+        job_id="job-requested",
+        manifest={"title": "Requested"},
+        settings={"whisper": {}},
+        save=MagicMock(),
+    )
+    controller = SimpleNamespace(set_job=MagicMock(), run_pipeline=MagicMock())
+
+    sidecar = module.Sidecar.__new__(module.Sidecar)
+    sidecar.controller = controller
+    sidecar.current_job = old_job
+    sidecar.current_stage = ""
+    sidecar.stage_percent = {}
+    sidecar.queue = JobQueue(str(tmp_path))
+    sidecar.electron_backend = electron_backend
+    sidecar.config = {"whisper_model": ""}
+    sidecar._job_for = lambda payload: requested
+    sidecar._emit = MagicMock()
+    sidecar._emit_job_payloads = MagicMock()
+    sidecar._push_queue = MagicMock()
+    responses = []
+    sidecar._respond = lambda request_id, command, **payload: responses.append(payload)
+
+    sidecar._start_job(
+        "request-1",
+        "start_job",
+        {"job_id": requested.job_id, "mode": "study", "preset": "balanced"},
+    )
+
+    assert sidecar.current_job is requested
+    controller.set_job.assert_called_once_with(requested)
+    controller.run_pipeline.assert_called_once_with()
+    assert sidecar.queue.active == requested.job_id
+    assert responses[-1] == {"job_id": requested.job_id, "started": True}
 
 
 def test_sidecar_emits_queue_prunes_terminal_jobs_and_resumes():

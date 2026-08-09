@@ -2,6 +2,69 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-38: Study commands and bootstrap restore are scoped to the viewed lecture
+
+**Date:** 2026-08-09
+**Status:** Implemented on `sol/release-base-integration`
+
+**Context:** Packaged integration acceptance exposed two ways the active
+processing slot could leak into the viewed Study workspace. Study V2 and Ask
+commands omitted `job_id`, so the sidecar resolved them against
+`current_job`; and the bootstrap `active_job` replay could overwrite the saved
+view before `jobs_changed` restored the user's explicit session.
+
+**Decision:** Every Study V2 mutation/read and Ask request carries the viewed
+`LP.state.jobId`; asynchronous Study responses are discarded if the viewed
+lecture changed before they return; same-screen lecture switches immediately
+clear and reload the Study snapshot; Ask resolves that explicit job in the
+sidecar; and session writes are suppressed until the one-time restore has read
+the existing saved selection.
+
+**Alternatives considered:**
+
+- Re-pointing `current_job` whenever the user switches lectures: rejected
+  because that identity owns the running pipeline and would violate
+  `ACTIVE JOB != VIEWED JOB`.
+- Adding a second Study selection store: rejected because the renderer's
+  existing viewed job is already authoritative.
+- Clearing Study content without scoping backend commands: rejected because
+  it would hide the UI symptom while still recording mastery and edits on the
+  wrong lecture.
+
+**Rationale:** Explicitly routing through the existing viewed-job identity
+preserves background processing, makes Study persistence deterministic, and
+fixes the integration seam without adding architecture or product behavior.
+
+## AD-37: Idle starts activate the requested job before claiming the queue slot
+
+**Date:** 2026-08-09
+**Status:** Implemented on `sol/release-base-integration`
+
+**Context:** Packaged Study + QoL acceptance exposed a crossed-identity race.
+After a completed lecture remained the sidecar's `current_job`, a downloaded
+lecture could be imported and a different ready lecture could be started. The
+queue claimed the requested job id, but `_job_for` deliberately left the idle
+controller pointed at the prior `current_job`; `run_pipeline()` therefore
+processed the prior lecture while the queue advertised another active id.
+
+**Decision:** When no pipeline stage is active, `_start_job` explicitly
+activates the requested job before releasing a stale queue slot, claiming the
+single active slot, emitting payloads, and calling `run_pipeline()`. The
+already-running path remains unchanged and continues to enqueue a different
+requested job without re-pointing the controller.
+
+**Alternatives considered:** Making `_job_for` always activate a requested job
+was rejected because view/fetch callers rely on it not swapping controller
+ownership during processing. Clearing `current_job` after every completion was
+rejected because the completed workspace remains useful and is part of session
+restore. Deriving renderer state from the mismatched controller was rejected
+because it would hide backend corruption rather than preserve the one-active
+job invariant.
+
+**Rationale:** The fix is confined to the idle start boundary, preserves
+ACTIVE JOB != VIEWED JOB, and keeps the existing queue, controller, and
+persistence authorities aligned without adding state or changing architecture.
+
 ## AD-36: Desktop QoL state stays on the existing job, queue, import, and resume paths
 
 **Date:** 2026-08-09

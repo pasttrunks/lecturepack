@@ -1272,6 +1272,13 @@ class Sidecar:
             return
         # Nothing is processing: release any stale active slot left by a prior
         # crash, claim the single slot, and start this job immediately.
+        # ``_job_for`` intentionally does not re-point an idle sidecar that is
+        # still holding a previously viewed/completed job.  Starting a
+        # different queued job must activate the requested job before the
+        # controller runs, otherwise the queue claims one id while the
+        # controller processes the stale ``current_job``.
+        if self.current_job is None or self.current_job.job_id != job.job_id:
+            self._activate_job(job, emit_payloads=False)
         if hasattr(self, "queue"):
             self.queue.finish_active()
             self.electron_backend.start_or_enqueue(self.queue, job.job_id)
@@ -2194,8 +2201,9 @@ class Sidecar:
 
     def _ask_ai(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         prompt = str(payload.get("prompt") or "")
-        job = self.current_job
-        if job is None:
+        try:
+            job = self._job_for(payload)
+        except (FileNotFoundError, RuntimeError):
             self._emit({"event": "ai_token",
                         "text": "Open or process a lecture first, then ask away."})
             self._emit({"event": "ai_done"})
@@ -2210,12 +2218,14 @@ class Sidecar:
         local_ready = bool(o.get("enabled") and o.get("model"))
         if not local_ready:
             answer = self.electron_study.builtin_answer(prompt, segments, study_content)
-            self._emit({"event": "ai_token", "text": answer})
+            self._emit({"event": "ai_token", "job": job.job_id, "text": answer})
             self._emit({"event": "ai_sources",
+                        "job": job.job_id,
                         "sources": self.electron_study.builtin_sources(
                             prompt, segments, content=study_content)})
-            self._emit({"event": "ai_done"})
+            self._emit({"event": "ai_done", "job": job.job_id})
             self._emit({"event": "ai_status",
+                        "job": job.job_id,
                         "label": self.study_presets.PROVIDER_BUILTIN, "model": ""})
             try:
                 self.study_service.append_chat_message(job, "user", prompt)
@@ -2227,7 +2237,8 @@ class Sidecar:
         # Local AI path: use the existing StudyAssistantWorker (Qt thread).
         from lecturepack.services.study_assistant_service import StudyAssistantWorker
         transcript_text = StudyAssistantWorker.transcript_context(segments)
-        self._emit({"event": "ai_status", "label": "Thinking…", "model": o.get("model")})
+        self._emit({"event": "ai_status", "job": job.job_id,
+                    "label": "Thinking…", "model": o.get("model")})
         worker = StudyAssistantWorker(
             "chat", transcript_text, o, history=[], question=prompt, count=5)
         self._ai_worker = worker
@@ -2235,12 +2246,14 @@ class Sidecar:
         def ok(task, result):
             answer = (result or {}).get("answer", "") if isinstance(result, dict) else ""
             answer = answer or "I couldn't find an answer in the transcript."
-            self._emit({"event": "ai_token", "text": answer})
+            self._emit({"event": "ai_token", "job": job.job_id, "text": answer})
             self._emit({"event": "ai_sources",
+                        "job": job.job_id,
                         "sources": self.electron_study.builtin_sources(
                             prompt, segments, content=study_content)})
-            self._emit({"event": "ai_done"})
+            self._emit({"event": "ai_done", "job": job.job_id})
             self._emit({"event": "ai_status",
+                        "job": job.job_id,
                         "label": self.study_presets.PROVIDER_LOCAL, "model": o.get("model")})
             try:
                 self.study_service.append_chat_message(job, "user", prompt)
@@ -2249,9 +2262,10 @@ class Sidecar:
                 pass
 
         def fail(kind, message, details):
-            self._emit({"event": "ai_token", "text": f"⚠ {message}"})
-            self._emit({"event": "ai_done"})
-            self._emit({"event": "ai_status", "label": "AI error", "model": o.get("model")})
+            self._emit({"event": "ai_token", "job": job.job_id, "text": f"⚠ {message}"})
+            self._emit({"event": "ai_done", "job": job.job_id})
+            self._emit({"event": "ai_status", "job": job.job_id,
+                        "label": "AI error", "model": o.get("model")})
 
         worker.finished_ok.connect(ok)
         worker.failed.connect(fail)

@@ -150,7 +150,9 @@
       if (Array.isArray(item.payload)) return item.payload;
       return [];
     }
-    if (event === 'ai_token') return String(item.text || '');
+    if (event === 'ai_token') {
+      return item.job ? { text: String(item.text || ''), job: String(item.job) } : String(item.text || '');
+    }
     var payload = Object.assign({}, item);
     delete payload.event;
     return payload;
@@ -193,9 +195,9 @@
         demoEvent({ status: 'cleaned', stage: 'ended' });
       }
     }
-    // The historical UI treats ai_token as a text signal; every other event
-    // keeps the JSON-string payload shape expected by app/ui/app.js.
-    fire(event, event === 'ai_token' ? payload : json(payload));
+    // Legacy unscoped ai_token remains a text signal. Scoped Study Ask tokens
+    // keep their job envelope so the renderer can reject a stale lecture.
+    fire(event, event === 'ai_token' && typeof payload === 'string' ? payload : json(payload));
   }
 
   function isLocalThemeSetting(name, args) {
@@ -220,10 +222,12 @@
     var payload = objectPayload(first);
 
     if (name === 'ask_ai') {
-      return { command: name, payload: {
+      var askPayload = {
         prompt: stringPayload(Object.prototype.hasOwnProperty.call(payload, 'prompt')
           ? payload.prompt : first)
-      } };
+      };
+      if (payload.job_id) askPayload.job_id = jobIdPayload(payload);
+      return { command: name, payload: askPayload };
     }
     if (name === 'generate_quiz') {
       return {

@@ -96,6 +96,7 @@ const context = {
   studyV2: {
     content: { concepts: [{id: 'c1', title: 'Troy'}] }
   },
+  LP: { state: { jobId: 'lecture-a' } },
   studyV2Load: () => { refreshes++; },
   setStudyV2Mode: (mode) => { modes.push(mode); },
   studyAskSend: () => { askSends++; }
@@ -134,8 +135,8 @@ assert.strictEqual(askInput.value, 'Explain "Troy" in this lecture');
 
 Promise.resolve().then(() => Promise.resolve()).then(() => {
   assert.strictEqual(JSON.stringify(calls), JSON.stringify([
-    {name: 'study_v2_edit', payload: {kind: 'concept', id: 'c1', title: 'Troy in this lecture'}},
-    {name: 'study_v2_delete', payload: {kind: 'concept', id: 'c1'}}
+    {name: 'study_v2_edit', payload: {job_id: 'lecture-a', kind: 'concept', id: 'c1', title: 'Troy in this lecture'}},
+    {name: 'study_v2_delete', payload: {job_id: 'lecture-a', kind: 'concept', id: 'c1'}}
   ]));
   assert.strictEqual(refreshes, 2, 'edit/delete did not refresh Study content');
 });
@@ -149,3 +150,49 @@ Promise.resolve().then(() => Promise.resolve()).then(() => {
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_study_v2_and_ask_commands_are_scoped_to_the_viewed_job() -> None:
+    app = APP.read_text(encoding="utf-8")
+    bridge = (ROOT / "electron-spike" / "electron-bridge.js").read_text(encoding="utf-8")
+    sidecar = (ROOT / "electron-spike" / "python-sidecar.py").read_text(encoding="utf-8")
+
+    assert "lpBridge.call('study_v2_status', { job_id: requestedJobId })" in app
+    assert "LP.state.jobId !== requestedJobId" in app
+    for command in (
+        "study_v2_record_flashcard",
+        "study_v2_record_quiz",
+        "study_v2_quick_study",
+        "study_v2_edit",
+        "study_v2_delete",
+    ):
+        assert f"lpBridge.call('{command}'" in app
+
+    assert "lpBridge.call('ask_ai', { job_id: studyV2.askJobId, prompt: q })" in app
+    assert "askPayload.job_id = jobIdPayload(payload)" in bridge
+    ask_source = sidecar[sidecar.index("    def _ask_ai("):sidecar.index("    def _generate_quiz(")]
+    assert "job = self._job_for(payload)" in ask_source
+
+
+def test_bootstrap_active_job_cannot_overwrite_saved_view_before_restore() -> None:
+    app = APP.read_text(encoding="utf-8")
+    save_start = app.index("  function saveAppSession()")
+    save_end = app.index("  function restoreAppSessionOnce()")
+    restore_end = app.index("  function captureResumeState(")
+    save_source = app[save_start:save_end]
+    restore_source = app[save_end:restore_end]
+
+    assert "if (!appSessionRestored) return;" in save_source
+    assert "appSessionRestored = true;" in restore_source
+    assert "if (!job) { saveAppSession(); return; }" in restore_source
+
+
+def test_same_screen_lecture_switch_clears_and_reloads_study() -> None:
+    app = APP.read_text(encoding="utf-8")
+    start = app.index("  function selectJob(")
+    end = app.index("  function selectAdjacentJob(")
+    source = app[start:end]
+
+    assert "studyV2.content = { concepts: [], flashcards: [], quiz: [] };" in source
+    assert "previousScreen === 'study' && LP.state.screen === 'study'" in source
+    assert "studyV2Load();" in source

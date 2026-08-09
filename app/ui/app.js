@@ -1529,11 +1529,26 @@
   function selectJob(jobId, opts) {
     opts = opts || {};
     if (!jobId) return;
+    var previousJobId = LP.state.jobId || '';
+    var previousScreen = LP.state.screen;
     if (!appSessionRestored && !opts.silent && !opts.restoring) sessionNavigationExplicit = true;
     // Feature 4: when leaving the currently viewed job, persist its view state.
     if (LP.state.jobId && LP.state.jobId !== jobId) captureResumeState(LP.state.jobId);
     var entry = _jobById(jobId);
     setActiveJob(jobId, entry && entry.name ? entry.name : '');
+    if (previousJobId !== jobId && typeof studyV2 !== 'undefined') {
+      // Study V2 is renderer-global, so clear the prior lecture immediately;
+      // the explicitly scoped request below repopulates the new lecture.
+      studyV2.content = { concepts: [], flashcards: [], quiz: [] };
+      studyV2.progress = { concepts: {}, flashcard_results: {}, quiz_attempts: [] };
+      studyV2.summary = {};
+      studyV2.quickSession = null;
+      studyV2.quickSummary = null;
+      studyV2.askStreaming = false;
+      studyV2.askAnswer = null;
+      studyV2.viewJobId = '';
+      if (LP.state.screen === 'study') renderStudyV2Overview();
+    }
     if (lpBridge.connected() && !opts.silent) {
       try { lpBridge.call('view_job', jobId); } catch (err) { /* cached data already shown */ }
     }
@@ -1543,6 +1558,10 @@
       applyResumeState(jobId);
     }
     if (opts.screen) setScreen(opts.screen);
+    // setScreen intentionally no-ops when the screen name is unchanged. A
+    // lecture switch made while already in Study still needs the new job's
+    // scoped content and progress.
+    if (previousScreen === 'study' && LP.state.screen === 'study') studyV2Load();
     renderJobSwitcher();
     saveAppSession();
   }
@@ -3857,8 +3876,13 @@
 
   function studyV2Load() {
     if (!lpBridge.connected()) return;
-    lpBridge.call('study_v2_status', {}).then(function (res) {
+    var requestedJobId = LP.state.jobId || '';
+    if (!requestedJobId) return;
+    lpBridge.call('study_v2_status', { job_id: requestedJobId }).then(function (res) {
       if (!res || !res.content) return;
+      // A response for the lecture that was viewed when the request started
+      // must never repaint a different lecture selected while it was in flight.
+      if (LP.state.jobId !== requestedJobId || (res.job_id && res.job_id !== requestedJobId)) return;
       var restoreMode = false;
       if (studyV2.viewJobId !== (LP.state.jobId || '')) {
         studyV2.viewJobId = LP.state.jobId || '';
@@ -4042,6 +4066,7 @@
     else { studyV2.flashResults.missed++; studyV2.flashResults.missedIds.push(card.id); }
     if (lpBridge.connected()) {
       lpBridge.call('study_v2_record_flashcard', {
+        job_id: LP.state.jobId,
         card_id: card.id,
         concept_ids: card.concept_ids || [],
         correct: correct
@@ -4127,8 +4152,8 @@
     if (correct) studyV2.quickCorrect++;
     else if (item.concept_id && studyV2.quickMissed.indexOf(item.concept_id) < 0) studyV2.quickMissed.push(item.concept_id);
     if (lpBridge.connected()) {
-      if (item.kind === 'quiz') lpBridge.call('study_v2_record_quiz', { question_id: item.id, concept_ids: [item.concept_id], correct: correct }).catch(function () {});
-      else lpBridge.call('study_v2_record_flashcard', { card_id: item.kind === 'concept' ? 'quick-' + item.id : item.id, concept_ids: [item.concept_id], correct: correct }).catch(function () {});
+      if (item.kind === 'quiz') lpBridge.call('study_v2_record_quiz', { job_id: LP.state.jobId, question_id: item.id, concept_ids: [item.concept_id], correct: correct }).catch(function () {});
+      else lpBridge.call('study_v2_record_flashcard', { job_id: LP.state.jobId, card_id: item.kind === 'concept' ? 'quick-' + item.id : item.id, concept_ids: [item.concept_id], correct: correct }).catch(function () {});
     }
     studyV2.quickIndex++; studyV2.quickRevealed = false; studyV2.quickAnswered = false; studyV2.quickSelected = null;
     studyV2PersistView(); renderQuickStudy();
@@ -4144,7 +4169,7 @@
     if (correct) studyV2.quickCorrect++;
     else if (item.concept_id && studyV2.quickMissed.indexOf(item.concept_id) < 0) studyV2.quickMissed.push(item.concept_id);
     studyV2.quickAnswered = true; studyV2.quickSelected = Number(index);
-    if (lpBridge.connected()) lpBridge.call('study_v2_record_quiz', { question_id: item.id, concept_ids: [item.concept_id], correct: correct }).catch(function () {});
+    if (lpBridge.connected()) lpBridge.call('study_v2_record_quiz', { job_id: LP.state.jobId, question_id: item.id, concept_ids: [item.concept_id], correct: correct }).catch(function () {});
     studyV2PersistView(); renderQuickStudy();
   }
 
@@ -4243,6 +4268,7 @@
         studyV2.quizPicks[studyV2.quizIndex] = idx;
         if (lpBridge.connected()) {
           lpBridge.call('study_v2_record_quiz', {
+            job_id: LP.state.jobId,
             question_id: q.id,
             concept_ids: q.concept_ids || [],
             correct: correct
@@ -4293,7 +4319,8 @@
     feed.innerHTML += '<div style="display:flex;justify-content:flex-start"><div class="study-ask-thinking" style="background:var(--panel);border:2px solid var(--border);border-radius:11px;padding:10px 14px;font-size:14px;max-width:80%;color:var(--secondary-text)">Thinking…</div></div>';
     feed.scrollTop = feed.scrollHeight;
     if (lpBridge.connected()) {
-      lpBridge.call('ask_ai', { prompt: q }).then(function () {}).catch(function () {});
+      studyV2.askJobId = LP.state.jobId || '';
+      lpBridge.call('ask_ai', { job_id: studyV2.askJobId, prompt: q }).then(function () {}).catch(function () {});
     } else {
       setTimeout(function () {
         var msgs = feed.querySelectorAll('div');
@@ -4385,7 +4412,9 @@
     var quick = $('btn-study-quick');
     if (quick) quick.addEventListener('click', function () {
       if (!lpBridge.connected()) return;
-      lpBridge.call('study_v2_quick_study', {}).then(function (res) {
+      var requestedJobId = LP.state.jobId || '';
+      lpBridge.call('study_v2_quick_study', { job_id: requestedJobId }).then(function (res) {
+        if (LP.state.jobId !== requestedJobId || (res && res.job_id && res.job_id !== requestedJobId)) return;
         if (res && res.session) {
           studyV2.quickSession = res.session;
           studyV2.quickIndex = 0; studyV2.quickCorrect = 0; studyV2.quickTotal = 0;
@@ -4507,7 +4536,7 @@
           var input = $('lp-study-edit-input');
           var value = (input && input.value || '').trim();
           if (!value || !lpBridge.connected()) return true;
-          var payload = { kind: kind, id: id };
+          var payload = { job_id: LP.state.jobId, kind: kind, id: id };
           if (kind === 'concept') payload.title = value;
           else if (kind === 'flashcard') payload.front = value;
           else if (kind === 'quiz') payload.question = value;
@@ -4527,7 +4556,7 @@
       actions: [
         { label: 'Cancel' },
         { label: 'Delete', danger: true, onClick: function () {
-          lpBridge.call('study_v2_delete', { kind: kind, id: id }).then(function () { studyV2Load(); }).catch(function () {});
+          lpBridge.call('study_v2_delete', { job_id: LP.state.jobId, kind: kind, id: id }).then(function () { studyV2Load(); }).catch(function () {});
         } }
       ]
     });
@@ -7193,15 +7222,23 @@
       if (d.meta) $('export-done-meta').textContent = d.meta;
     });
     lpBridge.on('ai_token', function (text) {
+      var payload = parseBridgePayload(text, text);
+      if (payload && typeof payload === 'object') {
+        if (payload.job && payload.job !== LP.state.jobId) return;
+        text = payload.text || '';
+      }
       if (studyV2.askStreaming) appendStudyAskText(text, false);
       else appendAiText(text, false);
     });
-    lpBridge.on('ai_done', function () {
+    lpBridge.on('ai_done', function (json) {
+      var payload = parseBridgePayload(json, null);
+      if (payload && payload.job && payload.job !== LP.state.jobId) return;
       if (studyV2.askStreaming) appendStudyAskText(studyV2.askAnswer, true);
       else { LP.state.streaming = false; renderChat(); }
     });
     lpBridge.on('ai_sources', function (json) {
       var payload = parseBridgePayload(json, null);
+      if (payload && payload.job && payload.job !== LP.state.jobId) return;
       appendStudyAskSources(payload && payload.sources ? payload.sources : []);
     });
     lpBridge.on('groq_status', function (json) {
@@ -7693,6 +7730,9 @@
   var sessionNavigationExplicit = false;
 
   function saveAppSession() {
+    // The provisional active_job replay arrives before jobs_changed. It must
+    // not overwrite the user's saved viewed lecture before restore reads it.
+    if (!appSessionRestored) return;
     if (!LP.state.jobId) return;
     appSessionStore.save({ jobId: LP.state.jobId, screen: LP.state.screen || 'home' });
   }
@@ -7700,10 +7740,10 @@
   function restoreAppSessionOnce() {
     if (appSessionRestored) return;
     appSessionRestored = true;
-    if (sessionNavigationExplicit) return;
+    if (sessionNavigationExplicit) { saveAppSession(); return; }
     var saved = appSessionStore.load();
     var job = saved.jobId && _jobById(saved.jobId);
-    if (!job) return;
+    if (!job) { saveAppSession(); return; }
     // Mark the current processing id as already observed so the bootstrap
     // active_job replay cannot overwrite the explicitly restored selection.
     var running = (LP.data.jobs || []).filter(function (entry) { return entry && entry.status === 'running'; })[0];
