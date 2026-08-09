@@ -83,8 +83,14 @@ function Invoke-PackagedSelfTest([string]$Candidate, [string]$DataPath, [string]
     $arguments = @('--resources-root', $sidecarRoot, '--data-dir', $DataPath, '--self-test')
     if ($Fault) { $arguments += @('--self-test-fault', $Fault) }
     $started = Get-Date
-    $lines = & $sidecar @arguments 2>&1
-    $exitCode = $LASTEXITCODE
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $lines = & $sidecar @arguments 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
     $record = $null
     foreach ($line in $lines) {
         try {
