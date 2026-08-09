@@ -3085,6 +3085,73 @@
       "request_id_required": false,
       "response_fields": [],
       "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "open_logs",
+      "name": "open_logs",
+      "notes": "Opens the bounded per-session startup log directory from the terminal failure screen.",
+      "phase8": "release hardening",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [
+        "ok",
+        "error"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "retry_startup",
+      "name": "retry_startup",
+      "notes": "Starts a fresh bounded sidecar startup attempt after a terminal failure.",
+      "phase8": "release hardening",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [
+        "ok"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "reason",
+        "detail",
+        "diagnostics"
+      ],
+      "mapped_to": "service_failure",
+      "name": "service_failure",
+      "notes": "Reports a sidecar failure that occurs after startup completed.",
+      "phase8": "release hardening",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "reason",
+        "detail",
+        "diagnostics"
+      ],
+      "mapped_to": "startup_failure",
+      "name": "startup_failure",
+      "notes": "Reports an actionable terminal failure during the bounded startup attempt.",
+      "phase8": "release hardening",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
     }
   ],
   "status_values": [
