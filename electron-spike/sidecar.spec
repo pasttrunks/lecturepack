@@ -25,6 +25,10 @@ whisper = required(RUNTIME_ROOT / "bin" / "Release" / "whisper-cli.exe")
 model = required(RUNTIME_ROOT / "models" / "ggml-base.en.bin")
 smoke_wav = required(REPO_ROOT / "app" / "packaging" / "assets" / "runtime-smoke.wav")
 release_dir = RUNTIME_ROOT / "bin" / "Release"
+msvc_runtime_dir = Path(os.environ.get(
+    "LECTUREPACK_MSVC_RUNTIME_DIR",
+    str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"),
+)).expanduser().resolve()
 
 
 # The sidecar ships the verified CPU whisper.cpp binary and its DLLs only.
@@ -40,6 +44,19 @@ runtime_datas.extend(
     (str(path), "bin/Release")
     for path in sorted(release_dir.glob("*.dll"))
 )
+
+# whisper.cpp imports MSVCP140 directly. PyInstaller carries VCRUNTIME140 for
+# Python but does not reliably discover this child-process dependency.
+# App-local deployment keeps portable and per-user installs independent of a
+# machine-wide VC++ redistributable.
+msvcp140 = msvc_runtime_dir / "msvcp140.dll"
+if msvcp140.is_file():
+    runtime_datas.append((str(msvcp140), "."))
+elif OFFICIAL_BUILD:
+    raise SystemExit(
+        "Official LecturePack build requires the app-local MSVC runtime: "
+        f"{msvcp140}"
+    )
 
 
 hiddenimports = [

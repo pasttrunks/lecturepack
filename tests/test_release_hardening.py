@@ -90,6 +90,8 @@ def test_official_sidecar_build_fails_closed_for_rust_and_yt_dlp():
     assert 'OFFICIAL_BUILD = os.environ.get("LECTUREPACK_OFFICIAL_BUILD") == "1"' in spec
     assert "Official LecturePack build requires lecturepack_study_core.pyd" in spec
     assert "Official LecturePack build requires importable yt-dlp" in spec
+    assert "Official LecturePack build requires the app-local MSVC runtime" in spec
+    assert 'runtime_datas.append((str(msvcp140), "."))' in spec
     assert 'environment["LECTUREPACK_OFFICIAL_BUILD"] = "1"' in build
     assert "validate_packaged_self_test(candidate)" in build
 

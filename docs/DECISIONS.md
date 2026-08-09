@@ -1432,7 +1432,10 @@ the existing Python Study implementation or a visible disabled Paste Link
 action so local-file use is not destroyed. Fatal processing dependencies do
 not degrade. Production logs retain only the latest ten sessions, the Electron
 package no longer carries the legacy source tree, and Setup is fixed to
-per-user installation with no elevation override.
+per-user installation with no elevation override. Because the bundled
+whisper.cpp binaries directly import `MSVCP140.dll`, official builds also
+require and deploy that permitted MSVC runtime app-locally; Windows 10's
+system UCRT supplies the remaining API-set dependencies.
 
 **Alternatives considered:**
 
