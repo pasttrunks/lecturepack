@@ -405,6 +405,38 @@ service, and general-purpose scheduler were rejected as duplicate architecture.
 Playlist expansion was not added because the current fetcher intentionally
 resolves one recording per URL; multi-line input provides explicit batch scope.
 
+## AD-36: Study mastery keeps an atomic last-known-good generation
+
+**Date:** 2026-08-09
+**Status:** Implemented on `codex/study-progress-backup`
+
+**Context:** `study-progress-v2.json` contains irreplaceable user mastery,
+attempt history, and Quick Study position. The shared JSON helper already wrote
+through a temporary file and `os.replace`, but it used one fixed temporary name,
+did not explicitly flush file contents before replacement, and retained no
+recoverable generation if the primary later became corrupt.
+
+**Decision:** Study progress persistence now writes through a unique temporary
+file in the destination directory, flushes and `fsync`s the complete JSON, and
+atomically replaces the destination. Before Study progress advances, a valid
+current primary is atomically persisted as `study-progress-v2.json.bak`.
+Loading falls back to that last-known-good generation when the primary is
+missing, truncated, or invalid. The first generation is written to both
+locations so it is covered before a second review occurs. An invalid primary
+is never promoted over a valid backup, and backup recovery emits a warning to
+the existing local log.
+
+**Alternatives considered:** Keeping only atomic replacement was rejected
+because it does not cover later filesystem corruption or a logically damaged
+primary. A database and multi-generation journal were rejected as unnecessary
+for the current single-writer, per-job persistence model.
+
+**Rationale:** The change protects the highest-value user-authored Study state
+without changing its schema or introducing a dependency. Unique temporary files
+also avoid collisions between overlapping Study progress saves.
+
+---
+
 ## AD-34: QOL batch actions are transactional, live progress has one authority, and Electron artifacts are explicit
 
 **Date:** 2026-08-08

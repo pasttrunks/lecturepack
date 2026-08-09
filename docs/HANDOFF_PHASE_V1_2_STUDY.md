@@ -183,3 +183,16 @@ The highest-value follow-up is transcript normalization or a reviewed glossary
 for proper names, with slide-aware correction kept separate from source text.
 The current pack is useful for exam review, but raw ASR wording should remain
 visible as a trust caveat until that source-quality improvement exists.
+
+## Study mastery durability follow-up - 2026-08-09
+
+- `study-progress-v2.json` retains the previous valid generation as
+  `study-progress-v2.json.bak` before advancing the primary; the initial
+  generation is also backed up immediately.
+- JSON writes use a unique same-directory temporary file, explicit flush and
+  `fsync`, then `os.replace`; failed replacement leaves the previous primary
+  intact and cleans the temporary file.
+- Loading a missing, truncated, or invalid primary recovers from the valid
+  rolling backup and records a warning in the local log. An invalid primary is
+  not allowed to overwrite that backup.
+- Focused durability and Study V2 result: `17 passed`.

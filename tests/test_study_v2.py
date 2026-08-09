@@ -192,6 +192,95 @@ def test_repeated_successes_master(tmp_path):
     assert progress["concepts"]["c1"]["mastery"] == "MASTERED"
 
 
+def test_progress_keeps_previous_valid_state_as_rolling_backup(tmp_path):
+    class FakeJob:
+        def __init__(self, root):
+            self.paths = {"root": str(root)}
+
+    job = FakeJob(tmp_path)
+    first = study_v2.empty_progress()
+    first["concepts"]["c1"] = {"mastery": "LEARNING", "attempts": 1}
+    study_v2.save_progress(job, first)
+    backup_path = Path(study_v2.progress_path(job) + study_v2.PROGRESS_BACKUP_SUFFIX)
+    assert json.loads(backup_path.read_text(encoding="utf-8"))["concepts"]["c1"] == {
+        "mastery": "LEARNING", "attempts": 1,
+    }
+
+    second = study_v2.empty_progress()
+    second["concepts"]["c1"] = {"mastery": "MASTERED", "attempts": 2}
+    study_v2.save_progress(job, second)
+
+    assert json.loads(backup_path.read_text(encoding="utf-8"))["concepts"]["c1"] == {
+        "mastery": "LEARNING", "attempts": 1,
+    }
+    assert study_v2.load_progress(job)["concepts"]["c1"]["mastery"] == "MASTERED"
+
+
+def test_progress_recovers_from_backup_without_overwriting_it(tmp_path, caplog):
+    class FakeJob:
+        def __init__(self, root):
+            self.paths = {"root": str(root)}
+
+    job = FakeJob(tmp_path)
+    first = study_v2.empty_progress()
+    first["concepts"]["c1"] = {"mastery": "LEARNING", "attempts": 1}
+    study_v2.save_progress(job, first)
+    second = study_v2.empty_progress()
+    second["concepts"]["c1"] = {"mastery": "MASTERED", "attempts": 2}
+    study_v2.save_progress(job, second)
+
+    primary_path = Path(study_v2.progress_path(job))
+    backup_path = Path(str(primary_path) + study_v2.PROGRESS_BACKUP_SUFFIX)
+    primary_path.write_text('{"truncated":', encoding="utf-8")
+
+    recovered = study_v2.load_progress(job)
+    assert recovered["concepts"]["c1"]["mastery"] == "LEARNING"
+    assert "Recovered Study mastery progress" in caplog.text
+    recovered["concepts"]["c1"]["attempts"] = 2
+    study_v2.save_progress(job, recovered)
+
+    assert study_v2.load_progress(job)["concepts"]["c1"]["attempts"] == 2
+    assert json.loads(backup_path.read_text(encoding="utf-8"))["concepts"]["c1"] == {
+        "mastery": "LEARNING", "attempts": 1,
+    }
+
+
+def test_progress_returns_empty_only_when_primary_and_backup_are_invalid(tmp_path):
+    class FakeJob:
+        def __init__(self, root):
+            self.paths = {"root": str(root)}
+
+    job = FakeJob(tmp_path)
+    primary_path = Path(study_v2.progress_path(job))
+    primary_path.write_text("not json", encoding="utf-8")
+    Path(str(primary_path) + study_v2.PROGRESS_BACKUP_SUFFIX).write_text(
+        "also not json", encoding="utf-8",
+    )
+
+    assert study_v2.load_progress(job) == study_v2.empty_progress()
+
+
+def test_progress_write_interruption_preserves_primary_and_removes_temp(
+        tmp_path, monkeypatch):
+    target = tmp_path / "study-progress-v2.json"
+    study_v2._write_progress_json(str(target), {"generation": 1})
+    real_replace = os.replace
+
+    def interrupted_replace(source, destination):
+        if os.path.abspath(destination) == os.path.abspath(target):
+            raise OSError("simulated process interruption")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(
+        "lecturepack.infrastructure.file_manager.os.replace", interrupted_replace,
+    )
+    with pytest.raises(OSError, match="simulated process interruption"):
+        study_v2._write_progress_json(str(target), {"generation": 2})
+
+    assert json.loads(target.read_text(encoding="utf-8")) == {"generation": 1}
+    assert list(tmp_path.glob(".study-progress-v2.json.*.tmp")) == []
+
+
 @requires_rust_study_core
 def test_study_core_info_reports_rust():
     info = study_v2.study_core_info()

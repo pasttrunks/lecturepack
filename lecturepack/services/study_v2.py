@@ -23,6 +23,7 @@ import hashlib
 import logging
 import os
 import re
+import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -37,6 +38,7 @@ _RUST_CORE_LOAD_ERROR = ""
 SCHEMA_VERSION = 3
 CONTENT_FILENAME = "study-content-v2.json"
 PROGRESS_FILENAME = "study-progress-v2.json"
+PROGRESS_BACKUP_SUFFIX = ".bak"
 
 STUDY_PREPARING = "preparing"
 STUDY_READY = "ready"
@@ -350,7 +352,12 @@ def save_content(job, data: dict[str, Any]) -> None:
 
 
 def load_progress(job) -> dict[str, Any]:
-    data = FileManager.read_json_safe(progress_path(job), None)
+    path = progress_path(job)
+    data = FileManager.read_json_safe(path, None)
+    if not isinstance(data, dict):
+        data = FileManager.read_json_safe(path + PROGRESS_BACKUP_SUFFIX, None)
+        if isinstance(data, dict):
+            _LOGGER.warning("Recovered Study mastery progress from rolling backup")
     if not isinstance(data, dict):
         return empty_progress()
     result = dict(data)
@@ -364,11 +371,49 @@ def load_progress(job) -> dict[str, Any]:
     return result
 
 
+def _write_progress_json(path: str, data: dict[str, Any]) -> None:
+    """Durably replace one Study progress generation on the same volume."""
+    path = os.path.abspath(path)
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{os.path.basename(path)}.", suffix=".tmp", dir=directory,
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            json.dump(data, handle, indent=4, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if descriptor != -1:
+            os.close(descriptor)
+        if os.path.exists(temporary):
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
+
+
 def save_progress(job, data: dict[str, Any]) -> None:
     clean = dict(data)
     clean["schema_version"] = SCHEMA_VERSION
+    # The lock is this branch's; the rolling backup is the cherry-picked fix.
+    # Both are required: the lock keeps two Study writers from interleaving, and
+    # the backup keeps a last-known-good generation of irreplaceable mastery
+    # data if the primary is ever truncated or corrupted.
     with _job_lock(job):
-        FileManager.write_json_atomic(progress_path(job), clean)
+        path = progress_path(job)
+        backup_path = path + PROGRESS_BACKUP_SUFFIX
+        previous = FileManager.read_json_safe(path, None)
+        if isinstance(previous, dict):
+            _write_progress_json(backup_path, previous)
+        elif not isinstance(FileManager.read_json_safe(backup_path, None), dict):
+            # The first successful generation is also recoverable if the primary
+            # is later damaged before the student records a second result.
+            _write_progress_json(backup_path, clean)
+        _write_progress_json(path, clean)
 
 
 # --------------------------------------------------------------------------- #
