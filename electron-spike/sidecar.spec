@@ -1,4 +1,5 @@
 from pathlib import Path
+import importlib.util
 import os
 
 from PyInstaller.building.build_main import Analysis, COLLECT, EXE, PYZ
@@ -9,6 +10,7 @@ SPIKE_ROOT = Path(SPECPATH).resolve()
 REPO_ROOT = SPIKE_ROOT.parent
 RUNTIME_ROOT = Path(os.environ.get("LECTUREPACK_RUNTIME_ROOT", str(REPO_ROOT))).expanduser().resolve()
 OUT_NAME = "LecturePackSidecar"
+OFFICIAL_BUILD = os.environ.get("LECTUREPACK_OFFICIAL_BUILD") == "1"
 
 
 def required(path: Path) -> Path:
@@ -21,6 +23,7 @@ ffmpeg = required(RUNTIME_ROOT / "bin" / "ffmpeg.exe")
 ffprobe = required(RUNTIME_ROOT / "bin" / "ffprobe.exe")
 whisper = required(RUNTIME_ROOT / "bin" / "Release" / "whisper-cli.exe")
 model = required(RUNTIME_ROOT / "models" / "ggml-base.en.bin")
+smoke_wav = required(REPO_ROOT / "app" / "packaging" / "assets" / "runtime-smoke.wav")
 release_dir = RUNTIME_ROOT / "bin" / "Release"
 
 
@@ -31,6 +34,7 @@ runtime_datas = [
     (str(ffprobe), "bin"),
     (str(whisper), "bin/Release"),
     (str(model), "models"),
+    (str(smoke_wav), "smoke"),
 ]
 runtime_datas.extend(
     (str(path), "bin/Release")
@@ -45,6 +49,7 @@ hiddenimports = [
     "lecturepack.services.transcript_formats",
     "lecturepack.services.study_service",
     "lecturepack.services.study_v2",
+    "lecturepack.services.packaged_health",
     "lecturepack.infrastructure.whisper_detector",
     "lecturepack.infrastructure.whisper_path_staging",
 ]
@@ -61,15 +66,24 @@ _study_core_pyd = Path(os.environ.get(
 if _study_core_pyd.is_file():
     binaries = [(str(_study_core_pyd), "lecturepack_study_core")]
 else:
+    if OFFICIAL_BUILD:
+        raise SystemExit(
+            "Official LecturePack build requires lecturepack_study_core.pyd: "
+            f"{_study_core_pyd}"
+        )
     binaries = []
 try:
     # yt-dlp resolves extractors by name at runtime. Collecting its extractor
     # modules is required for URL import to work without customer Python.
     hiddenimports += collect_submodules("yt_dlp")
-except Exception:
+except Exception as exc:
+    if OFFICIAL_BUILD:
+        raise SystemExit(f"Official LecturePack build requires yt-dlp: {exc}") from exc
     # A build environment without the optional URL provider still produces a
     # valid local-file candidate; the sidecar reports link import unavailable.
     pass
+if OFFICIAL_BUILD and importlib.util.find_spec("yt_dlp") is None:
+    raise SystemExit("Official LecturePack build requires importable yt-dlp")
 
 
 a = Analysis(

@@ -92,7 +92,7 @@ def test_external_process_boundary_uses_argument_array():
     assert "spawn(python, [script, '--repo-root', REPO_ROOT]" in source
     assert "process.resourcesPath, 'python-sidecar.py'" in source
     package_script = (SPIKE / "package-win.mjs").read_text(encoding="utf-8")
-    assert "const engine = path.join(repoRoot, 'lecturepack')" in package_script
+    assert "const engine = path.join(repoRoot, 'lecturepack')" not in package_script
     assert "shell: false" in source
     assert "shell=True" not in source
 
@@ -126,11 +126,13 @@ def test_python_sidecar_imports_existing_engine_without_network_or_shell():
     ):
         assert f'command == "{command}"' in source
     for event in (
-        "ready", "bootstrap_progress", "bootstrap_complete", "jobs_changed",
+        "ready", "bootstrap_progress", "jobs_changed",
         "pipeline_changed", "status_changed", "log_line", "slides_changed",
         "transcript_changed", "export_progress", "error",
     ):
         assert f'"event": "{event}"' in source
+    production_main = (SPIKE / "production-main.js").read_text(encoding="utf-8")
+    assert "event: 'bootstrap_complete'" in production_main
     assert "request_id" in source
 
 

@@ -9,11 +9,10 @@ const uiDir = path.join(repoRoot, 'app', 'ui');
 const sidecar = path.join(spikeRoot, 'python-sidecar.py');
 const packagedSidecar = path.join(spikeRoot, 'dist-sidecar', 'LecturePackSidecar');
 const demoAssets = path.join(spikeRoot, 'assets');
-const engine = path.join(repoRoot, 'lecturepack');
 const icon = path.join(repoRoot, 'app', 'packaging', 'lecturepack.ico');
 const outputDir = path.join(spikeRoot, 'dist');
 
-for (const required of [uiDir, sidecar, packagedSidecar, demoAssets, engine, icon]) {
+for (const required of [uiDir, sidecar, packagedSidecar, demoAssets, icon]) {
   if (!pathExists(required)) throw new Error(`Required Electron package input is missing: ${required}`);
 }
 
@@ -74,7 +73,7 @@ const output = await packager({
   },
   // Keep the disposable acceptance demo outside app.asar so the documented
   // packaged gate can pass it to the sidecar as resources/assets/demo-lecture.mp4.
-  extraResource: [uiDir, sidecar, engine, packagedSidecar, demoAssets, icon]
+  extraResource: [uiDir, sidecar, packagedSidecar, demoAssets, icon]
 });
 
 console.log('Packaged LecturePack candidate:', output.join('\n'));

@@ -23,9 +23,11 @@ def test_electron_release_zip_and_hashes(tmp_path):
     builder = load_builder()
     candidate = tmp_path / "LecturePack-win32-x64"
     (candidate / "resources").mkdir(parents=True)
+    (candidate / "resources" / "LecturePackSidecar").mkdir()
     (candidate / "LecturePack.exe").write_bytes(b"portable executable fixture")
     (candidate / "resources" / "app.asar").write_bytes(b"asar fixture")
     (candidate / "resources" / "lecturepack.ico").write_bytes(b"icon fixture")
+    (candidate / "resources" / "LecturePackSidecar" / "LecturePackSidecar.exe").write_bytes(b"sidecar fixture")
 
     output = tmp_path / "release"
     portable = builder.make_portable_zip(candidate, output / "LecturePack-0.9.0-beta.15-Portable.zip")
@@ -44,8 +46,10 @@ def test_electron_release_zip_clamps_pre_1980_timestamps(tmp_path):
     builder = load_builder()
     candidate = tmp_path / "LecturePack-win32-x64"
     (candidate / "resources").mkdir(parents=True)
+    (candidate / "resources" / "LecturePackSidecar").mkdir()
     (candidate / "LecturePack.exe").write_bytes(b"fixture")
     (candidate / "resources" / "app.asar").write_bytes(b"asar")
+    (candidate / "resources" / "LecturePackSidecar" / "LecturePackSidecar.exe").write_bytes(b"sidecar")
     os.utime(candidate / "LecturePack.exe", (0, 0))
 
     portable = builder.make_portable_zip(candidate, tmp_path / "portable.zip")

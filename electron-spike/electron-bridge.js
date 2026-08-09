@@ -121,22 +121,30 @@
   }
 
   function bootstrapFromHealth(result) {
-    var paths = result && result.paths && typeof result.paths === 'object' ? result.paths : {};
-    var missing = Object.keys(paths).filter(function (name) {
-      return !paths[name] || paths[name].exists !== true;
-    });
-    var healthy = !!(result && result.healthy === true && missing.length === 0);
+    var checks = result && Array.isArray(result.checks) ? result.checks : [];
+    var failed = checks.filter(function (check) { return !check || check.ok !== true; });
+    // Keep the retry adapter total for older development health envelopes.
+    // Packaged startup always supplies the authoritative `startup_ok` field.
+    var legacyPaths = result && result.paths || {};
+    var legacyHealthy = !!(result && result.healthy && result.engine_loaded &&
+      legacyPaths.ffmpeg && legacyPaths.ffmpeg.exists &&
+      legacyPaths.whisper && legacyPaths.whisper.exists);
+    var healthy = !!(result && (result.startup_ok === true ||
+      (typeof result.startup_ok !== 'boolean' && legacyHealthy)));
     return {
       bootstrap_pending: false,
       runtime_health_state: healthy ? 'HEALTHY' : 'SETUP_REQUIRED',
       setup_acknowledged: false,
       healthy: healthy,
       engine_loaded: !!(result && result.engine_loaded),
-      validation_path: 'light',
-      failed_components: missing.map(function (name) {
-        return { component: name, friendly_name: name + ' is missing' };
+      validation_path: 'full',
+      checklist: checks.map(function (check) {
+        return { id: check.id, verdict: check.ok === true ? 'ready' : 'needs_attention', detail: check.detail || '' };
       }),
-      diagnostics: result && result.error ? String(result.error) : ''
+      failed_components: failed.map(function (check) {
+        return { component: check.id, friendly_name: check.title || check.detail || check.id };
+      }),
+      diagnostics: JSON.stringify({ passed: result && result.passed === true, checks: checks }, null, 2)
     };
   }
 

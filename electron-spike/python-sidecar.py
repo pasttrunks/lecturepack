@@ -36,6 +36,11 @@ from PySide6.QtCore import QCoreApplication, QProcess, QTimer
 # group, rename, open). A job id is a UUID-safe token; anything else is refused.
 _SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
+PACKAGED_CHECK_IDS = (
+    "data_directory", "ffmpeg", "ffprobe", "whisper_runtime",
+    "whisper_smoke", "bundled_model", "study_core", "yt_dlp", "controller",
+)
+
 
 STAGES = [
     "Inspect",
@@ -118,49 +123,24 @@ class Sidecar:
         self._download_order: list[str] = []
         self._download_worker_running = False
         self._download_cancel: dict[str, threading.Event] = {}
+        self._data_error = ""
+        self._last_health: dict[str, Any] | None = None
 
         self.repo_root = self._resolve_repo_root()
         if self.repo_root and str(self.repo_root) not in sys.path:
             sys.path.insert(0, str(self.repo_root))
         self.runtime_root = self._resolve_runtime_root()
         self.data_dir = Path(args.data_dir).expanduser().resolve()
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._data_error = f"{type(exc).__name__}: {exc}"
         self.demo_video = Path(args.demo_video).expanduser().resolve() if args.demo_video else None
 
-        self._emit({
-            "event": "bootstrap_progress",
-            "id": "python_import",
-            "state": "checking",
-            "detail": "Loading the existing LecturePack engine",
-        })
         self._load_engine()
-        self._emit({
-            "event": "bootstrap_progress",
-            "id": "engine_import",
-            "state": "failed" if self._engine_error else "resolved",
-            "detail": self._engine_error or "LecturePack controller imports resolved",
-        })
         self._configure_runtime()
-        self._emit({
-            "event": "bootstrap_progress",
-            "id": "runtime_config",
-            "state": "failed" if self._engine_error else "resolved",
-            "detail": self._engine_error or "Bundled CPU runtime paths resolved",
-        })
         self._connect_controller()
-        self._emit({
-            "event": "bootstrap_progress",
-            "id": "controller",
-            "state": "failed" if self._engine_error else "resolved",
-            "detail": self._engine_error or "Headless JobController connected",
-        })
         self._init_queue()
-        self._emit({
-            "event": "bootstrap_progress",
-            "id": "queue",
-            "state": "failed" if self._engine_error else "resolved",
-            "detail": self._engine_error or "Persistent job queue restored",
-        })
 
         self._poll_timer = QTimer(self.app)
         self._poll_timer.setInterval(25)
@@ -179,26 +159,13 @@ class Sidecar:
             "data_dir": str(self.data_dir),
             **({"error": self._engine_error} if self._engine_error else {}),
         })
-        self._emit({
-            "event": "bootstrap_progress",
-            "id": "python_import",
-            "state": "resolved" if not self._engine_error else "failed",
-            "detail": "Headless sidecar ready" if not self._engine_error else self._engine_error,
-        })
-        self._emit({
-            "event": "bootstrap_complete",
-            "bootstrap_pending": False,
-            "runtime_health_state": "HEALTHY" if not self._engine_error else "SETUP_REQUIRED",
-            "setup_acknowledged": not bool(self._engine_error),
-            "healthy": not bool(self._engine_error),
-            "engine_loaded": not bool(self._engine_error),
-        })
         # Do not start a blocking Windows pipe read while importing OpenCV,
         # PySide6 workers, and the existing controller. In the locked Windows
         # runtime that can starve the importing thread; starting it after the
         # ready handshake keeps the JSONL boundary responsive without changing
         # the engine internals.
-        self._stdin_thread.start()
+        if not args.self_test:
+            self._stdin_thread.start()
 
     # ------------------------------------------------------------------ #
     # Process and import setup
@@ -233,7 +200,7 @@ class Sidecar:
             from lecturepack.infrastructure.file_manager import FileManager
             from lecturepack.models.job import Job
             from lecturepack import electron_backend, electron_study
-            from lecturepack.services import job_ops, media_fetch, study_service, transcript_store
+            from lecturepack.services import job_ops, media_fetch, packaged_health, study_service, transcript_store
             from lecturepack.services import study_presets, study_v2
             from lecturepack.services.job_queue import JobQueue
 
@@ -246,6 +213,7 @@ class Sidecar:
             self.electron_backend = electron_backend
             self.electron_study = electron_study
             self.media_fetch = media_fetch
+            self.packaged_health = packaged_health
             self.job_ops = job_ops
             self.study_service = study_service
             self.study_presets = study_presets
@@ -260,7 +228,9 @@ class Sidecar:
         return ""
 
     def _configure_runtime(self) -> None:
-        if self._engine_error:
+        if self._engine_error or self._data_error:
+            if self._data_error and not self._engine_error:
+                self._engine_error = self._data_error
             return
         self.config = self.ConfigManager(str(self.data_dir))
         ffmpeg = self._first_file(
@@ -697,25 +667,74 @@ class Sidecar:
     # Contract commands
     # ------------------------------------------------------------------ #
     def _health_check(self, request_id: str | None, command: str) -> None:
-        paths = {
-            "ffmpeg": self.config.get("ffmpeg_exe", "") if hasattr(self, "config") else "",
-            "ffprobe": self.config.get("ffprobe_exe", "") if hasattr(self, "config") else "",
-            "whisper": self.config.get("whisper_exe", "") if hasattr(self, "config") else "",
-            "model": self.config.get("whisper_model", "") if hasattr(self, "config") else "",
-        }
-        if self._engine_error:
-            self._emit({"event": "runtime_missing", "component": "runtime",
-                        "detail": self._engine_error})
+        for check_id in PACKAGED_CHECK_IDS:
+            self._emit({"event": "bootstrap_progress", "id": check_id, "state": "checking"})
+        health = self._packaged_self_test(include_sidecar=False)
+        self._last_health = health
+        for check in health["checks"]:
+            self._emit({
+                "event": "bootstrap_progress",
+                "id": check["id"],
+                "state": "resolved" if check["ok"] else "failed",
+                "detail": check["detail"],
+            })
+        if not health["startup_ok"]:
+            failed = next(
+                (check for check in health["checks"] if check["fatal_at_startup"] and not check["ok"]),
+                None,
+            )
+            if failed:
+                self._emit({"event": "runtime_missing", "component": failed["id"], "detail": failed["detail"]})
         self._respond(
             request_id,
             command,
-            healthy=not bool(self._engine_error),
+            healthy=health["startup_ok"],
             engine_loaded=not bool(self._engine_error),
             qt_application="QCoreApplication",
-            paths={name: {"path": value, "exists": bool(value and os.path.isfile(value))}
-                   for name, value in paths.items()},
+            passed=health["passed"],
+            startup_ok=health["startup_ok"],
+            checks=health["checks"],
             error=self._engine_error,
         )
+
+    def _packaged_self_test(self, *, include_sidecar: bool = True) -> dict[str, Any]:
+        if not hasattr(self, "packaged_health"):
+            checks = [{
+                "id": "controller",
+                "ok": False,
+                "required": True,
+                "fatal_at_startup": True,
+                "title": "Processing service unavailable",
+                "detail": "LecturePack could not import its processing service.",
+                "technical": self._engine_error,
+            }]
+            health = {"passed": False, "startup_ok": False, "checks": checks}
+        else:
+            health = self.packaged_health.run_packaged_health(
+                runtime_root=self.runtime_root,
+                data_dir=self.data_dir,
+                controller=self.controller,
+                study_core_info=self.study_v2.study_core_info,
+                media_available=self.media_fetch.is_available,
+                media_version=self.media_fetch.version,
+            )
+        checks = list(health["checks"])
+        if include_sidecar:
+            sidecar_ok = True
+            checks.insert(0, {
+                "id": "sidecar",
+                "ok": sidecar_ok,
+                "required": True,
+                "fatal_at_startup": True,
+                "title": "Processing service unavailable",
+                "detail": "Packaged sidecar initialized." if sidecar_ok else "LecturePack could not initialize its packaged sidecar.",
+                "technical": self._engine_error,
+            })
+        return {
+            "passed": all(check.get("ok") for check in checks if check.get("required")),
+            "startup_ok": all(check.get("ok") for check in checks if check.get("fatal_at_startup")),
+            "checks": checks,
+        }
 
     def _job_objects(self) -> list[Any]:
         if self._engine_error:
@@ -1680,6 +1699,10 @@ class Sidecar:
                 "ffmpeg": getattr(getattr(self.controller, "ffmpeg_wrapper", None), "ffmpeg_path", ""),
                 "data_dir": str(self.data_dir),
             })
+        # Support diagnostics consume the exact same packaged health result as
+        # startup and the build-time self-test. Do not maintain a parallel set
+        # of runtime probes with different pass/fail semantics.
+        diag["packaged_health"] = self._last_health or self._packaged_self_test(include_sidecar=False)
         self._emit({"event": "diagnostics", "bundle": diag, "job_id": job_id})
         self._respond(request_id, command, ok=True, job_id=job_id)
 
@@ -2664,12 +2687,14 @@ class Sidecar:
     def _media_link_support(self, request_id: str | None, command: str) -> None:
         available = self.media_fetch.is_available()
         version = self.media_fetch.version()
+        reason = "" if available else "Link importing is unavailable because the bundled yt-dlp runtime could not load."
         self._emit({
             "event": "media_link_state",
             "available": available,
             "version": version,
+            "reason": reason,
         })
-        self._respond(request_id, command, available=available, version=version)
+        self._respond(request_id, command, available=available, version=version, reason=reason)
 
     def _probe_media_url(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         raw_urls = payload.get("urls")
@@ -3309,6 +3334,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--resources-root", default="", help="Sidecar resource root containing bin/ and models/")
     parser.add_argument("--data-dir", required=True, help="Writable persistent LecturePack data directory")
     parser.add_argument("--demo-video", default="", help="Bundled demo video used by the vertical slice")
+    parser.add_argument("--self-test", action="store_true", help="Run the packaged health contract and exit")
     return parser.parse_args(argv)
 
 
@@ -3324,7 +3350,11 @@ def main() -> int:
             pass
     args = _parse_args(sys.argv[1:])
     app = QCoreApplication(sys.argv)
-    Sidecar(args, app)
+    sidecar = Sidecar(args, app)
+    if args.self_test:
+        result = sidecar._packaged_self_test()
+        sidecar._emit({"event": "self_test", **result})
+        return 0 if result["passed"] else 1
     return int(app.exec())
 
 

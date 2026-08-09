@@ -143,7 +143,9 @@ def test_job_cards_are_not_draggable() -> None:
 def test_paste_link_control_restored_when_runtime_available() -> None:
     app = read(APP)
     media = block(app, "lpBridge.on('media_link_state'", "lpBridge.on('media_probe'")
-    assert "btn.hidden = !mediaLink.available;" in media
+    assert "btn.hidden = false;" in media
+    assert "btn.disabled = !mediaLink.available;" in media
+    assert "bundled yt-dlp runtime could not load" in media
     assert "lpBridge.call('media_link_support')" in app
     main = read(MAIN)
     # The production scope no longer hides the Paste Link control.

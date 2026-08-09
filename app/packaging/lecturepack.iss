@@ -45,7 +45,6 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 ; Per-user install by default → no admin prompt, and the silent auto-updater
 ; can replace files without elevation.
-PrivilegesRequiredOverridesAllowed=dialog
 PrivilegesRequired=lowest
 OutputDir={#OutputDir}
 OutputBaseFilename=LecturePack-{#AppVersion}-Setup

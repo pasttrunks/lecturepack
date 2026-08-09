@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import zipfile
 
 
@@ -56,10 +57,58 @@ def candidate_dir() -> Path:
 
 
 def validate_candidate(root: Path) -> None:
-    required = [root / "LecturePack.exe", root / "resources" / "app.asar"]
+    required = [
+        root / "LecturePack.exe",
+        root / "resources" / "app.asar",
+        root / "resources" / "LecturePackSidecar" / "LecturePackSidecar.exe",
+    ]
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
         raise RuntimeError(f"Electron candidate is incomplete: {missing}")
+
+
+def validate_packaged_self_test(root: Path) -> dict[str, object]:
+    """Run the authoritative packaged health contract without development tools."""
+    validate_candidate(root)
+    sidecar_dir = root / "resources" / "LecturePackSidecar"
+    sidecar = sidecar_dir / "LecturePackSidecar.exe"
+    with tempfile.TemporaryDirectory(prefix="lecturepack-release-selftest-") as temporary:
+        completed = subprocess.run(
+            [
+                str(sidecar),
+                "--resources-root", str(sidecar_dir),
+                "--data-dir", temporary,
+                "--self-test",
+            ],
+            cwd=str(sidecar_dir),
+            check=False,
+            shell=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+    records = []
+    for line in completed.stdout.splitlines():
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    result = next((record for record in reversed(records) if record.get("event") == "self_test"), None)
+    if completed.returncode != 0 or not result or result.get("passed") is not True:
+        raise RuntimeError(
+            "Official packaged self-test failed: "
+            f"exit={completed.returncode}; stdout={completed.stdout[-4000:]}; stderr={completed.stderr[-4000:]}"
+        )
+    checks = {str(check.get("id")): check for check in result.get("checks", [])}
+    rust = checks.get("study_core", {})
+    yt_dlp = checks.get("yt_dlp", {})
+    if rust.get("ok") is not True:
+        raise RuntimeError("Official packaged self-test did not prove the Rust Study Core")
+    if yt_dlp.get("ok") is not True:
+        raise RuntimeError("Official packaged self-test did not prove yt-dlp")
+    return result
 
 
 def make_portable_zip(source: Path, destination: Path) -> Path:
@@ -145,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
     output.mkdir(parents=True, exist_ok=True)
 
     environment = os.environ.copy()
+    environment["LECTUREPACK_OFFICIAL_BUILD"] = "1"
     if args.pyinstaller:
         environment["LECTUREPACK_PYINSTALLER"] = str(Path(args.pyinstaller).resolve())
     if args.runtime_root:
@@ -155,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
 
     candidate = candidate_dir()
     validate_candidate(candidate)
+    self_test = validate_packaged_self_test(candidate)
     portable = make_portable_zip(candidate, output / f"LecturePack-{version}-Portable.zip")
     installer = None
     if not args.skip_installer:
@@ -170,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         "portable": str(portable),
         "installer": str(installer) if installer else None,
         "sha256sums": str(sums),
+        "self_test": self_test,
     }
     print(json.dumps(result, indent=2))
     return 0

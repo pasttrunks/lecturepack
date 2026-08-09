@@ -1406,6 +1406,52 @@ fetch path without touching the pipeline; and the progress changes only read
 data the engine already emits, so a long real lecture now shows moving,
 consistent progress on Home and Process.
 
+## AD-36: Official Windows candidates fail closed while installed startup degrades only where safe
+
+**Date:** 2026-08-09
+
+**Status:** Implemented on `sol/release-critical-hardening`
+
+**Context:** The integrated Electron candidate could report readiness after
+checking only that runtime paths existed. A missing native Study module or
+yt-dlp could therefore escape the build, while a missing sidecar, broken
+Whisper binary, or unwritable data directory could leave the desktop waiting
+without a terminal explanation. Packaging also retained a developer source
+tree and allowed an installer-time elevation override.
+
+**Decision:** One ordered packaged-health contract now executes the real
+FFmpeg/ffprobe binaries, a real bundled-model Whisper smoke transcription,
+data-directory writability, controller initialization, Rust Study Core import,
+and yt-dlp import/version checks. The official build fails unless every check
+passes and the candidate sidecar re-runs that same contract after packaging.
+Installed startup has one 28-second deadline covering spawn, health, and
+session restore; every failure enters one terminal screen with Retry, Copy
+diagnostics, Open logs, and exact failed-check evidence. Rust and yt-dlp remain
+release-required, but an unexpected post-install native load error degrades to
+the existing Python Study implementation or a visible disabled Paste Link
+action so local-file use is not destroyed. Fatal processing dependencies do
+not degrade. Production logs retain only the latest ten sessions, the Electron
+package no longer carries the legacy source tree, and Setup is fixed to
+per-user installation with no elevation override.
+
+**Alternatives considered:**
+
+- Treating file existence as runtime health: rejected because it cannot prove
+  DLL loading, executable startup, or a real Whisper inference.
+- Making Rust or yt-dlp failures fatal after installation: rejected because
+  safe local fallbacks already exist and preserve useful offline work; this
+  does not relax their official build gate.
+- Keeping separate startup, build, and support probes: rejected because their
+  verdicts could drift and recreate false readiness.
+- Shipping the full Python source tree beside the frozen sidecar: rejected
+  because the packaged sidecar is authoritative and the extra copy preserved
+  dead resolver paths and unnecessary developer surface.
+
+**Rationale:** Fail-closed candidate creation prevents known incomplete builds,
+while bounded, actionable installed behavior preserves recovery and local-file
+use when a machine-specific native load fails. A single result schema makes
+build evidence, startup gating, and support diagnostics directly comparable.
+
 ## AD-35: Study Ask keeps structured prompts and grounded overview answers
 
 **Date:** 2026-08-08

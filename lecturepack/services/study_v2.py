@@ -19,6 +19,7 @@ filesystem or AI.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -27,6 +28,9 @@ from typing import Any, Optional
 
 from lecturepack.infrastructure.file_manager import FileManager
 from lecturepack.services import transcript_store
+
+_LOGGER = logging.getLogger(__name__)
+_RUST_CORE_LOAD_ERROR = ""
 
 SCHEMA_VERSION = 2
 CONTENT_FILENAME = "study-content-v2.json"
@@ -301,10 +305,14 @@ def save_progress(job, data: dict[str, Any]) -> None:
 # --------------------------------------------------------------------------- #
 def _rust_core():
     """Import the Rust Study Core extension. Returns None if unavailable."""
+    global _RUST_CORE_LOAD_ERROR
     try:
         import lecturepack_study_core
+        _RUST_CORE_LOAD_ERROR = ""
         return lecturepack_study_core
-    except ImportError:
+    except (ImportError, OSError, SystemError) as error:
+        _RUST_CORE_LOAD_ERROR = f"{type(error).__name__}: {error}"
+        _LOGGER.warning("Rust Study Core could not load; using Python fallback: %s", _RUST_CORE_LOAD_ERROR)
         return None
 
 
@@ -312,11 +320,22 @@ def study_core_info() -> dict[str, Any]:
     """Diagnostic/version function for tests and packaging verification."""
     core = _rust_core()
     if core is None:
-        return {"available": False, "implementation": "python", "version": "0.0.0"}
+        return {
+            "available": False,
+            "implementation": "python",
+            "version": "0.0.0",
+            "error": _RUST_CORE_LOAD_ERROR,
+        }
     try:
         return json.loads(core.study_core_info())
-    except Exception:
-        return {"available": False, "implementation": "python", "version": "0.0.0"}
+    except (AttributeError, json.JSONDecodeError, OSError, RuntimeError, SystemError, TypeError, ValueError) as error:
+        _LOGGER.warning("Rust Study Core diagnostics failed; using Python fallback: %s", error)
+        return {
+            "available": False,
+            "implementation": "python",
+            "version": "0.0.0",
+            "error": f"{type(error).__name__}: {error}",
+        }
 
 
 def record_flashcard_result(job, card_id: str, concept_ids: list[str],

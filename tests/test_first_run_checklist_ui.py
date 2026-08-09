@@ -468,7 +468,7 @@ def test_wire_bridge_subscribes_bootstrap_progress_and_complete_and_bridge_js_re
 
 def test_runtime_setup_gate_public_surface_exposes_progress_and_acknowledge() -> None:
     controller = gate_controller_source()
-    return_line = controller.split("return {", 1)[1].split("};", 1)[0]
+    return_line = controller.rsplit("return {", 1)[1].split("};", 1)[0]
     assert "progress: progress" in return_line
     assert "acknowledge: acknowledge" in return_line
 

@@ -10,7 +10,9 @@ def run_packaged_validation(app):
     from lecturepack.models.job import Job
     from lecturepack.ui.main_window import MainWindow
     
-    data_dir = r"C:\Users\marsh\LecturePackData"
+    data_dir = os.environ.get("LECTUREPACK_VALIDATION_DATA_DIR", "").strip()
+    if not data_dir:
+        raise RuntimeError("LECTUREPACK_VALIDATION_DATA_DIR is required for packaged validation")
     config = ConfigManager(data_dir)
     
     job_id = "75432ce6-1c37-45a6-a70c-57746339356f"
@@ -72,7 +74,9 @@ def run_packaged_validation(app):
     
     # 5. Check .m4v Egypt lecture metadata loads
     print("Verifying Egypt lecture .m4v selection and preview...")
-    m4v_path = r"C:\Users\marsh\OneDrive\Desktop\UB\CL100\CL100 - Day 2 - Egypt and Archaeology.m4v"
+    m4v_path = os.environ.get("LECTUREPACK_VALIDATION_MEDIA", "").strip()
+    if not m4v_path:
+        raise RuntimeError("LECTUREPACK_VALIDATION_MEDIA is required for packaged validation")
     
     from lecturepack.infrastructure.ffmpeg_wrapper import FFmpegWrapper
     wrapper = FFmpegWrapper(config_manager=config)

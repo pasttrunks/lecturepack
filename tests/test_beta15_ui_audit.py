@@ -55,10 +55,11 @@ def test_d03_paste_link_restored_when_packaged_runtime_available() -> None:
     app = read(APP)
     html = read(HTML)
     main = read(MAIN)
-    # The Paste Link control ships hidden in markup and is revealed only when
-    # the packaged sidecar reports yt-dlp availability (PC polish fix).
-    assert re.search(r'id="btn-paste-link"[^>]*\bhidden\b', html)
-    assert "btn.hidden = !mediaLink.available;" in app
+    # Link importing stays visible and explains a packaged provider failure.
+    assert not re.search(r'id="btn-paste-link"[^>]*\bhidden\b', html)
+    assert re.search(r'id="btn-paste-link"[^>]*\bdisabled\b', html)
+    assert "btn.hidden = false;" in app
+    assert "btn.disabled = !mediaLink.available;" in app
     assert "lpBridge.call('media_link_support')" in app
     # The production scope must not hide the control unconditionally.
     scope = main.split("const productionScope", 1)[1].split("</style>", 1)[0]

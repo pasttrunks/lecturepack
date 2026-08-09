@@ -3049,7 +3049,7 @@
   function RuntimeSetupGateModel() {
     var state = 'gate', returnState = 'gate', retryPending = false, cancelPending = false;
     var activeOperation = null, terminal = false, offer = null, bootstrapPending = true, healthy = false;
-    var validationPath = null, acknowledged = false, checklist = [], checkProgress = {};
+    var validationPath = null, acknowledged = false, checklist = [], checkProgress = {}, startupFailure = null;
     function valid(value) {
       return !!(value && value.operation_id === activeOperation && value.app_version && value.source &&
         value.affected_components && Number.isSafeInteger(value.download_size_bytes) && value.download_size_bytes >= 0);
@@ -3057,7 +3057,8 @@
     function snapshot() {
       return { state: state, returnState: returnState, retryPending: retryPending, cancelPending: cancelPending,
         activeOperation: activeOperation, terminal: terminal, offer: offer, bootstrapPending: bootstrapPending, healthy: healthy,
-        validationPath: validationPath, acknowledged: acknowledged, checklist: checklist, checkProgress: checkProgress };
+        validationPath: validationPath, acknowledged: acknowledged, checklist: checklist, checkProgress: checkProgress,
+        startupFailure: startupFailure };
     }
     function accept(event) { return !!(event && event.operation_id === activeOperation && !terminal); }
     return {
@@ -3129,6 +3130,24 @@
         checkProgress[payload.id] = payload.state;
         return snapshot();
       },
+      startupFailed: function (payload) {
+        startupFailure = payload || {};
+        bootstrapPending = false;
+        healthy = false;
+        terminal = true;
+        state = 'startup_failed';
+        return snapshot();
+      },
+      retryStartup: function () {
+        startupFailure = null;
+        bootstrapPending = true;
+        healthy = false;
+        terminal = false;
+        state = 'checking';
+        checkProgress = {};
+        FIRST_RUN_ROWS.forEach(function (row) { checkProgress[row.id] = 'pending'; });
+        return snapshot();
+      },
       /* The only write path for the acknowledged flag on the reducer side;
          the bridge slot (acknowledge_setup) is the only write path on the
          persistence side. The controller owns closing the overlay. */
@@ -3162,7 +3181,7 @@
         // for the rest of the session even though the backend still
         // considers setup acknowledged.
         state = 'gate'; returnState = 'gate'; retryPending = false; cancelPending = false;
-        activeOperation = null; terminal = false; offer = null; healthy = false; return snapshot();
+        activeOperation = null; terminal = false; offer = null; healthy = false; startupFailure = null; return snapshot();
       },
       // Closing a valid runtime overlay must clear the transient repair state
       // without leaving the reducer at the invalid default `gate` state.
@@ -3173,7 +3192,7 @@
     };
   }
   var RuntimeSetupGate = (function () {
-    var STATES = ['gate', 'diagnostics', 'confirm', 'repairing', 'offline', 'failed', 'ready', 'checking', 'checklist'];
+    var STATES = ['gate', 'diagnostics', 'confirm', 'repairing', 'offline', 'failed', 'ready', 'checking', 'checklist', 'startup_failed'];
     var bootstrapSnapshot = null, restoreInert = [], inertCaptured = false, priorFocus = null;
     var lastRenderedState = null, closeInFlight = false;
     var eventModel = RuntimeSetupGateModel();
@@ -3360,6 +3379,14 @@
       text('runtime-offer-technical', enabled ? value.technical_details || '' : '');
       $('btn-runtime-confirm').disabled = !enabled;
     }
+    function renderStartupFailure() {
+      var failure = eventModel.snapshot().startupFailure || {};
+      var check = failure.failed_check || {};
+      text('startup-failure-title', check.title || 'Processing service failed to start.');
+      text('startup-failure-detail', check.detail || failure.detail || failure.message || 'LecturePack could not start its processing service.');
+      var diagnostics = failure.diagnostics || failure;
+      text('startup-failure-technical', typeof diagnostics === 'string' ? diagnostics : JSON.stringify(diagnostics, null, 2));
+    }
     function validOffer(value) {
       return !!(value && typeof value.operation_id === 'string' && value.operation_id === eventModel.snapshot().activeOperation &&
         typeof value.app_version === 'string' && typeof value.source === 'string' &&
@@ -3387,7 +3414,7 @@
         el.hidden = false; el.classList.remove('out'); setUnderlyingInert(true);
         Array.prototype.forEach.call(el.querySelectorAll('[data-runtime-state]'), function (panel) { panel.hidden = panel.dataset.runtimeState !== next; });
       }
-      renderComponents(); renderOffer(); renderChecking(); renderChecklist();
+      renderComponents(); renderOffer(); renderChecking(); renderChecklist(); renderStartupFailure();
       // Per the UI-SPEC nav contract, checklist is the one state in this
       // overlay with no Exit affordance -- Continue and Skip already cover
       // the low-commitment path; every other state (including checking)
@@ -3408,7 +3435,7 @@
       // fixtures must render byte-identical heading/body copy, differing
       // only in one row's badge.
       var targets = { gate: 'btn-runtime-repair', confirm: 'btn-runtime-confirm', repairing: 'btn-runtime-cancel', offline: 'btn-runtime-offline-retry', failed: 'btn-runtime-failed-retry', diagnostics: 'runtime-diagnostics-heading', ready: 'runtime-ready-heading',
-        checking: 'btn-runtime-exit', checklist: 'btn-runtime-continue' };
+        checking: 'btn-runtime-exit', checklist: 'btn-runtime-continue', startup_failed: 'btn-startup-retry' };
       if (stateChanged) {
         var target = $(targets[next]); if (target) target.focus();
       }
@@ -3554,6 +3581,12 @@
       if (!record || typeof record !== 'object' || !record.id) return;
       if (eventModel.snapshot().state !== 'checking') return;
       var id = record.id, mark = record.state;
+      var groupedIds = {
+        ffmpeg: 'ffmpeg_ffprobe', ffprobe: 'ffmpeg_ffprobe',
+        whisper_runtime: 'whisper_runtime', whisper_smoke: 'whisper_runtime'
+      };
+      id = groupedIds[id] || id;
+      record.id = id;
       eventModel.progress(record);
       if (mark === 'checking') {
         checkingStartedAt[id] = Date.now();
@@ -3588,6 +3621,24 @@
     function syncDemoAdmission(view) {
       setDemoAdmissionAvailable(!!(view && view.healthy && !view.bootstrapPending && view.acknowledged &&
         (view.state === 'ready' || !view.activeOperation)));
+    }
+    function startupFailed(payload) {
+      var failure = typeof payload === 'string'
+        ? (function () { try { return JSON.parse(payload); } catch (e) { return {}; } })()
+        : (payload || {});
+      clearCheckingTimers();
+      eventModel.startupFailed(failure);
+      announce('runtime-live-assertive', "LecturePack couldn't start.");
+      render(true, true);
+    }
+    function retryStartup() {
+      eventModel.retryStartup();
+      render(true, true);
+      lpBridge.call('retry_startup').then(function (result) {
+        if (result && result.ok === false) {
+          startupFailed({ reason: 'sidecar_start_failed', detail: result.error || 'Processing service failed to start.' });
+        }
+      });
     }
     function handleElectronRepairResult(operationId, value) {
       var result = value;
@@ -3725,11 +3776,14 @@
       }
       $('btn-runtime-copy').addEventListener('click', function () { diagnosticFeedback(copyDiagnostics(), 'Details copied.', 'Could not copy details.'); });
       $('btn-runtime-save').addEventListener('click', function () { diagnosticFeedback(saveDiagnostics('runtime-repair-report.txt'), 'Report saved.', 'Could not save report.'); });
+      $('btn-startup-retry').addEventListener('click', retryStartup);
+      $('btn-startup-copy').addEventListener('click', function () { copyText(($('startup-failure-technical') && $('startup-failure-technical').textContent) || 'No startup diagnostics are available.', 'Diagnostics copied'); });
+      $('btn-startup-open-logs').addEventListener('click', function () { lpBridge.call('open_logs'); });
       document.addEventListener('keydown', function (e) { if (!isBlocking()) return; if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); return; } if (e.key === 'Tab' && isOpen()) { trapFocus(overlay(), e); e.stopImmediatePropagation(); return; } e.stopImmediatePropagation(); }, true);
       document.addEventListener('wheel', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true, passive: false });
       document.addEventListener('pointerdown', function (e) { if (isBlocking() && (!isOpen() || !overlay().contains(e.target))) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
     }
-    return { admit: admit, event: event, progress: progress, acknowledge: acknowledge, wire: wire, beginBootstrap: function () {
+    return { admit: admit, event: event, progress: progress, startupFailed: startupFailed, acknowledge: acknowledge, wire: wire, beginBootstrap: function () {
       setUnderlyingInert(true);
       // A hidden overlay must never report the invalid `gate` state while the
       // first authoritative health response is still in flight. Start in the
@@ -6656,6 +6710,16 @@
     }
     lpBridge.on('repair_event', function (json) { RuntimeSetupGate.event(json); });
     lpBridge.on('bootstrap_progress', function (json) { RuntimeSetupGate.progress(json); });
+    lpBridge.on('startup_failure', function (json) { RuntimeSetupGate.startupFailed(json); });
+    lpBridge.on('service_failure', function (json) { RuntimeSetupGate.startupFailed(json); });
+    lpBridge.on('exit', function (json) {
+      var d = parseBridgePayload(json, {});
+      RuntimeSetupGate.startupFailed({
+        reason: 'sidecar_exit',
+        detail: 'The processing service stopped unexpectedly.',
+        diagnostics: d
+      });
+    });
     lpBridge.on('bootstrap_complete', function (json) {
       var b = parseBridgePayload(json, null);
       if (!b) return;
@@ -6861,11 +6925,16 @@
       mediaLink.available = !!s.available;
       mediaLink.version = s.version || '';
       var btn = $('btn-paste-link');
-      // PC polish: restore the Paste Link control when the packaged runtime
-      // actually provides yt-dlp. The sidecar reports availability through
-      // media_link_support; the CTA stays hidden only when the capability is
-      // genuinely absent.
-      if (btn) btn.hidden = !mediaLink.available;
+      // Link importing is a release feature. Keep the action visible when the
+      // packaged provider fails so the user sees the actual capability state.
+      if (btn) {
+        btn.hidden = false;
+        btn.disabled = !mediaLink.available;
+        btn.title = mediaLink.available
+          ? ('Bundled yt-dlp ' + (mediaLink.version || 'is ready'))
+          : (s.reason || 'Link importing is unavailable because the bundled yt-dlp runtime could not load.');
+        btn.setAttribute('aria-label', mediaLink.available ? 'Paste a link' : 'Paste a link unavailable');
+      }
       if (mediaLink.available) lpBridge.call('get_media_downloads');
     });
 

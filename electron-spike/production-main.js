@@ -13,6 +13,7 @@ const {
   shell
 } = require('electron');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn, spawnSync } = require('node:child_process');
@@ -23,6 +24,8 @@ const packageInfo = require('./package.json');
 const PRODUCT_NAME = packageInfo.productName || 'LecturePack';
 const PRODUCT_VERSION = packageInfo.version || '0.9.0-beta.15';
 const APP_USER_MODEL_ID = 'LecturePack.LecturePack';
+const STARTUP_DEADLINE_MS = 28000;
+const MAX_SESSION_LOGS = 10;
 const options = parseOptions(process.argv.slice(1));
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -107,6 +110,18 @@ function makeLogger() {
   );
   const resultDir = path.resolve(requested);
   fs.mkdirSync(resultDir, { recursive: true });
+  const oldLogs = fs.readdirSync(resultDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^production-.*\.jsonl$/i.test(entry.name))
+    .map((entry) => {
+      const file = path.join(resultDir, entry.name);
+      let modified = 0;
+      try { modified = fs.statSync(file).mtimeMs; } catch (_) { /* pruned below if stale */ }
+      return { file, modified };
+    })
+    .sort((left, right) => right.modified - left.modified || right.file.localeCompare(left.file));
+  oldLogs.slice(MAX_SESSION_LOGS - 1).forEach((entry) => {
+    try { fs.unlinkSync(entry.file); } catch (_) { /* log retention must never block startup */ }
+  });
   lastResultsDir = resultDir;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const file = path.join(resultDir, `production-${stamp}.jsonl`);
@@ -125,6 +140,91 @@ function makeLogger() {
 function dataDirectory() {
   const requested = options['data-dir'] || process.env.LECTUREPACK_DATA_DIR;
   return path.resolve(requested || path.join(app.getPath('home'), 'LecturePackData'));
+}
+
+function startupDiagnostics(session) {
+  const health = session && session.latestHealth && typeof session.latestHealth === 'object'
+    ? session.latestHealth : {};
+  const checks = Array.isArray(health.checks) ? health.checks.map((check) => ({
+    id: String(check.id || ''),
+    ok: check.ok === true,
+    title: String(check.title || ''),
+    detail: String(check.detail || ''),
+    technical: String(check.technical || '')
+  })) : [];
+  return {
+    lecturepack_version: PRODUCT_VERSION,
+    windows_version: `${os.type()} ${os.release()}`,
+    architecture: os.arch(),
+    data_path: session && session.dataDir ? session.dataDir : dataDirectory(),
+    startup_health: {
+      passed: health.passed === true,
+      startup_ok: health.startup_ok === true,
+      checks
+    },
+    rust_study_core: checks.find((check) => check.id === 'study_core') || null,
+    ffmpeg: checks.find((check) => check.id === 'ffmpeg') || null,
+    whisper: checks.find((check) => check.id === 'whisper_smoke') || null,
+    yt_dlp: checks.find((check) => check.id === 'yt_dlp') || null,
+    recent_error: session && session.lastStartupError ? session.lastStartupError : null,
+    log_file: session && session.logger ? session.logger.file : '',
+    log_directory: session && session.logger ? session.logger.resultDir : ''
+  };
+}
+
+function clearStartupDeadline(session) {
+  if (session.startupDeadlineTimer) clearTimeout(session.startupDeadlineTimer);
+  session.startupDeadlineTimer = null;
+}
+
+function reportStartupFailure(session, reason, detail, extra = {}) {
+  if (!session || session.closed || session.startupFailure) return;
+  clearStartupDeadline(session);
+  const checks = Array.isArray(extra.checks) ? extra.checks : (
+    session.latestHealth && Array.isArray(session.latestHealth.checks) ? session.latestHealth.checks : []
+  );
+  const failedCheck = extra.failedCheck || checks.find((check) => check && check.fatal_at_startup && check.ok !== true) || null;
+  const failure = {
+    reason: String(reason || 'startup_failed'),
+    detail: String(detail || 'Processing service failed to start.'),
+    failed_check: failedCheck,
+    elapsed_ms: session.startupStartedAt ? Date.now() - session.startupStartedAt : 0,
+    attempt: session.startupAttempt
+  };
+  session.startupFailure = failure;
+  session.lastStartupError = failure;
+  session.logger.write('startup_terminal_failure', failure);
+  sendToPage(session, {
+    event: 'startup_failure',
+    title: "LecturePack couldn't start.",
+    message: 'Processing service failed to start.',
+    ...failure,
+    checks,
+    diagnostics: startupDiagnostics(session)
+  });
+}
+
+function completeStartup(session) {
+  clearStartupDeadline(session);
+  session.startupComplete = true;
+  session.startupFailure = null;
+  session.logger.write('startup_complete', {
+    elapsed_ms: Date.now() - session.startupStartedAt,
+    attempt: session.startupAttempt
+  });
+}
+
+function armStartupDeadline(session, attempt) {
+  clearStartupDeadline(session);
+  session.startupDeadlineTimer = setTimeout(() => {
+    if (session.closed || session.startupComplete || attempt !== session.startupAttempt) return;
+    reportStartupFailure(
+      session,
+      'startup_timeout',
+      `The processing service did not become ready within ${STARTUP_DEADLINE_MS / 1000} seconds.`
+    );
+    if (session.sidecar && session.sidecar.exitCode === null) terminateProcessTree(session.sidecar, session.logger);
+  }, STARTUP_DEADLINE_MS);
 }
 
 function applicationIcon() {
@@ -352,10 +452,10 @@ function handleSidecarMessage(session, message) {
     return;
   }
   sendToPage(session, message);
-  if (message.event === 'ready') void bootstrap(session);
+  if (message.event === 'ready') void bootstrap(session, session.startupAttempt);
 }
 
-function attachSidecar(session, child, command) {
+function attachSidecar(session, child, command, attempt) {
   session.sidecar = child;
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
@@ -382,16 +482,29 @@ function attachSidecar(session, child, command) {
   });
   child.on('error', (error) => {
     session.logger.write('sidecar_spawn_error', { command, error: error.message });
-    sendToPage(session, { event: 'error', error: error.message });
+    if (attempt === session.startupAttempt && !session.startupComplete) {
+      reportStartupFailure(session, 'sidecar_spawn_failed', error.message);
+    } else {
+      sendToPage(session, { event: 'service_failure', reason: 'sidecar_spawn_failed', detail: error.message });
+    }
   });
   child.on('close', (code, signal) => {
     session.logger.write('sidecar_exit', { code, signal });
     rejectPending(session, `Sidecar exited (${code ?? signal ?? 'unknown'}).`);
     sendToPage(session, { event: 'exit', code, signal });
+    if (attempt !== session.startupAttempt || session.closed) return;
+    const detail = `The processing service exited before it was ready (code ${code ?? signal ?? 'unknown'}).`;
+    if (!session.startupComplete) {
+      reportStartupFailure(session, 'sidecar_exit', detail);
+    } else {
+      session.startupComplete = false;
+      session.startupFailure = null;
+      reportStartupFailure(session, 'sidecar_exit', 'The processing service stopped unexpectedly.');
+    }
   });
 }
 
-function startSidecar(session) {
+function startSidecar(session, attempt) {
   const dataDir = dataDirectory();
   fs.mkdirSync(dataDir, { recursive: true });
 
@@ -433,25 +546,61 @@ function startSidecar(session) {
     windowsHide: true,
     shell: false
   });
-  attachSidecar(session, child, command);
+  attachSidecar(session, child, command, attempt);
 }
 
-async function bootstrap(session) {
-  if (session.bootstrapped || session.closed) return;
+async function bootstrap(session, attempt) {
+  if (session.bootstrapped || session.closed || attempt !== session.startupAttempt) return;
   session.bootstrapped = true;
   try {
     const health = await sendCommand(session, 'health_check');
-    if (!health.healthy) throw new Error(health.error || 'The packaged LecturePack engine failed health_check.');
+    if (attempt !== session.startupAttempt) return;
+    session.latestHealth = health;
+    if (health.startup_ok !== true) {
+      const failedCheck = Array.isArray(health.checks)
+        ? health.checks.find((check) => check && check.fatal_at_startup && check.ok !== true)
+        : null;
+      reportStartupFailure(
+        session,
+        'health_check_failed',
+        failedCheck ? failedCheck.detail : (health.error || 'The packaged LecturePack engine failed its startup health check.'),
+        { checks: health.checks, failedCheck }
+      );
+      return;
+    }
     const listed = await sendCommand(session, 'list_jobs');
+    if (attempt !== session.startupAttempt) return;
     const jobs = Array.isArray(listed.jobs) ? listed.jobs : [];
-    if (!jobs.length) return;
+    if (!jobs.length) {
+      completeStartup(session);
+      sendToPage(session, {
+        event: 'bootstrap_complete',
+        bootstrap_pending: false,
+        runtime_health_state: 'HEALTHY',
+        setup_acknowledged: true,
+        healthy: true,
+        checklist: health.checks || []
+      });
+      return;
+    }
     // The sidecar returns newest-first. Restore the newest completed job when
     // possible; interrupted/running jobs remain visible for an explicit retry.
     const preferred = jobs.find((job) => job.status === 'done') || jobs[0];
     await restoreJob(session, preferred);
+    if (attempt !== session.startupAttempt) return;
+    completeStartup(session);
+    sendToPage(session, {
+      event: 'bootstrap_complete',
+      bootstrap_pending: false,
+      runtime_health_state: 'HEALTHY',
+      setup_acknowledged: true,
+      healthy: true,
+      checklist: health.checks || []
+    });
   } catch (error) {
+    if (attempt !== session.startupAttempt) return;
     session.logger.write('bootstrap_failed', { error: error.message });
-    sendToPage(session, { event: 'error', kind: 'bootstrap', error: error.message });
+    reportStartupFailure(session, 'bootstrap_failed', error.message);
   }
 }
 
@@ -527,7 +676,48 @@ function testDesktopNotification() {
   }
 }
 
+async function startStartupAttempt(session) {
+  const previous = session.sidecar;
+  session.startupAttempt += 1;
+  const attempt = session.startupAttempt;
+  clearStartupDeadline(session);
+  session.startupStartedAt = Date.now();
+  session.startupComplete = false;
+  session.startupFailure = null;
+  session.latestHealth = null;
+  session.bootstrapped = false;
+  session.sidecarBuffer = '';
+  rejectPending(session, 'A new startup attempt began.');
+  if (previous && previous.exitCode === null) {
+    terminateProcessTree(previous, session.logger);
+    await waitForExit(previous, 2000);
+  }
+  session.sidecar = null;
+  armStartupDeadline(session, attempt);
+  try {
+    startSidecar(session, attempt);
+    return { ok: true, attempt };
+  } catch (error) {
+    reportStartupFailure(
+      session,
+      /not found|missing/i.test(error.message) ? 'sidecar_missing' : 'sidecar_start_failed',
+      error.message
+    );
+    return { ok: false, attempt, error: error.message };
+  }
+}
+
+async function openLogsFolder(session) {
+  const target = session.logger.resultDir;
+  const error = await shell.openPath(target);
+  if (error) throw new Error(error);
+  return { ok: true, path: target };
+}
+
 async function handleCommand(session, command, payload) {
+  if (command === 'retry_startup') return startStartupAttempt(session);
+  if (command === 'open_logs') return openLogsFolder(session);
+  if (command === 'get_startup_diagnostics') return startupDiagnostics(session);
   if (command === 'browse_video') return browseVideo(session);
   if (command === 'import_video' && !payload.bundled_demo && typeof payload.path === 'string' && payload.path) {
     return importLocalVideo(session, payload.path, payload);
@@ -578,6 +768,7 @@ async function stopSession(session) {
   if (session.stopPromise) return session.stopPromise;
   session.stopPromise = (async () => {
     session.closed = true;
+    clearStartupDeadline(session);
     rejectPending(session, 'Electron session closed.');
     const child = session.sidecar;
     if (child && child.exitCode === null) {
@@ -656,6 +847,13 @@ function createProductionWindow() {
     pending: new Map(),
     activeJobId: '',
     bootstrapped: false,
+    startupAttempt: 0,
+    startupStartedAt: 0,
+    startupDeadlineTimer: null,
+    startupComplete: false,
+    startupFailure: null,
+    lastStartupError: null,
+    latestHealth: null,
     closed: false,
     dataDir: ''
   };
@@ -682,12 +880,7 @@ function createProductionWindow() {
     session.pageReady = true;
     logger.write('page_ready', { ui_dir: uiDir });
     flushPageMessages(session);
-    try {
-      startSidecar(session);
-    } catch (error) {
-      logger.write('sidecar_start_failed', { error: error.message });
-      sendToPage(session, { event: 'error', kind: 'startup', error: error.message });
-    }
+    void startStartupAttempt(session);
   });
   window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     logger.write('page_load_failed', { errorCode, errorDescription, validatedURL });
