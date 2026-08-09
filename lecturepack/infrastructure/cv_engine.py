@@ -33,6 +33,28 @@ from lecturepack.infrastructure.video_reader import (
 PROBE_STEP_SEC = 0.25
 
 
+def write_image_file(path, image):
+    """Write an OpenCV image through Python's Unicode-safe file handling."""
+    extension = os.path.splitext(os.fspath(path))[1] or ".png"
+    encoded, buffer = cv2.imencode(extension, image)
+    if not encoded:
+        raise OSError(f"OpenCV could not encode slide image: {path}")
+    with open(path, "wb") as stream:
+        stream.write(buffer.tobytes())
+
+
+def read_image_file(path, flags=cv2.IMREAD_COLOR):
+    """Read an OpenCV image without relying on narrow Windows path APIs."""
+    try:
+        with open(path, "rb") as stream:
+            payload = np.frombuffer(stream.read(), dtype=np.uint8)
+    except OSError:
+        return None
+    if not payload.size:
+        return None
+    return cv2.imdecode(payload, flags)
+
+
 def compute_dhash(img, hash_size=8):
     """Computes a difference hash (dHash) for an image."""
     resized = cv2.resize(img, (hash_size + 1, hash_size), interpolation=cv2.INTER_AREA)
@@ -565,7 +587,7 @@ class SlideDetectorWorker(QThread):
                     continue
                 final_cropped = native[cy:cy + ch, cx:cx + cw]
                 img_path = os.path.join(candidates_dir, cand["image_filename"])
-                cv2.imwrite(img_path, final_cropped)
+                write_image_file(img_path, final_cropped)
 
         self.status_message.emit(
             f"Slide detection completed. Detected {len(dedup_candidates)} slides.")
@@ -906,7 +928,7 @@ class SlideDetectorWorker(QThread):
                         timestamp_ms = int(stable_t * 1000)
                         img_filename = f"slide_{stable_frame_idx}_{timestamp_ms}.png"
                         img_path = os.path.join(candidates_dir, img_filename)
-                        cv2.imwrite(img_path, final_cropped)
+                        write_image_file(img_path, final_cropped)
 
                         candidate_info = {
                             "frame_number": stable_frame_idx,
@@ -956,8 +978,8 @@ class SlideDetectorWorker(QThread):
                 img_p1 = os.path.join(candidates_dir, last_kept["image_filename"])
                 img_p2 = os.path.join(candidates_dir, cand["image_filename"])
 
-                im1 = cv2.imread(img_p1, cv2.IMREAD_GRAYSCALE)
-                im2 = cv2.imread(img_p2, cv2.IMREAD_GRAYSCALE)
+                im1 = read_image_file(img_p1, cv2.IMREAD_GRAYSCALE)
+                im2 = read_image_file(img_p2, cv2.IMREAD_GRAYSCALE)
 
                 if im1 is not None and im2 is not None:
                     im1_r = cv2.resize(im1, (compare_w, compare_h), interpolation=cv2.INTER_AREA)

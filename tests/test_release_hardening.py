@@ -178,3 +178,21 @@ def test_clean_machine_validator_has_no_development_runtime_dependency():
     assert "python -m" not in validator.lower()
     assert "node.exe" in validator  # presence is recorded, never required to run the gate
     assert "git.exe" not in validator
+
+
+def test_slide_image_io_supports_unicode_windows_paths(tmp_path):
+    import numpy as np
+
+    from lecturepack.infrastructure.cv_engine import read_image_file, write_image_file
+
+    image_path = tmp_path / "profile Ω 漢" / "slide_1.png"
+    image_path.parent.mkdir()
+    expected = np.zeros((12, 16, 3), dtype=np.uint8)
+    expected[:, :, 1] = 173
+
+    write_image_file(image_path, expected)
+    actual = read_image_file(image_path)
+
+    assert image_path.stat().st_size > 0
+    assert actual is not None
+    assert np.array_equal(actual, expected)

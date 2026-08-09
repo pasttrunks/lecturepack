@@ -9,6 +9,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$KitRoot = [IO.Path]::GetFullPath($KitRoot)
+$ResultsDir = [IO.Path]::GetFullPath($ResultsDir)
 $script:SidecarProcess = $null
 $script:SidecarMessages = New-Object System.Collections.ArrayList
 $script:RequestNumber = 0
@@ -262,6 +264,8 @@ function Invoke-Acceptance {
     $installMs = [int](((Get-Date) - $installStarted).TotalMilliseconds)
     if ($installProcess.ExitCode -ne 0) { throw "Installer exited $($installProcess.ExitCode)" }
     $candidate = Find-CandidateRoot $installDir
+    $installedMedia = Join-Path $candidate 'resources\assets\demo-lecture.mp4'
+    if (-not (Test-Path -LiteralPath $installedMedia -PathType Leaf)) { throw 'Installed deterministic demo media is missing' }
     $lecturePackVersion = (Get-Item (Join-Path $candidate 'LecturePack.exe')).VersionInfo.ProductVersion
     $systemEvidence = Get-SystemEvidence
     $appLocalMsvcp = Join-Path $candidate 'resources\LecturePackSidecar\_internal\msvcp140.dll'
@@ -270,22 +274,29 @@ function Invoke-Acceptance {
     $selfTest = Invoke-PackagedSelfTest $candidate $dataDir
     if (-not $selfTest.result -or -not $selfTest.result.passed) { throw 'Installed packaged self-test failed' }
 
-    Start-SidecarSession $candidate $dataDir $media
+    Start-SidecarSession $candidate $dataDir $installedMedia
     [void](Wait-SidecarEvent 'ready' 60)
     $health = Invoke-SidecarRequest 'health_check'
-    $imported = Invoke-SidecarRequest 'import_video' @{ path = $media; bundled_demo = $true }
+    $imported = Invoke-SidecarRequest 'import_video' @{ path = $installedMedia; bundled_demo = $true }
     $jobId = [string]$imported.job_id
     [void](Invoke-SidecarRequest 'start_job' @{ job_id = $jobId; mode = 'study'; auto_export = $true })
     [void](Wait-SidecarEvent 'job_completed' $JobTimeoutSeconds)
     $slides = Invoke-SidecarRequest 'get_slides' @{ job_id = $jobId }
     $transcript = Invoke-SidecarRequest 'get_transcript' @{ job_id = $jobId }
+    for ($index = $script:SidecarMessages.Count - 1; $index -ge 0; $index--) {
+        if ($script:SidecarMessages[$index].event -eq 'export_done') {
+            $script:SidecarMessages.RemoveAt($index)
+        }
+    }
+    [void](Invoke-SidecarRequest 'export' @{ job_id = $jobId })
+    [void](Wait-SidecarEvent 'export_done' 60)
     $exportDir = Join-Path $dataDir ('jobs\' + $jobId + '\exports')
     $exportFiles = @(Get-ChildItem -LiteralPath $exportDir -Recurse -File -ErrorAction SilentlyContinue)
     [void](Invoke-SidecarRequest 'shutdown')
     $script:SidecarProcess.WaitForExit(15000) | Out-Null
     $sidecarExit = $script:SidecarProcess.ExitCode
 
-    $host = Invoke-HostLaunch $candidate $dataDir (Join-Path $ResultsDir 'host-logs')
+    $hostEvidence = Invoke-HostLaunch $candidate $dataDir (Join-Path $ResultsDir 'host-logs')
     Start-Sleep -Seconds 1
     $orphans = @(Get-NewLecturePackProcesses $before)
     $studyData = Join-Path $exportDir 'study-data.json'
@@ -311,9 +322,9 @@ function Invoke-Acceptance {
         real_job_result = [ordered]@{ job_id = $jobId; completed = $true; slides = @($slides.slides).Count; transcript_segments = @($transcript.transcript.blocks).Count }
         study_result = [ordered]@{ study_data_exists = (Test-Path -LiteralPath $studyData); rust_core = (Get-HealthCheck $selfTest 'study_core').ok }
         export_result = [ordered]@{ directory = $exportDir; file_count = $exportFiles.Count; files = @($exportFiles | ForEach-Object { $_.Name }) }
-        shutdown_result = [ordered]@{ sidecar_exit_code = $sidecarExit; host = $host }
+        shutdown_result = [ordered]@{ sidecar_exit_code = $sidecarExit; host = $hostEvidence }
         orphan_process_result = $orphans
-        passed = [bool]($selfTest.result.passed -and $health.startup_ok -and $host.startup_complete -and $host.restore_passed -and $sidecarExit -eq 0 -and $exportFiles.Count -ge 1 -and $orphans.Count -eq 0)
+        passed = [bool]($selfTest.result.passed -and $health.startup_ok -and $hostEvidence.startup_complete -and $hostEvidence.restore_passed -and $sidecarExit -eq 0 -and (Test-Path -LiteralPath $studyData) -and $exportFiles.Count -eq 13 -and $orphans.Count -eq 0)
     }
     Write-ValidationResult $result 'clean-machine-result'
     if (-not $result.passed) { exit 1 }
