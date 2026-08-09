@@ -205,6 +205,23 @@ function Wait-HostEvidence([string]$LogDir, [string]$Event, [int]$TimeoutSeconds
     return $false
 }
 
+function Wait-HostOutcome([string]$LogDir, [int]$TimeoutSeconds) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        foreach ($file in (Get-ChildItem -LiteralPath $LogDir -Filter 'production-*.jsonl' -ErrorAction SilentlyContinue)) {
+            $content = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue
+            if ($content.Contains('"event":"startup_complete"')) {
+                return [ordered]@{ startup_complete = $true; startup_failure = $false }
+            }
+            if ($content.Contains('"event":"startup_terminal_failure"')) {
+                return [ordered]@{ startup_complete = $false; startup_failure = $true }
+            }
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    return [ordered]@{ startup_complete = $false; startup_failure = $false }
+}
+
 function Invoke-HostLaunch([string]$Candidate, [string]$DataPath, [string]$LogDir) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
     $exe = Join-Path $Candidate 'LecturePack.exe'
@@ -213,17 +230,16 @@ function Invoke-HostLaunch([string]$Candidate, [string]$DataPath, [string]$LogDi
         '--results', (Quote-NativeArgument $LogDir),
         '--data-dir', (Quote-NativeArgument $DataPath)
     ) -PassThru
-    $complete = Wait-HostEvidence $LogDir 'startup_complete' 30
-    $failed = Wait-HostEvidence $LogDir 'startup_terminal_failure' 1
-    $restored = Wait-HostEvidence $LogDir 'job_restored' 2
+    $outcome = Wait-HostOutcome $LogDir 30
+    $restored = if ($outcome.startup_complete) { Wait-HostEvidence $LogDir 'job_restored' 2 } else { $false }
     try {
         $process.Refresh()
         if (-not $process.CloseMainWindow()) { Stop-Process -Id $process.Id -ErrorAction SilentlyContinue }
         $process.WaitForExit(10000) | Out-Null
     } catch { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
     return [ordered]@{
-        startup_complete = $complete
-        startup_failure = $failed
+        startup_complete = $outcome.startup_complete
+        startup_failure = $outcome.startup_failure
         restore_passed = $restored
         elapsed_ms = [int](((Get-Date) - $started).TotalMilliseconds)
     }
