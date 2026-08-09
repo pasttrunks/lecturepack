@@ -79,6 +79,63 @@ DEFERRED remain outside this handoff.
 
 ---
 
+## Desktop QoL polish pass — 2026-08-09
+
+**Branch:** `sol/qol2.0`
+**Base HEAD:** `655975f9deccd557ae511a24b8f06ce0c0865c1e`
+
+### Completed
+
+- Conservative display-title cleanup now applies at normal `Job` creation;
+  exact source path/filename remain unchanged, and manifest-backed rename is
+  available inline and from lecture context menus.
+- The header title opens the recent/current lecture switcher and continues to
+  use the existing viewed-job state independently from the processing slot.
+- The global processing strip shows authoritative percent, a guarded smoothed
+  ETA, and queued count; Process navigation shows the active/waiting workload.
+- State-aware renderer context menus reuse existing navigation, queue, retry,
+  cancel, export, reveal, rename, and delete commands.
+- Electron restores safe visible window bounds/maximized state. Existing
+  per-job resume state is paired with the selected lecture/main screen and
+  explicit navigation retains priority.
+- Multi-line URL input queues sequential background transfers around the
+  existing `MediaFetcher`. The compact Downloads panel supports collapse,
+  active cancel, waiting removal, retry, details, and clearing completed rows;
+  successful transfers enter the unchanged normal import path.
+
+### Evidence
+
+- JS validation: `npm run validate` passed.
+- Focused desktop/bridge/queue/import set: `108 passed`.
+- Final full-suite run: `1303 passed, 1 skipped, 2 failed`. Both failures are
+  legacy runtime-fixture gates: the Electron onedir intentionally does not have
+  legacy-root `bin/ffmpeg.exe` or `smoke/runtime-smoke.wav`. All product and QoL
+  tests passed.
+- Electron packaged rebuild succeeded. Portable ZIP and hashes are under
+  `C:\LecturePackScratch\builds\desktop-qol-pass`.
+- Packaged acceptance: PASS for launch, sidecar/runtime readiness, processing,
+  slides/transcript, 13 exports, restart restore, renderer/bridge errors, and
+  orphan processes. Evidence:
+  `C:\LecturePackScratch\results\desktop-qol-pass\acceptance-result.json`.
+- Packaged UI check used
+  `C:\LecturePackScratch\data\desktop-qol-pass-acceptance`: ugly local filename
+  cleaned while source remained visible; rename survived restart; header
+  switcher selected another lecture while its row showed `Processing 86%`;
+  maximized bounds and Transcript screen restored after restart.
+- Real batch check used two license-unrestricted Samplelib MP4 links. The UI
+  confirmed `Download 2`, remained navigable on Transcript while the indicator
+  showed `70% · 1 waiting`, and both completed files became normal imported jobs.
+  Clean shutdown left no LecturePack, sidecar, yt-dlp, FFmpeg, or whisper process.
+
+### Known limitations
+
+- The legacy QtWebEngine visual-acceptance helper cannot attach its DevTools
+  port to the Electron candidate; the Electron packaged acceptance gate passed.
+- Cancel/retry is covered by focused regression tests but was not manually
+  timed against the fast public sample transfers.
+
+---
+
 ## QOL/Productivity stabilization re-audit — 2026-08-08
 
 **Branch:** `kimi/qol-productivity-pass`

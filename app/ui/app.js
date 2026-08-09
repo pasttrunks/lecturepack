@@ -1133,11 +1133,11 @@
       _jobBtn('group', j.id, TAG_SVG, 'Set group') + _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
     var body;
     if (j.status === 'running') {
-      body = '<div style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(j.name) + '</div>' +
+      body = '<div data-job-title title="Double-click to rename" style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(j.name) + '</div>' +
         '<div style="height:8px;border-radius:5px;background:var(--sunk);overflow:hidden;margin-bottom:7px"><div data-progress style="width:' + (j.pct || 0) + '%;height:100%;background:var(--orange);background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.3) 6px,rgba(255,255,255,.3) 13px);animation:lpbar 1s linear infinite"></div></div>' +
         '<div data-progress-label style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(friendlyProcessingLabel(j.stage)) + ' · ' + (j.pct || 0) + '% · ' + esc(j.eta || '') + '</div>';
     } else {
-      body = '<div style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(j.name) + '</div>' +
+      body = '<div data-job-title title="Double-click to rename" style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(j.name) + '</div>' +
         '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted);line-height:1.7">' + esc(j.file || '') + '<br>' + esc(j.meta || '') + '</div>';
       if (ready) {
         body += '<div style="font:500 11px \'JetBrains Mono\';color:var(--blue-ink);margin-top:6px">' + esc(_optionsLabel(j)) + '</div>';
@@ -1182,7 +1182,13 @@
      paste -> confirm what was found -> transfer with progress/cancel.
      The backend hands the finished file to the normal import path, so the
      existing New-job overlay takes over from there. */
-  var mediaLink = { available: false, version: '', progressModal: null, done: null };
+  var mediaLink = { available: false, version: '', progressModal: null, done: null, downloads: [] };
+
+  function mediaUrls(text) {
+    var seen = {};
+    return String(text || '').split(/\r?\n/).map(function (url) { return url.trim(); })
+      .filter(function (url) { if (!url || seen[url]) return false; seen[url] = true; return true; });
+  }
 
   function fmtDuration(sec) {
     sec = Math.max(0, parseInt(sec, 10) || 0);
@@ -1204,8 +1210,8 @@
     if (!lpBridge.connected()) { toast('Preview mode — link import needs the app'); return; }
     var inp = 'width:100%;box-sizing:border-box;font:500 13px \'JetBrains Mono\';padding:10px 12px;border:2px solid var(--border);border-radius:8px;background:var(--sunk);color:var(--ink)';
     var body =
-      '<label for="link-url" style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:6px">Video link</label>' +
-      '<input id="link-url" type="url" spellcheck="false" placeholder="https://…" style="' + inp + '">' +
+      '<label for="link-url" style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:6px">Video links</label>' +
+      '<textarea id="link-url" rows="5" spellcheck="false" placeholder="One https:// link per line" style="' + inp + ';resize:vertical"></textarea>' +
       '<div id="link-msg" role="status" style="min-height:18px;font-size:12px;color:var(--muted);margin-top:9px"></div>' +
       '<div style="font-size:12px;line-height:1.5;color:var(--muted);margin-top:4px">Downloads the recording to your computer so it can be processed here. Only fetch lectures you have the right to download.</div>';
     var m = lpModal({
@@ -1214,12 +1220,11 @@
       actions: [
         { label: 'Cancel' },
         { label: 'Check link', primary: true, onClick: function () {
-          var v = ($('link-url') || {}).value || '';
-          v = v.trim();
-          if (!/^https?:\/\/.+/i.test(v)) { setLinkMsg('Enter a full http(s) link.', true); return true; }
-          setLinkMsg('Looking it up…');
-          mediaLink.pending = v;
-          lpBridge.call('probe_media_url', v);
+          var urls = mediaUrls(($('link-url') || {}).value || '');
+          if (!urls.length || urls.some(function (url) { return !/^https?:\/\/.+/i.test(url); })) { setLinkMsg('Enter one full http(s) link per line.', true); return true; }
+          setLinkMsg('Looking up ' + urls.length + (urls.length === 1 ? ' video…' : ' videos…'));
+          mediaLink.pending = urls;
+          lpBridge.call('probe_media_url', { urls: urls });
           return true;                 // keep the dialog open while we wait
         } }
       ]
@@ -1236,20 +1241,24 @@
   }
 
   function linkConfirmDialog(info) {
-    var meta = [fmtDuration(info.duration), info.uploader, info.extractor]
-      .filter(Boolean).join(' · ');
-    var warn = info.is_live
-      ? '<div style="font-size:12px;color:var(--orange-ink);margin-top:9px">This looks like a live stream — only the portion already broadcast can be fetched.</div>'
-      : '';
+    var items = Array.isArray(info.items) ? info.items : [info];
+    var ready = items.filter(function (item) { return item && item.ok !== false; });
+    var failed = items.filter(function (item) { return item && item.ok === false; });
+    var rows = ready.map(function (item) {
+      return '<div style="padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;background:var(--sunk)"><div style="font-weight:650">' + esc(item.title || 'Untitled video') + '</div><div style="font:500 10px \'JetBrains Mono\';color:var(--muted);margin-top:3px">' + esc(fmtDuration(item.duration)) + '</div></div>';
+    }).join('');
+    if (failed.length) rows += '<div style="font-size:12px;color:var(--red)">' + failed.length + ' link' + (failed.length === 1 ? '' : 's') + ' could not be read and will be skipped.</div>';
     lpModal({
-      title: 'Import this recording?',
-      bodyHtml: '<div style="font-weight:700;font-size:15px;margin-bottom:5px;word-break:break-word">' + esc(info.title || 'Untitled') + '</div>' +
-        '<div style="font:500 12px \'JetBrains Mono\';color:var(--muted)">' + esc(meta) + '</div>' + warn,
+      title: ready.length + (ready.length === 1 ? ' video' : ' videos'),
+      bodyHtml: '<div style="display:flex;flex-direction:column;gap:7px;max-height:300px;overflow:auto">' + rows + '</div>',
       actions: [
         { label: 'Cancel' },
-        { label: 'Download', primary: true, onClick: function () {
-          linkProgressDialog(info.title || '');
-          lpBridge.call('import_media_url', info.webpage_url || mediaLink.pending || '', info.title || '');
+        { label: 'Download ' + ready.length, primary: true, onClick: function () {
+          if (!ready.length) return;
+          lpBridge.call('import_media_url', { items: ready.map(function (item) {
+            return { url: item.webpage_url || item.url, title: item.title || '' };
+          }) });
+          toast(ready.length + (ready.length === 1 ? ' download started' : ' downloads queued'));
         } }
       ]
     });
@@ -1278,6 +1287,36 @@
     if (p.speed) bits.push(fmtBytes(p.speed) + '/s');
     if (p.eta) bits.push('~' + fmtDuration(p.eta) + ' left');
     stat.textContent = p.status === 'finished' ? 'finishing up…' : bits.join(' · ');
+  }
+
+  function renderDownloads() {
+    var items = mediaLink.downloads || [];
+    var indicator = $('downloads-indicator'), panel = $('downloads-panel'), list = $('downloads-list');
+    if (!indicator || !panel || !list) return;
+    var active = items.filter(function (item) { return item.status === 'downloading'; })[0];
+    var waiting = items.filter(function (item) { return item.status === 'waiting'; }).length;
+    var unfinished = items.filter(function (item) { return item.status === 'downloading' || item.status === 'waiting'; }).length;
+    indicator.hidden = items.length === 0;
+    $('downloads-indicator-label').textContent = active
+      ? ('Downloading ' + (active.title || 'lecture') + ' · ' + (active.pct || 0) + '%' + (waiting ? ' · ' + waiting + ' waiting' : ''))
+      : (unfinished ? ('↓ ' + unfinished + ' downloads') : 'Downloads');
+    if (!items.length) { panel.hidden = true; return; }
+    list.innerHTML = items.map(function (item) {
+      var status = item.status || 'waiting';
+      var progress = status === 'downloading'
+        ? '<div style="height:6px;border-radius:4px;background:var(--sunk);overflow:hidden;margin:7px 0 4px"><div class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(' + Math.max(0, Math.min(1, (item.pct || 0) / 100)) + ')"></div></div>'
+        : '';
+      var meta = status === 'downloading'
+        ? ((item.pct || 0) + '%' + (item.eta ? ' · ~' + fmtDuration(item.eta) + ' left' : ''))
+        : status.charAt(0).toUpperCase() + status.slice(1);
+      var action = status === 'downloading'
+        ? '<button data-download-act="cancel" data-download-id="' + esc(item.id) + '">Cancel</button>'
+        : status === 'waiting'
+          ? '<button data-download-act="remove" data-download-id="' + esc(item.id) + '">Remove</button>'
+          : status === 'failed' || status === 'cancelled'
+            ? '<button data-download-act="retry" data-download-id="' + esc(item.id) + '">Retry</button>' : '';
+      return '<div style="padding:10px;border-radius:9px;background:var(--panel2);margin-bottom:6px"><div style="display:flex;gap:9px;align-items:start"><div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(item.title || 'Lecture download') + '</div>' + progress + '<div style="font:500 10px \'JetBrains Mono\';color:' + (status === 'failed' ? 'var(--red)' : 'var(--muted)') + '">' + esc(meta) + '</div>' + (item.error ? '<details style="font-size:11px;color:var(--muted);margin-top:5px"><summary>Details</summary><div style="overflow-wrap:anywhere">' + esc(item.error) + '</div></details>' : '') + '</div><div class="lp-download-action">' + action + '</div></div></div>';
+    }).join('');
   }
 
   // "YYYY-MM-DDTHH:MM" for *local* time -- toISOString() would return UTC and
@@ -1371,6 +1410,109 @@
   function _jobById(id) {
     return (LP.data.jobs || []).filter(function (j) { return j && j.id === id; })[0] || null;
   }
+  function lectureStatusText(job) {
+    if (!job) return '';
+    if (job.status === 'running') return 'Processing ' + (job.pct || 0) + '%';
+    if (job.status === 'queued') return _jobInQueue(job.id) ? 'Queued' : 'Ready';
+    if (job.status === 'done') return 'Complete';
+    if (job.status === 'failed') return 'Failed';
+    if (job.status === 'paused') return 'Paused';
+    if (job.status === 'interrupted') return 'Interrupted';
+    return job.status || '';
+  }
+  function sensibleJobScreen(job) {
+    if (!job || job.status !== 'done') return 'process';
+    var saved = resumeStore && resumeStore.load ? resumeStore.load(job.id) : null;
+    return saved && /^(review|transcript|study|exports)$/.test(saved.screen) ? saved.screen : 'review';
+  }
+  function renameJobDialog(job) {
+    if (!job || !job.id) return;
+    lpModal({
+      title: 'Rename lecture',
+      bodyHtml: '<label for="lp-rename-input" style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:7px">Display title</label>' +
+        '<input id="lp-rename-input" type="text" maxlength="180" value="' + esc(job.name || '') + '" style="width:100%;box-sizing:border-box;font:600 14px \'Space Grotesk\';background:var(--sunk);border:2px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--ink)">',
+      actions: [{ label: 'Cancel' }, { label: 'Rename', primary: true, onClick: function () {
+        var input = $('lp-rename-input');
+        var title = (input && input.value || '').trim();
+        if (!title) { toast('Enter a lecture title.'); return true; }
+        return lpBridge.call('rename_job', job.id, title).then(function (result) {
+          if (!result || result.ok === false) return;
+          job.name = result.title || title;
+          if (LP.state.jobId === job.id) setActiveJob(job.id, job.name);
+          renderJobs(); renderJobSwitcher(); renderLectureSwitcher();
+        });
+      } }]
+    });
+    setTimeout(function () { var input = $('lp-rename-input'); if (input) { input.focus(); input.select(); } }, 30);
+  }
+  function renderLectureSwitcher() {
+    var panel = $('lecture-switcher'), toggle = $('lecture-switcher-toggle');
+    if (!panel || !toggle) return;
+    toggle.disabled = !(LP.data.jobs || []).length;
+    $('lecture-switcher-arrow').hidden = toggle.disabled;
+    panel.innerHTML = (LP.data.jobs || []).slice(0, 12).map(function (job) {
+      return '<button type="button" role="option" data-switch-job="' + esc(job.id) + '" aria-selected="' + (job.id === LP.state.jobId ? 'true' : 'false') + '" style="width:100%;display:flex;align-items:center;gap:10px;padding:8px;background:' + (job.id === LP.state.jobId ? 'var(--panel2)' : 'transparent') + ';border:0;border-radius:8px;color:var(--ink);cursor:pointer;text-align:left">' +
+        '<span style="width:54px;height:34px;flex:none;border-radius:6px;overflow:hidden;background:var(--sunk);position:relative">' + posterHtml(job) + '</span>' +
+        '<span style="flex:1;min-width:0;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(job.name || 'Lecture') + '</span>' +
+        '<span style="font:600 10px \'JetBrains Mono\';color:' + (job.status === 'failed' ? 'var(--red)' : job.status === 'running' ? 'var(--orange-ink)' : 'var(--muted)') + ';white-space:nowrap">' + esc(lectureStatusText(job)) + '</span></button>';
+    }).join('');
+  }
+  function hideLectureContextMenu() {
+    var menu = $('lecture-context-menu');
+    if (menu) menu.hidden = true;
+  }
+  function lectureContextActions(job) {
+    var actions = [];
+    function add(label, run, danger) { actions.push({ label: label, run: run, danger: !!danger }); }
+    function divider() { actions.push({ divider: true }); }
+    if (job.status === 'done') {
+      add('Open', function () { selectJob(job.id, { screen: sensibleJobScreen(job) }); });
+      add('Open Review', function () { selectJob(job.id, { screen: 'review' }); });
+      add('Open Transcript', function () { selectJob(job.id, { screen: 'transcript' }); });
+      add('Open Study', function () { selectJob(job.id, { screen: 'study' }); });
+      add('Export', function () { selectJob(job.id, { screen: 'exports' }); });
+      divider();
+      add('Rename', function () { renameJobDialog(job); });
+      add('Reveal in Explorer', function () { lpBridge.call('open_job_folder', job.id); });
+      divider();
+      add('Remove from Library', function () { confirmDeleteJob(job); }, true);
+    } else if (job.status === 'running' || job.status === 'paused') {
+      add('Open Process', function () { selectJob(job.id, { screen: 'process' }); });
+      add('Cancel Processing', function () { if (job.id === LP.state.activeJobId) lpBridge.call('cancel_job'); }, true);
+      divider(); add('Rename', function () { renameJobDialog(job); });
+      add('Reveal in Explorer', function () { lpBridge.call('open_job_folder', job.id); });
+    } else if (job.status === 'queued') {
+      add('Open Process', function () { selectJob(job.id, { screen: 'process' }); });
+      if (_jobInQueue(job.id)) {
+        var rows = (LP.data.queue && LP.data.queue.queue) || [];
+        var index = rows.map(function (row) { return row.id; }).indexOf(job.id);
+        add('Move Up', function () { if (index > 0) lpBridge.call('reorder_queue', job.id, index - 1); });
+        add('Move Down', function () { if (index >= 0 && index < rows.length - 1) lpBridge.call('reorder_queue', job.id, index + 1); });
+        add('Remove from Queue', function () { lpBridge.call('remove_from_queue', job.id); });
+      }
+      divider(); add('Rename', function () { renameJobDialog(job); });
+    } else {
+      add('Open Process', function () { selectJob(job.id, { screen: 'process' }); });
+      add('Retry', function () { selectJob(job.id, { screen: 'process' }); lpBridge.call('restart_job', job.id); });
+      add('View Error Details', function () { lpModal({ title: 'Processing error', bodyHtml: '<div style="white-space:pre-wrap;overflow-wrap:anywhere">' + esc(job.error || 'No technical details were saved for this failure.') + '</div>', actions: [{ label: 'Close', primary: true }] }); });
+      divider(); add('Rename', function () { renameJobDialog(job); });
+      add('Reveal in Explorer', function () { lpBridge.call('open_job_folder', job.id); });
+    }
+    return actions;
+  }
+  function showLectureContextMenu(job, x, y) {
+    var menu = $('lecture-context-menu');
+    if (!menu || !job) return;
+    var actions = lectureContextActions(job);
+    menu.innerHTML = actions.map(function (action, index) {
+      if (action.divider) return '<div style="height:1px;background:var(--line);margin:5px 3px"></div>';
+      return '<button type="button" role="menuitem" data-context-index="' + index + '" style="display:block;width:100%;padding:8px 10px;text-align:left;background:transparent;border:0;border-radius:6px;color:' + (action.danger ? 'var(--red)' : 'var(--ink)') + ';font:600 12px \'Space Grotesk\';cursor:pointer">' + esc(action.label) + '</button>';
+    }).join('');
+    menu._actions = actions;
+    menu.hidden = false;
+    menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 8) + 'px';
+    menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 8) + 'px';
+  }
   function _jobInQueue(id) {
     var q = (LP.data.queue && LP.data.queue.queue) || [];
     return q.some(function (r) { return r.id === id; });
@@ -1402,6 +1544,7 @@
   function selectJob(jobId, opts) {
     opts = opts || {};
     if (!jobId) return;
+    if (!appSessionRestored && !opts.silent && !opts.restoring) sessionNavigationExplicit = true;
     // Feature 4: when leaving the currently viewed job, persist its view state.
     if (LP.state.jobId && LP.state.jobId !== jobId) captureResumeState(LP.state.jobId);
     var entry = _jobById(jobId);
@@ -1416,6 +1559,7 @@
     }
     if (opts.screen) setScreen(opts.screen);
     renderJobSwitcher();
+    saveAppSession();
   }
 
   function selectAdjacentJob(dir) {
@@ -1448,6 +1592,17 @@
       '<button type="button" data-jdir="1" title="Next job" aria-label="Next job"' + (nextDisabled ? ' disabled' : '') +
       '><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>';
     Array.prototype.forEach.call(hosts, function (host) { host.innerHTML = html; });
+    renderLectureSwitcher();
+  }
+
+  function renderProcessWorkload() {
+    var badge = $('process-workload');
+    if (!badge) return;
+    var waiting = (LP.data.queue && LP.data.queue.queue || []).length;
+    var active = (LP.data.jobs || []).some(function (job) { return job && job.status === 'running'; }) ? 1 : 0;
+    var count = active + waiting;
+    badge.textContent = count;
+    badge.hidden = count === 0;
   }
 
   // Process screen banner for jobs that are not actively running: queued jobs
@@ -2717,6 +2872,7 @@
       else if (phaseNow === 'study' && name === 'exports') { guidedDemoFlow.next(); renderGuidedTour(); }
       else scheduleTourGeometry();
     }
+    if (typeof saveAppSession === 'function') saveAppSession();
   }
 
   function applyTheme(theme, persist) {
@@ -5437,7 +5593,10 @@
   function wire() {
     // nav
     Array.prototype.forEach.call(document.querySelectorAll('.lp-nav'), function (b) {
-      b.addEventListener('click', function () { setScreen(b.dataset.nav); });
+      b.addEventListener('click', function () {
+        if (!appSessionRestored) sessionNavigationExplicit = true;
+        setScreen(b.dataset.nav);
+      });
     });
     $('proc-sensitivity').addEventListener('click', function (e) {
       var button = e.target.closest('button[data-sens]');
@@ -5719,6 +5878,24 @@
       e.stopPropagation();
       linkImportDialog();
     });
+    $('downloads-indicator').addEventListener('click', function () {
+      var panel = $('downloads-panel');
+      panel.hidden = !panel.hidden;
+      this.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+    });
+    $('downloads-close').addEventListener('click', function () {
+      $('downloads-panel').hidden = true;
+      $('downloads-indicator').setAttribute('aria-expanded', 'false');
+    });
+    $('downloads-clear').addEventListener('click', function () { lpBridge.call('clear_media_downloads'); });
+    $('downloads-list').addEventListener('click', function (e) {
+      var button = e.target.closest('[data-download-act]');
+      if (!button) return;
+      var payload = { download_id: button.dataset.downloadId };
+      if (button.dataset.downloadAct === 'cancel') lpBridge.call('cancel_media_url', payload);
+      else if (button.dataset.downloadAct === 'remove') lpBridge.call('remove_media_download', payload);
+      else if (button.dataset.downloadAct === 'retry') lpBridge.call('retry_media_download', payload);
+    });
 
     // ---- Home multi-select ----
     $('btn-select-mode').addEventListener('click', function (e) {
@@ -5880,6 +6057,56 @@
       // round-trip. A completed lecture opens Review; anything else (queued,
       // running, failed, cancelled) opens Process with its final/live state.
       selectJob(jobId, { screen: cardJob && cardJob.status === 'done' ? 'review' : 'process' });
+    });
+    $('jobs-grid').addEventListener('dblclick', function (e) {
+      var title = e.target.closest('.lp-card[data-job] [data-job-title]');
+      if (!title) return;
+      var card = title.closest('.lp-card[data-job]');
+      var job = card && _jobById(card.dataset.job);
+      if (job) { e.preventDefault(); e.stopPropagation(); renameJobDialog(job); }
+    });
+    document.addEventListener('contextmenu', function (e) {
+      var owner = e.target && e.target.closest ? e.target.closest('[data-job], [data-switch-job], [data-queueid]') : null;
+      if (!owner) return;
+      var jobId = owner.dataset.job || owner.dataset.switchJob || owner.dataset.queueid;
+      var job = _jobById(jobId);
+      if (!job) return;
+      e.preventDefault();
+      showLectureContextMenu(job, e.clientX, e.clientY);
+    });
+    var contextMenu = $('lecture-context-menu');
+    if (contextMenu) contextMenu.addEventListener('click', function (e) {
+      var button = e.target.closest('[data-context-index]');
+      if (!button) return;
+      var action = contextMenu._actions && contextMenu._actions[Number(button.dataset.contextIndex)];
+      hideLectureContextMenu();
+      if (action && action.run) action.run();
+    });
+    var switchToggle = $('lecture-switcher-toggle');
+    if (switchToggle) switchToggle.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var panel = $('lecture-switcher');
+      if (!panel || switchToggle.disabled) return;
+      panel.hidden = !panel.hidden;
+      switchToggle.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+      if (!panel.hidden) renderLectureSwitcher();
+    });
+    var lectureSwitcher = $('lecture-switcher');
+    if (lectureSwitcher) lectureSwitcher.addEventListener('click', function (e) {
+      var row = e.target.closest('[data-switch-job]');
+      if (!row) return;
+      var job = _jobById(row.dataset.switchJob);
+      lectureSwitcher.hidden = true;
+      switchToggle.setAttribute('aria-expanded', 'false');
+      if (job) selectJob(job.id, { screen: sensibleJobScreen(job) });
+    });
+    document.addEventListener('click', function (e) {
+      hideLectureContextMenu();
+      var panel = $('lecture-switcher');
+      if (panel && !panel.hidden && !e.target.closest('.lp-breadcrumb')) {
+        panel.hidden = true;
+        if (switchToggle) switchToggle.setAttribute('aria-expanded', 'false');
+      }
     });
 
     // Processing queue controls (Run Now / reorder / remove).
@@ -6584,6 +6811,7 @@
         renderSelCount();
       }
       renderJobs();           // poster URLs are stable, so loaded ones stay cached
+      restoreAppSessionOnce();
       renderProcOptions();
       // Track the processing slot from the list truth: the running job is the
       // active one; a terminal active job has released the slot.
@@ -6618,11 +6846,13 @@
       // media_link_support; the CTA stays hidden only when the capability is
       // genuinely absent.
       if (btn) btn.hidden = !mediaLink.available;
+      if (mediaLink.available) lpBridge.call('get_media_downloads');
     });
 
     lpBridge.on('media_probe', function (json) {
       var info = parseBridgePayload(json || '{}', {});
-      if (!info.ok) {
+      var hasReady = Array.isArray(info.items) && info.items.some(function (item) { return item && item.ok; });
+      if (!info.ok && !hasReady) {
         // N-6: map yt-dlp's technical stderr to student copy; keep the raw
         // text on the tooltip as the optional details view.
         var probeFriendly = friendlyLinkError(info.error) || 'That link could not be read.';
@@ -6636,7 +6866,13 @@
     });
 
     lpBridge.on('media_progress', function (json) {
-      try { onMediaProgress(JSON.parse(json || '{}')); } catch (err) { /* ignore */ }
+      try { onMediaProgress(parseBridgePayload(json || '{}', {})); } catch (err) { /* ignore */ }
+    });
+
+    lpBridge.on('downloads_changed', function (json) {
+      var payload = parseBridgePayload(json || '{}', {});
+      mediaLink.downloads = Array.isArray(payload.downloads) ? payload.downloads : [];
+      renderDownloads();
     });
 
     lpBridge.on('media_done', function (json) {
@@ -6644,16 +6880,9 @@
       if (mediaLink.progressModal) { mediaLink.progressModal.close(); mediaLink.progressModal = null; }
       if (r.ok) toast('Downloaded ' + (r.name || 'the recording'));
       else if (r.cancelled) toast('Download cancelled');
-      else {
-        // N-6: friendly headline, technical yt-dlp text behind Details.
-        var doneFriendly = friendlyLinkError(r.error) || 'That download could not be completed. Try again.';
-        lpModal({
-          title: 'Download failed',
-          bodyHtml: esc(doneFriendly) +
-            (r.error ? '<details style="margin-top:10px"><summary style="cursor:pointer;font:600 11px \'JetBrains Mono\';color:var(--muted)">Details</summary><div style="font:500 11px \'JetBrains Mono\';color:var(--muted);margin-top:6px;overflow-wrap:anywhere">' + esc(r.error) + '</div></details>' : ''),
-          actions: [{ label: 'Close', primary: true }]
-        });
-      }
+      // Raw failure text stays in renderDownloads() behind its <details>
+      // disclosure; this terminal event only surfaces a non-blocking toast.
+      else toast(friendlyLinkError(r.error) || 'A download failed — open Downloads for details.');
     });
     lpBridge.on('job_deleted', function (json) {
       var d = parseBridgePayload(json, null);
@@ -6810,12 +7039,14 @@
           // The slot is released: a next queued job that starts is a NEW active
           // job and is allowed to auto-follow once.
           if (owner === autoSelectedActiveId) autoSelectedActiveId = '';
+          delete processingEta[owner];
         } else {
           var processingLabel = s.label === 'Processing' || /- \d+%$/.test(String(s.detail || ''));
           if (processingLabel) patch.status = 'running';
           var stage = stageFromStatusDetail(s.detail);
           if (stage) patch.stage = stage;
           if (s.pct !== undefined) patch.pct = s.pct;
+          recordProcessingEta(owner, patch.stage || listEntry.stage || '', patch.pct !== undefined ? patch.pct : listEntry.pct);
         }
         applyJobLive(owner, patch);
         updateJobCardDom(owner);
@@ -7306,12 +7537,35 @@
   }
 
   // ---- Feature 2: persistent processing strip ----
+  var processingEta = {};
+  function recordProcessingEta(jobId, stage, pct) {
+    pct = Number(pct);
+    if (!jobId || !isFinite(pct) || pct <= 0 || pct >= 100) return;
+    var now = Date.now();
+    var state = processingEta[jobId];
+    if (!state || pct < state.lastPct) state = processingEta[jobId] = { startedAt: now, lastPct: pct, seconds: 0 };
+    var elapsed = (now - state.startedAt) / 1000;
+    state.lastPct = Math.max(state.lastPct || 0, pct);
+    state.stage = stage || state.stage || '';
+    // The percentage remains the backend's authoritative overall progress.
+    // ETA is only a smoothed projection from elapsed time and that percentage.
+    if (state.lastPct < 8 || elapsed < 20) return;
+    var estimate = elapsed * (100 - state.lastPct) / state.lastPct;
+    if (!isFinite(estimate) || estimate < 20 || estimate > 12 * 3600) return;
+    state.seconds = state.seconds ? (state.seconds * .75 + estimate * .25) : estimate;
+  }
+  function etaLabel(job) {
+    var state = job && processingEta[job.id];
+    if (!state || !state.seconds || state.lastPct < 8) return '';
+    return '~' + Math.max(1, Math.round(state.seconds / 60)) + ' min left';
+  }
   function renderProcessingStrip() {
     var strip = $('proc-strip');
     if (!strip) return;
     var running = LP.data.jobs.filter(function (j) { return j && j.status === 'running'; })[0];
     if (!running) {
       strip.hidden = true;
+      renderProcessWorkload();
       return;
     }
     strip.hidden = false;
@@ -7319,9 +7573,14 @@
     var pct = running.pct || 0;
     setFill('proc-strip-bar', pct);
     var stage = running.stage || '';
-    $('proc-strip-meta').textContent = stage ? (stage + ' · ' + pct + '%') : (pct + '%');
+    var parts = [friendlyProcessingLabel(stage || 'Processing')];
+    if (pct > 0) parts.push(pct + '%');
+    var eta = etaLabel(running);
+    if (eta) parts.push(eta);
+    $('proc-strip-meta').textContent = parts.join(' · ');
     var waiting = (LP.data.queue && LP.data.queue.queue) ? LP.data.queue.queue.length : 0;
-    $('proc-strip-waiting').textContent = waiting > 0 ? (waiting + ' job' + (waiting === 1 ? '' : 's') + ' waiting') : '';
+    $('proc-strip-waiting').textContent = waiting > 0 ? (waiting + ' queued') : '';
+    renderProcessWorkload();
   }
 
   // ---- Feature 3: global transcript search ----
@@ -7424,6 +7683,35 @@
       }
     };
   })();
+  var appSessionStore = (function () {
+    var key = 'lecturepack.session.v1';
+    return {
+      load: function () { try { return JSON.parse(browserStorage().getItem(key) || '{}'); } catch (_) { return {}; } },
+      save: function (state) { try { browserStorage().setItem(key, JSON.stringify(state || {})); } catch (_) {} }
+    };
+  })();
+  var appSessionRestored = false;
+  var sessionNavigationExplicit = false;
+
+  function saveAppSession() {
+    if (!LP.state.jobId) return;
+    appSessionStore.save({ jobId: LP.state.jobId, screen: LP.state.screen || 'home' });
+  }
+
+  function restoreAppSessionOnce() {
+    if (appSessionRestored) return;
+    appSessionRestored = true;
+    if (sessionNavigationExplicit) return;
+    var saved = appSessionStore.load();
+    var job = saved.jobId && _jobById(saved.jobId);
+    if (!job) return;
+    // Mark the current processing id as already observed so the bootstrap
+    // active_job replay cannot overwrite the explicitly restored selection.
+    var running = (LP.data.jobs || []).filter(function (entry) { return entry && entry.status === 'running'; })[0];
+    if (running) autoSelectedActiveId = running.id;
+    var screen = /^(home|process|review|transcript|study|exports)$/.test(saved.screen) ? saved.screen : sensibleJobScreen(job);
+    selectJob(job.id, { screen: screen, restoring: true });
+  }
 
   function captureResumeState(jobId) {
     if (!jobId) return;
@@ -7435,6 +7723,7 @@
     if (transcriptEl) state.transcriptScroll = transcriptEl.scrollTop || 0;
     if (LP.data.slides && LP.data.slides.length) state.viewingSlide = LP.state.viewingSlide || 0;
     resumeStore.save(jobId, state);
+    saveAppSession();
   }
 
   function applyResumeState(jobId) {

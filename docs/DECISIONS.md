@@ -2,6 +2,45 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-36: Desktop QoL state stays on the existing job, queue, import, and resume paths
+
+**Date:** 2026-08-09
+**Status:** Implemented on `sol/qol2.0`
+
+**Context:** The desktop polish pass needed editable lecture names, faster
+lecture switching, a useful global progress readout, contextual actions,
+window/session restoration, and non-blocking multi-URL downloads. The product
+already had separate viewed-job and processing-job state, persisted job
+manifests, an authoritative queue/progress feed, per-job resume storage, an
+Electron host, and a yt-dlp-backed `MediaFetcher` that hands completed files to
+the normal import path.
+
+**Decision:**
+
+- Store the conservative imported display name in the existing manifest
+  `title`; retain the exact original path and filename in manifest `source`.
+  Rename continues through `electron_backend.rename_job`.
+- Keep `LP.state.jobId` as the viewed lecture and `activeJobId` as the processing
+  slot. The header switcher only calls the existing `view_job` flow.
+- Project ETA from elapsed time and authoritative backend percent, with a
+  minimum sample and smoothing. Queue badges read the existing queue snapshot.
+- Route renderer context-menu entries through the same selection, queue,
+  cancellation, retry, export, folder, rename, and delete commands already used
+  elsewhere.
+- Extend the existing per-job resume store with one small selected-job/screen
+  record. Persist Electron window bounds separately in the existing Electron
+  user-data directory and reject off-screen bounds before applying them.
+- Keep `MediaFetcher` as the only downloader. A thin, sequential in-memory list
+  supplies waiting/cancel/retry presentation while each completed file enters
+  the unchanged `import_video` path. The existing Electron process-tree shutdown
+  guard remains authoritative for child cleanup.
+
+**Alternatives considered:** A second selected-lecture store, synthetic progress
+timer, native-menu business-logic layer, new persistence service, downloader
+service, and general-purpose scheduler were rejected as duplicate architecture.
+Playlist expansion was not added because the current fetcher intentionally
+resolves one recording per URL; multi-line input provides explicit batch scope.
+
 ## AD-34: QOL batch actions are transactional, live progress has one authority, and Electron artifacts are explicit
 
 **Date:** 2026-08-08

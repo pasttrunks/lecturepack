@@ -14,6 +14,9 @@ body{width:100%;height:100vh;overflow-y:auto;background-color:var(--bg)}
 ::-webkit-scrollbar-thumb:hover{background:var(--blue);background-clip:padding-box;box-shadow:0 0 10px var(--blue)}
 ::-webkit-scrollbar-track{background:transparent}
 
+#lecture-switcher button:hover,#lecture-context-menu button:hover{background:var(--panel2)!important}
+.lp-download-action button{font:600 11px 'Space Grotesk';padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;background:var(--panel);color:var(--ink);cursor:pointer}
+
 a{color:var(--blue-ink);text-decoration:none;font-weight:600}
 a:hover{color:var(--orange)}
 [contenteditable]:focus{outline:2px solid var(--blue);outline-offset:2px;border-radius:3px}
