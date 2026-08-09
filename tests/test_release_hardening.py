@@ -43,6 +43,12 @@ def test_packaged_health_contract_has_stable_required_checks(tmp_path, monkeypat
     assert result["startup_ok"] is True
 
 
+def test_source_sidecar_health_uses_checked_in_smoke_asset():
+    sidecar = (ROOT / "electron-spike" / "python-sidecar.py").read_text(encoding="utf-8")
+    assert 'self.repo_root / "app" / "packaging" / "assets" / "runtime-smoke.wav"' in sidecar
+    assert "smoke_wav=smoke_wav" in sidecar
+
+
 def test_optional_native_features_fail_release_but_allow_python_runtime_fallback(tmp_path, monkeypatch):
     from lecturepack.services import packaged_health
 

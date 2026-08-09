@@ -164,6 +164,7 @@ def run_packaged_health(
     study_core_info: Callable[[], dict[str, Any]],
     media_available: Callable[[], bool],
     media_version: Callable[[], str],
+    smoke_wav: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run the single packaged release/startup health sequence."""
     root = Path(runtime_root)
@@ -173,7 +174,7 @@ def run_packaged_health(
     ffprobe = root / "bin" / "ffprobe.exe"
     whisper = release_dir / "whisper-cli.exe"
     model = root / "models" / "ggml-base.en.bin"
-    smoke_wav = root / "smoke" / "runtime-smoke.wav"
+    smoke_path = Path(smoke_wav) if smoke_wav is not None else root / "smoke" / "runtime-smoke.wav"
 
     writable = data_directory_writable(data_path)
     data_check = _result(
@@ -199,7 +200,7 @@ def run_packaged_health(
     with ThreadPoolExecutor(max_workers=3) as pool:
         ffmpeg_future = pool.submit(_program_check, "ffmpeg", ffmpeg, "Media runtime unavailable")
         ffprobe_future = pool.submit(_program_check, "ffprobe", ffprobe, "Media inspection unavailable")
-        whisper_future = pool.submit(_whisper_smoke_check, whisper, model, smoke_wav)
+        whisper_future = pool.submit(_whisper_smoke_check, whisper, model, smoke_path)
         ffmpeg_check = ffmpeg_future.result()
         ffprobe_check = ffprobe_future.result()
         whisper_check = whisper_future.result()

@@ -723,6 +723,9 @@ class Sidecar:
             elif fault == "yt_dlp":
                 media_available = lambda: False
                 media_version = lambda: ""
+            smoke_wav = self.runtime_root / "smoke" / "runtime-smoke.wav"
+            if self.repo_root is not None and not smoke_wav.is_file():
+                smoke_wav = self.repo_root / "app" / "packaging" / "assets" / "runtime-smoke.wav"
             health = self.packaged_health.run_packaged_health(
                 runtime_root=self.runtime_root,
                 data_dir=self.data_dir,
@@ -730,6 +733,7 @@ class Sidecar:
                 study_core_info=study_core_info,
                 media_available=media_available,
                 media_version=media_version,
+                smoke_wav=smoke_wav,
             )
         checks = list(health["checks"])
         if include_sidecar:
