@@ -24,6 +24,8 @@ CHECK_ORDER: tuple[str, ...] = (
     "bundled_model",
     "study_core",
     "yt_dlp",
+    "yt_dlp_ejs",
+    "js_runtime",
     "controller",
 )
 
@@ -164,6 +166,7 @@ def run_packaged_health(
     study_core_info: Callable[[], dict[str, Any]],
     media_available: Callable[[], bool],
     media_version: Callable[[], str],
+    youtube_support: Callable[[], dict[str, Any]] | None = None,
     smoke_wav: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run the single packaged release/startup health sequence."""
@@ -234,6 +237,42 @@ def run_packaged_health(
         technical=f"version={yt_version}" if yt_available else yt_version or "yt-dlp import failed",
     )
 
+    # "yt-dlp imports" is NOT "YouTube works". Modern yt-dlp needs its EJS
+    # package AND an external JavaScript runtime to solve YouTube's JS
+    # challenges; without either, link import silently degrades (fewer or no
+    # usable formats). Report the three capabilities separately so a build
+    # that lost one is visible instead of looking healthy.
+    ejs_ok = False
+    ejs_detail = "yt-dlp EJS support package is unavailable"
+    runtime_ok = False
+    runtime_detail = "no bundled JavaScript runtime"
+    if youtube_support is not None:
+        try:
+            support = youtube_support()
+            ejs_ok = bool(support.get("ejs"))
+            ejs_detail = f"yt-dlp-ejs {support.get('ejs_version') or '?'}" if ejs_ok else ejs_detail
+            runtime_ok = bool(support.get("js_runtime"))
+            runtime_detail = str(support.get("js_runtime_version") or "") if runtime_ok else runtime_detail
+        except (ImportError, OSError, SystemError, AttributeError, TypeError) as error:
+            ejs_detail = runtime_detail = f"{type(error).__name__}: {error}"
+
+    ejs_check = _result(
+        "yt_dlp_ejs",
+        ejs_ok,
+        "YouTube link importing degraded",
+        "yt-dlp JavaScript challenge support is available." if ejs_ok
+        else "YouTube links may fail or return fewer formats: EJS support is missing.",
+        technical=ejs_detail,
+    )
+    runtime_check_js = _result(
+        "js_runtime",
+        runtime_ok,
+        "YouTube link importing degraded",
+        "Bundled JavaScript runtime is available." if runtime_ok
+        else "YouTube links may fail or return fewer formats: no JavaScript runtime.",
+        technical=runtime_detail,
+    )
+
     controller_ok = controller is not None
     controller_check = _result(
         "controller",
@@ -253,6 +292,8 @@ def run_packaged_health(
             model_check,
             core_check,
             yt_check,
+            ejs_check,
+            runtime_check_js,
             controller_check,
         )
     }

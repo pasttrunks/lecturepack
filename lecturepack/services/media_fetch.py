@@ -20,6 +20,9 @@ Design notes:
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+import sys
 import time
 import re
 import unicodedata
@@ -59,6 +62,151 @@ def version() -> str:
         return str(yt_dlp.version.__version__)
     except Exception:
         return ""
+
+
+# --------------------------------------------------------------------------- #
+# Bundled runtime discovery.
+#
+# Modern yt-dlp cannot fully extract YouTube without an external JavaScript
+# runtime: YouTube presents JS challenges that yt-dlp solves through its EJS
+# ("External JS Scripts") system, which needs both the `yt_dlp_ejs` package and
+# a real JS runtime process. Deno is upstream's default and recommended
+# runtime. LecturePack ships both so a customer never has to install Python,
+# Node, Deno or FFmpeg themselves.
+# --------------------------------------------------------------------------- #
+
+def _runtime_roots() -> list[str]:
+    """Directories that may hold the bundled bin/ folder.
+
+    Mirrors video_reader.detect_ffmpeg_path: next to the executable when
+    frozen, the project root in a dev checkout.
+    """
+    override = os.environ.get("LECTUREPACK_RUNTIME_ROOT", "").strip()
+    if override:
+        # An explicit runtime root is authoritative. Falling through to the
+        # dev checkout would let a packaged build silently pick up binaries
+        # from somewhere other than its own bundle.
+        return [override]
+    roots: list[str] = []
+    if getattr(sys, "frozen", False):
+        roots.append(os.path.dirname(sys.executable))
+        # PyInstaller onedir keeps payload under _internal/.
+        roots.append(os.path.join(os.path.dirname(sys.executable), "_internal"))
+    else:
+        roots.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    return [r for r in roots if r]
+
+
+def _bundled(*parts: str) -> str:
+    for root in _runtime_roots():
+        candidate = os.path.join(root, *parts)
+        if os.path.isfile(candidate):
+            return candidate
+    return ""
+
+
+def ffmpeg_location() -> str:
+    """Directory holding the bundled ffmpeg/ffprobe, for yt-dlp.
+
+    yt-dlp takes a DIRECTORY here and finds both binaries inside it. Handing it
+    our bundle explicitly means merges and remuxes never depend on the customer
+    having FFmpeg on PATH.
+    """
+    ffmpeg = _bundled("bin", "ffmpeg.exe")
+    if ffmpeg:
+        return os.path.dirname(ffmpeg)
+    system = shutil.which("ffmpeg")
+    return os.path.dirname(system) if system else ""
+
+
+def js_runtime_path() -> str:
+    """Path to the bundled Deno executable, or '' when it is not present."""
+    name = "deno.exe" if os.name == "nt" else "deno"
+    return _bundled("bin", name)
+
+
+def js_runtime_version() -> str:
+    """Version string of the bundled JS runtime; '' when it cannot run."""
+    deno = js_runtime_path()
+    if not deno:
+        return ""
+    try:
+        completed = subprocess.run(
+            [deno, "--version"],
+            capture_output=True, text=True, timeout=20,
+            shell=False, encoding="utf-8", errors="replace",
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if completed.returncode != 0:
+        return ""
+    first = (completed.stdout or "").strip().splitlines()
+    return first[0].strip() if first else ""
+
+
+def ejs_available() -> bool:
+    """True when the yt-dlp EJS support package can be imported."""
+    try:
+        import yt_dlp_ejs  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def ejs_version() -> str:
+    """Installed yt-dlp-ejs version.
+
+    The package does not export __version__ at module level, so read the
+    distribution metadata and fall back to its private _version module (which
+    is what PyInstaller ends up freezing).
+    """
+    try:
+        import importlib.metadata as metadata
+        return str(metadata.version("yt-dlp-ejs"))
+    except Exception:
+        pass
+    try:
+        from yt_dlp_ejs import _version
+        return str(getattr(_version, "__version__", "") or "")
+    except Exception:
+        return ""
+
+
+def youtube_support() -> dict:
+    """Report the distinct capabilities that URL import depends on.
+
+    Deliberately four separate answers rather than one boolean: "yt-dlp
+    imports" is NOT the same as "YouTube works". Diagnostics that conflate
+    them hide exactly the failure this reports.
+    """
+    runtime = js_runtime_version()
+    return {
+        "yt_dlp": is_available(),
+        "yt_dlp_version": version(),
+        "ejs": ejs_available(),
+        "ejs_version": ejs_version(),
+        "js_runtime": bool(runtime),
+        "js_runtime_version": runtime,
+        "js_runtime_path": js_runtime_path(),
+        "ffmpeg_location": ffmpeg_location(),
+    }
+
+
+def _js_runtime_env() -> None:
+    """Make the bundled Deno discoverable by yt-dlp's EJS runtime lookup.
+
+    yt-dlp spawns the runtime by name, resolved through PATH. Prepending our
+    own bin/ is idempotent and only ever adds a directory we ship.
+    """
+    deno = js_runtime_path()
+    if not deno:
+        return
+    bin_dir = os.path.dirname(deno)
+    current = os.environ.get("PATH", "")
+    entries = [part for part in current.split(os.pathsep) if part]
+    if any(os.path.normcase(part) == os.path.normcase(bin_dir) for part in entries):
+        return
+    os.environ["PATH"] = os.pathsep.join([bin_dir, *entries]) if entries else bin_dir
 
 
 def looks_like_url(text: str) -> bool:
@@ -109,22 +257,27 @@ class MediaFetcher:
 
     @staticmethod
     def _base_opts():
-        return {
+        # Ensure the bundled Deno is on PATH before yt-dlp looks for a runtime.
+        _js_runtime_env()
+        opts = {
             "quiet": True,
             "no_warnings": True,
             "noprogress": True,
             "noplaylist": True,       # a lecture link, not someone's whole channel
             "restrictfilenames": False,
-            # Some public YouTube videos are hidden from yt-dlp's default web
-            # client even though they remain playable. The Android client
-            # exposes the combined MP4 formats that the default selector can
-            # download without a separate merge step.
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android"],
-                },
-            },
+            # Never reach out for extra components at runtime on a customer
+            # machine: everything EJS needs is bundled in the installer.
+            "remote_components": [],
         }
+        # Point yt-dlp at LecturePack's own FFmpeg so merges/remuxes work on a
+        # machine with no system FFmpeg.
+        location = ffmpeg_location()
+        if location:
+            opts["ffmpeg_location"] = location
+        # No forced player_client. The Android client override that used to
+        # live here predates EJS; it bypasses the JS-challenge path that
+        # YouTube now requires, so it would defeat the bundled runtime.
+        return opts
 
     # ------------------------------------------------------------------- probe
 

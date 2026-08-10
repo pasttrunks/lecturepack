@@ -13,7 +13,7 @@ def _ok(check_id: str) -> dict[str, object]:
         "id": check_id,
         "ok": True,
         "required": True,
-        "fatal_at_startup": check_id not in {"study_core", "yt_dlp"},
+        "fatal_at_startup": check_id not in {"study_core", "yt_dlp", "yt_dlp_ejs", "js_runtime"},
         "title": "ok",
         "detail": "ok",
         "technical": "",
@@ -36,6 +36,10 @@ def test_packaged_health_contract_has_stable_required_checks(tmp_path, monkeypat
         study_core_info=lambda: {"available": True, "implementation": "rust", "version": "0.1.0"},
         media_available=lambda: True,
         media_version=lambda: "2026.08.01",
+        youtube_support=lambda: {
+            "yt_dlp": True, "ejs": True, "ejs_version": "0.8.0",
+            "js_runtime": True, "js_runtime_version": "deno 2.9.5",
+        },
     )
 
     assert [check["id"] for check in result["checks"]] == list(packaged_health.CHECK_ORDER)
@@ -65,11 +69,16 @@ def test_optional_native_features_fail_release_but_allow_python_runtime_fallback
         study_core_info=lambda: {"available": False, "implementation": "python", "error": "OSError: missing DLL"},
         media_available=lambda: False,
         media_version=lambda: "",
+        youtube_support=lambda: {"yt_dlp": False, "ejs": False, "js_runtime": False},
     )
 
     assert result["passed"] is False
     assert result["startup_ok"] is True
-    assert {check["id"] for check in result["checks"] if not check["ok"]} == {"study_core", "yt_dlp"}
+    # Losing the link importer degrades three optional checks but must never
+    # stop LecturePack starting for local lecture files.
+    assert {check["id"] for check in result["checks"] if not check["ok"]} == {
+        "study_core", "yt_dlp", "yt_dlp_ejs", "js_runtime",
+    }
 
 
 def test_rust_native_load_errors_use_python_study_fallback(monkeypatch):
@@ -110,7 +119,7 @@ def test_support_diagnostics_reuse_authoritative_packaged_health():
 
 def test_packaged_self_test_has_bounded_optional_feature_fault_injection():
     sidecar = (ROOT / "electron-spike" / "python-sidecar.py").read_text(encoding="utf-8")
-    assert 'choices=("study_core", "yt_dlp")' in sidecar
+    assert 'choices=("study_core", "yt_dlp", "js_runtime")' in sidecar
     assert 'fault = self.args.self_test_fault if self.args.self_test else ""' in sidecar
     assert 'elif fault == "yt_dlp":' in sidecar
 

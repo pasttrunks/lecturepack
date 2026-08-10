@@ -39,6 +39,7 @@ cffi==2.1.0                     # cryptography runtime dependency
 pycparser==3.0                  # cffi build/runtime dependency
 tzdata==2026.3                  # zoneinfo data; Windows ships none
 yt-dlp==2026.7.4                # "Import from a link"
+yt-dlp-ejs==0.8.0               # solves YouTube JS challenges; version must track yt-dlp
 
 # Transitive pins that materially affect the shipped numerics/decoding and so
 # must not float between official builds.

@@ -20,4 +20,5 @@ cryptography==49.0.0  # Approved AD-19 Ed25519 verifier; Windows x64 wheel hash 
 # declared these; app/requirements.txt (the one CI installs) was missing them.
 Send2Trash>=1.8.0  # engine_adapter.py deletes fall back to hard rm without this (BUG-14 regression)
 tzdata>=2024.1     # zoneinfo on Windows (job_queue.py) — silent fallback to system-local without it
-yt-dlp>=2025.1.15  # "Import from a link" — button hidden at runtime if absent
+yt-dlp[default]>=2026.7.4  # "Import from a link". The [default] extra pulls yt-dlp-ejs,
+                           # which yt-dlp needs to solve YouTube JS challenges.

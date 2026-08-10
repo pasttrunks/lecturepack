@@ -120,7 +120,15 @@ def test_probe_returns_normalised_metadata():
                    "webpage_url": "https://example.com/w"}
 
 
-def test_youtube_probe_uses_compatible_android_player_client():
+def test_youtube_probe_does_not_force_a_player_client():
+    """This test used to require player_client=["android"].
+
+    That override predates yt-dlp's EJS system. YouTube now presents
+    JavaScript challenges that yt-dlp solves with a real JS runtime, and
+    pinning the Android client bypasses that path entirely -- which would
+    defeat the Deno runtime LecturePack now bundles. Letting yt-dlp pick its
+    own clients is the supported configuration.
+    """
     captured = {}
 
     def make_ydl(opts):
@@ -131,9 +139,8 @@ def test_youtube_probe_uses_compatible_android_player_client():
         "https://www.youtube.com/watch?v=2xK_bL_GqZs&t=1s"
     )
 
-    assert captured["extractor_args"] == {
-        "youtube": {"player_client": ["android"]}
-    }
+    youtube_args = (captured.get("extractor_args") or {}).get("youtube") or {}
+    assert "player_client" not in youtube_args
 
 
 def test_probe_does_not_download():

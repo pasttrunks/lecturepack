@@ -1,9 +1,10 @@
 from pathlib import Path
+import hashlib
 import importlib.util
 import os
 
 from PyInstaller.building.build_main import Analysis, COLLECT, EXE, PYZ
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 SPIKE_ROOT = Path(SPECPATH).resolve()
@@ -12,11 +13,29 @@ RUNTIME_ROOT = Path(os.environ.get("LECTUREPACK_RUNTIME_ROOT", str(REPO_ROOT))).
 OUT_NAME = "LecturePackSidecar"
 OFFICIAL_BUILD = os.environ.get("LECTUREPACK_OFFICIAL_BUILD") == "1"
 
+# Pinned JavaScript runtime for yt-dlp's EJS system.
+#
+# Modern yt-dlp cannot fully extract YouTube without an external JS runtime,
+# and Deno is upstream's default. Bundling it means a customer never installs
+# Deno, Node or Python. The digest is the SHA-256 of deno.exe unpacked from
+# Deno's official deno-x86_64-pc-windows-msvc.zip for this version, whose own
+# published .sha256sum was verified at the time of pinning.
+DENO_VERSION = "2.9.5"
+DENO_SHA256 = "98f8c2a2d470e4ccb04c935c86ff8050817d877762aec5eaeeb9e409ccb3b9fd"
+
 
 def required(path: Path) -> Path:
     if not path.is_file():
         raise SystemExit(f"Required sidecar runtime file is missing: {path}")
     return path
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 ffmpeg = required(RUNTIME_ROOT / "bin" / "ffmpeg.exe")
@@ -44,6 +63,29 @@ runtime_datas.extend(
     (str(path), "bin/Release")
     for path in sorted(release_dir.glob("*.dll"))
 )
+
+# Bundled Deno for yt-dlp's EJS YouTube support. Verified against the pinned
+# digest at build time so an official installer can never ship an unexpected
+# native runtime, and so URL import never downloads a runtime onto a customer
+# machine on first use.
+deno = RUNTIME_ROOT / "bin" / "deno.exe"
+if deno.is_file():
+    actual_deno_sha = sha256_of(deno)
+    if actual_deno_sha != DENO_SHA256:
+        raise SystemExit(
+            f"Bundled Deno does not match the pinned digest for {DENO_VERSION}.\n"
+            f"  expected: {DENO_SHA256}\n"
+            f"  actual:   {actual_deno_sha}\n"
+            f"  path:     {deno}"
+        )
+    runtime_datas.append((str(deno), "bin"))
+elif OFFICIAL_BUILD:
+    raise SystemExit(
+        "Official LecturePack build requires the bundled JavaScript runtime for "
+        f"YouTube support: {deno}\n"
+        f"Download deno-x86_64-pc-windows-msvc.zip for Deno {DENO_VERSION}, verify "
+        "its published .sha256sum, and unpack deno.exe into bin/."
+    )
 
 # whisper.cpp imports MSVCP140 directly. PyInstaller carries VCRUNTIME140 for
 # Python but does not reliably discover this child-process dependency.
@@ -101,6 +143,32 @@ except Exception as exc:
     pass
 if OFFICIAL_BUILD and importlib.util.find_spec("yt_dlp") is None:
     raise SystemExit("Official LecturePack build requires importable yt-dlp")
+
+# yt-dlp's EJS support package. Without it yt-dlp cannot solve YouTube's
+# JavaScript challenges even when a runtime is present, so an official build
+# that omits it would ship visibly degraded YouTube support.
+try:
+    hiddenimports += collect_submodules("yt_dlp_ejs")
+    # The actual challenge solver is shipped as minified JavaScript data
+    # (yt/solver/*.js), not as Python modules, so it must be collected
+    # separately or the packaged build would import cleanly and still fail.
+    _ejs_data = collect_data_files("yt_dlp_ejs", includes=["**/*.js"])
+    if OFFICIAL_BUILD and not _ejs_data:
+        raise SystemExit(
+            "Official LecturePack build found no yt-dlp-ejs solver JavaScript; "
+            "YouTube JS challenges would fail at runtime."
+        )
+    runtime_datas += _ejs_data
+except SystemExit:
+    raise
+except Exception as exc:
+    if OFFICIAL_BUILD:
+        raise SystemExit(
+            f"Official LecturePack build requires yt-dlp-ejs: {exc}\n"
+            "Install it with: pip install -U \"yt-dlp[default]\""
+        ) from exc
+if OFFICIAL_BUILD and importlib.util.find_spec("yt_dlp_ejs") is None:
+    raise SystemExit("Official LecturePack build requires importable yt-dlp-ejs")
 
 
 a = Analysis(

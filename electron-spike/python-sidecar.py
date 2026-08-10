@@ -747,6 +747,7 @@ class Sidecar:
             study_core_info = self.study_v2.study_core_info
             media_available = self.media_fetch.is_available
             media_version = self.media_fetch.version
+            youtube_support = getattr(self.media_fetch, "youtube_support", None)
             if fault == "study_core":
                 study_core_info = lambda: {
                     "available": False,
@@ -756,6 +757,16 @@ class Sidecar:
             elif fault == "yt_dlp":
                 media_available = lambda: False
                 media_version = lambda: ""
+                youtube_support = lambda: {"yt_dlp": False, "ejs": False, "js_runtime": False}
+            elif fault == "js_runtime":
+                # Prove the packaged build notices a missing JavaScript
+                # runtime instead of reporting healthy YouTube support.
+                _real_support = youtube_support
+                youtube_support = lambda: {
+                    **(_real_support() if _real_support else {}),
+                    "js_runtime": False,
+                    "js_runtime_version": "",
+                }
             smoke_wav = self.runtime_root / "smoke" / "runtime-smoke.wav"
             if self.repo_root is not None and not smoke_wav.is_file():
                 smoke_wav = self.repo_root / "app" / "packaging" / "assets" / "runtime-smoke.wav"
@@ -766,6 +777,7 @@ class Sidecar:
                 study_core_info=study_core_info,
                 media_available=media_available,
                 media_version=media_version,
+                youtube_support=youtube_support,
                 smoke_wav=smoke_wav,
             )
         checks = list(health["checks"])
@@ -3470,7 +3482,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--self-test", action="store_true", help="Run the packaged health contract and exit")
     parser.add_argument(
         "--self-test-fault",
-        choices=("study_core", "yt_dlp"),
+        choices=("study_core", "yt_dlp", "js_runtime"),
         default="",
         help="Release-validator-only injection used with --self-test",
     )

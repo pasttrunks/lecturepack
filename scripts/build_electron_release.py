@@ -115,11 +115,21 @@ def validate_packaged_self_test(root: Path) -> dict[str, object]:
         )
     checks = {str(check.get("id")): check for check in result.get("checks", [])}
     rust = checks.get("study_core", {})
-    yt_dlp = checks.get("yt_dlp", {})
     if rust.get("ok") is not True:
         raise RuntimeError("Official packaged self-test did not prove the Rust Study Core")
-    if yt_dlp.get("ok") is not True:
-        raise RuntimeError("Official packaged self-test did not prove yt-dlp")
+    # "yt-dlp imports" is not "YouTube works": modern yt-dlp needs its EJS
+    # package and an external JavaScript runtime as well. Gate on all three so
+    # an official build cannot ship silently degraded link import.
+    for check_id, description in (
+        ("yt_dlp", "yt-dlp"),
+        ("yt_dlp_ejs", "yt-dlp EJS JavaScript-challenge support"),
+        ("js_runtime", "the bundled JavaScript runtime"),
+    ):
+        if checks.get(check_id, {}).get("ok") is not True:
+            raise RuntimeError(
+                f"Official packaged self-test did not prove {description} "
+                f"(check {check_id!r}): {checks.get(check_id, {}).get('technical', 'missing')}"
+            )
     return result
 
 
