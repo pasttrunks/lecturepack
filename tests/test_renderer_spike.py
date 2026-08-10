@@ -10,6 +10,9 @@ import subprocess
 import threading
 
 import pytest
+from runtime_payload import (  # noqa: E402  test-only skip guards
+    requires_demo_model, requires_ffmpeg_tools,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -714,6 +717,10 @@ def test_sidecar_spec_is_cpu_only_and_headless():
     assert "qtwebengine" not in (SPIKE / "python-sidecar.py").read_text(encoding="utf-8").lower()
 
 
+# The sidecar runs its real health check against --resources-root, so this
+# needs the gitignored binary payload as well as the locked interpreter.
+@requires_ffmpeg_tools
+@requires_demo_model
 @pytest.mark.skipif(
     not (ROOT / ".venv" / "Scripts" / "python.exe").is_file(),
     reason="locked project Python is not available",

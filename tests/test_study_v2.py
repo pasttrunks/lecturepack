@@ -14,6 +14,11 @@ sys.path.insert(0, str(ROOT))
 
 from lecturepack.services import study_v2  # noqa: E402
 
+from runtime_payload import (  # noqa: E402  test-only skip guards
+    requires_demo_model, requires_ffprobe, requires_onedir_fixture,
+    requires_rust_study_core,
+)
+
 
 # ---- source-reference validation ---------------------------------------- #
 def test_validate_source_ref_valid_segment():
@@ -187,6 +192,7 @@ def test_repeated_successes_master(tmp_path):
     assert progress["concepts"]["c1"]["mastery"] == "MASTERED"
 
 
+@requires_rust_study_core
 def test_study_core_info_reports_rust():
     info = study_v2.study_core_info()
     assert info["available"] is True

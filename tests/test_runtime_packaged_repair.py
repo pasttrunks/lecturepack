@@ -5,11 +5,12 @@ import os
 from pathlib import Path
 
 from app.packaging import build
+from runtime_payload import requires_onedir_fixture  # noqa: E402  test-only skip guard
 
 
+@requires_onedir_fixture
 def test_disposable_packaged_repair_proof_uses_signed_current_onedir() -> None:
     fixture = os.environ.get("LECTUREPACK_ONEDIR_FIXTURE", "").strip()
-    assert fixture, "clean onedir fixture is required: set LECTUREPACK_ONEDIR_FIXTURE"
 
     proof = build.run_disposable_packaged_repair_proof(Path(fixture), timeout_ms=30_000)
 

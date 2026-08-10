@@ -31,6 +31,7 @@ _measure_spec.loader.exec_module(measure)
 
 from lecturepack.infrastructure.runtime_inventory import canonical_inventory, resolve_inventory
 from app.desktop import engine_adapter
+from runtime_payload import requires_demo_model  # noqa: E402  test-only skip guard
 
 
 # ---------------------------------------------------------------------------
@@ -320,12 +321,14 @@ def _run_lecturepack_spec(monkeypatch):
     return captured
 
 
+@requires_demo_model
 def test_spec_no_longer_duplicates_demo_model_in_datas(monkeypatch):
     captured = _run_lecturepack_spec(monkeypatch)
     model = REPO / "models" / "ggml-base.en.bin"
     assert (str(model), "models") not in captured["datas"]
 
 
+@requires_demo_model
 def test_spec_excludes_captured_include_torch_and_transformers(monkeypatch):
     captured = _run_lecturepack_spec(monkeypatch)
     assert "torch" in captured["excludes"]
