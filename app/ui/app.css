@@ -877,3 +877,44 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 /* Live log: keep the newest line readable and give Latest a clear target. */
 #proc-log{padding-bottom:26px}
 #proc-log .lp-log-at-bottom{background:var(--green-soft)}
+
+
+/* --- Study top-level mode tabs (Overview / Flashcards / Quiz / Ask) --------
+   These were the last prominent control row with no resting shadow and no
+   press motion, so they read as flat stickers next to every other button.
+   They only ever picked up the generic .lp-tab treatment (a hover-only edge),
+   because nothing in this stylesheet targeted them.
+
+   Match the .lp-press-sm language used by the ordinary action buttons:
+   a resting hard shadow, a lift on hover, and a press into the surface on
+   click, with transform in the transition list so the motion is eased rather
+   than snapping. (.lp-tab's own transition omits transform, which is why the
+   class alone could never animate the press.)
+
+   Keyed on the class instead of adding .lp-press-sm to the markup because
+   setStudyV2Mode() rewrites className wholesale on every mode switch, which
+   would drop any class added in index.html. Specificity is deliberately one
+   step above the .lp-tab:not(.active):hover / .lp-tab.active rules above so
+   these win without !important. Colours are left to the existing inline
+   styles and .lp-tab.active. */
+.lp-tab.study-mode-tab{
+  box-shadow:var(--shadow-hard-sm);
+  transition:transform var(--motion-fast) var(--motion-spring),
+             box-shadow var(--motion-fast) var(--motion-ease),
+             background-color var(--motion-fast) var(--motion-ease),
+             border-color var(--motion-fast) var(--motion-ease),
+             color var(--motion-normal) var(--motion-ease)}
+.lp-tab.study-mode-tab.active{box-shadow:var(--shadow-hard-sm)}
+.lp-tab.study-mode-tab:not(:disabled):hover{
+  transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--shadow-ink)}
+.lp-tab.study-mode-tab:not(:disabled):active{
+  transform:translate(2px,2px);box-shadow:0 0 0 var(--shadow-ink)}
+
+/* The row clips nothing: give the offset shadows somewhere to land. */
+.study-mode-nav{padding-bottom:4px}
+
+@media (prefers-reduced-motion:reduce){
+  .lp-tab.study-mode-tab,
+  .lp-tab.study-mode-tab:not(:disabled):hover,
+  .lp-tab.study-mode-tab:not(:disabled):active{transition:none;transform:none}
+}
