@@ -38,7 +38,7 @@ const releases = [
 function response(body, status=200) { return new Response(body, {status}); }
 async function goodFetch(url) {
   if (url.includes('/releases?')) return response(JSON.stringify(releases));
-  if (url.endsWith('/manifest')) return response(JSON.stringify({version:'2.1.0',installers:[{filename:'LecturePack-2.1.0-Setup.exe',sha256:digest}]}));
+  if (url.endsWith('/manifest')) return response(JSON.stringify({version:'2.1.0',platform:'win32',architecture:'x64',installers:[{filename:'LecturePack-2.1.0-Setup.exe',sha256:digest}]}));
   if (url.endsWith('/installer')) return response(bytes);
   return response('missing',404);
 }

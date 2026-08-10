@@ -115,17 +115,123 @@ def test_select_installer_asset_and_manifest():
 
 
 # ------------------------------------------------------------------ manifest
-def test_expected_installer_sha256_from_manifest():
-    manifest = {
-        "version": "2.0.0",
-        "installers": [{"filename": "LecturePack-2.0.0-Setup.exe",
-                        "sha256": "a" * 64}],
+def _manifest(**overrides) -> dict:
+    """A well-formed v2.0.1 release manifest, optionally corrupted per test."""
+    doc = {
+        "version": "2.0.1",
+        "platform": "win32",
+        "architecture": "x64",
+        "installers": [{"filename": "LecturePack-2.0.1-Setup.exe", "sha256": "a" * 64}],
     }
-    assert _call("expectedInstallerSha256", manifest) == "a" * 64
+    doc.update(overrides)
+    return doc
+
+
+_WANT = {"version": "v2.0.1", "filename": "LecturePack-2.0.1-Setup.exe"}
+
+
+def test_expected_installer_sha256_from_manifest():
+    manifest = _manifest()
+    assert _call("expectedInstallerSha256", manifest,
+                 "LecturePack-2.0.1-Setup.exe", "2.0.1") == "a" * 64
 
 
 def test_expected_installer_sha256_rejects_malformed():
-    assert _call("expectedInstallerSha256", {"installers": []}) is None
+    assert _call("expectedInstallerSha256", {"installers": []},
+                 "LecturePack-2.0.1-Setup.exe", "2.0.1") is None
+
+
+# ------------------------------------------- release-manifest trust gates
+def test_verify_release_manifest_accepts_a_matching_manifest():
+    verdict = _call("verifyReleaseManifest", _manifest(), _WANT)
+    assert verdict == {"ok": True, "sha256": "a" * 64, "reason": "verified"}
+
+
+def test_verify_release_manifest_accepts_the_real_published_v2_0_0_manifest():
+    """The tightened gate must still accept genuine LecturePack manifests."""
+    published = {
+        "version": "2.0.0",
+        "platform": "win32",
+        "architecture": "x64",
+        "installers": [{
+            "filename": "LecturePack-2.0.0-Setup.exe",
+            "sha256": "5c36408b31af79221329ca8e3ad54d547a319d4dba077b4be9b925676c648be6",
+        }],
+    }
+    verdict = _call("verifyReleaseManifest", published,
+                    {"version": "v2.0.0", "filename": "LecturePack-2.0.0-Setup.exe"})
+    assert verdict["ok"] is True
+    assert verdict["sha256"] == published["installers"][0]["sha256"]
+
+
+@pytest.mark.parametrize(
+    ("manifest", "reason"),
+    [
+        (None, "manifest_unparseable"),
+        (_manifest(version="2.0.2"), "manifest_version_mismatch"),
+        (_manifest(platform="darwin"), "manifest_platform_mismatch"),
+        (_manifest(architecture="arm64"), "manifest_architecture_mismatch"),
+        (_manifest(installers=[]), "manifest_missing_installers"),
+        (_manifest(installers=[{"filename": "LecturePack-2.0.1-Setup.exe", "sha256": "nope"}]),
+         "manifest_invalid_sha256"),
+    ],
+)
+def test_verify_release_manifest_rejects_every_bad_field(manifest, reason):
+    verdict = _call("verifyReleaseManifest", manifest, _WANT)
+    assert verdict["ok"] is False
+    assert verdict["sha256"] is None
+    assert verdict["reason"] == reason
+
+
+def test_verify_release_manifest_refuses_a_digest_for_a_different_setup_exe():
+    """A hash published for some other Setup.exe must never be accepted."""
+    foreign = _manifest(installers=[
+        {"filename": "LecturePack-9.9.9-Setup.exe", "sha256": "b" * 64},
+    ])
+    verdict = _call("verifyReleaseManifest", foreign, _WANT)
+    assert verdict["ok"] is False
+    assert verdict["reason"] == "manifest_installer_not_listed"
+
+
+def test_verify_release_manifest_ignores_unbound_top_level_digests():
+    """Legacy 'installer_sha256'/'sha256' shortcuts bind to no filename."""
+    loose = {
+        "version": "2.0.1", "platform": "win32", "architecture": "x64",
+        "installer_sha256": "c" * 64, "sha256": "d" * 64,
+    }
+    verdict = _call("verifyReleaseManifest", loose, _WANT)
+    assert verdict["ok"] is False
+    assert verdict["sha256"] is None
+
+
+def test_verify_release_manifest_rejects_ambiguous_duplicate_entries():
+    entry = {"filename": "LecturePack-2.0.1-Setup.exe", "sha256": "a" * 64}
+    other = {"filename": "LecturePack-2.0.1-Setup.exe", "sha256": "b" * 64}
+    verdict = _call("verifyReleaseManifest", _manifest(installers=[entry, other]), _WANT)
+    assert verdict["ok"] is False
+    assert verdict["reason"] == "manifest_duplicate_installer_entry"
+
+
+# --------------------------------------------- skip / auto-check settings
+def test_skipped_version_persists_and_expires_when_something_newer_ships(tmp_path):
+    data_dir = str(tmp_path).replace("\\", "/")
+    assert _call("setSkippedVersion", data_dir, "v2.0.1") == "2.0.1"
+    assert _call("isVersionSkipped", data_dir, "2.0.1") is True
+    # Anything newer than the skipped version must still be offered.
+    assert _call("isVersionSkipped", data_dir, "2.0.2") is False
+    # Clearing the skip restores normal behaviour.
+    assert _call("setSkippedVersion", data_dir, "") == ""
+    assert _call("isVersionSkipped", data_dir, "2.0.1") is False
+
+
+def test_auto_check_preference_persists_and_suppresses_background_checks(tmp_path):
+    data_dir = str(tmp_path).replace("\\", "/")
+    assert _call("shouldAutoCheck", data_dir) is True
+    _call("setAutoCheckEnabled", data_dir, False)
+    assert _call("loadState", data_dir)["autoCheck"] is False
+    assert _call("shouldAutoCheck", data_dir) is False
+    _call("setAutoCheckEnabled", data_dir, True)
+    assert _call("shouldAutoCheck", data_dir) is True
 
 
 def test_parse_manifest_rejects_bad_json():

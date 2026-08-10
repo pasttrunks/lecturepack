@@ -133,26 +133,75 @@ function sha256File(filePath) {
 function parseManifest(text) {
   try {
     const doc = JSON.parse(text);
-    if (doc && typeof doc === 'object') return doc;
+    if (doc && typeof doc === 'object' && !Array.isArray(doc)) return doc;
   } catch (_) { /* malformed manifest */ }
   return null;
 }
 
-// Expected installer SHA-256 from the release manifest (U7). Supports both a
-// top-level "installer_sha256" and a nested asset list.
-function expectedInstallerSha256(manifest) {
-  if (!manifest) return null;
-  const direct = manifest.installer_sha256 || manifest.sha256;
-  if (direct && /^[0-9a-fA-F]{64}$/.test(String(direct))) return String(direct).toLowerCase();
-  if (Array.isArray(manifest.installers)) {
-    for (const item of manifest.installers) {
-      if (item && /-Setup\.exe$/i.test(String(item.filename || item.name || '')) &&
-          /^[0-9a-fA-F]{64}$/.test(String(item.sha256 || ''))) {
-        return String(item.sha256).toLowerCase();
-      }
+function normalizeVersion(value) {
+  return String(value || '').trim().replace(/^v/i, '');
+}
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/* Authoritative release-manifest gate (updater trust requirements 4-10).
+ *
+ * Returns { ok, sha256, reason }. `ok` is true ONLY when every field agrees
+ * with the release we actually selected AND the digest is bound to the exact
+ * installer filename we are about to download. There is deliberately no
+ * "hash found somewhere in the document" fallback: a digest published for a
+ * different Setup.exe (another version, another platform, another release)
+ * must never satisfy this check.
+ */
+function verifyReleaseManifest(manifest, expected) {
+  const wantVersion = normalizeVersion(expected && expected.version);
+  const wantFilename = String((expected && expected.filename) || '').trim();
+  if (!manifest) return { ok: false, sha256: null, reason: 'manifest_unparseable' };
+  if (!wantVersion) return { ok: false, sha256: null, reason: 'release_version_unknown' };
+  if (!wantFilename) return { ok: false, sha256: null, reason: 'installer_filename_unknown' };
+
+  if (normalizeVersion(manifest.version) !== wantVersion) {
+    return { ok: false, sha256: null, reason: 'manifest_version_mismatch' };
+  }
+  if (String(manifest.platform || '').toLowerCase() !== 'win32') {
+    return { ok: false, sha256: null, reason: 'manifest_platform_mismatch' };
+  }
+  if (String(manifest.architecture || manifest.arch || '').toLowerCase() !== 'x64') {
+    return { ok: false, sha256: null, reason: 'manifest_architecture_mismatch' };
+  }
+  if (!Array.isArray(manifest.installers) || manifest.installers.length === 0) {
+    return { ok: false, sha256: null, reason: 'manifest_missing_installers' };
+  }
+
+  // Exact, case-insensitive filename binding. Compare basenames so a manifest
+  // cannot smuggle a path prefix past the match.
+  const wantKey = path.basename(wantFilename).toLowerCase();
+  let entry = null;
+  for (const item of manifest.installers) {
+    if (!item || typeof item !== 'object') continue;
+    const name = path.basename(String(item.filename || item.name || '')).toLowerCase();
+    if (name && name === wantKey) {
+      if (entry) return { ok: false, sha256: null, reason: 'manifest_duplicate_installer_entry' };
+      entry = item;
     }
   }
-  return null;
+  if (!entry) return { ok: false, sha256: null, reason: 'manifest_installer_not_listed' };
+
+  const digest = String(entry.sha256 || '').trim().toLowerCase();
+  if (!SHA256_HEX.test(digest)) {
+    return { ok: false, sha256: null, reason: 'manifest_invalid_sha256' };
+  }
+  return { ok: true, sha256: digest, reason: 'verified' };
+}
+
+// Backwards-compatible helper. The installer filename is REQUIRED: without it
+// there is nothing to bind the digest to, so the answer is always null.
+function expectedInstallerSha256(manifest, installerFilename, releaseVersion) {
+  const filename = String(installerFilename || '');
+  const version = releaseVersion !== undefined
+    ? releaseVersion
+    : (/^LecturePack-(.+)-Setup\.exe$/i.exec(path.basename(filename)) || [])[1];
+  return verifyReleaseManifest(manifest, { version, filename }).sha256;
 }
 
 // --------------------------------------------------------------------------- //
@@ -163,12 +212,38 @@ function statePath(userDataDir) {
 }
 
 function loadState(userDataDir) {
+  const empty = { lastCheck: 0, lastError: '', skippedVersion: '', autoCheck: true };
   try {
     const doc = JSON.parse(fs.readFileSync(statePath(userDataDir), 'utf8'));
-    return { lastCheck: Number(doc.lastCheck) || 0, lastError: doc.lastError || '' };
+    return {
+      lastCheck: Number(doc.lastCheck) || 0,
+      lastError: doc.lastError || '',
+      skippedVersion: normalizeVersion(doc.skippedVersion),
+      // Opt-out preference: anything other than an explicit false means on.
+      autoCheck: doc.autoCheck !== false
+    };
   } catch (_) {
-    return { lastCheck: 0, lastError: '' };
+    return empty;
   }
+}
+
+// A skipped version stays skipped only until something strictly newer ships.
+function isVersionSkipped(userDataDir, remoteVersion) {
+  const skipped = loadState(userDataDir).skippedVersion;
+  if (!skipped) return false;
+  return compareVersions(remoteVersion, skipped) <= 0;
+}
+
+function setSkippedVersion(userDataDir, remoteVersion) {
+  const value = normalizeVersion(remoteVersion);
+  saveState(userDataDir, Object.assign(loadState(userDataDir), { skippedVersion: value }));
+  return value;
+}
+
+function setAutoCheckEnabled(userDataDir, enabled) {
+  const value = enabled !== false;
+  saveState(userDataDir, Object.assign(loadState(userDataDir), { autoCheck: value }));
+  return value;
 }
 
 function saveState(userDataDir, state) {
@@ -180,6 +255,7 @@ function saveState(userDataDir, state) {
 
 function shouldAutoCheck(userDataDir) {
   const state = loadState(userDataDir);
+  if (!state.autoCheck) return false;
   return Date.now() - state.lastCheck >= CHECK_INTERVAL_MS;
 }
 
@@ -210,63 +286,97 @@ async function fetchJson(url, fetchImpl) {
 // --------------------------------------------------------------------------- //
 // Download with progress + integrity.
 // --------------------------------------------------------------------------- //
-async function fetchToFile(url, destPath, { fetchImpl, onProgress, expectedSha256 } = {}) {
+function removeQuietly(filePath) {
+  try { fs.unlinkSync(filePath); } catch (_) { /* already gone */ }
+}
+
+class UpdateCancelledError extends Error {
+  constructor() {
+    super('The update download was cancelled.');
+    this.name = 'UpdateCancelledError';
+    this.cancelled = true;
+  }
+}
+
+/* Stream a download straight to <destPath>.tmp while hashing incrementally.
+ *
+ * The installer is several hundred megabytes, so it is never buffered in
+ * memory. The temporary file is promoted to destPath only after the digest
+ * matches. Every failure path (HTTP error, network drop, timeout, abort,
+ * checksum mismatch) removes the partial .tmp and leaves destPath untouched.
+ */
+async function fetchToFile(url, destPath, { fetchImpl, onProgress, expectedSha256, signal } = {}) {
   const fn = fetchImpl || globalThis.fetch;
   if (typeof fn !== 'function') throw new Error('No fetch implementation available.');
+
+  const tmpPath = `${destPath}.tmp`;
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) throw new UpdateCancelledError();
+    signal.addEventListener('abort', abortFromCaller, { once: true });
+  }
   const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
   const hash = crypto.createHash('sha256');
-  await new Promise((resolve, reject) => {
-    (async () => {
-      try {
-        const resp = await fn(url, {
-          headers: { 'User-Agent': 'LecturePack-Updater/2' },
-          signal: controller.signal
-        });
-        if (!resp.ok) throw new Error(`Download returned HTTP ${resp.status}`);
-        const total = Number(resp.headers.get('content-length')) || 0;
-        let received = 0;
-        const reader = resp.body && typeof resp.body.getReader === 'function' ? resp.body.getReader() : null;
-        if (!reader) {
-          const buf = Buffer.from(await resp.arrayBuffer());
-          hash.update(buf);
-          fs.writeFileSync(destPath, buf);
-          if (onProgress) onProgress(buf.length, buf.length || total);
-          resolve();
-          return;
-        }
-        const chunks = [];
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) {
-            const chunk = Buffer.from(value);
-            hash.update(chunk);
-            chunks.push(chunk);
-            received += chunk.length;
-            if (onProgress) onProgress(received, total);
-          }
-        }
-        fs.writeFileSync(destPath, Buffer.concat(chunks));
-        resolve();
-      } catch (error) {
-        reject(error);
+
+  fs.mkdirSync(path.dirname(tmpPath), { recursive: true });
+  removeQuietly(tmpPath);
+  let handle = null;
+  try {
+    const resp = await fn(url, {
+      headers: { 'User-Agent': 'LecturePack-Updater/2' },
+      signal: controller.signal
+    });
+    if (!resp.ok) throw new Error(`Download returned HTTP ${resp.status}`);
+    const total = Number(resp.headers.get('content-length')) || 0;
+    let received = 0;
+
+    handle = fs.openSync(tmpPath, 'w');
+    const writeChunk = (value) => {
+      const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+      hash.update(chunk);
+      fs.writeSync(handle, chunk);
+      received += chunk.length;
+      if (onProgress) onProgress(received, total);
+    };
+
+    const reader = resp.body && typeof resp.body.getReader === 'function' ? resp.body.getReader() : null;
+    if (reader) {
+      for (;;) {
+        if (signal && signal.aborted) throw new UpdateCancelledError();
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) writeChunk(value);
       }
-    })();
-  })
-    .catch((error) => {
-      try { fs.unlinkSync(destPath); } catch (_) { /* ignore */ }
-      throw error;
-    })
-    .finally(() => clearTimeout(timer));
-  if (expectedSha256) {
-    const actual = hash.digest('hex').toLowerCase();
-    if (actual !== expectedSha256.toLowerCase()) {
-      try { fs.unlinkSync(destPath); } catch (_) { /* ignore */ }
-      throw new Error('Update verification failed: the downloaded installer checksum does not match the release manifest.');
+    } else {
+      // Fetch implementations without a streaming body (some test doubles).
+      writeChunk(Buffer.from(await resp.arrayBuffer()));
     }
+    fs.closeSync(handle);
+    handle = null;
+
+    if (expectedSha256) {
+      const actual = hash.digest('hex').toLowerCase();
+      if (actual !== String(expectedSha256).toLowerCase()) {
+        removeQuietly(tmpPath);
+        throw new Error(
+          'Update verification failed: the downloaded installer checksum does not match the release manifest.'
+        );
+      }
+    }
+    removeQuietly(destPath);
+    fs.renameSync(tmpPath, destPath);
+    return destPath;
+  } catch (error) {
+    if (handle !== null) { try { fs.closeSync(handle); } catch (_) { /* ignore */ } }
+    removeQuietly(tmpPath);
+    removeQuietly(destPath);
+    if (signal && signal.aborted && !(error && error.cancelled)) throw new UpdateCancelledError();
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    if (signal) { try { signal.removeEventListener('abort', abortFromCaller); } catch (_) { /* ignore */ } }
   }
-  return destPath;
 }
 
 // --------------------------------------------------------------------------- //
@@ -280,14 +390,55 @@ function createUpdater({ version, repo, userDataDir, logger, fetchImpl, onState 
     try { if (onState && typeof onState === 'function') onState(patch || {}); } catch (_) {}
   };
 
+  // One concise, recoverable message per refusal. The user is never told an
+  // update is ready unless it passed every gate; they are always pointed at a
+  // retry or at the GitHub releases page.
+  const UNTRUSTED_MESSAGES = {
+    installer_asset_missing: 'This release does not publish a Windows installer.',
+    installer_asset_unexpected: 'This release publishes an unexpected installer filename.',
+    release_manifest_missing: 'This release does not publish a verification manifest.',
+    release_manifest_unavailable: 'LecturePack could not download the release verification manifest.',
+    manifest_unparseable: 'The release verification manifest could not be read.',
+    manifest_version_mismatch: 'The release verification manifest is for a different version.',
+    manifest_platform_mismatch: 'The release verification manifest is not for Windows.',
+    manifest_architecture_mismatch: 'The release verification manifest is not for 64-bit Windows.',
+    manifest_missing_installers: 'The release verification manifest lists no installer.',
+    manifest_installer_not_listed: 'The release verification manifest does not cover this installer.',
+    manifest_duplicate_installer_entry: 'The release verification manifest is ambiguous.',
+    manifest_invalid_sha256: 'The release verification manifest has no valid checksum.'
+  };
+
+  const untrustedMessage = (reason) =>
+    `${UNTRUSTED_MESSAGES[reason] || 'This update could not be verified.'} ` +
+    'LecturePack will not install an unverified update. You can try again later or download it yourself from GitHub.';
+
+  // Terminal refusal: current installation is untouched, nothing is staged.
+  const fail = (event, reason, now) => {
+    const message = untrustedMessage(reason);
+    log(event, { reason });
+    const state = { status: 'untrusted', reason, error: message, checkedAt: now };
+    saveState(userDataDir, Object.assign(loadState(userDataDir), { lastError: message }));
+    emitState(state);
+    return state;
+  };
+
+  // Live download cancellation (AbortController owned by the updater).
+  let activeDownload = null;
+
   return {
-    async check() {
+    // `respectSkip` is set for background checks so a version the user chose
+    // to skip stays quiet. An explicit "Check for updates" always reports.
+    async check({ respectSkip = false } = {}) {
       log('update_check_started', { version });
       const now = Date.now();
       saveState(userDataDir, Object.assign(loadState(userDataDir), { lastCheck: now }));
       try {
         const releases = await fetchJson(feedUrl(repo), fetchImpl);
-        const release = selectStableRelease(releases, version);
+        let release = selectStableRelease(releases, version);
+        if (release && respectSkip && isVersionSkipped(userDataDir, String(release.tag_name || release.name || ''))) {
+          log('update_skipped_by_user', { remote: String(release.tag_name || release.name || '') });
+          release = null;
+        }
         if (!release) {
           log('update_none', { version });
           emitState({ status: 'uptodate', version, checkedAt: now });
@@ -295,21 +446,46 @@ function createUpdater({ version, repo, userDataDir, logger, fetchImpl, onState 
         }
         const tag = String(release.tag_name || release.name || '');
         const { installer, manifest: manifestAsset } = selectInstallerAsset(release);
-        let expectedSha256 = null;
-        if (manifestAsset && assetDownloadUrl(manifestAsset)) {
-          try {
-            const manifestText = await fetchToFile(assetDownloadUrl(manifestAsset), path.join(userDataDir, 'release-manifest.json'), { fetchImpl });
-            expectedSha256 = expectedInstallerSha256(parseManifest(fs.readFileSync(manifestText, 'utf8')));
-          } catch (_) { expectedSha256 = null; }
+
+        // Gate 3: the asset must be the expected Windows x64 LecturePack setup.
+        if (!installer || !assetDownloadUrl(installer)) {
+          return fail('update_untrusted', 'installer_asset_missing', now);
         }
+        if (String(installer.name || '') !== `LecturePack-${normalizeVersion(tag)}-Setup.exe`) {
+          return fail('update_untrusted', 'installer_asset_unexpected', now);
+        }
+        if (!manifestAsset || !assetDownloadUrl(manifestAsset)) {
+          return fail('update_untrusted', 'release_manifest_missing', now);
+        }
+
+        // Gates 4-10: fetch and fully validate the release manifest. Any
+        // failure here is terminal for this check -- there is no path that
+        // continues with an unverified installer.
+        const manifestPath = path.join(userDataDir, `release-manifest-${tag}.json`);
+        let verdict;
+        try {
+          await fetchToFile(assetDownloadUrl(manifestAsset), manifestPath, { fetchImpl });
+          verdict = verifyReleaseManifest(
+            parseManifest(fs.readFileSync(manifestPath, 'utf8')),
+            { version: tag, filename: String(installer.name || '') }
+          );
+        } catch (error) {
+          verdict = { ok: false, sha256: null, reason: 'release_manifest_unavailable' };
+        } finally {
+          removeQuietly(manifestPath);
+        }
+        if (!verdict.ok) return fail('update_untrusted', verdict.reason, now);
+
         const update = {
           version: tag,
-          downloadUrl: installer ? assetDownloadUrl(installer) : '',
-          size: installer ? Number(installer.size) || 0 : 0,
-          expectedSha256,
+          installerName: String(installer.name || ''),
+          downloadUrl: assetDownloadUrl(installer),
+          size: Number(installer.size) || 0,
+          expectedSha256: verdict.sha256,
+          releaseUrl: String(release.html_url || ''),
           notes: String(release.body || '').slice(0, 4000)
         };
-        log('update_available', { remote: tag, has_sha: !!expectedSha256 });
+        log('update_available', { remote: tag, verified: true });
         const state = { status: 'available', update, checkedAt: now, lastError: '' };
         saveState(userDataDir, Object.assign(loadState(userDataDir), { lastError: '' }));
         emitState(state);
@@ -325,26 +501,58 @@ function createUpdater({ version, repo, userDataDir, logger, fetchImpl, onState 
 
     async download(update, onProgress) {
       if (!update || !update.downloadUrl) throw new Error('No update download is available.');
+      // Fail closed: an update that never carried a manifest-verified digest
+      // cannot be downloaded for installation at all.
+      if (!SHA256_HEX.test(String(update.expectedSha256 || '').toLowerCase())) {
+        const message = untrustedMessage('manifest_invalid_sha256');
+        log('update_download_refused', { remote: update.version, reason: 'no_verified_sha256' });
+        emitState({ status: 'untrusted', reason: 'manifest_invalid_sha256', error: message });
+        throw new Error(message);
+      }
       log('update_download_started', { remote: update.version });
-      const tmp = path.join(userDataDir, `LecturePack-${update.version}-Setup.exe.tmp`);
-      const dest = path.join(userDataDir, `LecturePack-${update.version}-Setup.exe`);
+      const dest = path.join(
+        userDataDir,
+        update.installerName || `LecturePack-${normalizeVersion(update.version)}-Setup.exe`
+      );
+      const controller = new AbortController();
+      activeDownload = controller;
       try {
-        await fetchToFile(update.downloadUrl, tmp, {
+        await fetchToFile(update.downloadUrl, dest, {
           fetchImpl,
+          signal: controller.signal,
           onProgress: (received, total) => {
             if (onProgress) onProgress(received, total);
           },
-          expectedSha256: update.expectedSha256 || undefined
+          expectedSha256: update.expectedSha256
         });
-        fs.renameSync(tmp, dest);
-        log('update_download_completed', { remote: update.version, file: dest, sha256: update.expectedSha256 ? 'verified' : 'unverified' });
-        emitState({ status: 'downloaded', update, installerPath: dest });
+        log('update_download_completed', { remote: update.version, file: dest, sha256: 'verified' });
+        emitState({ status: 'downloaded', update, installerPath: dest, verified: true });
         return dest;
       } catch (error) {
-        log('update_download_failed', { error: error.message });
-        emitState({ status: 'error', error: error.message });
+        // fetchToFile already removed the .tmp and any partial destination.
+        if (error && error.cancelled) {
+          log('update_download_cancelled', { remote: update.version });
+          emitState({ status: 'available', update, cancelled: true });
+        } else {
+          log('update_download_failed', { error: error.message });
+          emitState({ status: 'error', error: error.message });
+        }
         throw error;
+      } finally {
+        if (activeDownload === controller) activeDownload = null;
       }
+    },
+
+    // Real cancellation: aborts the in-flight fetch so the download stops and
+    // its partial file is removed. Returns whether a download was cancelled.
+    cancelDownload() {
+      if (!activeDownload) return false;
+      activeDownload.abort();
+      return true;
+    },
+
+    isDownloading() {
+      return activeDownload !== null;
     },
 
     // Launch the installer over the same per-user installation. Returns the
@@ -375,11 +583,18 @@ module.exports = {
   selectStableRelease,
   selectInstallerAsset,
   expectedInstallerSha256,
+  verifyReleaseManifest,
+  normalizeVersion,
   parseManifest,
   sha256File,
   shouldAutoCheck,
   loadState,
   saveState,
+  isVersionSkipped,
+  setSkippedVersion,
+  setAutoCheckEnabled,
+  fetchToFile,
+  UpdateCancelledError,
   createUpdater,
   CHECK_INTERVAL_MS
 };
