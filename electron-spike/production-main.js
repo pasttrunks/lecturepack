@@ -1038,18 +1038,26 @@ function emitUpdaterState(session, patch) {
 }
 
 function buildUpdaterStatePayload(session, state, phase) {
+  const persisted = updaterModule.loadState(app.getPath('userData'));
   const base = {
     phase,
     version: PRODUCT_VERSION,
+    // LecturePack 2 stable ships one channel. There is no channel selector.
     channel: 'stable',
-    auto_check: true,
-    skipped_version: null,
+    auto_check: persisted.autoCheck !== false,
+    skipped_version: persisted.skippedVersion || null,
+    release_url: (state && state.update && state.update.releaseUrl) || '',
+    available_version: (state && state.update && state.update.version) || '',
     message: ''
   };
   if (phase === 'uptodate') base.message = "You're up to date";
   else if (phase === 'error') base.message = (state && state.error) || 'Update check failed.';
+  // A refused update is never presented as "ready"; the user is told why and
+  // can retry or go to GitHub.
+  else if (phase === 'untrusted') base.message = (state && state.error) || 'This update could not be verified.';
   else if (phase === 'ready') base.message = 'Verified and ready to install.';
   else if (phase === 'downloaded') base.message = 'Update downloaded.';
+  else if (phase === 'blocked') base.message = (state && state.message) || 'Update ready. Finish current processing, then install and restart.';
   return base;
 }
 
@@ -1066,7 +1074,8 @@ async function checkForUpdates(session, manual) {
   const updater = ensureUpdater(session);
   session.updaterState = Object.assign({}, session.updaterState, { status: 'checking' });
   emitUpdaterState(session, { status: 'checking' });
-  const result = await updater.check();
+  // Background checks honour "Skip this version"; an explicit check never does.
+  const result = await updater.check({ respectSkip: !manual });
   session.updaterState = Object.assign({}, session.updaterState, result);
   if (result.status === 'available') {
     sendToPage(session, { event: 'update_available', payload: JSON.stringify({
@@ -1076,6 +1085,8 @@ async function checkForUpdates(session, manual) {
     }) });
   } else if (result.status === 'uptodate') {
     emitUpdaterState(session, { status: 'uptodate' });
+  } else if (result.status === 'untrusted') {
+    emitUpdaterState(session, { status: 'untrusted', error: result.error });
   } else {
     emitUpdaterState(session, { status: 'error', error: result.error });
   }
@@ -1103,6 +1114,12 @@ async function startUpdateDownload(session) {
     emitUpdaterState(session, { status: 'ready' });
     return { ok: true, installer: dest };
   } catch (error) {
+    if (error && error.cancelled) {
+      // User cancelled: partial file already removed, offer the update again.
+      session.updaterState = Object.assign({}, session.updaterState, { status: 'available', installerPath: null });
+      emitUpdaterState(session, { status: 'available' });
+      return { ok: true, cancelled: true };
+    }
     session.updaterState = Object.assign({}, session.updaterState, { status: 'error', error: error.message });
     emitUpdaterState(session, { status: 'error', error: error.message });
     sendToPage(session, { event: 'update_error', message: error.message });
@@ -1110,11 +1127,68 @@ async function startUpdateDownload(session) {
   }
 }
 
+function cancelUpdateDownload(session) {
+  const updater = session.updater;
+  if (!updater || typeof updater.cancelDownload !== 'function' || !updater.cancelDownload()) {
+    return { ok: true, cancelled: false };
+  }
+  session.logger.write('update_download_cancel_requested', {});
+  return { ok: true, cancelled: true };
+}
+
+function skipUpdateVersion(session, payload) {
+  const state = session.updaterState || {};
+  const target = String(
+    (payload && payload.version) || (state.update && state.update.version) || ''
+  );
+  if (!target) return { ok: false, error: 'There is no update to skip.' };
+  const skipped = updaterModule.setSkippedVersion(app.getPath('userData'), target);
+  session.logger.write('update_version_skipped', { version: skipped });
+  session.updaterState = Object.assign({}, state, { status: 'idle' });
+  emitUpdaterState(session, { status: 'idle' });
+  return { ok: true, skipped_version: skipped };
+}
+
+function clearSkippedVersion(session) {
+  updaterModule.setSkippedVersion(app.getPath('userData'), '');
+  session.logger.write('update_skip_cleared', {});
+  emitUpdaterState(session, {});
+  return { ok: true, skipped_version: null };
+}
+
+// The renderer sends either { enabled: bool } or the bare string 'true'/'false'.
+function setAutoUpdateCheck(session, payload) {
+  const raw = (payload && typeof payload === 'object') ? payload.enabled : payload;
+  const enabled = !(raw === false || raw === 'false' || raw === 0 || raw === '0');
+  updaterModule.setAutoCheckEnabled(app.getPath('userData'), enabled);
+  session.logger.write('update_auto_check_set', { enabled });
+  emitUpdaterState(session, {});
+  return { ok: true, auto_check: enabled };
+}
+
+// Open the release page in the user's real browser through the single trusted
+// external-link path. Only the canonical releases host is ever opened.
+function openReleasePage(session, payload) {
+  const state = session.updaterState || {};
+  const version = String(
+    (payload && payload.version) || (state.update && state.update.version) || ''
+  ).replace(/^v/i, '');
+  const target = version
+    ? `https://github.com/${UPDATER_REPO}/releases/tag/v${encodeURIComponent(version)}`
+    : `https://github.com/${UPDATER_REPO}/releases/latest`;
+  session.logger.write('update_release_page_opened', { url: target });
+  shell.openExternal(target);
+  return { ok: true, url: target };
+}
+
 async function installDownloadedUpdate(session) {
   // U5/U10: never install while real work is active; defer until idle.
+  // There is no deferred auto-install: LecturePack never restarts itself when
+  // background work finishes. The user comes back and installs explicitly.
   if (session.activeWorkCount > 0) {
-    emitUpdaterState(session, { status: 'blocked', message: 'LecturePack is still working. The update will install when it is idle.' });
-    return { ok: false, blocked: true, error: 'LecturePack is still working.' };
+    const message = 'Update ready. Finish current processing, then install and restart.';
+    emitUpdaterState(session, { status: 'blocked', message });
+    return { ok: false, blocked: true, error: message };
   }
   const state = session.updaterState || {};
   const installerPath = (state && state.installerPath) || null;
@@ -1158,8 +1232,11 @@ async function handleCommand(session, command, payload) {
   if (command === 'check_updates') return checkForUpdates(session, true);
   if (command === 'start_update_download') return startUpdateDownload(session);
   if (command === 'install_downloaded_update') return installDownloadedUpdate(session);
-  if (command === 'cancel_update_download') return { ok: true };
-  if (command === 'skip_update_version' || command === 'set_update_channel') return { ok: true };
+  if (command === 'cancel_update_download') return cancelUpdateDownload(session);
+  if (command === 'skip_update_version') return skipUpdateVersion(session, payload);
+  if (command === 'clear_skipped_version') return clearSkippedVersion(session);
+  if (command === 'set_auto_check') return setAutoUpdateCheck(session, payload);
+  if (command === 'open_release_page') return openReleasePage(session, payload);
   return sendCommand(session, command, payload);
 }
 
@@ -1356,6 +1433,20 @@ function createProductionWindow() {
   // shell never opens a dragged file).
   window.webContents.on('will-navigate', (event) => {
     event.preventDefault();
+  });
+  // The renderer may never spawn a browser window of its own. Anything that
+  // asks to open a window is denied; only https:// links are handed to the
+  // user's real browser, and only through the one trusted external path.
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    let parsed = null;
+    try { parsed = new URL(String(url || '')); } catch (_) { parsed = null; }
+    if (parsed && parsed.protocol === 'https:') {
+      logger.write('external_link_opened', { url: parsed.href.slice(0, 500) });
+      shell.openExternal(parsed.href);
+    } else {
+      logger.write('window_open_denied', { url: String(url || '').slice(0, 500) });
+    }
+    return { action: 'deny' };
   });
   window.webContents.on('render-process-gone', (_event, details) => {
     logger.write('render_process_gone', details);

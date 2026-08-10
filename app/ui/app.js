@@ -5580,7 +5580,7 @@
     $('whatsnew-current').textContent = cur ? ('v' + cur) : '';
     $('whatsnew-arrow').style.display = (mode === 'installed' || !cur) ? 'none' : '';
     $('whatsnew-version').textContent = 'v' + (info.available || info.version || '');
-    $('whatsnew-channel').textContent = info.channel || 'Beta';
+    $('whatsnew-channel').textContent = info.channel || 'Stable';
     $('whatsnew-channel').style.display = info.channel ? '' : 'none';
     $('whatsnew-size').textContent = info.size ? ('· ' + info.size) : '';
     $('whatsnew-date').textContent = info.date || '';
@@ -5647,18 +5647,8 @@
     lpBridge.call('whatsnew_seen');
   }
 
-  function setUpdateChannel(ch) {
-    Array.prototype.forEach.call(document.querySelectorAll('#update-channel-seg [data-channel]'), function (b) {
-      var on = b.dataset.channel === ch;
-      b.style.border = '1.5px solid ' + (on ? 'var(--secondary-border)' : 'var(--line)');
-      b.style.background = on ? 'var(--secondary-surface)' : 'var(--panel)';
-      b.style.color = on ? 'var(--secondary-text)' : 'var(--ink)';
-    });
-  }
-
   function renderUpdaterState(d) {
     if (!d) return;
-    if (d.channel) setUpdateChannel(d.channel);
     var ac = $('update-autocheck'); if (ac) ac.checked = d.auto_check !== false;
     var row = $('update-skipped-row');
     if (row) {
@@ -6500,16 +6490,12 @@
       if (lpBridge.connected()) lpBridge.call('open_release_page');
     });
     $('btn-update-skip').addEventListener('click', function () {
+      // The main process holds the authoritative available-update version.
       if (lpBridge.connected()) lpBridge.call('skip_update_version');
       hideWhatsNew();
     });
-    // Updates settings: channel + auto-check + clear-skipped.
-    Array.prototype.forEach.call(document.querySelectorAll('#update-channel-seg [data-channel]'), function (b) {
-      b.addEventListener('click', function () {
-        setUpdateChannel(b.dataset.channel);
-        if (lpBridge.connected()) lpBridge.call('set_update_channel', b.dataset.channel);
-      });
-    });
+    // Updates settings: auto-check + clear-skipped. LecturePack 2 stable ships
+    // one channel, so there is no channel selector.
     $('update-autocheck').addEventListener('change', function () {
       if (lpBridge.connected()) lpBridge.call('set_auto_check', this.checked ? 'true' : 'false');
     });
