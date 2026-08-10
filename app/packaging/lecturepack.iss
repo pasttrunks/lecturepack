@@ -4,7 +4,7 @@
 ; version in via /DAppVersion=x.y.z so this stays in sync with version.py.
 
 #ifndef AppVersion
-  #define AppVersion "0.9.0-beta.5"
+  #define AppVersion "2.0.0"
 #endif
 
 ; D-23: build.py passes /DSourceDir and /DOutputDir as already-normalized,

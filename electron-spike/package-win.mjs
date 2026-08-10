@@ -29,7 +29,7 @@ function pathExists(candidate) {
 const output = await packager({
   dir: spikeRoot,
   name: 'LecturePack',
-  appVersion: '0.9.0-beta.15',
+  appVersion: '2.0.0',
   platform: 'win32',
   arch: 'x64',
   out: outputDir,
@@ -43,8 +43,8 @@ const output = await packager({
     InternalName: 'LecturePack',
     OriginalFilename: 'LecturePack.exe',
     ProductName: 'LecturePack',
-    ProductVersion: '0.9.0-beta.15',
-    FileVersion: '0.9.0.15'
+    ProductVersion: '2.0.0',
+    FileVersion: '2.0.0.0'
   },
   // The repository keeps the old launcher and diagnostic modes as a fallback,
   // but the production candidate must not ship or expose them as entry points.

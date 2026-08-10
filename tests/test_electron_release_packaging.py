@@ -30,8 +30,8 @@ def test_electron_release_zip_and_hashes(tmp_path):
     (candidate / "resources" / "LecturePackSidecar" / "LecturePackSidecar.exe").write_bytes(b"sidecar fixture")
 
     output = tmp_path / "release"
-    portable = builder.make_portable_zip(candidate, output / "LecturePack-0.9.0-beta.15-Portable.zip")
-    checksums = builder.write_sha256sums("0.9.0-beta.15", output)
+    portable = builder.make_portable_zip(candidate, output / "LecturePack-2.0.0-Portable.zip")
+    checksums = builder.write_sha256sums("2.0.0", output)
 
     assert portable.is_file()
     with zipfile.ZipFile(portable) as archive:

@@ -21,7 +21,7 @@ def test_production_package_has_release_identity_and_isolated_dependencies():
     assert package["name"] == "lecturepack"
     assert package["main"] == "production-main.js"
     assert package["productName"] == "LecturePack"
-    assert package["version"] == "0.9.0-beta.15"
+    assert package["version"] == "2.0.0"
     assert {"start", "validate", "package:sidecar", "package:win"}.issubset(package["scripts"])
     assert "electron" in package["devDependencies"]
     assert "PySide6" not in json.dumps(package)
