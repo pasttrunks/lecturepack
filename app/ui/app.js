@@ -1742,6 +1742,7 @@
       return '<div>' + header + cards + '</div>';
     }).join('');
     $('jobs-count').textContent = LP.data.jobs.length;
+    renderContinueCard();
   }
 
   // Live progress updates land on the matching Home card BY JOB ID, never only
@@ -6552,10 +6553,10 @@
       $('btn-batch-queue').addEventListener('click', batchQueueAll);
       $('btn-batch-done').addEventListener('click', closeBatchImport);
       Array.prototype.forEach.call(document.querySelectorAll('#batch-quality [data-bq]'), function (o) {
-        o.addEventListener('click', function () { batchQuality = o.dataset.bq; setBatchStyles(); });
+        o.addEventListener('click', function () { batchQuality = o.dataset.bq; setBatchStyles(); batchPresetStore.save(batchMode, batchQuality); });
       });
       Array.prototype.forEach.call(document.querySelectorAll('#batch-output [data-bo]'), function (o) {
-        o.addEventListener('click', function () { batchMode = o.dataset.bo; setBatchStyles(); });
+        o.addEventListener('click', function () { batchMode = o.dataset.bo; setBatchStyles(); batchPresetStore.save(batchMode, batchQuality); });
       });
     }
 
@@ -6730,6 +6731,12 @@
         normalBridgeAdmitted = true;
         if (normalBridgeActivityPending || !normalBridgeActivityStarted) startNormalBridgeActivity();
       }
+    });
+    lpBridge.on('recovery_notice', function (json) {
+      var d = parseBridgePayload(json, null);
+      var n = d && Number.isFinite(d.recovered) ? d.recovered : 0;
+      if (n <= 0) return;
+      toast('Processing resumed — ' + n + ' interrupted lecture' + (n === 1 ? '' : 's') + ' was returned to the queue.');
     });
     lpBridge.on('error', function (json) {
       var d = parseBridgePayload(json, {});
@@ -7527,6 +7534,25 @@
   // ---- Feature 1: multi-video import + batch setup ----
   var batchJobs = [];   // [{id, name}] imported in the current batch
   var batchMode = 'study', batchQuality = 'balanced';
+  // Feature 1: remember the most-recently-used batch output mode and quality
+  // and preselect them the next time a batch is imported.
+  var batchPresetStore = (function () {
+    var KEY = 'lecturepack.batchpreset.v1';
+    function read() { try { return JSON.parse(browserStorage().getItem(KEY) || '{}'); } catch (_) { return {}; } }
+    function write(data) { try { browserStorage().setItem(KEY, JSON.stringify(data)); } catch (_) {} }
+    return {
+      load: function () {
+        var saved = read();
+        return {
+          mode: saved.mode === 'study' || saved.mode === 'transcript' || saved.mode === 'slides' ? saved.mode : 'study',
+          quality: saved.quality === 'high' || saved.quality === 'balanced' ? saved.quality : 'balanced'
+        };
+      },
+      save: function (mode, quality) {
+        write({ mode: mode, quality: quality });
+      }
+    };
+  })();
 
   function importDroppedFiles(files) {
     if (!files || !files.length || importingFile) return;
@@ -7543,15 +7569,20 @@
       setOnb('detected');
       return;
     }
-    if (paths.length === 1) {
+    // A single media file follows the tuned single-video import path. Any
+    // folder (no media extension) or any multi-item batch flows through the
+    // host's import_paths, which expands folders recursively and imports every
+    // supported media file through the normal pipeline.
+    var singleFile = paths.length === 1 && /\.(mp4|avi|mkv|mov|m4v|webm|mpeg|mpg|wmv)$/i.test(paths[0]);
+    if (singleFile) {
       importDroppedVideo(files[0]);
       return;
     }
-    // Batch: import every file through the normal import path via the sidecar.
+    // Batch: import every path (files and folders) via the host expansion.
     importingFile = files[0].name || paths[0];
     setImporting(true, importingFile);
     setOnb(null);
-    lpBridge.call('import_videos', { paths: paths }).then(function (result) {
+    lpBridge.call('import_paths', { paths: paths }).then(function (result) {
       setImporting(false);
       importingFile = null;
       if (!result || result.ok === false) {
@@ -7573,7 +7604,8 @@
 
   function openBatchImport(jobs) {
     batchJobs = jobs.map(function (j) { return { id: j.id, name: j.name || j.file || 'Lecture' }; });
-    batchMode = 'study'; batchQuality = 'balanced';
+    var remembered = batchPresetStore.load();
+    batchMode = remembered.mode; batchQuality = remembered.quality;
     var overlay = $('batch-overlay');
     if (!overlay) return;
     $('batch-count').textContent = batchJobs.length;
@@ -7607,6 +7639,7 @@
 
   function batchApplyAll() {
     if (!batchJobs.length) return;
+    batchPresetStore.save(batchMode, batchQuality);
     lpBridge.call('apply_job_settings', {
       job_ids: batchJobs.map(function (j) { return j.id; }),
       mode: batchMode,
@@ -7854,6 +7887,74 @@
         setTimeout(function () { transcriptEl.scrollTop = state.transcriptScroll; }, 60);
       }
     }
+  }
+
+  // ---- Feature 4: one-click Continue on Home ----
+  // A quiet Home surface that returns the student to their last meaningful
+  // activity. Continue destinations are workspace screens only (Review,
+  // Transcript, Study/Flashcards/Quiz, Process); transient surfaces such as
+  // Settings, Downloads, or Export are never offered as a Continue target.
+  var CONTINUE_SCREENS = {
+    review: { label: 'Review', screen: 'review' },
+    transcript: { label: 'Transcript', screen: 'transcript' },
+    study: { label: 'Study', screen: 'study' },
+    process: { label: 'Process', screen: 'process' },
+    exports: { label: 'Review', screen: 'review' }
+  };
+  var CONTINUE_STUDY_TABS = {
+    chat: { label: 'Ask', screen: 'study', tab: 'chat' },
+    overview: { label: 'Overview', screen: 'study', tab: 'overview' },
+    cards: { label: 'Flashcards', screen: 'study', tab: 'cards' },
+    quiz: { label: 'Quiz', screen: 'study', tab: 'quiz' },
+    quick: { label: 'Quick Study', screen: 'study', tab: 'quick' }
+  };
+  function continueScreenOf(state) {
+    if (!state) return null;
+    if (state.screen === 'study' && state.studyTab) {
+      var tab = CONTINUE_STUDY_TABS[state.studyTab];
+      if (tab) return tab;
+    }
+    return CONTINUE_SCREENS[state.screen] || null;
+  }
+  function renderContinueCard() {
+    var card = $('continue-card');
+    if (!card) return;
+    var jobId = LP.state.jobId || (appSessionStore.load() || {}).jobId || '';
+    var job = jobId && _jobById(jobId);
+    if (!job) {
+      card.hidden = true;
+      return;
+    }
+    var state = resumeStore.load(jobId) || {};
+    var target = continueScreenOf(state);
+    if (!target) {
+      card.hidden = true;
+      return;
+    }
+    $('continue-title').textContent = job.name || 'Lecture';
+    var detail = target.label;
+    if (state.screen === 'study' && state.studyTab === 'quiz') {
+      var qs = (studyV2.progress && studyV2.progress.quiz_attempts) || [];
+      if (qs.length) detail = 'Quiz · ' + qs.length + ' questions';
+    } else if (state.screen === 'study' && state.studyTab === 'cards') {
+      var fc = (studyV2.progress && studyV2.progress.flashcard_results) || {};
+      var fcCount = Object.keys(fc).length;
+      if (fcCount) detail = 'Flashcards · ' + fcCount + ' studied';
+    } else if (state.screen === 'transcript') {
+      detail = 'Transcript';
+    } else if (state.screen === 'review') {
+      detail = 'Review';
+    } else if (state.screen === 'process') {
+      detail = 'Processing';
+    }
+    $('continue-detail').textContent = detail;
+    card.hidden = false;
+    $('btn-continue').onclick = function () {
+      selectJob(jobId, { screen: target.screen });
+      if (target.tab) setStudyTab(target.tab);
+      setScreen(target.screen);
+      saveAppSession();
+    };
   }
 
   // ---- Feature 5: Ctrl+K command palette ----

@@ -6,11 +6,14 @@ const {
   dialog,
   ipcMain,
   Menu,
+  nativeImage,
   net,
   Notification,
+  powerSaveBlocker,
   protocol,
   screen,
-  shell
+  shell,
+  Tray
 } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -37,6 +40,18 @@ let activeSession = null;
 let lastResultsDir = null;
 let requestCounter = 0;
 let quitPromise = null;
+
+// ---- Feature 5: system-sleep prevention ----
+// Real work (a running processing job, or a yt-dlp download in waiting/
+// downloading state) keeps the system awake while the display may still
+// sleep. Electron's 'prevent-app-suspension' blocks system sleep but allows
+// the display to turn off, which is exactly the required behavior.
+let powerSaveId = null;
+
+// ---- Feature 2: tray + background after close ----
+let tray = null;
+let closeToTrayPreference = null; // null | 'background' | 'exit'
+let quitToTray = false; // set when Quit is chosen from the tray
 
 function parseOptions(argv) {
   const parsed = {};
@@ -403,6 +418,130 @@ function windowStatePath() {
   return path.join(app.getPath('userData'), 'window-state.json');
 }
 
+// ---- Feature 5: system-sleep prevention ----
+// Real work (a running processing job, or a yt-dlp download in waiting/
+// downloading state) keeps the system awake while the display may still
+// sleep. Electron's 'prevent-app-suspension' blocks system sleep but allows
+// the display to turn off, which is exactly the required behavior.
+function refreshPowerSave(session) {
+  const active = session && session.activeWorkCount > 0;
+  if (active && powerSaveId === null) {
+    powerSaveId = powerSaveBlocker.start('prevent-app-suspension');
+    if (session) session.logger.write('power_save_acquired', { id: powerSaveId });
+  } else if (!active && powerSaveId !== null) {
+    const id = powerSaveId;
+    powerSaveId = null;
+    if (powerSaveBlocker.isStarted(id)) powerSaveBlocker.stop(id);
+    if (session) session.logger.write('power_save_released', { id });
+  }
+}
+
+// ---- Feature 2: tray + background after close ----
+function trayIconImage() {
+  const iconPath = applicationIcon();
+  if (!iconPath) return nativeImage.createEmpty();
+  const image = nativeImage.createFromPath(iconPath);
+  return image.isEmpty() ? nativeImage.createEmpty() : image;
+}
+
+function createTray(session) {
+  if (tray) return tray;
+  try {
+    tray = new Tray(trayIconImage());
+    tray.setToolTip(PRODUCT_NAME);
+    tray.setContextMenu(Menu.buildFromTemplate([
+      {
+        label: 'Open LecturePack',
+        click: () => {
+          const window = activeSession && activeSession.window;
+          if (window && !window.isDestroyed()) {
+            if (window.isMinimized()) window.restore();
+            window.show();
+            window.focus();
+          } else {
+            requestQuit();
+          }
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit LecturePack',
+        click: () => {
+          quitToTray = true;
+          requestQuit();
+        }
+      }
+    ]));
+    tray.on('click', () => {
+      const window = activeSession && activeSession.window;
+      if (window && !window.isDestroyed()) {
+        if (window.isMinimized()) window.restore();
+        if (!window.isVisible()) window.show();
+        window.focus();
+      }
+    });
+    return tray;
+  } catch (error) {
+    if (session) session.logger.write('tray_creation_failed', { error: error.message });
+    return null;
+  }
+}
+
+function closeToTrayStatePath() {
+  return path.join(app.getPath('userData'), 'close-to-tray.json');
+}
+
+function loadCloseToTrayPreference() {
+  try {
+    const state = JSON.parse(fs.readFileSync(closeToTrayStatePath(), 'utf8'));
+    closeToTrayPreference = state.choice === 'background' || state.choice === 'exit' ? state.choice : null;
+  } catch (_) {
+    closeToTrayPreference = null;
+  }
+}
+
+function saveCloseToTrayPreference(choice, remember) {
+  if (choice !== 'background' && choice !== 'exit') return;
+  if (remember) {
+    closeToTrayPreference = choice;
+    try {
+      fs.mkdirSync(path.dirname(closeToTrayStatePath()), { recursive: true });
+      fs.writeFileSync(closeToTrayStatePath(), JSON.stringify({ choice }), 'utf8');
+    } catch (_) { /* preference persistence must never block close */ }
+  } else {
+    closeToTrayPreference = null;
+  }
+}
+
+// A window close is intercepted when real work would continue in the
+// background. Returns 'keep' (hide to tray), 'exit' (really quit), or 'cancel'
+// (abort the close entirely).
+async function resolveCloseToTray(session) {
+  if (quitToTray || app.isQuitting) return 'exit';
+  if (closeToTrayPreference === 'background') return 'keep';
+  if (closeToTrayPreference === 'exit') return 'exit';
+  const window = session && session.window;
+  const options = {
+    type: 'question',
+    title: PRODUCT_NAME,
+    message: 'LecturePack is still working.',
+    detail: 'Processing, downloads, or queued work will continue. Keep LecturePack working in the background, or exit and stop work?',
+    buttons: ['Keep working in background', 'Exit and stop work'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+    checkboxLabel: 'Remember my choice'
+  };
+  if (window && !window.isDestroyed()) {
+    const result = await dialog.showMessageBox(window, options);
+    saveCloseToTrayPreference(result.response === 0 ? 'background' : 'exit', !!result.checkboxChecked);
+    return result.response === 0 ? 'keep' : 'exit';
+  }
+  const result = await dialog.showMessageBox(options);
+  saveCloseToTrayPreference(result.response === 0 ? 'background' : 'exit', !!result.checkboxChecked);
+  return result.response === 0 ? 'keep' : 'exit';
+}
+
 function visibleWindowBounds(bounds) {
   if (!bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) ||
       bounds.width < 640 || bounds.height < 480 || !Number.isFinite(bounds.x) || !Number.isFinite(bounds.y)) {
@@ -436,6 +575,39 @@ function saveWindowState(win) {
   } catch (_) { /* window restore must never block shutdown */ }
 }
 
+// Track whether real work is happening so the power-save blocker (Feature 5)
+// and the close-to-tray decision (Feature 2) reflect actual activity. A
+// running processing job or a waiting/downloading yt-dlp item counts as work.
+// Workloads are tracked by key so overlapping jobs/downloads never double-count
+// and are released exactly when the last one finishes.
+function trackActiveWork(session, event, message) {
+  if (!session) return;
+  if (!session.activeWork) session.activeWork = new Set();
+  const work = session.activeWork;
+  if (event === 'status_changed') {
+    const label = String(message.label || '').toLowerCase();
+    const key = `job:${String(message.job || session.activeJobId || '')}`;
+    if (label === 'processing' || label === 'downloading') {
+      work.add(key);
+    } else if (label === 'review ready' || label === 'failed' || label === 'cancelled' ||
+               label === 'interrupted' || label === 'done' || label === 'idle') {
+      work.delete(key);
+    }
+  } else if (event === 'downloads_changed') {
+    const downloads = Array.isArray(message.downloads) ? message.downloads : [];
+    const activeKeys = new Set(
+      downloads.filter((d) => d && (d.status === 'waiting' || d.status === 'downloading'))
+        .map((d) => `download:${String(d.item_id || d.id || '')}`)
+    );
+    for (const key of work) {
+      if (key.startsWith('download:') && !activeKeys.has(key)) work.delete(key);
+    }
+    for (const key of activeKeys) work.add(key);
+  }
+  session.activeWorkCount = work.size;
+  refreshPowerSave(session);
+}
+
 function handleSidecarMessage(session, message) {
   if (!message || typeof message !== 'object') return;
   session.logger.write('sidecar_message', {
@@ -446,6 +618,8 @@ function handleSidecarMessage(session, message) {
   if (message.event === 'active_job') session.activeJobId = message.id || '';
   // Taskbar progress mirrors the active job's live status/pipeline events.
   updateTaskbarProgress(session, message);
+  // Power-save tracking (Feature 5) keys off live status and download events.
+  trackActiveWork(session, message.event || '', message);
   if (message.response_to) {
     settleResponse(session, message);
     if (message.event === 'error') sendToPage(session, message);
@@ -568,6 +742,17 @@ async function bootstrap(session, attempt) {
       );
       return;
     }
+    // Feature 6: after startup health passes, return crash-interrupted jobs to
+    // the queue exactly once. This never runs before health is proven.
+    let recovery = null;
+    try {
+      recovery = await sendCommand(session, 'recover_interrupted_jobs');
+      if (attempt !== session.startupAttempt) return;
+      const recovered = recovery && Number.isFinite(recovery.recovered) ? recovery.recovered : 0;
+      if (recovered > 0) {
+        sendToPage(session, { event: 'recovery_notice', recovered });
+      }
+    } catch (_) { /* recovery must not block startup */ }
     const listed = await sendCommand(session, 'list_jobs');
     if (attempt !== session.startupAttempt) return;
     const jobs = Array.isArray(listed.jobs) ? listed.jobs : [];
@@ -646,6 +831,106 @@ async function importLocalVideo(session, rawPath, extra) {
   return sendCommand(session, 'import_video', payload);
 }
 
+// Supported media extensions, kept aligned with the sidecar's import rules.
+const SUPPORTED_MEDIA_EXTENSIONS = new Set([
+  '.mp4', '.avi', '.mkv', '.mov', '.m4v', '.webm', '.mpeg', '.mpg', '.wmv'
+]);
+
+// Feature 1: expand a mixed list of files and folders into a flat list of
+// supported media files. Folders are scanned recursively within a sensible
+// depth bound; unrelated files are ignored. Files pass the same readability
+// gate as a normal import so a bad path is reported without failing the batch.
+function expandImportPaths(paths) {
+  const mediaFiles = [];
+  const failures = [];
+  const visited = new Set();
+  const MAX_FOLDER_DEPTH = 6;
+  const MAX_FOLDER_FILES = 2000;
+
+  function isSupportedMedia(filePath) {
+    try {
+      return SUPPORTED_MEDIA_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function walk(filePath, depth) {
+    let stat;
+    try { stat = fs.statSync(filePath); } catch (_) { return; }
+    if (stat.isFile()) {
+      if (isSupportedMedia(filePath)) mediaFiles.push(filePath);
+      return;
+    }
+    if (!stat.isDirectory()) return;
+    if (depth > MAX_FOLDER_DEPTH) return;
+    let entries;
+    try { entries = fs.readdirSync(filePath, { withFileTypes: true }); } catch (_) { return; }
+    if (mediaFiles.length >= MAX_FOLDER_FILES) return;
+    for (const entry of entries) {
+      if (mediaFiles.length >= MAX_FOLDER_FILES) break;
+      const child = path.join(filePath, entry.name);
+      if (visited.has(child)) continue;
+      visited.add(child);
+      if (entry.isFile()) {
+        if (isSupportedMedia(child)) mediaFiles.push(child);
+      } else if (entry.isDirectory()) {
+        walk(child, depth + 1);
+      }
+    }
+  }
+
+  const raw = Array.isArray(paths) ? paths : [];
+  for (const entry of raw) {
+    const text = typeof entry === 'string' ? entry.trim() : '';
+    if (!text) continue;
+    const resolved = (() => { try { return path.resolve(text); } catch (_) { return text; } })();
+    if (visited.has(resolved)) continue;
+    visited.add(resolved);
+    let stat;
+    try { stat = fs.statSync(resolved); } catch (_) {
+      failures.push({ path: text, code: 'NOT_FOUND', error: `Path not found: ${text}` });
+      continue;
+    }
+    if (stat.isDirectory()) {
+      walk(resolved, 0);
+    } else if (stat.isFile()) {
+      if (isSupportedMedia(resolved)) mediaFiles.push(resolved);
+      else failures.push({ path: text, code: 'FFPROBE_FAILED', error: `Unsupported file type: ${text}` });
+    }
+  }
+  return { mediaFiles, failures };
+}
+
+// Feature 1 + Feature 3: import a mixed list of files/folders through the
+// normal import path. Folders are expanded to their media files; the flat
+// list flows to the sidecar's import_videos command so every file reuses the
+// existing import pipeline, duplicate detection, and clean-title behavior.
+async function importMultiplePaths(session, paths) {
+  if (!session || !paths || !paths.length) return { ok: true, imported: 0 };
+  const { mediaFiles } = expandImportPaths(paths);
+  if (!mediaFiles.length) {
+    return { ok: false, error: 'LecturePack could not find any supported videos in that selection.' };
+  }
+  session.logger.write('import_paths', { paths: paths.length, media_files: mediaFiles.length });
+  return sendCommand(session, 'import_videos', { paths: mediaFiles });
+}
+
+// Extract non-flag file arguments from an Electron command line. On Windows,
+// "Send To" passes absolute file paths as plain argv entries; flags and the
+// executable path are ignored.
+function extractFileArguments(argv) {
+  const list = Array.isArray(argv) ? argv : [];
+  const out = [];
+  // argv[0] is the app executable; never treat it as an imported file.
+  for (let index = 1; index < list.length; index += 1) {
+    const arg = list[index];
+    if (!arg || arg.startsWith('--') || arg.startsWith('-')) continue;
+    if (path.isAbsolute(arg) || /^[A-Za-z]:[\\/]/.test(arg)) out.push(arg);
+  }
+  return out;
+}
+
 async function openJobFolder(session, command, payload) {
   const jobId = payload.job_id || session.activeJobId || '';
   const result = await sendCommand(session, 'get_job', { job_id: jobId });
@@ -719,6 +1004,12 @@ async function handleCommand(session, command, payload) {
   if (command === 'open_logs') return openLogsFolder(session);
   if (command === 'get_startup_diagnostics') return startupDiagnostics(session);
   if (command === 'browse_video') return browseVideo(session);
+  if (command === 'import_paths') {
+    const paths = Array.isArray(payload.paths) ? payload.paths : (
+      typeof payload.paths === 'string' ? [payload.paths] : []);
+    if (!paths.length) return { ok: false, error: 'No files or folders were supplied.' };
+    return importMultiplePaths(session, paths);
+  }
   if (command === 'import_video' && !payload.bundled_demo && typeof payload.path === 'string' && payload.path) {
     return importLocalVideo(session, payload.path, payload);
   }
@@ -811,6 +1102,17 @@ async function stopSession(session) {
 
 function requestQuit() {
   if (quitPromise) return;
+  quitToTray = true;
+  // Always release the system-sleep blocker before the app exits.
+  if (powerSaveId !== null) {
+    const id = powerSaveId;
+    powerSaveId = null;
+    if (powerSaveBlocker.isStarted(id)) powerSaveBlocker.stop(id);
+  }
+  if (tray) {
+    try { tray.destroy(); } catch (_) { /* tray teardown must never block quit */ }
+    tray = null;
+  }
   const session = activeSession;
   quitPromise = stopSession(session).finally(() => app.quit());
 }
@@ -854,6 +1156,8 @@ function createProductionWindow() {
     startupFailure: null,
     lastStartupError: null,
     latestHealth: null,
+    activeWorkCount: 0,
+    documentTempDir: null,
     closed: false,
     dataDir: ''
   };
@@ -876,6 +1180,25 @@ function createProductionWindow() {
   window.on('maximize', scheduleWindowSave);
   window.on('unmaximize', scheduleWindowSave);
   window.on('close', () => saveWindowState(window));
+  window.on('close', (event) => {
+    // Feature 2: when real work would continue, intercept the X button and
+    // offer to keep working in the background via the tray. Explicit Quit
+    // (tray menu, app.quit) bypasses this and always really quits.
+    if (app.isQuitting || quitToTray || !session.activeWorkCount) return;
+    event.preventDefault();
+    void resolveCloseToTray(session).then((choice) => {
+      if (session.closed || activeSession !== session) return;
+      if (choice === 'keep') {
+        createTray(session);
+        session.window.hide();
+        logger.write('close_to_tray', { activeWork: session.activeWorkCount });
+      } else if (choice === 'exit') {
+        quitToTray = true;
+        requestQuit();
+      }
+      // choice === 'cancel' leaves the window open.
+    });
+  });
   window.webContents.on('did-finish-load', () => {
     session.pageReady = true;
     logger.write('page_ready', { ui_dir: uiDir });
@@ -905,7 +1228,11 @@ function createProductionWindow() {
     });
   });
   window.on('closed', () => {
-    if (!app.isQuitting) requestQuit();
+    if (app.isQuitting || quitToTray) return;
+    // A window that was closed without an explicit quit happens only when the
+    // renderer crashed or the OS closed it. Do not silently keep working in
+    // that case; quit cleanly.
+    requestQuit();
   });
 
   const document = writeProductionDocument(uiDir);
@@ -926,13 +1253,21 @@ ipcMain.handle('lecturepack-production:command', (_event, command, payload) => {
 ipcMain.handle('lecturepack-production:version', () => app.getVersion());
 
 if (hasSingleInstanceLock) {
-  app.on('second-instance', () => {
+  // Feature 3: Explorer "Send To LecturePack" and any second launch forward
+  // file paths into the already-running instance. The second-instance event
+  // carries the full command line; file paths are the non-flag arguments.
+  app.on('second-instance', (_event, commandLine) => {
     const window = activeSession && activeSession.window;
-    if (!window || window.isDestroyed()) return;
-    if (window.isMinimized()) window.restore();
-    window.show();
-    window.focus();
-    if (process.platform === 'win32') window.flashFrame(true);
+    if (window && !window.isDestroyed()) {
+      if (window.isMinimized()) window.restore();
+      window.show();
+      window.focus();
+      if (process.platform === 'win32') window.flashFrame(true);
+    }
+    const paths = extractFileArguments(commandLine);
+    if (paths.length && activeSession) {
+      void importMultiplePaths(activeSession, paths);
+    }
   });
 
   app.whenReady().then(() => {
@@ -941,7 +1276,24 @@ if (hasSingleInstanceLock) {
   // default File/Edit/View/Window menu on Windows.
   Menu.setApplicationMenu(null);
   registerAssetProtocol();
+  loadCloseToTrayPreference();
   createProductionWindow();
+  // First-launch file arguments (e.g. Windows "Send To" when no instance is
+  // running) arrive in this process's own argv.
+  const initialPaths = extractFileArguments(process.argv);
+  if (initialPaths.length) {
+    // Wait for the page and sidecar to be ready before importing.
+    const window = activeSession && activeSession.window;
+    if (window && !window.isDestroyed()) {
+      window.webContents.once('did-finish-load', () => {
+        // The sidecar needs a moment to become ready; the import itself is
+        // queued by the sidecar once its startup completes.
+        setTimeout(() => {
+          if (activeSession) void importMultiplePaths(activeSession, initialPaths);
+        }, 2500);
+      });
+    }
+  }
   const quitAfter = Number(options['quit-after-seconds'] || 0);
   if (Number.isFinite(quitAfter) && quitAfter > 0) {
     setTimeout(() => requestQuit(), Math.min(quitAfter, 24 * 60 * 60) * 1000);

@@ -140,6 +140,14 @@
           <button id="btn-bulk-delete" class="lp-hit" style="font:600 12px 'JetBrains Mono';background:var(--red-fill);color:var(--on-signal);border:2px solid var(--red);border-radius:8px;padding:7px 12px;cursor:pointer">Delete</button>
           <button id="btn-select-done" class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Done</button>
         </div>
+        <div id="continue-card" hidden style="align-items:center;gap:14px;margin-bottom:8px;padding:13px 16px;background:var(--panel);border:2px solid var(--line);border-radius:13px">
+          <div style="flex:1;min-width:0">
+            <div style="font:600 11px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--orange);margin-bottom:4px">Continue</div>
+            <div id="continue-title" style="font:700 15px 'Space Grotesk';color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+            <div id="continue-detail" style="font:500 12px 'JetBrains Mono';color:var(--muted);margin-top:2px"></div>
+          </div>
+          <button id="btn-continue" class="lp-hit lp-press" style="flex:none;font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer">Continue</button>
+        </div>
         <div id="jobs-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px"></div>
         </div>
 

@@ -345,6 +345,36 @@ class Sidecar:
         except Exception:
             pass
 
+    def _recover_interrupted_jobs(self, request_id: str | None, command: str) -> None:
+        """Feature 6: return crash-interrupted processing jobs back to the FIFO
+        queue, exactly once, preserving the existing queue order. Called only
+        after startup health has passed. A job left 'running' by a dead session
+        loads as 'interrupted'; those are the only jobs re-enqueued. DONE,
+        FAILED, and CANCELLED jobs are untouched, and the idempotent enqueue
+        prevents duplicate queue entries."""
+        if not hasattr(self, "queue"):
+            self._respond(request_id, command, recovered=0, requeued=[])
+            return
+        requeued: list[str] = []
+        try:
+            for job in self._job_objects():
+                if self._job_status(job) != "interrupted":
+                    continue
+                # Skip anything already in the queue or active (idempotent).
+                if job.job_id in self.queue.queued() or self.queue.active == job.job_id:
+                    continue
+                position = self.electron_backend.enqueue_job(self.queue, job.job_id)
+                if position is not None and position >= 0:
+                    requeued.append(job.job_id)
+        except Exception as exc:  # noqa: BLE001 - recovery must never crash startup
+            self._emit({"event": "error", "error": f"recover_interrupted_jobs: {exc}"})
+        if requeued:
+            self._emit({"event": "queue_changed", "active": self.queue.active,
+                        "queue": [{"id": jid, "position": pos}
+                                  for pos, jid in enumerate(self.queue.queued())],
+                        "schedules": self.queue.schedules()})
+        self._respond(request_id, command, recovered=len(requeued), requeued=requeued)
+
     def _promote_next(self) -> None:
         """Release the active slot and launch the next queued job (FIFO)."""
         if not hasattr(self, "queue"):
@@ -505,6 +535,8 @@ class Sidecar:
                 self._apply_job_settings(request_id, command, payload)
             elif command == "queue_jobs":
                 self._queue_jobs(request_id, command, payload)
+            elif command == "recover_interrupted_jobs":
+                self._recover_interrupted_jobs(request_id, command)
             elif command == "search_transcripts":
                 self._search_transcripts(request_id, command, payload)
             elif command == "start_job":
