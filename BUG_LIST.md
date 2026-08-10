@@ -38,6 +38,102 @@ re-debug the same thing from scratch.
 
 *(newest first)*
 
+### BUG-32 — updater would install an UNVERIFIED installer (fail-open)   ✅ FIXED (verified)
+- **Area:** `electron-spike/updater.js` (`check`, `download`, `expectedInstallerSha256`).
+- **Found:** 2026-08-10 release-hardening audit of shipped v2.0.0. Not user-reported.
+- **Severity:** security. Shipped in 2.0.0.
+- **Symptom:** none visible — the updater reported "downloaded / ready to install".
+- **Root cause:** `check()` wrapped the manifest fetch in `try { … } catch (_) { expectedSha256 = null; }`.
+  `download()` then passed `update.expectedSha256 || undefined` to `fetchToFile`, which
+  skips verification entirely when the digest is undefined. So a missing, unreachable,
+  malformed or digest-less manifest silently produced an *unverified* installer that
+  `install()` would happily launch. `expectedInstallerSha256()` also accepted a top-level
+  `sha256`/`installer_sha256` bound to no filename, and matched any `*-Setup.exe` entry —
+  so a digest published for a *different* installer was accepted.
+- **Fix:** `verifyReleaseManifest()` is now the single trust gate: manifest must parse,
+  version must equal the selected release, platform `win32`, arch `x64`, and an
+  `installers[]` entry whose basename exactly matches the installer being downloaded with
+  a valid 64-char digest. Unbound top-level shortcuts removed. `download()` refuses to run
+  without a verified digest. No "proceed anyway" path exists.
+- **Verified:** `tests/test_electron_updater.py` 23 passed; lifecycle probe proved
+  missing/malformed/foreign-hash manifests, checksum mismatch and cancellation each leave
+  zero leftover files; the real published v2.0.0 manifest still verifies with the correct
+  digest; A→B acceptance installed 2.0.1 over 2.0.0 from verified bytes.
+- **Lesson:** a `catch` that assigns a *permissive* default is a fail-open. When the
+  catch-all sets `null` and the consumer treats `null` as "skip the check", the error path
+  is the attack path.
+
+### BUG-31 — packaged .exe reported the wrong version after any bump   ✅ FIXED (verified)
+- **Area:** `electron-spike/package-win.mjs`.
+- **Found:** 2026-08-10, while verifying the installed 2.0.1 build.
+- **Symptom:** installed `LecturePack.exe` reported ProductVersion **2.0.0** while
+  `version.py`, `package.json`, `package-lock.json` and the `.iss` all said 2.0.1.
+- **Root cause:** `appVersion`, `ProductVersion` and `FileVersion` were hardcoded string
+  literals `'2.0.0'` / `'2.0.0.0'`. Correct for exactly one release; every bump afterwards
+  would ship a mis-stamped executable. No check covered it, because the existing version
+  test only compared *declaration* files to each other.
+- **Fix:** read the version from `electron-spike/package.json`; derive the four-part
+  `FileVersion`. `scripts/verify_release_versions.py` now fails closed if any literal
+  `x.y.z` reappears in that script.
+- **Verified:** rebuilt candidate reports ProductVersion 2.0.1; the new guard was confirmed
+  to fail when the literal was deliberately reintroduced.
+- **Lesson:** "all version surfaces agree" must include *generated* surfaces, not just the
+  files humans edit. A build script holding a literal is a version surface.
+
+### BUG-30 — YouTube import silently degraded: no JS runtime, no EJS   ✅ FIXED (verified)
+- **Area:** `lecturepack/services/media_fetch.py`, `electron-spike/sidecar.spec`,
+  `lecturepack/services/packaged_health.py`.
+- **Found:** 2026-08-10 release-hardening audit. Shipped degraded in 2.0.0.
+- **Symptom:** none in diagnostics — the packaged self-test reported "Bundled yt-dlp is
+  available". In reality YouTube extraction returned **11 formats instead of 14**.
+- **Root cause:** modern yt-dlp solves YouTube JS challenges through its EJS system, which
+  needs both the `yt_dlp_ejs` package and a real JS runtime process. 2.0.0 bundled
+  neither. The health check only proved `import yt_dlp` succeeded, which says nothing about
+  whether YouTube works. A stale `player_client: ["android"]` override also bypassed the
+  JS-challenge path entirely, and yt-dlp was never told where the bundled FFmpeg lives.
+- **Fix:** bundle Deno 2.9.5 (digest-pinned, verified at build time) and yt-dlp-ejs 0.8.0
+  **including its minified solver JS**, which ships as package *data* — `collect_submodules`
+  alone would have produced a build that imports cleanly and still fails. Removed the
+  android override, set `ffmpeg_location`, disabled remote component fetching. Health split
+  into `yt_dlp` / `yt_dlp_ejs` / `js_runtime`.
+- **Verified:** packaged self-test reports `yt-dlp-ejs 0.8.0` and `deno 2.9.5`; live
+  release probe downloaded a real public video end-to-end.
+- **Lesson:** "the import succeeded" is not "the feature works". A health check that can
+  only prove a module loads will report green through a totally broken feature.
+
+### BUG-29 — legacy Qt workflow could publish the Electron installer's filename   ✅ FIXED (verified)
+- **Area:** `.github/workflows/release.yml` (now `release-runtime-repair.yml`).
+- **Found:** 2026-08-10 release-hardening audit.
+- **Symptom:** the published `LecturePack-<v>-Setup.exe` was ambiguous — it could be either
+  the Electron desktop app or the legacy Qt PyInstaller build.
+- **Root cause:** that workflow ran `app/packaging/build.py` (which invokes Inno Setup) and
+  uploaded `-Setup.exe`, `-SHA256SUMS.txt` and `-release-manifest.json` — exactly the
+  Electron asset names. Meanwhile **no** workflow invoked
+  `scripts/build_electron_release.py`, so the canonical path was manual. A contract test
+  actively *required* this wrong behaviour.
+- **Fix:** renamed the workflow, dropped the three desktop assets, forced `--no-installer`,
+  removed the Inno Setup step so it cannot compile an installer, added a fail-closed guard.
+  Added `release-electron.yml` as the sole authoritative desktop publisher.
+- **Verified:** `tests/test_release_pipeline_authority.py` 17 passed; the audited public
+  v2.0.0 Setup.exe was confirmed to be the Electron product.
+- **Lesson:** two producers, one filename, is a latent supply-chain bug. Also: a test can
+  encode the bug — check what a contract test is actually asserting before trusting it.
+
+### BUG-28 — Study mode tabs were flat; no shadow, no press, square corners   ✅ FIXED (verified)
+- **Area:** `app/ui/index.html` (inline "Study V1: a quiet workspace" block), `app/ui/app.css`.
+- **Reported by:** owner, 2026-08-10, with a screenshot ("boxed look").
+- **Root cause:** two layers. Nothing in `app.css` targeted `.study-mode-tab`, so they only
+  got the generic `.lp-tab` hover edge. **And** an inline `<style>` block overrode
+  background/border/radius/padding with `!important`, forcing square underline tabs — so a
+  first fix that only added a shadow in `app.css` appeared to do nothing.
+- **Fix:** the Study-shell overrides now use the standard button language (9px radius, 2px
+  border, resting hard shadow, hover lift, press). Keyed in CSS because
+  `setStudyV2Mode()` rewrites `className` wholesale and would drop a class added in markup.
+- **Verified:** computed resting shadow is `rgb(36,31,25) 2px 2px 0` — identical to the
+  reference button; hover/active rules resolve above the generic tab rules.
+- **Lesson:** when a CSS fix "doesn't apply", look for an inline `!important` block before
+  re-writing the rule. And check whether JS rewrites `className`.
+
 ### BUG-26 — imported video's thumbnail never appears on the job card   🔴 OPEN (known, shipped in 0.9.0-beta.5)
 - **Area:** `app/ui/app.js` (`posterSrc` / `LP.posterRetry` / `posterHtml`) ↔
   `app/desktop/assets.py` (`resolve_poster`, `make_poster_now`).
