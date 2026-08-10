@@ -364,6 +364,7 @@ function Invoke-Negative {
     $scenarios = New-Object System.Collections.Specialized.OrderedDictionary
     foreach ($entry in @(
         @('ffmpeg_missing', 'resources\LecturePackSidecar\_internal\bin\ffmpeg.exe'),
+        @('ffprobe_missing', 'resources\LecturePackSidecar\_internal\bin\ffprobe.exe'),
         @('model_missing', 'resources\LecturePackSidecar\_internal\models\ggml-base.en.bin'),
         @('whisper_missing', 'resources\LecturePackSidecar\_internal\bin\Release\whisper-cli.exe'),
         @('rust_missing', 'resources\LecturePackSidecar\_internal\lecturepack_study_core\lecturepack_study_core.cp312-win_amd64.pyd')

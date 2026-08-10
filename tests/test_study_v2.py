@@ -109,6 +109,27 @@ def test_deterministic_content_prefers_claims_and_non_duplicate_retrieval(monkey
                for concept in content["concepts"] for source in concept["sources"])
 
 
+def test_short_factual_demo_produces_grounded_study_material(monkeypatch):
+    class FakeJob:
+        paths = {"root": "/tmp", "transcript": "/tmp/transcript"}
+
+    monkeypatch.setattr(study_v2, "_load_segments", lambda job: [
+        {"start": 0.0, "end": 7.04,
+         "text": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black."},
+        {"start": 7.6, "end": 9.84,
+         "text": "They are actually marine mammals."},
+    ])
+    monkeypatch.setattr(study_v2, "_load_accepted_slides", lambda job: [])
+
+    content = study_v2.generate_deterministic_content(FakeJob())
+    titles = {item["title"].casefold() for item in content["concepts"]}
+    assert "polar bear" in titles
+    assert "marine mammals" in titles
+    assert len(content["flashcards"]) == len(content["concepts"])
+    assert content["quiz"]
+    assert all(item["sources"] for item in content["concepts"])
+
+
 # ---- old-job migration --------------------------------------------------- #
 def test_ensure_study_v2_generates_from_existing_assets(tmp_path):
     class FakeJob:

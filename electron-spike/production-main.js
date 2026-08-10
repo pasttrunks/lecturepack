@@ -20,7 +20,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn, spawnSync } = require('node:child_process');
-const { validateLocalVideoPath } = require('./import-path');
+const { validateLocalVideoPath, extractFileArguments } = require('./import-path');
 const updaterModule = require('./updater');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -939,21 +939,6 @@ async function importMultiplePaths(session, paths) {
   }
   session.logger.write('import_paths', { paths: paths.length, media_files: mediaFiles.length });
   return sendCommand(session, 'import_videos', { paths: mediaFiles });
-}
-
-// Extract non-flag file arguments from an Electron command line. On Windows,
-// "Send To" passes absolute file paths as plain argv entries; flags and the
-// executable path are ignored.
-function extractFileArguments(argv) {
-  const list = Array.isArray(argv) ? argv : [];
-  const out = [];
-  // argv[0] is the app executable; never treat it as an imported file.
-  for (let index = 1; index < list.length; index += 1) {
-    const arg = list[index];
-    if (!arg || arg.startsWith('--') || arg.startsWith('-')) continue;
-    if (path.isAbsolute(arg) || /^[A-Za-z]:[\\/]/.test(arg)) out.push(arg);
-  }
-  return out;
 }
 
 async function openJobFolder(session, command, payload) {

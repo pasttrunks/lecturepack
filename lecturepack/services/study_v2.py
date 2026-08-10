@@ -761,6 +761,53 @@ def _fallback_candidates(segments: list[dict[str, Any]],
     return candidates
 
 
+def _short_transcript_candidates(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Recover explicit subjects from a very short factual transcript.
+
+    Ten-second demos and short lecture clips may contain clear claims but no
+    repeated term. The normal quality filters intentionally reject one-off
+    words; this fallback keeps only noun phrases that appear verbatim in those
+    claims and retains the original segment as the explanation/source.
+    """
+    if not segments or len(segments) > 5:
+        return []
+    combined = " ".join(str(segment.get("text") or "") for segment in segments)
+    if len(_WORD_RE.findall(combined)) > 80:
+        return []
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, segment in enumerate(segments):
+        text = str(segment.get("text") or "")
+        phrases: list[str] = []
+        subject = re.search(
+            r"\b(?:the|a|an)\s+([A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,2})(?=[.!?,;])",
+            text, re.IGNORECASE)
+        if subject:
+            phrases.append(subject.group(1))
+        for match in re.finditer(
+                r"\b(?:is|are|was|were)\s+(?:actually\s+)?"
+                r"([A-Za-z][A-Za-z'-]+\s+[A-Za-z][A-Za-z'-]+)(?=[.!?,;])",
+                text, re.IGNORECASE):
+            phrases.append(match.group(1))
+        for phrase in phrases:
+            title = _clean_topic_title(phrase)
+            key = title.casefold()
+            if not title or key in seen or not _normalized_title_words(title):
+                continue
+            if set(word.casefold() for word in _WORD_RE.findall(title)) & (
+                    _STOP_WORDS | _STUDY_FILLER_WORDS | _STUDY_COMMON_VERBS):
+                continue
+            seen.add(key)
+            candidates.append({
+                "anchor": tuple(word.casefold() for word in _WORD_RE.findall(title)),
+                "title": title,
+                "index": index,
+                "score": 1.0,
+                "kind": "short_claim",
+            })
+    return candidates[:4]
+
+
 def _candidate_title(candidate: dict[str, Any], segments: list[dict[str, Any]]) -> str:
     """Make a readable display title without inventing a new fact."""
     title = _clean_topic_title(candidate.get("title") or "")
@@ -1086,6 +1133,8 @@ def _select_concept_candidates(segments: list[dict[str, Any]],
         selected.append(candidate)
         if len(selected) >= limit:
             break
+    if not selected:
+        selected = _short_transcript_candidates(segments)
     return sorted(selected, key=lambda item: int(item["index"]))
 
 

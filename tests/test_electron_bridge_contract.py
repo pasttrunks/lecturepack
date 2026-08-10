@@ -148,11 +148,12 @@ def test_theme_settings_are_not_sent_to_sidecar():
     assert "isLocalThemeSetting" in bridge_source
     assert "'theme'" in bridge_source
     assert "localStorage" in bridge_source
-    after_theme = bridge_source.split("isLocalThemeSetting(name, args))", 1)[1]
-    assert "localStorage.setItem" in after_theme
-    assert "api.request" in after_theme
-    before_theme = bridge_source.split("isLocalThemeSetting(name, args))", 1)[0]
-    assert "api.request" not in before_theme
+    call_source = bridge_source[bridge_source.index("call: function (name)"):]
+    theme_branch = call_source.index("isLocalThemeSetting(name, args)")
+    local_return = call_source.index("local: true", theme_branch)
+    generic_request = call_source.index("api.request(mapped.command", local_return)
+    assert "localStorage.setItem" in call_source[theme_branch:local_return]
+    assert theme_branch < local_return < generic_request
 
 
 def test_no_production_core_operation_is_silently_deferred():

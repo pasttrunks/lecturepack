@@ -204,9 +204,10 @@ def test_release_builder_rejects_noncanonical_app_version(tmp_path, wrong: str) 
         )
 
 
-def test_release_workflow_binds_both_triggers_to_the_peeled_tag_before_signing() -> None:
+def test_legacy_runtime_workflow_is_manual_and_binds_to_the_peeled_tag_before_signing() -> None:
     workflow = (Path(__file__).parents[1] / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    assert "push:" in workflow and "v*" in workflow and "workflow_dispatch:" in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "\n  push:" not in workflow and 'tags: ["v*"]' not in workflow
     assert 'refs/tags/v${APP_VERSION}^{commit}' in workflow
     assert "git rev-parse HEAD" in workflow
     assert "FULL_OBJECT_ID" in workflow

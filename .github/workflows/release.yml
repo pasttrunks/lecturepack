@@ -1,8 +1,9 @@
 name: Release LecturePack runtime
 
 on:
-  push:
-    tags: ["v*"]
+  # This workflow builds the retained legacy/runtime-repair asset set, not the
+  # Electron desktop release. Keep it explicit so an app tag cannot publish a
+  # second, Qt-rendered installer under the Electron Setup asset name.
   workflow_dispatch:
     inputs:
       tag:

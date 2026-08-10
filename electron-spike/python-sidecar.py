@@ -135,6 +135,7 @@ class Sidecar:
             self.data_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             self._data_error = f"{type(exc).__name__}: {exc}"
+        self._load_download_state()
         self.demo_video = Path(args.demo_video).expanduser().resolve() if args.demo_video else None
 
         self._load_engine()
@@ -2790,6 +2791,75 @@ class Sidecar:
         d.mkdir(parents=True, exist_ok=True)
         return str(d)
 
+    def _downloads_state_path(self) -> Path | None:
+        data_dir = getattr(self, "data_dir", None)
+        return Path(data_dir) / "downloads-state.json" if data_dir is not None else None
+
+    def _persist_downloads_locked(self) -> None:
+        """Atomically persist public download state while _download_lock is held."""
+        path = self._downloads_state_path()
+        if path is None:
+            return
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        payload = {
+            "schema_version": 1,
+            "downloads": [dict(self._downloads[item_id])
+                          for item_id in self._download_order
+                          if item_id in self._downloads],
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
+                                 encoding="utf-8")
+            os.replace(temporary, path)
+        except OSError:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _load_download_state(self) -> None:
+        """Restore downloads; crash-active rows become explicit Retry states."""
+        path = self._downloads_state_path()
+        if path is None or not path.is_file():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            rows = payload.get("downloads", []) if isinstance(payload, dict) else []
+        except (OSError, ValueError):
+            return
+        if not isinstance(rows, list):
+            return
+        changed = False
+        with self._download_lock:
+            for raw in rows:
+                if not isinstance(raw, dict):
+                    continue
+                item_id = str(raw.get("id") or "")
+                url = str(raw.get("url") or "")
+                if not item_id or not url or item_id in self._downloads:
+                    continue
+                item = {key: value for key, value in raw.items()
+                        if key in {"id", "url", "title", "status", "pct", "eta",
+                                   "speed", "error", "name", "path", "downloaded", "total"}}
+                status = str(item.get("status") or "failed")
+                if status in {"waiting", "downloading"}:
+                    item.update({
+                        "status": "failed",
+                        "eta": 0,
+                        "speed": 0,
+                        "error": "Download was interrupted when LecturePack closed. Choose Retry to continue.",
+                    })
+                    changed = True
+                elif status not in {"complete", "failed", "cancelled"}:
+                    item["status"] = "failed"
+                    item["error"] = "Download state could not be restored. Choose Retry to start again."
+                    changed = True
+                self._downloads[item_id] = item
+                self._download_order.append(item_id)
+            if changed:
+                self._persist_downloads_locked()
+
     def _download_public(self, item: dict[str, Any]) -> dict[str, Any]:
         return {key: value for key, value in item.items()
                 if key not in {"path"}}
@@ -2823,6 +2893,7 @@ class Sidecar:
                 if event is not None:
                     event.set()
                     cancelled = True
+            self._persist_downloads_locked()
         self._emit_downloads()
         self._respond(request_id, command, ok=True, cancelled=cancelled,
                       downloads=self._download_snapshot())
@@ -2838,6 +2909,8 @@ class Sidecar:
                 if download_id in self._download_order:
                     self._download_order.remove(download_id)
                 removed = True
+            if removed:
+                self._persist_downloads_locked()
         self._emit_downloads()
         self._respond(request_id, command, ok=True, removed=removed,
                       downloads=self._download_snapshot())
@@ -2852,6 +2925,8 @@ class Sidecar:
                 item.update({"status": "waiting", "pct": 0, "eta": 0,
                              "speed": 0, "error": ""})
                 retried = True
+            if retried:
+                self._persist_downloads_locked()
         if retried:
             self._start_download_worker()
         self._emit_downloads()
@@ -2865,6 +2940,8 @@ class Sidecar:
             for item_id in removable:
                 self._downloads.pop(item_id, None)
                 self._download_order.remove(item_id)
+            if removable:
+                self._persist_downloads_locked()
         self._emit_downloads()
         self._respond(request_id, command, ok=True, cleared=len(removable),
                       downloads=self._download_snapshot())
@@ -2895,6 +2972,8 @@ class Sidecar:
                 self._downloads[item_id] = item
                 self._download_order.append(item_id)
                 added.append(self._download_public(dict(item)))
+            if added:
+                self._persist_downloads_locked()
         if not added:
             error = "Enter one full http(s) link per line."
             self._respond(request_id, command, ok=False, error=error)
@@ -2920,6 +2999,7 @@ class Sidecar:
                     item["status"] = "downloading"
                     event = threading.Event()
                     self._download_cancel[item_id] = event
+                    self._persist_downloads_locked()
                     return dict(item)
         return None
 
@@ -2966,6 +3046,7 @@ class Sidecar:
                         current.update({"status": "complete", "pct": 100,
                                         "eta": 0, "path": path,
                                         "name": os.path.basename(path)})
+                        self._persist_downloads_locked()
                 payload_out = {"ok": True, "download_id": item_id,
                                "name": os.path.basename(path)}
                 # The existing normal import path remains the only way a
@@ -2977,6 +3058,7 @@ class Sidecar:
                 with self._download_lock:
                     if item_id in self._downloads:
                         self._downloads[item_id]["status"] = "cancelled"
+                        self._persist_downloads_locked()
                 payload_out = {"ok": False, "cancelled": True,
                                "download_id": item_id}
             except Exception as exc:  # media_fetch already makes yt-dlp errors friendly
@@ -2984,6 +3066,7 @@ class Sidecar:
                     if item_id in self._downloads:
                         self._downloads[item_id].update({"status": "failed",
                                                         "error": str(exc)[:300]})
+                        self._persist_downloads_locked()
                 payload_out = {"ok": False, "error": str(exc)[:300],
                                "download_id": item_id}
             finally:
@@ -3060,6 +3143,7 @@ class Sidecar:
             for item in self._downloads.values():
                 if item.get("status") == "waiting":
                     item["status"] = "cancelled"
+            self._persist_downloads_locked()
         if self.controller is not None:
             try:
                 self.controller.cancel()

@@ -7,6 +7,7 @@ drop navigation, and friendly structured import failure codes.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -93,6 +94,31 @@ assert.strictEqual(directory.code, 'NOT_FOUND');
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_send_to_parser_does_not_import_host_option_values(tmp_path):
+    video = tmp_path / "lecture.mp4"
+    argv = [
+        r"C:\Program Files\LecturePack\LecturePack.exe",
+        "--results", str(tmp_path / "release results"),
+        "--data-dir", str(tmp_path / "User Data With Spaces"),
+        "--user-data-dir", str(tmp_path / "Chromium Profile"),
+        "--remote-debugging-port=9333",
+        str(video),
+    ]
+    source = (
+        "const m=require(process.argv[1]);"
+        "process.stdout.write(JSON.stringify(m.extractFileArguments(JSON.parse(process.argv[2]))));"
+    )
+    result = subprocess.run(
+        [shutil.which("node"), "-e", source, str(SPIKE / "import-path.js"), json.dumps(argv)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert json.loads(result.stdout) == [str(video)]
 
 
 # --------------------------------------------------------------------------- #

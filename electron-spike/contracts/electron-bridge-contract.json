@@ -311,26 +311,30 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "cancel_update_download",
-      "notes": "Updater is deferred.",
-      "phase8": "",
+      "notes": "Electron acknowledges cancellation; aborting an in-flight fetch remains partial.",
+      "phase8": "stable updater",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "PARTIAL"
     },
     {
       "direction": "command",
       "event_fields": [],
       "mapped_to": "",
       "name": "check_updates",
-      "notes": "Updater is deferred; not required by Phase 8.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Electron checks the stable GitHub release feed after startup.",
+      "phase8": "stable updater",
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
-      "status": "DEFERRED"
+      "response_fields": [
+        "ok",
+        "status",
+        "error"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -886,13 +890,18 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "get_updater_state",
-      "notes": "Updater is deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Returns the Electron main-process updater state.",
+      "phase8": "stable updater",
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
-      "status": "DEFERRED"
+      "response_fields": [
+        "ok",
+        "phase",
+        "version",
+        "channel"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1021,13 +1030,16 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "install_downloaded_update",
-      "notes": "Updater is deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Launches the verified downloaded installer from Electron main.",
+      "phase8": "stable updater",
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
-      "status": "DEFERRED"
+      "response_fields": [
+        "ok",
+        "error"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2280,15 +2292,15 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "set_update_channel",
-      "notes": "Updater is deferred.",
-      "phase8": "",
+      "notes": "Stable-only Electron updater acknowledges the setting but does not switch feeds.",
+      "phase8": "stable updater",
       "production_core": false,
       "request_fields": [
         "channel"
       ],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "PARTIAL"
     },
     {
       "direction": "event",
@@ -2332,13 +2344,13 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "skip_update_version",
-      "notes": "Updater is deferred.",
-      "phase8": "",
+      "notes": "Electron acknowledges the UI action; persistent version skipping remains partial.",
+      "phase8": "stable updater",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "PARTIAL"
     },
     {
       "direction": "event",
@@ -2446,13 +2458,17 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "start_update_download",
-      "notes": "Updater is deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Downloads and verifies the selected stable installer in Electron main.",
+      "phase8": "stable updater",
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
-      "status": "DEFERRED"
+      "response_fields": [
+        "ok",
+        "status",
+        "error"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2627,13 +2643,13 @@
       ],
       "mapped_to": "",
       "name": "update_available",
-      "notes": "Updater events are deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Electron reports a newer stable GitHub release to the renderer.",
+      "phase8": "stable updater",
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2642,13 +2658,13 @@
       ],
       "mapped_to": "",
       "name": "update_error",
-      "notes": "Updater events are deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Electron reports a bounded updater failure without damaging the current install.",
+      "phase8": "stable updater",
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2657,13 +2673,13 @@
       ],
       "mapped_to": "",
       "name": "update_progress",
-      "notes": "Updater events are deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Electron reports installer download progress.",
+      "phase8": "stable updater",
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2672,13 +2688,13 @@
       ],
       "mapped_to": "",
       "name": "update_ready",
-      "notes": "Updater events are deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Electron reports that the installer passed SHA-256 verification.",
+      "phase8": "stable updater",
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -2687,13 +2703,13 @@
       ],
       "mapped_to": "",
       "name": "update_state",
-      "notes": "Updater events are deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Electron publishes the stable updater state machine to the renderer.",
+      "phase8": "stable updater",
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -3147,6 +3163,42 @@
       "name": "startup_failure",
       "notes": "Reports an actionable terminal failure during the bounded startup attempt.",
       "phase8": "release hardening",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "import_videos",
+      "name": "import_paths",
+      "notes": "Electron expands supplied files and folders, then imports the supported media paths through the sidecar batch command.",
+      "phase8": "qol multi-import",
+      "production_core": true,
+      "request_fields": [
+        "paths"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "jobs",
+        "failures",
+        "count"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "recovered"
+      ],
+      "mapped_to": "",
+      "name": "recovery_notice",
+      "notes": "Electron reports how many interrupted jobs were returned to the queue during startup recovery.",
+      "phase8": "qol recovery",
       "production_core": true,
       "request_fields": [],
       "request_id_required": false,

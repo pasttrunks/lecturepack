@@ -48,4 +48,34 @@ function validateLocalVideoPath(rawPath) {
   return { ok: true, path: resolved };
 }
 
-module.exports = { validateLocalVideoPath, IMPORT_CODES };
+// Options accepted by the packaged host whose following argv token is data,
+// not a Windows Explorer file argument. Keeping this parser in the existing
+// pure Node helper makes the Send To boundary testable without Electron.
+const HOST_OPTIONS_WITH_VALUES = new Set([
+  '--data-dir',
+  '--results',
+  '--quit-after-seconds',
+  '--remote-debugging-port',
+  '--user-data-dir'
+]);
+
+function extractFileArguments(argv) {
+  const list = Array.isArray(argv) ? argv : [];
+  const out = [];
+  // argv[0] is the executable. A supported option consumes its next token
+  // unless it used --name=value; neither token may become an import.
+  for (let index = 1; index < list.length; index += 1) {
+    const arg = String(list[index] || '');
+    if (!arg) continue;
+    if (arg.startsWith('--')) {
+      const option = arg.split('=', 1)[0];
+      if (!arg.includes('=') && HOST_OPTIONS_WITH_VALUES.has(option)) index += 1;
+      continue;
+    }
+    if (arg.startsWith('-')) continue;
+    if (path.isAbsolute(arg) || /^[A-Za-z]:[\\/]/.test(arg)) out.push(arg);
+  }
+  return out;
+}
+
+module.exports = { validateLocalVideoPath, extractFileArguments, IMPORT_CODES };

@@ -1522,3 +1522,136 @@ the renderer to display as clickable sources.
 separated while moving the student experience from “term list” toward focused
 retrieval practice. When the transcript itself is noisy, the UI exposes the
 real source rather than silently presenting an invented correction.
+
+## AD-37: Separate packaged host options from Explorer Send To file arguments
+
+**Date:** 2026-08-10
+
+**Status:** Implemented for the v2.0.0 stable release candidate
+
+**Context:** The final packaged acceptance harness launches LecturePack with
+absolute `--results`, `--data-dir`, and Chromium profile paths. The initial
+Send To parser previously skipped option names but not their following values,
+so those directories could be offered to the media importer as if the user had
+sent them from Explorer.
+
+**Decision:** Parse supported value-taking host options as option/value pairs
+before collecting absolute file arguments. Keep the pure parser in the existing
+`import-path.js` helper so first-launch and existing-instance Send To behavior
+can be tested under Node without importing Electron.
+
+**Alternatives considered:**
+
+- Avoiding host flags in release automation: rejected because it would hide a
+  real argv ambiguity and make disposable evidence/data isolation weaker.
+- Ignoring all tokens after any option: rejected because unrelated Chromium
+  switches and legitimate multiple-file Send To arguments can coexist.
+
+**Rationale:** The packaged app now imports only explicit Explorer file
+arguments while retaining isolated release profiles and evidence directories.
+
+## AD-38: Persist download recovery state beside job state
+
+**Date:** 2026-08-10
+
+**Status:** Implemented for the v2.0.0 stable release candidate
+
+**Context:** Processing jobs already use atomic JSON state and become
+recoverable after a crash, but link-download rows existed only in sidecar
+memory. A restart therefore erased waiting, active, failed, and completed
+download history and offered no retry path for an interrupted transfer.
+
+**Decision:** Persist the bounded public download queue to
+`downloads-state.json` under the selected LecturePack data directory using a
+temporary file plus `os.replace()`. On startup, prior waiting/downloading rows
+become explicit failed rows with a Retry action; completed, failed, and
+cancelled rows retain their terminal state. Retrying restarts through the same
+yt-dlp queue and normal import path.
+
+**Alternatives considered:**
+
+- Automatically restarting interrupted network transfers: rejected because a
+  restart should not silently resume network work or assume yt-dlp partial-file
+  semantics.
+- Dropping interrupted rows: rejected because it hides unfinished work and
+  defeats the release recovery requirement.
+
+**Rationale:** The existing UI already provides Retry for failed downloads, so
+atomic persistence closes the interruption gap without a new scheduler or UI.
+
+## AD-39: Preserve grounded Study output for short factual lectures
+
+**Date:** 2026-08-10
+
+**Status:** Implemented for the v2.0.0 stable release candidate
+
+**Context:** The canonical ten-second Polar Bears demo produced a valid
+transcript and two slides, but the claim-led Study filters returned no concepts
+because each subject phrase appeared only once and several sentences used
+pronouns. The resulting Overview, Flashcards, Quiz, and Quick Study were empty.
+
+**Decision:** When the normal candidate selector returns nothing and the
+transcript is at most five segments/eighty words, extract only noun phrases
+that occur verbatim as explicit sentence subjects or two-word predicate nouns.
+Those candidates still use the existing source validation, exact transcript
+extracts, de-duplication, card builder, and quiz builder. Longer lectures remain
+on the stricter claim/repetition path.
+
+**Alternatives considered:**
+
+- Special-casing Polar Bears text: rejected because the behavior must work for
+  any short factual lecture and must not depend on a demo fixture string.
+- Lowering repetition thresholds globally: rejected because it would
+  reintroduce filler concepts in normal-length lectures.
+
+**Rationale:** A bounded, verbatim fallback makes short lectures useful without
+inventing facts or weakening the quality filters that protect full lectures.
+
+## AD-40: Capture Continue state when navigating Home
+
+**Date:** 2026-08-10
+
+**Status:** Implemented for the v2.0.0 stable release candidate
+
+**Context:** Per-job resume state was captured when switching lectures and on
+window unload, but not when a student navigated directly from Transcript,
+Review, Study, or Process to Home. The Continue card therefore stayed hidden
+during the common same-session workflow.
+
+**Decision:** Before Home changes the active screen, persist the meaningful
+workspace screen being left, then render the Continue card after navigation.
+Settings and transient surfaces remain excluded by the existing allowlist.
+
+**Rationale:** Continue now reflects the student's last real activity both in
+the current session and after relaunch without introducing a second state store.
+
+## AD-41: Stable app tags publish only the Electron release
+
+**Date:** 2026-08-10
+
+**Status:** Implemented for the v2.0.0 stable release
+
+**Context:** The retained `release.yml` workflow builds the historical Qt
+desktop installer plus signed runtime-repair archives. Its automatic `v*` tag
+trigger used the same `LecturePack-<version>-Setup.exe` asset name as the
+validated Electron release. Publishing v2.0.0 would therefore start a second
+release path that could replace or conflict with the tested installer.
+
+**Decision:** Keep the signed runtime workflow available through explicit
+`workflow_dispatch`, but remove its automatic application-tag trigger. Stable
+application tags and assets are published from the Electron release builder
+after its packaged self-test, clean-install, negative-path, and updater gates.
+
+**Alternatives considered:**
+
+- Letting both workflows upload similarly named installers: rejected because
+  users and the updater could receive an unvalidated legacy UI build.
+- Deleting the runtime workflow: rejected because its signed component archive
+  procedure remains useful for an explicitly scheduled runtime-repair release.
+- Rebuilding the entire Electron runtime in GitHub-hosted CI for v2.0.0:
+  rejected for this release because the canonical native runtime and model are
+  already locally attested and the CI runner does not contain that frozen input.
+
+**Rationale:** One tag now maps to one validated desktop product. The retained
+runtime tooling cannot race or overwrite the Electron installer, while a future
+CI migration can replace the manual publication path as a separate decision.

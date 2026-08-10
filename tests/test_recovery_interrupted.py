@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import threading
 
 ROOT = Path(__file__).resolve().parent.parent
 SIDECAR = ROOT / "electron-spike" / "python-sidecar.py"
@@ -131,3 +132,58 @@ def test_running_job_not_requeued():
     sidecar._recover_interrupted_jobs(None, "recover_interrupted_jobs")
     assert captured["recovered"] == 0
     assert queue.queued_ids() == []
+
+
+def _download_state_sidecar(tmp_path):
+    spec = importlib.util.spec_from_file_location(
+        "lecturepack_electron_download_recovery_test", SIDECAR)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sidecar = module.Sidecar.__new__(module.Sidecar)
+    sidecar.data_dir = tmp_path
+    sidecar._download_lock = threading.Lock()
+    sidecar._downloads = {}
+    sidecar._download_order = []
+    return sidecar
+
+
+def test_interrupted_download_is_restored_as_retryable_failure(tmp_path):
+    sidecar = _download_state_sidecar(tmp_path)
+    sidecar._downloads = {
+        "download-1": {
+            "id": "download-1",
+            "url": "https://example.invalid/lecture",
+            "title": "Lecture",
+            "status": "downloading",
+            "pct": 37,
+            "eta": 20,
+            "speed": 100,
+            "error": "",
+        }
+    }
+    sidecar._download_order = ["download-1"]
+    with sidecar._download_lock:
+        sidecar._persist_downloads_locked()
+
+    restored = _download_state_sidecar(tmp_path)
+    restored._load_download_state()
+    item = restored._downloads["download-1"]
+    assert item["status"] == "failed"
+    assert "Retry" in item["error"]
+    assert restored._download_order == ["download-1"]
+
+
+def test_completed_and_cancelled_download_state_survives_restart(tmp_path):
+    sidecar = _download_state_sidecar(tmp_path)
+    sidecar._downloads = {
+        "done": {"id": "done", "url": "https://example.invalid/a", "status": "complete", "pct": 100},
+        "stopped": {"id": "stopped", "url": "https://example.invalid/b", "status": "cancelled", "pct": 12},
+    }
+    sidecar._download_order = ["done", "stopped"]
+    with sidecar._download_lock:
+        sidecar._persist_downloads_locked()
+
+    restored = _download_state_sidecar(tmp_path)
+    restored._load_download_state()
+    assert [restored._downloads[item]["status"] for item in restored._download_order] == ["complete", "cancelled"]

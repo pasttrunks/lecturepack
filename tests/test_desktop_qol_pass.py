@@ -73,6 +73,14 @@ def test_eta_and_queue_strip_use_authoritative_job_state():
     assert "Math.random" not in eta_source + strip_source
 
 
+def test_update_dialog_accepts_github_release_notes_string():
+    source = _function_source("showWhatsNew")
+    assert "Array.isArray(info.notes)" in source
+    assert ".split(/\\r?\\n+/)" in source
+    assert "noteItems" in source
+    assert "(info.notes || []).map" not in source
+
+
 def test_context_menu_routes_through_existing_actions():
     source = _function_source("lectureContextActions")
     for label in ("Open Review", "Open Transcript", "Open Study", "Export", "Rename",
@@ -91,6 +99,13 @@ def test_window_and_session_restore_have_safe_guards():
     assert "saved.jobId" in restore_source and "saved.screen" in restore_source
     assert "pendingTranscriptJump" in _function_source("applyResumeState")
     assert "beforeunload" in APP and "captureResumeState" in APP
+
+
+def test_home_continue_captures_the_screen_being_left():
+    source = APP[APP.index("function setScreen(name)"):APP.index("function applyTheme", APP.index("function setScreen(name)"))]
+    assert "captureResumeState(LP.state.jobId)" in source
+    assert "renderContinueCard()" in source
+    assert source.index("captureResumeState(LP.state.jobId)") < source.index("LP.state.screen = name")
 
 
 def test_batch_url_entries_are_queued_without_waiting_for_download(tmp_path: Path):

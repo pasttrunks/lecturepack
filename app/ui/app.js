@@ -2823,6 +2823,14 @@
 
   function setScreen(name) {
     if (LP.state.screen === name) return;
+    // Home's Continue card must reflect the screen the student just left in
+    // this same session, not only state captured during a job switch or app
+    // shutdown. Capture before changing LP.state.screen so the saved target
+    // remains Review/Transcript/Study/Process rather than Home.
+    if (name === 'home' && LP.state.jobId &&
+        /^(process|review|transcript|study|exports)$/.test(LP.state.screen || '')) {
+      if (typeof captureResumeState === 'function') captureResumeState(LP.state.jobId);
+    }
     LP.motion.nav(function () {
       LP.state.screen = name;
       if (typeof hideScrub === 'function') hideScrub();
@@ -2878,6 +2886,7 @@
       else scheduleTourGeometry();
     }
     if (typeof saveAppSession === 'function') saveAppSession();
+    if (name === 'home' && typeof renderContinueCard === 'function') renderContinueCard();
   }
 
   function applyTheme(theme, persist) {
@@ -5562,6 +5571,8 @@
   }
 
   function showWhatsNew(info, mode) { // mode: 'available' | 'installed'
+    var noteItems = Array.isArray(info.notes) ? info.notes : String(info.notes || '')
+      .split(/\r?\n+/).map(function (line) { return line.trim(); }).filter(Boolean);
     LP.state.updateInfo = info;
     LP.state.updateMode = mode;
     $('whatsnew-title').textContent = mode === 'installed' ? 'What’s new in this update' : 'Update available';
@@ -5581,7 +5592,7 @@
       if (list) list.innerHTML = items.map(_wnBullet).join('');
     });
     var hasSecs = (info.improvements || []).length || (info.fixes || []).length || (info.limitations || []).length;
-    $('whatsnew-notes').innerHTML = (!hasSecs ? (info.notes || []) : []).map(_wnBullet).join('')
+    $('whatsnew-notes').innerHTML = (!hasSecs ? noteItems : []).map(_wnBullet).join('')
       || (!hasSecs ? '<div style="color:var(--muted)">No release notes.</div>' : '');
     $('whatsnew-progress').hidden = true;
     $('whatsnew-progress-bar').style.width = '0%';
