@@ -130,8 +130,10 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
-def test_d6_update_check_resolves_immediately(tmp_path):
-    """D-6: check_updates resolves immediately with a structured result, never null."""
+def test_d6_update_check_routes_to_main_process(tmp_path):
+    """D-6/Phase 6: check_updates routes to the Electron main updater, never
+    resolves to a null or hangs. The main process owns the stable GitHub feed;
+    the bridge must forward the call (one request) and return its result."""
     result = _run_node_harness(tmp_path, "d6-updates.js", r"""
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -143,7 +145,7 @@ const context = {
   window: {
     localStorage: { setItem() {} },
     lecturePackElectron: {
-      request() { requests += 1; return Promise.resolve({}); },
+      request() { requests += 1; return Promise.resolve({ ok: true, status: 'uptodate' }); },
       onMessage() {}
     }
   }
@@ -154,13 +156,7 @@ context.window.lpBridge.on('update_state', (json) => events.push(JSON.parse(json
 (async () => {
   const value = await context.window.lpBridge.call('check_updates');
   if (value === null || value === undefined) throw new Error('check_updates returned null');
-  if (value.ok !== false || value.available !== false || value.code !== 'FEATURE_UNAVAILABLE') {
-    throw new Error(`check_updates was not a structured unavailable result: ${JSON.stringify(value)}`);
-  }
-  if (requests !== 0) throw new Error(`check_updates crossed the sidecar boundary (${requests} requests)`);
-  if (events.length !== 1 || events[0].phase !== 'uptodate') {
-    throw new Error(`update_state was not emitted: ${JSON.stringify(events)}`);
-  }
+  if (requests !== 1) throw new Error(`check_updates did not forward to the main process (${requests} requests)`);
 })().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
 """)
     assert result.returncode == 0, result.stderr
@@ -370,9 +366,8 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
 (async () => {
   const commands = [
     'save_project', 'browse_model', 'open_release_page', 'exit_application',
-    'get_updater_state', 'install_update', 'start_update_download',
-    'cancel_update_download', 'set_auto_check', 'set_update_channel',
-    'skip_update_version', 'clear_skipped_version', 'install_downloaded_update',
+    'install_update', 'set_auto_check',
+    'clear_skipped_version',
     'acknowledge_setup', 'get_post_completion', 'whatsnew_seen', 'log_tour_trace'
   ];
   for (const name of commands) {
