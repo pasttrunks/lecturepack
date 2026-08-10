@@ -69,6 +69,14 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; AppUserModelID: "{#AppUserModelID}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon; AppUserModelID: "{#AppUserModelID}"
+; Explorer "Send to -> LecturePack". {sendto} is the per-user SendTo folder,
+; so this needs no elevation and is removed with the rest of [Icons] on
+; uninstall. Explorer passes the selected file paths as command-line
+; arguments; LecturePack already forwards those to a running instance via
+; its single-instance lock (see production-main.js 'second-instance'), so
+; sending a lecture imports it instead of starting a second copy. The
+; original file is only ever read.
+Name: "{sendto}\{#AppName}"; Filename: "{app}\{#AppExeName}"; AppUserModelID: "{#AppUserModelID}"
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
