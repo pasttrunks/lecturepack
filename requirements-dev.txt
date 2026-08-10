@@ -1,2 +1,7 @@
 pytest>=8.0.0
 pytest-qt>=4.4.0
+# Parses .github/workflows/*.yml in tests/test_release_pipeline_authority.py,
+# which guards the P0 separation between the authoritative Electron desktop
+# release and the legacy runtime-repair workflow. Without PyYAML that whole
+# module skips silently, so the guard would protect nothing.
+PyYAML>=6.0

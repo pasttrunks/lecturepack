@@ -35,7 +35,11 @@ DESKTOP_ASSETS = (
     "release-manifest.json",
 )
 
-yaml = pytest.importorskip("yaml")
+# A hard import, deliberately not importorskip: this module is the guard on
+# the P0 separation between the authoritative Electron desktop release and the
+# legacy runtime-repair workflow. If PyYAML is missing the guard must fail
+# loudly, not skip and report green. PyYAML is declared in requirements-dev.txt.
+import yaml  # noqa: E402
 
 
 def _workflow(path: Path) -> dict:
