@@ -4,6 +4,7 @@ import json
 import importlib.util
 from pathlib import Path
 import queue
+import re
 import shutil
 import subprocess
 import threading
@@ -15,13 +16,26 @@ ROOT = Path(__file__).resolve().parents[1]
 SPIKE = ROOT / "electron-spike"
 
 
+def _authoritative_version() -> str:
+    """The version every release surface must agree on (app/desktop/version.py)."""
+    text = (ROOT / "app" / "desktop" / "version.py").read_text(encoding="utf-8")
+    match = re.search(r"^__version__\s*=\s*[\"']([^\"']+)[\"']", text, re.MULTILINE)
+    assert match, "app/desktop/version.py does not define __version__"
+    return match.group(1)
+
+
 def test_production_package_has_release_identity_and_isolated_dependencies():
     package = json.loads((SPIKE / "package.json").read_text(encoding="utf-8"))
     assert package["private"] is True
     assert package["name"] == "lecturepack"
     assert package["main"] == "production-main.js"
     assert package["productName"] == "LecturePack"
-    assert package["version"] == "2.0.0"
+    # Not pinned to a literal: this test's job is release identity, not the
+    # current number, and a hardcoded version turns every release into a
+    # spurious failure. scripts/verify_release_versions.py owns cross-surface
+    # agreement (and fails closed when the surfaces disagree).
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", package["version"]), package["version"]
+    assert package["version"] == _authoritative_version()
     assert {"start", "validate", "package:sidecar", "package:win"}.issubset(package["scripts"])
     assert "electron" in package["devDependencies"]
     assert "PySide6" not in json.dumps(package)
