@@ -1,0 +1,58 @@
+# LecturePack OFFICIAL RELEASE dependency lock.
+#
+# Development installs may keep the convenient ranges in requirements.txt and
+# app/requirements.txt. Official release builds must not: an installer whose
+# contents drift between builds cannot be reproduced or audited after the
+# fact. .github/workflows/release-electron.yml installs THIS file.
+#
+# This is an intentional release dependency set, not an environment dump. Only
+# packages that actually ship in the installer, or that produce it, are pinned.
+# Node dependencies are locked separately by electron-spike/package-lock.json.
+#
+# Provenance of these pins: the versions verified present in the shipped
+# LecturePack 2.0.0 package (Setup.exe SHA-256
+# 5c36408b31af79221329ca8e3ad54d547a319d4dba077b4be9b925676c648be6) plus the
+# build host that produced it. opencv-python-headless was read back from the
+# packaged cv2/version.py (headless = True) and yt-dlp from the packaged
+# self-test's yt_dlp check.
+#
+# When bumping any pin: rebuild, rerun the packaged self-test and the packaged
+# acceptance, then update this file in the same commit.
+
+# ----------------------------------------------------------------- shipped
+PySide6==6.11.1                 # sidecar QtCore dependency (not a UI toolkit here)
+PySide6_Essentials==6.11.1
+PySide6_Addons==6.11.1
+shiboken6==6.11.1
+
+opencv-python-headless==5.0.0.93
+scikit-image==0.26.0
+Pillow==12.3.0
+imagehash==4.3.2
+img2pdf==0.6.3
+reportlab==5.0.0
+Jinja2==3.1.6
+MarkupSafe==3.0.3               # Jinja2 runtime dependency
+Send2Trash==2.1.0
+cryptography==49.0.0            # AD-19 Ed25519 verifier
+cffi==2.1.0                     # cryptography runtime dependency
+pycparser==3.0                  # cffi build/runtime dependency
+tzdata==2026.3                  # zoneinfo data; Windows ships none
+yt-dlp==2026.7.4                # "Import from a link"
+
+# Transitive pins that materially affect the shipped numerics/decoding and so
+# must not float between official builds.
+numpy==2.5.1
+scipy==1.18.0
+networkx==3.6.1
+imageio==2.37.3
+tifffile==2026.7.14
+PyWavelets==1.9.0
+packaging==26.2
+pikepdf==10.10.0                # img2pdf PDF backend
+lxml==6.1.1                     # pikepdf dependency
+charset-normalizer==3.4.9
+
+# ------------------------------------------------------------- build tools
+pyinstaller==6.21.0             # freezes the LecturePackSidecar
+maturin==1.14.1                 # builds the Rust Study Core .pyd (sidecar.spec)
