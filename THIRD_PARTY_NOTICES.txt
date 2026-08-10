@@ -1,8 +1,13 @@
 ================================================================================
-THIRD-PARTY NOTICES FOR LecturePack v0.2.0
+THIRD-PARTY NOTICES FOR LecturePack v2.0.1
 ================================================================================
 
-This software includes or depends on the following third-party components:
+This software includes or depends on the following third-party components.
+
+Sections are grouped historically; the "COMPONENTS SHIPPED IN LecturePack 2.x"
+block near the end of this file is the authoritative list of what the current
+installer actually contains. Where an older section disagrees with it, the 2.x
+block wins.
 
 --------------------------------------------------------------------------------
 FFmpeg (ffmpeg.exe, ffprobe.exe)
@@ -175,15 +180,21 @@ modification, are permitted provided that the following conditions are met:
 --------------------------------------------------------------------------------
 img2pdf
 --------------------------------------------------------------------------------
-License:       GNU General Public License v3 (GPL-3.0)
-Source:        https://github.com/josie86/img2pdf
+License:       GNU Lesser General Public License v3 (LGPL-3.0)
+Source:        https://gitlab.mister-muffin.de/josch/img2pdf
+Version:       0.6.3 (as shipped in LecturePack 2.x)
 
-Copyright (C) 2016-2024, Johannes Budach
+Copyright (C) 2012-2026, Johannes Schauer Marin Rodrigues
 
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or (at your option) any later
-version.
+NOTE: an earlier revision of this file recorded img2pdf as GPL-3.0 and named
+the wrong author and upstream. img2pdf is distributed under the LGPL-3.0; the
+licence above was re-verified against the shipped distribution's own metadata
+(License :: OSI Approved :: GNU Lesser General Public License v3).
+
+This library is free software: you can redistribute it and/or modify it under
+the terms of the GNU Lesser General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
 
 ================================================================================
 END OF THIRD-PARTY NOTICES
@@ -249,3 +260,169 @@ LecturePack can optionally talk to a locally installed Ollama server
 (https://ollama.com, MIT License) over http://localhost:11434. Neither the
 Ollama runtime nor any language model is bundled with LecturePack; AI
 features stay disabled when Ollama is absent.
+
+
+================================================================================
+COMPONENTS SHIPPED IN LecturePack 2.x  (AUTHORITATIVE)
+================================================================================
+
+This block was audited against the contents of the LecturePack 2.x installer.
+Versions are those pinned in requirements-release.txt and electron-spike/
+sidecar.spec. Anything listed above but absent here is not shipped by 2.x.
+
+--------------------------------------------------------------------------------
+Electron (LecturePack.exe and the Chromium runtime it embeds)
+--------------------------------------------------------------------------------
+License:       MIT License (Electron itself)
+Version:       43.2.0
+Source:        https://github.com/electron/electron
+
+Copyright (c) Electron contributors
+Copyright (c) 2013-2020 GitHub Inc.
+
+Electron embeds Chromium and Node.js. Chromium is distributed under the
+BSD 3-Clause License together with the additional licences of its own bundled
+components; Node.js is distributed under the MIT License. The full Chromium
+licence text as shipped is included in the installed application as
+LICENSES.chromium.html, alongside Electron's own LICENSE file.
+
+--------------------------------------------------------------------------------
+Deno (bin/deno.exe) -- JavaScript runtime for link import
+--------------------------------------------------------------------------------
+License:       MIT License
+Version:       2.9.5 (x86_64-pc-windows-msvc)
+Source:        https://github.com/denoland/deno
+
+Copyright (c) 2018-2026 the Deno authors
+
+Bundled because modern yt-dlp requires an external JavaScript runtime to solve
+the JS challenges YouTube presents. Deno embeds the V8 JavaScript engine
+(BSD 3-Clause, Copyright 2014 the V8 project authors) and Rust crates under
+permissive licences; their notices ship inside Deno's own distribution.
+
+--------------------------------------------------------------------------------
+yt-dlp
+--------------------------------------------------------------------------------
+License:       The Unlicense (public domain dedication)
+Version:       2026.7.4
+Source:        https://github.com/yt-dlp/yt-dlp
+
+This is free and unencumbered software released into the public domain.
+
+--------------------------------------------------------------------------------
+yt-dlp-ejs (YouTube JavaScript challenge solver)
+--------------------------------------------------------------------------------
+License:       Unlicense AND MIT AND ISC
+Version:       0.8.0
+Source:        https://github.com/yt-dlp/ejs
+
+Ships as minified JavaScript (yt/solver/*.js) executed by the bundled Deno
+runtime. The combined licence expression above is the one declared by the
+distribution; component notices are carried inside the package.
+
+--------------------------------------------------------------------------------
+Rust Study Core (lecturepack_study_core.pyd)
+--------------------------------------------------------------------------------
+License:       MIT License (LecturePack's own code)
+Version:       0.1.0
+
+LecturePack's native Study scheduling/mastery engine, built with maturin and
+PyO3. PyO3 (https://github.com/PyO3/pyo3) is dual-licensed Apache-2.0 OR MIT.
+Rust standard library and crate dependencies compiled into this module are
+distributed under Apache-2.0 OR MIT unless individually noted; the crate
+manifest under rust/study_core/ records the exact dependency set for a release.
+
+--------------------------------------------------------------------------------
+cryptography
+--------------------------------------------------------------------------------
+License:       Apache License 2.0 OR BSD 3-Clause License
+Version:       49.0.0
+Source:        https://github.com/pyca/cryptography
+
+Includes statically linked OpenSSL components distributed under the
+Apache License 2.0.
+
+--------------------------------------------------------------------------------
+Send2Trash
+--------------------------------------------------------------------------------
+License:       BSD 3-Clause License
+Version:       2.1.0
+Source:        https://github.com/arsenetar/send2trash
+
+Copyright (c) 2017, Virgil Dupras
+
+--------------------------------------------------------------------------------
+tzdata (IANA time zone database, Python packaging)
+--------------------------------------------------------------------------------
+License:       Apache License 2.0 (packaging); the underlying IANA tz database
+               is in the public domain
+Version:       2026.3
+Source:        https://github.com/python/tzdata
+
+--------------------------------------------------------------------------------
+Jinja2 / MarkupSafe
+--------------------------------------------------------------------------------
+License:       BSD 3-Clause License
+Versions:      Jinja2 3.1.6, MarkupSafe 3.0.3
+Source:        https://github.com/pallets/jinja
+
+Copyright (c) 2007 Pallets
+
+--------------------------------------------------------------------------------
+pikepdf (PDF backend used by img2pdf)
+--------------------------------------------------------------------------------
+License:       Mozilla Public License 2.0 (MPL-2.0)
+Version:       10.10.0
+Source:        https://github.com/pikepdf/pikepdf
+
+Source for this component is available from the upstream project above, as
+required by MPL-2.0 section 3.2.
+
+--------------------------------------------------------------------------------
+NumPy / SciPy / networkx / imageio / tifffile / PyWavelets
+--------------------------------------------------------------------------------
+License:       BSD 3-Clause License (NumPy additionally carries 0BSD, MIT and
+               Zlib components for vendored code)
+Versions:      numpy 2.5.1, scipy 1.18.0, networkx 3.6.1, imageio 2.37.3,
+               tifffile 2026.7.14, PyWavelets 1.9.0
+
+Transitive dependencies of OpenCV and scikit-image, shipped inside the
+packaged processing service.
+
+--------------------------------------------------------------------------------
+Bundled speech model (models/ggml-base.en.bin)
+--------------------------------------------------------------------------------
+License:       MIT License
+Source:        https://huggingface.co/ggerganov/whisper.cpp
+Model:         ggml-base.en (whisper.cpp GGML conversion of OpenAI Whisper
+               base.en weights, which are released under the MIT License)
+
+This single model is bundled with LecturePack 2.x and is present on first
+launch, so no model download is required to transcribe. The larger models
+mentioned in older sections of this file are NOT shipped.
+
+--------------------------------------------------------------------------------
+PySide6 / Qt (sidecar dependency only)
+--------------------------------------------------------------------------------
+License:       GNU Lesser General Public License v3 (LGPL-3.0)
+Version:       6.11.1
+
+IMPORTANT: LecturePack 2.x does not use Qt for its user interface. The
+production UI is Electron. PySide6 is retained only because the packaged
+Python processing service uses QtCore primitives; the Qt libraries shipped in
+resources/LecturePackSidecar/_internal/PySide6 exist solely for that service.
+As required by the LGPL, these Qt libraries are dynamically linked and may be
+replaced by the user with compatible versions.
+
+--------------------------------------------------------------------------------
+Optional services (NOT bundled)
+--------------------------------------------------------------------------------
+LecturePack can optionally talk to a local model server such as Ollama
+(https://ollama.com, MIT License) or LM Studio, or to Groq's hosted API if the
+user supplies their own API key. None of these runtimes, models or credentials
+are bundled with LecturePack, and all related features stay disabled unless the
+user configures them.
+
+================================================================================
+END OF LecturePack 2.x COMPONENT LIST
+================================================================================

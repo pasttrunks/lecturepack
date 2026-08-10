@@ -1,6 +1,130 @@
 # Changelog
 
-All notable changes to Lecture Pack are documented here.
+All notable changes to LecturePack are documented here, newest first.
+
+> **A note on the older version numbers below.** Entries are in reverse
+> chronological order, but the version numbers are not monotonic: the
+> `0.9.0-beta.*` series (July–August 2026) came *after* `1.0.x`/`1.1.0`
+> (July 2026). The project renumbered to a `0.9.0-beta` line while preparing
+> the first public beta, then shipped stable as 2.0.0. Nothing below has been
+> removed; only this explanation was added.
+
+## [2.0.1] — unreleased
+
+Release-hardening pass over 2.0.0. No feature changes.
+
+### Updater — fixed a fail-open path (security)
+- **An unverified installer can no longer be installed.** If the release
+  manifest was missing, unavailable, malformed, or carried no valid digest,
+  the updater previously fell through to `expectedSha256 = null`, skipped
+  verification entirely, and reported the download as ready to install.
+  Verification is now a single fail-closed gate: the manifest must parse, its
+  version must equal the selected release, platform must be `win32`,
+  architecture `x64`, and it must contain an entry whose filename exactly
+  matches the installer being downloaded, carrying a valid SHA-256. Any
+  failure refuses the update, deletes what was downloaded, leaves the
+  installation untouched and explains why. There is no "proceed anyway" path.
+- **A digest published for a different `Setup.exe` is no longer accepted.**
+  The unbound top-level `sha256` / `installer_sha256` shortcuts are gone;
+  digests must be bound to the exact installer filename.
+- **Installers stream to disk instead of into memory.** A ~350 MB download is
+  written to `<name>.tmp` while being hashed incrementally, and promoted only
+  after the digest matches. Network errors, timeouts, cancellation and
+  checksum mismatches all remove the partial file.
+- **Cancel now cancels.** `cancel_update_download`, `skip_update_version` and
+  the channel selector previously did nothing. Cancellation is real
+  (AbortController), skip persists and expires when something newer ships, and
+  the auto-check preference is honoured.
+- **Removed the fake Beta/Stable channel selector.** LecturePack 2 ships one
+  stable channel.
+- **Removed a false claim.** "The update will install when it is idle" is now
+  "Update ready. Finish current processing, then install and restart."
+  LecturePack never restarts itself when background work finishes.
+
+### YouTube link import — fixed
+- **Bundled a JavaScript runtime.** Modern yt-dlp cannot fully extract YouTube
+  without one; 2.0.0 shipped yt-dlp alone and its self-test still reported
+  "available", which only proved the import succeeded. Measured on the shipped
+  configuration, extraction returned 11 formats without a runtime versus 14
+  with one. LecturePack now bundles Deno 2.9.5, pinned and checksum-verified
+  at build time, plus `yt-dlp-ejs` including its solver JavaScript.
+- **Nothing is downloaded on first use.** Remote component fetching is
+  explicitly disabled; everything ships in the installer.
+- **yt-dlp is given LecturePack's own FFmpeg**, so merges no longer depend on a
+  system FFmpeg the user does not have.
+- **Health diagnostics split** into `yt_dlp`, `yt_dlp_ejs` and `js_runtime`
+  instead of one conflated boolean, so a degraded build is visible.
+
+### Windows integration
+- **Explorer "Send to → LecturePack" now exists.** The app already accepted
+  file paths and forwarded them to a running instance; the installer now
+  creates the per-user shortcut that hands it those paths. Removed on
+  uninstall. The source lecture is only ever read.
+
+### Release engineering
+- **One authoritative desktop release path.** The legacy workflow built the Qt
+  PyInstaller app and published it as `LecturePack-<version>-Setup.exe` — the
+  same name the Electron path uses — making the published installer ambiguous.
+  It is renamed to `release-runtime-repair.yml`, can no longer compile an
+  installer, and fails closed if any desktop asset appears. The new
+  `release-electron.yml` is the only workflow that may publish the four
+  desktop assets.
+- **Signing order corrected.** Final hashes and the updater manifest are now
+  generated from the signed installer, never before signing.
+- **Version surfaces fail closed** when `version.py`, `package.json`,
+  `package-lock.json` and `lecturepack.iss` disagree.
+- **Official builds use a pinned dependency set** (`requirements-release.txt`).
+
+### Security
+- **Renderer window creation is denied.** Added a `setWindowOpenHandler`
+  policy; only `https:` links are handed to the system browser through the
+  existing trusted path. Context isolation, sandboxing, disabled Node
+  integration and the navigation block are unchanged.
+
+### Documentation
+- Rewrote `README.md`, which still described the 0.9.0 beta and named Qt
+  Widgets as the production UI.
+- Corrected `THIRD_PARTY_NOTICES.txt`: it was headed "v0.2.0", listed img2pdf
+  as GPL-3.0 when it is LGPL-3.0, and omitted Electron/Chromium, Deno, yt-dlp,
+  yt-dlp-ejs, cryptography, Send2Trash, tzdata, pikepdf and the Rust Study
+  Core. Added an authoritative "shipped in 2.x" component list.
+- Documented actual network behaviour: update checks, user-initiated link
+  imports, and optional user-configured AI endpoints. No telemetry.
+
+## [2.0.0] — 2026-08-10
+
+First stable release. Windows 10/11, 64-bit.
+
+### The product
+- **Electron production UI.** Replaces the previous PySide6/Qt Widgets shell as
+  the shipped interface. Qt is retained only as a dependency of the packaged
+  Python processing service.
+- **Nothing else to install.** Bundles FFmpeg and FFprobe, whisper.cpp with the
+  `base.en` model, the Rust Study Core, and yt-dlp. No Python, Node, Rust,
+  FFmpeg or model download required, and no first-run setup step.
+- **Study V2** — study overview, flashcards, quizzes, grounded "Ask" answers
+  that cite the transcript passages they came from, Quick Study and Needs
+  Review, with scheduling and mastery in a native Rust engine and a Python
+  fallback.
+- **Import and queue** — multi-file and folder import, background and tray
+  processing, live progress and ETA, session/window restore, and crash
+  recovery for jobs and downloads.
+- **Exports** in 13 formats.
+- **Stable-channel updater** with SHA-256 verification.
+
+### Distribution
+- Per-user installer (no administrator rights) and a portable ZIP.
+- Every release publishes `SHA256SUMS.txt` and a release manifest.
+- Binaries are not Authenticode-signed; Windows may show a SmartScreen
+  warning.
+
+### Release evidence
+- Python suite: 1,350 passed, 1 skipped, 0 failed.
+- Rust Study Core: 11 passed.
+- Packaged UI acceptance: PASS (29 checks, 11 screenshots).
+- Per-user installer acceptance: PASS.
+- Development-host negative matrix: PASS.
+- Microsoft Defender final-kit scan: zero detections.
 
 ## [0.9.0-beta.13] — 2026-08-03
 
