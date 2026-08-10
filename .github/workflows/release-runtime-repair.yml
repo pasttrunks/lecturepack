@@ -1,9 +1,18 @@
-name: Release LecturePack runtime
+name: Release LecturePack runtime-repair assets (NOT the desktop app)
+
+# This workflow publishes ONLY the signed runtime-repair ZIPs consumed by the
+# in-app runtime repair flow. It must never publish a desktop application
+# installer.
+#
+# The authoritative LecturePack desktop release path is
+# .github/workflows/release-electron.yml, which is the single place that may
+# produce LecturePack-<version>-Setup.exe, -Portable.zip, -SHA256SUMS.txt and
+# -release-manifest.json. Historically this workflow also ran the legacy Qt
+# PyInstaller/Inno Setup builder and uploaded its output under those exact
+# names, which made the published Setup.exe ambiguous. It no longer builds or
+# uploads any installer, and a guard below fails the run if one appears.
 
 on:
-  # This workflow builds the retained legacy/runtime-repair asset set, not the
-  # Electron desktop release. Keep it explicit so an app tag cannot publish a
-  # second, Qt-rendered installer under the Electron Setup asset name.
   workflow_dispatch:
     inputs:
       tag:
@@ -70,12 +79,11 @@ jobs:
           python -m pip install --no-index --find-links verified-wheels pycparser==2.22 cffi==2.0.0 cryptography==49.0.0
           python -m pip install -r app/requirements.txt -r app/requirements-build.txt
 
-      - name: Install Inno Setup
-        run: choco install innosetup --no-progress -y
-
-      - name: Build canonical disposable onedir
+      # Deliberately no Inno Setup here: this workflow must not be able to
+      # compile a desktop installer at all.
+      - name: Build canonical disposable onedir (no installer)
         working-directory: app
-        run: python packaging/build.py
+        run: python packaging/build.py --no-installer
 
       - name: Produce exactly six signed runtime assets
         shell: bash
@@ -92,17 +100,36 @@ jobs:
           assert manifest['app_version'] == __version__
           PY
 
-      - name: Assert updater assets exist
+      - name: Refuse to publish anything that looks like the desktop installer
         shell: bash
         run: |
-          SETUP="app/dist/installer/LecturePack-${APP_VERSION}-Setup.exe"
-          SUMS="app/dist/installer/LecturePack-${APP_VERSION}-SHA256SUMS.txt"
-          for f in "$SETUP" "$SUMS"; do
-            test -s "$f" || { echo "::error::missing or empty updater asset: $f"; exit 1; }
+          # Fail closed. Only release-electron.yml may publish these names.
+          FORBIDDEN=""
+          for pattern in 'LecturePack-*-Setup.exe' \
+                         'LecturePack-*-Portable.zip' \
+                         'LecturePack-*-SHA256SUMS.txt' \
+                         'LecturePack-*-release-manifest.json'; do
+            FOUND="$(find . -type f -name "$pattern" -print)"
+            if [ -n "$FOUND" ]; then
+              FORBIDDEN="${FORBIDDEN}${FOUND}"$'\n'
+            fi
           done
-          grep -q "LecturePack-${APP_VERSION}-Setup.exe" "$SUMS" || { echo "::error::$SUMS does not list Setup.exe"; exit 1; }
+          if [ -n "$FORBIDDEN" ]; then
+            echo "::error::This workflow produced desktop application release assets, which it must never publish:"
+            echo "$FORBIDDEN"
+            exit 1
+          fi
+          echo "No desktop application assets were produced."
 
-      - name: Release exact signed assets
+      - name: Assert exactly the six runtime-repair assets
+        shell: bash
+        run: |
+          for name in RuntimeManifest-v1.json RuntimeManifest-v1.json.sig                       Runtime-ffmpeg.zip Runtime-whisper-cpu.zip                       Runtime-model-base-en.zip Runtime-smoke-fixture.zip; do
+            f="runtime-release-assets/LecturePack-${APP_VERSION}-${name}"
+            test -s "$f" || { echo "::error::missing or empty runtime asset: $f"; exit 1; }
+          done
+
+      - name: Release exactly the six signed runtime-repair assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.APP_VERSION }}
@@ -114,9 +141,6 @@ jobs:
             runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-Runtime-whisper-cpu.zip
             runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-Runtime-model-base-en.zip
             runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-Runtime-smoke-fixture.zip
-            app/dist/installer/LecturePack-${{ env.APP_VERSION }}-Setup.exe
-            app/dist/installer/LecturePack-${{ env.APP_VERSION }}-SHA256SUMS.txt
-            app/dist/installer/LecturePack-${{ env.APP_VERSION }}-release-manifest.json
 
       - name: Retain signing audit evidence
         uses: actions/upload-artifact@v4

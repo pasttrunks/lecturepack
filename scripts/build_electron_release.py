@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import zipfile
 
@@ -33,6 +34,17 @@ def read_version() -> str:
     if not value:
         raise RuntimeError(f"Electron package version is missing: {PACKAGE_JSON}")
     return str(value)
+
+
+def verify_versions(version: str) -> None:
+    """Refuse to build if any authoritative version surface disagrees."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from verify_release_versions import verify  # noqa: PLC0415 - release-time only
+
+    ok, message = verify(version)
+    if not ok:
+        raise RuntimeError(message)
+    print(message)
 
 
 def run(argv: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
@@ -212,11 +224,41 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", type=Path, help="release artifact directory")
     parser.add_argument("--skip-sidecar", action="store_true")
     parser.add_argument("--skip-installer", action="store_true")
+    parser.add_argument(
+        "--hashes-only",
+        action="store_true",
+        help=(
+            "Rebuild only SHA256SUMS and the release manifest from the artifacts "
+            "already in --output-dir. Run this AFTER Authenticode signing so the "
+            "updater manifest describes the exact bytes that ship."
+        ),
+    )
     args = parser.parse_args(argv)
 
     version = read_version()
     output = (args.output_dir or (SPIKE_ROOT / "dist" / "releases" / version)).resolve()
     output.mkdir(parents=True, exist_ok=True)
+
+    # Fail closed before doing any work if the version surfaces disagree.
+    verify_versions(version)
+
+    if args.hashes_only:
+        installer = output / f"LecturePack-{version}-Setup.exe"
+        portable = output / f"LecturePack-{version}-Portable.zip"
+        missing = [str(p) for p in (installer, portable) if not p.is_file()]
+        if missing:
+            raise RuntimeError(f"--hashes-only needs the built artifacts: {missing}")
+        sums = write_sha256sums(version, output)
+        manifest = write_release_manifest(version, output, installer)
+        print(json.dumps({
+            "version": version,
+            "mode": "hashes-only",
+            "installer": str(installer),
+            "portable": str(portable),
+            "sha256sums": str(sums),
+            "release_manifest": str(manifest),
+        }, indent=2))
+        return 0
 
     environment = os.environ.copy()
     environment["LECTUREPACK_OFFICIAL_BUILD"] = "1"

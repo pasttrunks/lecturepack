@@ -1,0 +1,213 @@
+name: Release LecturePack desktop app (authoritative)
+
+# THE single authoritative LecturePack desktop application release path.
+#
+# This is the ONLY workflow permitted to publish:
+#   LecturePack-<version>-Setup.exe
+#   LecturePack-<version>-Portable.zip
+#   LecturePack-<version>-SHA256SUMS.txt
+#   LecturePack-<version>-release-manifest.json
+#
+# The retained legacy Qt/runtime-repair workflow lives in
+# release-runtime-repair.yml and is hard-blocked from producing any of these.
+#
+# Pipeline (each stage fails closed):
+#   exact immutable tag
+#     -> version verification across every authoritative surface
+#     -> Rust Study Core build
+#     -> packaged Python sidecar
+#     -> Electron package
+#     -> packaged self-test
+#     -> packaged acceptance
+#     -> installer + portable
+#     -> Authenticode signing (when credentials exist)
+#     -> FINAL hashes/manifest generated from the signed bytes
+#     -> GitHub stable release assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing exact v{version} tag to release
+        required: true
+        type: string
+      publish:
+        description: Publish the GitHub release (leave off to build a candidate only)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  desktop-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # ------------------------------------------------------------------ #
+      # Version verification. Every authoritative surface must agree with
+      # the tag, and the tag must peel to exactly the checked-out commit.
+      # ------------------------------------------------------------------ #
+      - name: Verify tag and every version surface agree
+        shell: bash
+        run: |
+          TAG="${{ inputs.tag }}"
+          case "$TAG" in v*) ;; *) echo "::error::Release tag must start with v"; exit 1;; esac
+          APP_VERSION="${TAG#v}"
+          [ -n "$APP_VERSION" ] || { echo "::error::Release tag has no version"; exit 1; }
+
+          TAG_COMMIT="$(git rev-parse "refs/tags/${TAG}^{commit}" 2>/dev/null)" \
+            || { echo "::error::Missing or ambiguous release tag ${TAG}"; exit 1; }
+          HEAD_COMMIT="$(git rev-parse HEAD)"
+          [ "$TAG_COMMIT" = "$HEAD_COMMIT" ] \
+            || { echo "::error::Peeled tag commit does not equal checked-out HEAD"; exit 1; }
+
+          python scripts/verify_release_versions.py --expect "$APP_VERSION"
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Install locked release dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          # Official builds use the pinned release set, never floating ranges.
+          python -m pip install -r requirements-release.txt
+
+      - name: Install Node dependencies from the lockfile
+        working-directory: electron-spike
+        run: npm ci
+
+      - name: Validate JavaScript
+        working-directory: electron-spike
+        run: npm run validate
+
+      # ------------------------------------------------------------------ #
+      # Rust Study Core.
+      # ------------------------------------------------------------------ #
+      - name: Test the Rust Study Core
+        working-directory: rust/study_core
+        run: cargo test --release
+
+      # ------------------------------------------------------------------ #
+      # Sidecar + Electron package + packaged self-test + installer/portable.
+      # build_electron_release.py is the one product builder. Do not add a
+      # second one.
+      # ------------------------------------------------------------------ #
+      - name: Build the Electron release candidate
+        shell: bash
+        run: |
+          python scripts/build_electron_release.py \
+            --output-dir "dist-release/${APP_VERSION}" \
+            | tee electron-release-build.json
+
+      # build_electron_release.py already ran the authoritative packaged
+      # self-test (ffmpeg, ffprobe, whisper runtime + smoke, bundled model,
+      # Rust Study Core, yt-dlp, controller) and fails closed on any check.
+      # This adds a real packaged window launch on top of it.
+      - name: Packaged launch smoke
+        shell: bash
+        run: python scripts/packaged_launch_smoke.py --exe electron-spike/dist/LecturePack-win32-x64/LecturePack.exe
+
+      # NOTE: scripts/stable_release_acceptance.py is the full packaged UI
+      # acceptance run, including the bundled Polar Bears demo. It requires
+      # local disposable media fixtures (--demo/--secondary/--long) that are
+      # deliberately not committed, so it is a release-machine gate rather
+      # than a CI step. See docs/ELECTRON_PACKAGED_ACCEPTANCE.md. It must pass
+      # on the release machine before the publish step below is enabled.
+
+      # ------------------------------------------------------------------ #
+      # Authenticode. Signing MUST happen before the final hashes and the
+      # updater manifest are generated, because signing rewrites the bytes.
+      # ------------------------------------------------------------------ #
+      - name: Authenticode sign the installer
+        id: sign
+        shell: bash
+        env:
+          LECTUREPACK_AUTHENTICODE_PFX_BASE64: ${{ secrets.LECTUREPACK_AUTHENTICODE_PFX_BASE64 }}
+          LECTUREPACK_AUTHENTICODE_PASSWORD: ${{ secrets.LECTUREPACK_AUTHENTICODE_PASSWORD }}
+        run: |
+          if [ -z "$LECTUREPACK_AUTHENTICODE_PFX_BASE64" ]; then
+            echo "AUTHENTICODE SIGNING: NOT AVAILABLE"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$LECTUREPACK_AUTHENTICODE_PFX_BASE64" | base64 -d > "$RUNNER_TEMP/lp.pfx"
+          SETUP="dist-release/${APP_VERSION}/LecturePack-${APP_VERSION}-Setup.exe"
+          signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 \
+            /f "$RUNNER_TEMP/lp.pfx" /p "$LECTUREPACK_AUTHENTICODE_PASSWORD" "$SETUP"
+          signtool verify /pa /v "$SETUP"
+          rm -f "$RUNNER_TEMP/lp.pfx"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Generate FINAL hashes and updater manifest from the shipped bytes
+        shell: bash
+        run: |
+          # Re-generated after signing so the updater manifest always describes
+          # the exact bytes users download.
+          python scripts/build_electron_release.py \
+            --output-dir "dist-release/${APP_VERSION}" \
+            --hashes-only
+
+      - name: Assert exactly the four desktop assets exist and agree
+        shell: bash
+        run: |
+          cd "dist-release/${APP_VERSION}"
+          for name in "Setup.exe" "Portable.zip" "SHA256SUMS.txt" "release-manifest.json"; do
+            test -s "LecturePack-${APP_VERSION}-${name}" \
+              || { echo "::error::missing desktop asset: LecturePack-${APP_VERSION}-${name}"; exit 1; }
+          done
+          sha256sum -c "LecturePack-${APP_VERSION}-SHA256SUMS.txt"
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          version = os.environ["APP_VERSION"]
+          manifest = json.loads(Path(f"LecturePack-{version}-release-manifest.json").read_text(encoding="utf-8"))
+          assert manifest["version"] == version, manifest
+          assert manifest["platform"] == "win32", manifest
+          assert manifest["architecture"] == "x64", manifest
+          setup = Path(f"LecturePack-{version}-Setup.exe")
+          entry = next(i for i in manifest["installers"] if i["filename"] == setup.name)
+          digest = hashlib.sha256(setup.read_bytes()).hexdigest()
+          assert entry["sha256"] == digest, f"manifest {entry['sha256']} != actual {digest}"
+          print(f"release manifest agrees with the shipped installer: {digest}")
+          PY
+
+      - name: Publish the stable desktop release
+        if: ${{ inputs.publish }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          prerelease: ${{ contains(env.APP_VERSION, '-') }}
+          files: |
+            dist-release/${{ env.APP_VERSION }}/LecturePack-${{ env.APP_VERSION }}-Setup.exe
+            dist-release/${{ env.APP_VERSION }}/LecturePack-${{ env.APP_VERSION }}-Portable.zip
+            dist-release/${{ env.APP_VERSION }}/LecturePack-${{ env.APP_VERSION }}-SHA256SUMS.txt
+            dist-release/${{ env.APP_VERSION }}/LecturePack-${{ env.APP_VERSION }}-release-manifest.json
+
+      - name: Retain release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-release-evidence-v${{ env.APP_VERSION }}
+          path: |
+            electron-release-build.json
+            dist-release/${{ env.APP_VERSION }}/LecturePack-${{ env.APP_VERSION }}-SHA256SUMS.txt
+            dist-release/${{ env.APP_VERSION }}/LecturePack-${{ env.APP_VERSION }}-release-manifest.json
+          retention-days: 90
