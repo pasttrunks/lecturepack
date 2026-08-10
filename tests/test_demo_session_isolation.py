@@ -27,6 +27,9 @@ from lecturepack.controllers.job_controller import JobController
 from lecturepack.infrastructure.config_manager import ConfigManager
 from lecturepack.models.job import Job
 from lecturepack.services import transcript_store
+from runtime_payload import (  # noqa: E402  test-only skip guards
+    requires_demo_model, requires_ffprobe,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,6 +79,7 @@ def _session_id(n="1"):
     return n * 32
 
 
+@requires_ffprobe
 def test_demo_asset_is_real_short_av_media_and_packaged():
     """The frozen build manifest explicitly collects the real bundled asset."""
     asset = Path(demo_asset_path())
@@ -95,6 +99,7 @@ def test_demo_asset_is_real_short_av_media_and_packaged():
     assert "demo_lecture.mp4" in spec and "demo_datas" in spec
 
 
+@requires_demo_model
 def test_packaging_spec_validates_demo_model_source_and_frozen_lookup_falls_back(monkeypatch, tmp_path):
     """D-01/D-05: the spec no longer double-bundles base.en via `datas` (that
     was pure duplication -- bundle_engine() places the sole top-level copy),
@@ -220,6 +225,7 @@ class _Config:
         self.save()
 
 
+@requires_demo_model
 def test_start_demo_invokes_isolated_real_controller_and_never_mutates_profile(
         monkeypatch, tmp_path, isolated_temp):
     """A real Job is created from the asset, but external tools are mocked at their boundary."""
@@ -309,6 +315,7 @@ def test_normal_start_snapshots_detector_setting_while_demo_forces_demo(
     assert adapter.controller.run_pipeline_calls == 1
 
 
+@requires_demo_model
 @pytest.mark.parametrize("terminal", ["error", "cancel"])
 def test_every_demo_terminal_path_sweeps_only_its_session(
         monkeypatch, tmp_path, isolated_temp, terminal):
@@ -330,6 +337,7 @@ def test_every_demo_terminal_path_sweeps_only_its_session(
     assert adapter._demo_session is None
 
 
+@requires_demo_model
 def test_success_projects_review_and_study_then_waits_for_explicit_exit(
         monkeypatch, tmp_path, isolated_temp):
     monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
@@ -368,6 +376,7 @@ def test_success_projects_review_and_study_then_waits_for_explicit_exit(
     assert session_job_frames_root(demo["job"].job_id) is None
 
 
+@requires_demo_model
 def test_app_exit_and_demo_export_guard_cleanup_without_export_worker(
         monkeypatch, tmp_path, isolated_temp):
     monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
@@ -393,6 +402,7 @@ def test_app_exit_and_demo_export_guard_cleanup_without_export_worker(
     assert not workspace.exists() and adapter._demo_session is None
 
 
+@requires_demo_model
 def test_cleanup_failure_still_revokes_session_asset_registration(
         monkeypatch, tmp_path, isolated_temp):
     monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
@@ -412,6 +422,7 @@ def test_cleanup_failure_still_revokes_session_asset_registration(
     assert Path(started["workspace"]).exists()  # cleanup refused, access still revoked
 
 
+@requires_demo_model
 def test_busy_end_request_revokes_assets_before_workspace_cleanup(
         monkeypatch, tmp_path, isolated_temp):
     monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
@@ -438,6 +449,7 @@ def test_busy_end_request_revokes_assets_before_workspace_cleanup(
     assert not Path(started["workspace"]).exists()
 
 
+@requires_demo_model
 def test_cancel_exception_still_revokes_assets_and_attempts_cleanup(
         monkeypatch, tmp_path, isolated_temp):
     monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)
@@ -488,6 +500,7 @@ def test_normal_busy_rejects_demo_without_mutating_workspace_or_profile(
     assert list(Path(demo_temp_root()).glob("demo_*")) == []
 
 
+@requires_demo_model
 def test_controller_scoped_callbacks_restore_prior_job_and_ignore_late_signals(
         monkeypatch, tmp_path, isolated_temp):
     monkeypatch.setattr(engine_adapter, "ConfigManager", _Config)

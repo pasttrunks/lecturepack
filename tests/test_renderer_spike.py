@@ -10,6 +10,9 @@ import subprocess
 import threading
 
 import pytest
+from runtime_payload import (  # noqa: E402  test-only skip guards
+    requires_demo_model, requires_ffmpeg_tools,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -720,6 +723,10 @@ def test_sidecar_spec_prioritizes_this_checkout_over_installed_engine_package():
     assert "pathex=[str(REPO_ROOT)]" in spec
 
 
+# The sidecar runs its real health check against --resources-root, so this
+# needs the gitignored binary payload as well as the locked interpreter.
+@requires_ffmpeg_tools
+@requires_demo_model
 @pytest.mark.skipif(
     not (ROOT / ".venv" / "Scripts" / "python.exe").is_file(),
     reason="locked project Python is not available",

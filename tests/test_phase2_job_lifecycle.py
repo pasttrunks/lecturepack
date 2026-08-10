@@ -36,6 +36,9 @@ from lecturepack import constants
 from lecturepack.infrastructure.config_manager import ConfigManager as RealConfigManager
 from lecturepack.models import job_lifecycle as lc
 from lecturepack.models.job import Job
+from runtime_payload import (  # noqa: E402  test-only skip guards
+    requires_demo_model, requires_ffmpeg_tools,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 VIDEO = str(ROOT / "tests" / "fixtures" / "synthetic_lecture.mp4")
@@ -87,6 +90,8 @@ def test_import_video_emits_active_job_with_correct_identity(tmp_path, monkeypat
     assert last["title"]
 
 
+@requires_ffmpeg_tools
+@requires_demo_model
 def test_import_then_start_transitions_through_lifecycle(tmp_path, monkeypatch):
     adapter, backend = _build_adapter(tmp_path, monkeypatch)
     _seed_clean_install_whisper_model(adapter)
@@ -121,6 +126,8 @@ def test_import_then_start_transitions_through_lifecycle(tmp_path, monkeypatch):
     assert rows[job.job_id]["stage"] == constants.STAGE_TRANSCRIBE
 
 
+@requires_ffmpeg_tools
+@requires_demo_model
 def test_pipeline_failure_leaves_job_in_failed_state(tmp_path, monkeypatch):
     adapter, backend = _build_adapter(tmp_path, monkeypatch)
     _seed_clean_install_whisper_model(adapter)
@@ -141,6 +148,8 @@ def test_pipeline_failure_leaves_job_in_failed_state(tmp_path, monkeypatch):
     assert backend.jobs_changed.emit.called
 
 
+@requires_ffmpeg_tools
+@requires_demo_model
 def test_push_jobs_includes_job_through_all_status_transitions(tmp_path, monkeypatch):
     adapter, backend = _build_adapter(tmp_path, monkeypatch)
     _seed_clean_install_whisper_model(adapter)

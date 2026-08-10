@@ -24,3 +24,9 @@ import os
 # (e.g. someone debugging a widget visually, or a CI image pinning a plugin)
 # still wins.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+# The tests directory itself must be importable so suites can share helpers
+# (see tests/runtime_payload.py, which holds the skip guards for the gitignored
+# binary payload). pytest only prepends the rootdir, not tests/.
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

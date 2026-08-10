@@ -12,6 +12,11 @@ import pytest
 from app.packaging import build
 from lecturepack.infrastructure.runtime_validation import SmokeEvidence
 
+from runtime_payload import (  # noqa: E402  test-only skip guards
+    requires_demo_model, requires_ffprobe, requires_onedir_fixture,
+    requires_rust_study_core,
+)
+
 SMOKE_RELATIVE_PATH = Path("smoke") / "runtime-smoke.wav"
 
 
@@ -63,13 +68,11 @@ def test_packaged_smoke_rejects_default_whisper_output_and_cleans_staging(monkey
     assert staging_instances[0].root is None
 
 
+@requires_onedir_fixture
 def test_real_packaged_smoke_uses_unicode_space_path_and_fresh_profile(monkeypatch):
     fixture = os.environ.get("LECTUREPACK_ONEDIR_FIXTURE", "").strip()
-    if not fixture:
-        pytest.fail("clean onedir fixture is required: set LECTUREPACK_ONEDIR_FIXTURE to a verified packaged runtime")
     root = Path(fixture)
-    if not root.is_dir():
-        pytest.fail(f"clean onedir fixture is required but missing: {root}")
+    assert root.is_dir(), f"clean onedir fixture is required but missing: {root}"
     fixture_smoke = root / SMOKE_RELATIVE_PATH
     if not fixture_smoke.is_file() or fixture_smoke.stat().st_size == 0:
         pytest.fail("clean onedir fixture must include a nonempty smoke/runtime-smoke.wav")
