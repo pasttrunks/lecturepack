@@ -224,6 +224,10 @@ function completeStartup(session) {
   clearStartupDeadline(session);
   session.startupComplete = true;
   session.startupFailure = null;
+  // Reconcile the active-work counter so a restored job's transient
+  // 'processing' flash cannot leave the power-save blocker or close-to-tray
+  // intercepting a clean shutdown.
+  resetActiveWork(session);
   session.logger.write('startup_complete', {
     elapsed_ms: Date.now() - session.startupStartedAt,
     attempt: session.startupAttempt
@@ -443,6 +447,18 @@ function refreshPowerSave(session) {
     if (powerSaveBlocker.isStarted(id)) powerSaveBlocker.stop(id);
     if (session) session.logger.write('power_save_released', { id });
   }
+}
+
+// Reconcile the active-work counter to a known-good value after startup.
+// Startup restores a job whose status may briefly flash 'processing' before
+// settling to its terminal state, which could otherwise leave the counter
+// stuck above zero and wrongly keep the power-save blocker on or intercept a
+// clean close. After bootstrap the live event stream re-drives the counter.
+function resetActiveWork(session) {
+  if (!session) return;
+  session.activeWorkCount = 0;
+  if (session.activeWork) session.activeWork.clear();
+  refreshPowerSave(session);
 }
 
 // ---- Feature 2: tray + background after close ----
