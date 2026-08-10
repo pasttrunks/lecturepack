@@ -17,20 +17,14 @@
     // FEATURE_UNAVAILABLE response in call(), never a silent null.
     acknowledge_setup: true,
     browse_model: true,
-    cancel_update_download: true,
     clear_skipped_version: true,
     exit_application: true,
     get_post_completion: true,
-    get_updater_state: true,
-    install_downloaded_update: true,
     install_update: true,
     log_tour_trace: true,
     open_release_page: true,
     save_project: true,
     set_auto_check: true,
-    set_update_channel: true,
-    skip_update_version: true,
-    start_update_download: true,
     whatsnew_seen: true,
     // Bootstrap is host-driven in the production app. These legacy calls
     // stay acknowledged locally as specified by the partial contract.
@@ -40,20 +34,14 @@
   var unavailableMessages = {
     acknowledge_setup: 'First-run setup is already complete in this build.',
     browse_model: 'Model browsing is not available in this build.',
-    cancel_update_download: 'Updates are not available in this build.',
     clear_skipped_version: 'Updates are not available in this build.',
     exit_application: 'Close the window to exit LecturePack.',
     get_post_completion: 'Post-completion coaching is not available in this build.',
-    get_updater_state: 'Updates are not available in this build.',
-    install_downloaded_update: 'Updates are not available in this build.',
     install_update: 'Updates are not available in this build.',
     log_tour_trace: 'Guided tour tracing is not available in this build.',
     open_release_page: 'Release notes are not available in this build.',
     save_project: 'Saving is automatic in this build.',
     set_auto_check: 'Updates are not available in this build.',
-    set_update_channel: 'Updates are not available in this build.',
-    skip_update_version: 'Updates are not available in this build.',
-    start_update_download: 'Updates are not available in this build.',
     whatsnew_seen: 'What\'s new is not available in this build.',
     get_bootstrap: 'Bootstrap is host-driven in this build.',
     ui_ready: 'UI readiness is acknowledged in this build.'
@@ -502,14 +490,12 @@
       var args = Array.prototype.slice.call(arguments, 1);
       if (!api) return Promise.resolve(featureUnavailable(name));
       if (name === 'check_updates') {
-        // D-6: updates are not available in this build. Resolve immediately
-        // with a structured result and clear the UI's "Checking…" state.
-        var updateResult = featureUnavailable('check_updates');
-        fire('update_state', json({
-          phase: 'uptodate',
-          message: updateResult.message
-        }));
-        return Promise.resolve(updateResult);
+        // U4: route the manual check to the Electron main updater, which talks
+        // to the stable GitHub feed and never blocks startup.
+        return api.request('check_updates', {}).catch(function (error) {
+          fire('update_state', json({ phase: 'error', message: String(error && error.message || error) }));
+          return { ok: false, error: String(error && error.message || error) };
+        });
       }
       if (noopCalls[name]) {
         // Internal bootstrap calls stay acknowledged locally; visible-control

@@ -21,6 +21,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn, spawnSync } = require('node:child_process');
 const { validateLocalVideoPath } = require('./import-path');
+const updaterModule = require('./updater');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const packageInfo = require('./package.json');
@@ -98,7 +99,7 @@ function productionDocument(uiDir) {
   const bridge = fs.readFileSync(path.join(__dirname, 'electron-bridge.js'), 'utf8');
   const productionScope = `
     <style id="lecturepack-production-scope">
-      #btn-show-empty, #btn-save, #update-badge {
+      #btn-show-empty, #btn-save {
         display: none !important;
       }
     </style>`;
@@ -227,6 +228,14 @@ function completeStartup(session) {
     elapsed_ms: Date.now() - session.startupStartedAt,
     attempt: session.startupAttempt
   });
+  // U4: a non-blocking automatic update check runs no more than once per day
+  // and only after startup is healthy. It must never delay startup readiness.
+  if (updaterModule.shouldAutoCheck(app.getPath('userData'))) {
+    setTimeout(() => {
+      if (session.closed || !session.startupComplete) return;
+      void checkForUpdates(session, false);
+    }, 5000);
+  }
 }
 
 function armStartupDeadline(session, attempt) {
@@ -999,6 +1008,133 @@ async function openLogsFolder(session) {
   return { ok: true, path: target };
 }
 
+// --------------------------------------------------------------------------- //
+// Updater (Phase 6): stable GitHub update lifecycle in the Electron main.
+// --------------------------------------------------------------------------- //
+const UPDATER_REPO = 'pasttrunks/lecturepack';
+
+function ensureUpdater(session) {
+  if (session.updater) return session.updater;
+  session.updater = updaterModule.createUpdater({
+    version: PRODUCT_VERSION,
+    repo: UPDATER_REPO,
+    userDataDir: app.getPath('userData'),
+    logger: session.logger,
+    onState: (patch) => {
+      Object.assign(session.updaterState || {}, patch);
+      emitUpdaterState(session, patch);
+    }
+  });
+  session.updaterState = { status: 'idle', version: PRODUCT_VERSION };
+  return session.updater;
+}
+
+function emitUpdaterState(session, patch) {
+  const state = session.updaterState || {};
+  const phase = patch && patch.status ? patch.status : (state.status || 'idle');
+  const payload = buildUpdaterStatePayload(session, Object.assign({}, state, patch || {}), phase);
+  sendToPage(session, { event: 'update_state', payload: JSON.stringify(payload) });
+}
+
+function buildUpdaterStatePayload(session, state, phase) {
+  const base = {
+    phase,
+    version: PRODUCT_VERSION,
+    channel: 'stable',
+    auto_check: true,
+    skipped_version: null,
+    message: ''
+  };
+  if (phase === 'uptodate') base.message = "You're up to date";
+  else if (phase === 'error') base.message = (state && state.error) || 'Update check failed.';
+  else if (phase === 'ready') base.message = 'Verified and ready to install.';
+  else if (phase === 'downloaded') base.message = 'Update downloaded.';
+  return base;
+}
+
+async function getUpdaterState(session) {
+  const state = session.updaterState || (session.updaterState = { status: 'idle', version: PRODUCT_VERSION });
+  return JSON.stringify(buildUpdaterStatePayload(session, state, state.status || 'idle'));
+}
+
+async function checkForUpdates(session, manual) {
+  // U4: never block startup; only check after the app is healthy.
+  if (!session.startupComplete) {
+    return { ok: false, error: 'LecturePack is still starting up.' };
+  }
+  const updater = ensureUpdater(session);
+  session.updaterState = Object.assign({}, session.updaterState, { status: 'checking' });
+  emitUpdaterState(session, { status: 'checking' });
+  const result = await updater.check();
+  session.updaterState = Object.assign({}, session.updaterState, result);
+  if (result.status === 'available') {
+    sendToPage(session, { event: 'update_available', payload: JSON.stringify({
+      version: (result.update && result.update.version) || '',
+      notes: (result.update && result.update.notes) || '',
+      size: (result.update && result.update.size) || 0
+    }) });
+  } else if (result.status === 'uptodate') {
+    emitUpdaterState(session, { status: 'uptodate' });
+  } else {
+    emitUpdaterState(session, { status: 'error', error: result.error });
+  }
+  return { ok: true, status: result.status };
+}
+
+async function startUpdateDownload(session) {
+  const updater = ensureUpdater(session);
+  const state = session.updaterState || {};
+  const update = (state && state.status === 'available' && state.update) || null;
+  if (!update) {
+    // No known update; run a check first, then download if one appears.
+    const check = await checkForUpdates(session, false);
+    return { ok: true, ...check };
+  }
+  session.updaterState = Object.assign({}, state, { status: 'downloading' });
+  emitUpdaterState(session, { status: 'downloading' });
+  try {
+    const dest = await updater.download(update, (received, total) => {
+      const pct = total > 0 ? Math.round((received / total) * 100) : 0;
+      sendToPage(session, { event: 'update_progress', pct });
+    });
+    sendToPage(session, { event: 'update_ready' });
+    session.updaterState = Object.assign({}, session.updaterState, { status: 'ready', installerPath: dest });
+    emitUpdaterState(session, { status: 'ready' });
+    return { ok: true, installer: dest };
+  } catch (error) {
+    session.updaterState = Object.assign({}, session.updaterState, { status: 'error', error: error.message });
+    emitUpdaterState(session, { status: 'error', error: error.message });
+    sendToPage(session, { event: 'update_error', message: error.message });
+    return { ok: false, error: error.message };
+  }
+}
+
+async function installDownloadedUpdate(session) {
+  // U5/U10: never install while real work is active; defer until idle.
+  if (session.activeWorkCount > 0) {
+    emitUpdaterState(session, { status: 'blocked', message: 'LecturePack is still working. The update will install when it is idle.' });
+    return { ok: false, blocked: true, error: 'LecturePack is still working.' };
+  }
+  const state = session.updaterState || {};
+  const installerPath = (state && state.installerPath) || null;
+  if (!installerPath || !fs.existsSync(installerPath)) {
+    return { ok: false, error: 'No verified update is ready to install.' };
+  }
+  const updater = ensureUpdater(session);
+  try {
+    updater.install(installerPath);
+    session.logger.write('update_installer_launched', { file: installerPath });
+    // Exit the running app cleanly so the installer can finish over the same
+    // per-user installation; the installer relaunches LecturePack.
+    quitToTray = true;
+    requestQuit();
+    return { ok: true };
+  } catch (error) {
+    session.logger.write('update_install_failed', { error: error.message });
+    return { ok: false, error: error.message };
+  }
+}
+
 async function handleCommand(session, command, payload) {
   if (command === 'retry_startup') return startStartupAttempt(session);
   if (command === 'open_logs') return openLogsFolder(session);
@@ -1017,6 +1153,12 @@ async function handleCommand(session, command, payload) {
     return openJobFolder(session, command, payload);
   }
   if (command === 'test_notification') return testDesktopNotification();
+  if (command === 'get_updater_state') return getUpdaterState(session);
+  if (command === 'check_updates') return checkForUpdates(session, true);
+  if (command === 'start_update_download') return startUpdateDownload(session);
+  if (command === 'install_downloaded_update') return installDownloadedUpdate(session);
+  if (command === 'cancel_update_download') return { ok: true };
+  if (command === 'skip_update_version' || command === 'set_update_channel') return { ok: true };
   return sendCommand(session, command, payload);
 }
 

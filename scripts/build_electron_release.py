@@ -175,6 +175,31 @@ def write_sha256sums(version: str, output: Path) -> Path:
     return sums
 
 
+def write_release_manifest(version: str, output: Path, installer: Path | None) -> Path:
+    """Machine-readable release manifest (U7) the updater verifies the
+    installer against before running it. Carries the version, the Windows x64
+    architecture, the installer filename, and its SHA-256. The updater refuses
+    to launch an installer whose digest does not match."""
+    manifest = output / f"LecturePack-{version}-release-manifest.json"
+    entry = {
+        "version": version,
+        "platform": "win32",
+        "architecture": "x64",
+        "installers": [],
+    }
+    if installer is not None and installer.is_file():
+        entry["installers"].append({
+            "filename": installer.name,
+            "sha256": hashlib.sha256(installer.read_bytes()).hexdigest(),
+        })
+    manifest.write_text(
+        json.dumps(entry, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    return manifest
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pyinstaller", help="locked PyInstaller executable used for the sidecar")
@@ -214,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("Inno Setup 6 ISCC.exe was not found; pass --skip-installer or --iscc")
         installer = build_installer(iscc, version, candidate, output)
     sums = write_sha256sums(version, output)
+    manifest = write_release_manifest(version, output, installer)
 
     result = {
         "version": version,
@@ -221,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
         "portable": str(portable),
         "installer": str(installer) if installer else None,
         "sha256sums": str(sums),
+        "release_manifest": str(manifest),
         "self_test": self_test,
     }
     print(json.dumps(result, indent=2))

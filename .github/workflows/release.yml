@@ -115,6 +115,7 @@ jobs:
             runtime-release-assets/LecturePack-${{ env.APP_VERSION }}-Runtime-smoke-fixture.zip
             app/dist/installer/LecturePack-${{ env.APP_VERSION }}-Setup.exe
             app/dist/installer/LecturePack-${{ env.APP_VERSION }}-SHA256SUMS.txt
+            app/dist/installer/LecturePack-${{ env.APP_VERSION }}-release-manifest.json
 
       - name: Retain signing audit evidence
         uses: actions/upload-artifact@v4
