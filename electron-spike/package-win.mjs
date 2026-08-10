@@ -15,7 +15,8 @@ const productionAsarFiles = new Set([
   'production-main.js',
   'production-preload.js',
   'electron-bridge.js',
-  'import-path.js'
+  'import-path.js',
+  'updater.js'
 ]);
 
 for (const required of [uiDir, packagedSidecar, demoAssets, icon]) {
