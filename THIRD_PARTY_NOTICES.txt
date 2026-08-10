@@ -330,7 +330,7 @@ LecturePack's native Study scheduling/mastery engine, built with maturin and
 PyO3. PyO3 (https://github.com/PyO3/pyo3) is dual-licensed Apache-2.0 OR MIT.
 Rust standard library and crate dependencies compiled into this module are
 distributed under Apache-2.0 OR MIT unless individually noted; the crate
-manifest under rust/study_core/ records the exact dependency set for a release.
+manifest under rust/study-core/ records the exact dependency set for a release.
 
 --------------------------------------------------------------------------------
 cryptography

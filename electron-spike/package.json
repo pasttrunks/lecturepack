@@ -1,9 +1,9 @@
 {
   "name": "lecturepack",
   "productName": "LecturePack",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
-  "description": "LecturePack — local lecture transcription, slides, and study packs.",
+  "description": "LecturePack \u2014 local lecture transcription, slides, and study packs.",
   "main": "production-main.js",
   "scripts": {
     "start": "electron .",

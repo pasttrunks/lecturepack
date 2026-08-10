@@ -41,15 +41,15 @@ def _sendto_entry() -> str:
         stripped = line.strip()
         if stripped.startswith(";") or not stripped:
             continue
-        if "{sendto}" in stripped:
+        if "{usersendto}" in stripped:
             return stripped
-    raise AssertionError("no {sendto} entry in [Icons]")
+    raise AssertionError("no {usersendto} entry in [Icons]")
 
 
 # ------------------------------------------------------------------ installer
 def test_installer_creates_a_send_to_shortcut():
     entry = _sendto_entry()
-    assert r"{sendto}\{#AppName}" in entry, entry
+    assert r"{usersendto}\{#AppName}" in entry, entry
 
 
 def test_send_to_shortcut_points_at_the_installed_executable():
@@ -66,7 +66,12 @@ def test_send_to_shortcut_is_created_unconditionally_on_a_fresh_install():
 
 
 def test_send_to_shortcut_is_per_user_and_needs_no_elevation():
-    """{sendto} is the per-user SendTo folder; the install stays unelevated."""
+    """{usersendto} is the per-user SendTo folder; the install stays unelevated.
+
+    The bare {sendto} alias is deprecated in Inno Setup 6 and emits a
+    compile warning, so the explicit per-user constant is required.
+    """
+    assert "{sendto}\\" not in ISS_TEXT, "use the explicit {usersendto} constant"
     assert "PrivilegesRequired=lowest" in ISS_TEXT
     assert "{commonsendto}" not in ISS_TEXT, "must not write a machine-wide SendTo entry"
 

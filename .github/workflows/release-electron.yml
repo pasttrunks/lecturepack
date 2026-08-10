@@ -102,7 +102,7 @@ jobs:
       # Rust Study Core.
       # ------------------------------------------------------------------ #
       - name: Test the Rust Study Core
-        working-directory: rust/study_core
+        working-directory: rust/study-core
         run: cargo test --release
 
       # ------------------------------------------------------------------ #
