@@ -27,10 +27,27 @@ function pathExists(candidate) {
   return fs.existsSync(candidate);
 }
 
+// Single source of truth for the packaged product version.
+//
+// These were previously hardcoded to '2.0.0'. That happened to be correct for
+// exactly one release: any version bump shipped a LecturePack.exe whose
+// Windows version resource still claimed the old version, while every other
+// surface said the new one. Read package.json instead so the executable can
+// never disagree with the release it belongs to.
+const appVersion = JSON.parse(
+  fs.readFileSync(path.join(spikeRoot, 'package.json'), 'utf8')
+).version;
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(String(appVersion || ''))) {
+  throw new Error(`electron-spike/package.json has no usable version: ${appVersion}`);
+}
+// The Windows FileVersion resource is a four-part numeric field, so a
+// prerelease suffix cannot appear in it.
+const fileVersion = `${String(appVersion).split('-')[0]}.0`;
+
 const output = await packager({
   dir: spikeRoot,
   name: 'LecturePack',
-  appVersion: '2.0.0',
+  appVersion,
   platform: 'win32',
   arch: 'x64',
   out: outputDir,
@@ -44,8 +61,8 @@ const output = await packager({
     InternalName: 'LecturePack',
     OriginalFilename: 'LecturePack.exe',
     ProductName: 'LecturePack',
-    ProductVersion: '2.0.0',
-    FileVersion: '2.0.0.0'
+    ProductVersion: appVersion,
+    FileVersion: fileVersion
   },
   // The repository keeps the old launcher and diagnostic modes as a fallback,
   // but the production candidate must not ship or expose them as entry points.

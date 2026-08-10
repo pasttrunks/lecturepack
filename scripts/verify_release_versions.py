@@ -56,6 +56,27 @@ def _iss_version() -> str:
     return match.group(1)
 
 
+def _hardcoded_versions_in_packager() -> list[str]:
+    """Any literal x.y.z baked into the Electron packager script.
+
+    package-win.mjs once hardcoded appVersion/ProductVersion/FileVersion to
+    '2.0.0'. That was right for exactly one release: after a bump, the shipped
+    LecturePack.exe still reported the old version in its Windows version
+    resource while every other surface reported the new one, and no check
+    noticed. The version must come from package.json, so any literal version
+    string reappearing here is a defect.
+    """
+    path = ROOT / "electron-spike" / "package-win.mjs"
+    if not path.is_file():
+        return []
+    findings: list[str] = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        code = line.split("//", 1)[0]
+        for match in re.finditer(r"""['"](\d+\.\d+\.\d+(?:\.\d+)?)['"]""", code):
+            findings.append(f"electron-spike/package-win.mjs:{number}: {match.group(1)!r}")
+    return findings
+
+
 def collect() -> dict[str, str]:
     """Every authoritative version surface, keyed by a stable label."""
     surfaces = {
@@ -84,6 +105,14 @@ def verify(expected: str | None = None) -> tuple[bool, str]:
     distinct = sorted(set(surfaces.values()))
     if len(distinct) > 1:
         problems.append(f"  version surfaces disagree: {distinct}")
+
+    hardcoded = _hardcoded_versions_in_packager()
+    if hardcoded:
+        problems.append(
+            "  the Electron packager hardcodes a version instead of reading "
+            "package.json; the shipped .exe would misreport its version:\n"
+            + "\n".join(f"    {entry}" for entry in hardcoded)
+        )
 
     if expected is not None:
         want = expected.lstrip("vV")

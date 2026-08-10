@@ -12,10 +12,17 @@
 
   /* Study V1: a quiet workspace with focus reserved for the active task. */
   .study-shell{background:var(--sunk);padding:20px 24px !important;gap:18px !important}
-  .study-shell .study-mode-nav{border-bottom:1px solid var(--line);padding:0 2px 10px}
-  .study-shell .study-mode-tab{background:transparent !important;color:var(--muted) !important;border:0 !important;border-bottom:2px solid transparent !important;border-radius:0 !important;padding:7px 10px !important;font-weight:600 !important}
-  .study-shell .study-mode-tab:hover{color:var(--ink) !important;background:var(--panel2) !important}
-  .study-shell .study-mode-tab.active{background:transparent !important;color:var(--ink) !important;border-bottom-color:var(--orange) !important}
+  .study-shell .study-mode-nav{border-bottom:1px solid var(--line);padding:0 2px 14px}
+  /* Study mode tabs speak the same language as every other button: rounded
+     corners, a 2px border, a resting hard shadow, a lift on hover and a press
+     into the surface on click. They were previously flat underline tabs
+     (square corners, no border, no shadow, no press), which made this the one
+     control row in the app that looked like plain text. The !important flags
+     match the surrounding Study-shell overrides, which would otherwise win. */
+  .study-shell .study-mode-tab{background:var(--panel) !important;color:var(--ink) !important;border:2px solid var(--border) !important;border-radius:9px !important;padding:8px 16px !important;font-weight:600 !important;box-shadow:var(--shadow-hard-sm) !important}
+  .study-shell .study-mode-tab:hover:not(:disabled){background:var(--panel2) !important;color:var(--ink) !important;transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--shadow-ink) !important}
+  .study-shell .study-mode-tab:active:not(:disabled){transform:translate(2px,2px);box-shadow:0 0 0 var(--shadow-ink) !important}
+  .study-shell .study-mode-tab.active{background:var(--orange) !important;color:var(--on-signal) !important;border-color:var(--orange-ink) !important;font-weight:700 !important}
   .study-shell .study-panel,.study-shell .study-focus-root,.study-shell .study-ask-panel{border:1px solid var(--line) !important;border-radius:12px !important;box-shadow:none !important}
   .study-shell .study-panel{background:var(--panel) !important}
   .study-shell .study-ready-panel{padding:22px 26px !important}
