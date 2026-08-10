@@ -205,7 +205,11 @@ def test_release_builder_rejects_noncanonical_app_version(tmp_path, wrong: str) 
 
 
 def test_legacy_runtime_workflow_is_manual_and_binds_to_the_peeled_tag_before_signing() -> None:
-    workflow = (Path(__file__).parents[1] / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    # Renamed from release.yml so its purpose is unmistakable; it publishes
+    # only the signed runtime-repair assets, never the desktop installer.
+    workflow = (
+        Path(__file__).parents[1] / ".github" / "workflows" / "release-runtime-repair.yml"
+    ).read_text(encoding="utf-8")
     assert "workflow_dispatch:" in workflow
     assert "\n  push:" not in workflow and 'tags: ["v*"]' not in workflow
     assert 'refs/tags/v${APP_VERSION}^{commit}' in workflow
@@ -215,4 +219,9 @@ def test_legacy_runtime_workflow_is_manual_and_binds_to_the_peeled_tag_before_si
     assert "cryptography==49.0.0" in workflow
     assert "e5dfc1e64de5677cec922ffa8da89c546d0415bf6efdf081842e5d44c84e1f0e" in workflow
     assert "softprops/action-gh-release" in workflow
-    assert "LecturePack-*-" not in workflow
+    # No wildcard may appear in the published `files:` list -- a glob could
+    # pick up a stale artifact from another version. Globs elsewhere are fine:
+    # the fail-closed guard deliberately searches for LecturePack-*-Setup.exe
+    # and friends to prove none were produced.
+    published = workflow[workflow.index("softprops/action-gh-release"):]
+    assert "LecturePack-*-" not in published
