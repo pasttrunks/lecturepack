@@ -47,6 +47,12 @@
       next: function (count) { if (active && step < count - 1) step += 1; return snapshot(); },
       back: function () { if (active && step > 0) step -= 1; return snapshot(); },
       exit: function () { active = false; prompt = false; step = -1; completed = true; return snapshot(); },
+      setEligibility: function (eligible) {
+        if (active) return snapshot();
+        completed = eligible !== true;
+        if (!eligible) prompt = false;
+        return snapshot();
+      },
       snapshot: snapshot
     };
   }
@@ -1172,7 +1178,7 @@
         '</span>'
       : '';
     var border = chosen ? 'var(--blue)' : 'var(--border)';
-    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'data-status="' + esc(displayStatus) + '" style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
+    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + (ready ? 'draggable="true" data-existing-job-drag="true" ' : '') + 'data-status="' + esc(displayStatus) + '" style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:' + (ready ? 'grab' : 'pointer') + '">' +
       '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + (selecting ? selbox : menu) + badge + '</div>' +
       '<div style="padding:14px 16px">' + body + '</div></div>';
   }
@@ -1264,6 +1270,16 @@
     });
   }
 
+  function positionDownloadsPanel() {
+    var indicator = $('downloads-indicator'), panel = $('downloads-panel');
+    if (!indicator || !panel || panel.hidden) return;
+    var r = indicator.getBoundingClientRect(), width = panel.offsetWidth || 390, pad = 10;
+    var left = Math.max(pad, Math.min(r.right - width, window.innerWidth - width - pad));
+    panel.style.left = Math.round(left) + 'px';
+    panel.style.top = Math.round(r.bottom + 8) + 'px';
+    panel.style.right = 'auto';
+  }
+
   function renderDownloads() {
     var items = mediaLink.downloads || [];
     var indicator = $('downloads-indicator'), panel = $('downloads-panel'), list = $('downloads-list');
@@ -1271,11 +1287,18 @@
     var active = items.filter(function (item) { return item.status === 'downloading'; })[0];
     var waiting = items.filter(function (item) { return item.status === 'waiting'; }).length;
     var unfinished = items.filter(function (item) { return item.status === 'downloading' || item.status === 'waiting'; }).length;
-    indicator.hidden = items.length === 0;
+    indicator.hidden = false;
+    var count = $('downloads-indicator-count'), label = $('downloads-indicator-label');
+    if (count) { count.hidden = !unfinished; count.textContent = unfinished ? String(unfinished) : ''; }
     $('downloads-indicator-label').textContent = active
       ? ('Downloading ' + (active.title || 'lecture') + ' · ' + (active.pct || 0) + '%' + (waiting ? ' · ' + waiting + ' waiting' : ''))
       : (unfinished ? ('↓ ' + unfinished + ' downloads') : 'Downloads');
-    if (!items.length) { panel.hidden = true; return; }
+    if (label) label.textContent = active ? ((active.pct || 0) + '%') : 'Downloads';
+    indicator.setAttribute('aria-label', active ? ('Downloads: ' + (active.pct || 0) + '% in progress') : 'Open downloads');
+    if (!items.length) {
+      list.innerHTML = '<div style="padding:18px 10px;text-align:center;font:500 12px \'Space Grotesk\';color:var(--muted)">No downloads yet.</div>';
+      return;
+    }
     list.innerHTML = items.map(function (item) {
       var status = item.status || 'waiting';
       var progress = status === 'downloading'
@@ -1292,6 +1315,7 @@
             ? '<button data-download-act="retry" data-download-id="' + esc(item.id) + '">Retry</button>' : '';
       return '<div style="padding:10px;border-radius:9px;background:var(--panel2);margin-bottom:6px"><div style="display:flex;gap:9px;align-items:start"><div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(item.title || 'Lecture download') + '</div>' + progress + '<div style="font:500 10px \'JetBrains Mono\';color:' + (status === 'failed' ? 'var(--red)' : 'var(--muted)') + '">' + esc(meta) + '</div>' + (item.error ? '<details style="font-size:11px;color:var(--muted);margin-top:5px"><summary>Details</summary><div style="overflow-wrap:anywhere">' + esc(item.error) + '</div></details>' : '') + '</div><div class="lp-download-action">' + action + '</div></div></div>';
     }).join('');
+    positionDownloadsPanel();
   }
 
   // "YYYY-MM-DDTHH:MM" for *local* time -- toISOString() would return UTC and
@@ -1338,6 +1362,37 @@
       title: 'Delete this lecture?',
       bodyHtml: '<strong>' + esc(job.name) + '</strong> will be moved to the Recycle Bin and removed from LecturePack, freeing disk space. Its export files are removed too.',
       actions: [{ label: 'Cancel' }, { label: 'Delete', danger: true, onClick: function () { if (lpBridge.connected()) lpBridge.call('delete_job', job.id); else toast('Preview mode — not deleted'); } }]
+    });
+  }
+  function confirmResetLecturePack() {
+    var status = $('reset-lecturepack-status'), modal;
+    modal = lpModal({
+      title: 'Reset LecturePack?',
+      bodyHtml: 'This will permanently remove LecturePack jobs, Study progress, downloaded LecturePack media, settings, and app history.<br><br>Original lecture/video files outside LecturePack will not be deleted.',
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Reset LecturePack', danger: true, onClick: function () {
+          if (!lpBridge.connected()) {
+            toast('Reset needs the LecturePack desktop app.');
+            return false;
+          }
+          if (status) status.textContent = 'Waiting for reset confirmation…';
+          lpBridge.call('reset_lecturepack').then(function (value) {
+            var result = parseBridgeResult(value);
+            if (!result || result.ok !== true) {
+              if (status) status.textContent = (result && result.error) || 'Reset is unavailable in this build.';
+              toast((result && result.error) || 'Reset is unavailable in this build.');
+              return;
+            }
+            if (status) status.textContent = 'LecturePack is restarting…';
+            modal.close();
+          }, function () {
+            if (status) status.textContent = 'Reset could not be started.';
+            toast('Reset could not be started.');
+          });
+          return true;
+        } }
+      ]
     });
   }
   function setJobGroup(job) {
@@ -1504,6 +1559,51 @@
   }
   function _jobIsReady(j) {
     return !!j && j.status === 'queued' && !_jobInQueue(j.id) && j.status !== 'running';
+  }
+  function internalDragIdsFor(sourceId) {
+    var selected = LP.state.selecting && LP.state.selected[sourceId];
+    var ids = [];
+    (LP.data.jobs || []).forEach(function (job) {
+      if (!job || !job.id || !(_jobIsReady(job) && (!LP.state.selecting || !selected || LP.state.selected[job.id]))) return;
+      if (!selected && job.id !== sourceId) return;
+      if (ids.indexOf(job.id) < 0) ids.push(job.id);
+    });
+    return ids;
+  }
+  function readInternalJobDrag(event) {
+    var transfer = event && event.dataTransfer;
+    if (!transfer) return [];
+    var raw = '';
+    try { raw = transfer.getData(INTERNAL_JOB_DRAG_MIME); } catch (e) {}
+    if (!raw) return internalJobDragIds.slice();
+    try {
+      var ids = JSON.parse(raw);
+      return Array.isArray(ids) ? ids.filter(function (id, index) { return typeof id === 'string' && id && ids.indexOf(id) === index; }) : [];
+    } catch (e) { return []; }
+  }
+  function createInternalDragGhost(count) {
+    var ghost = document.createElement('div');
+    ghost.className = 'lp-drag-ghost';
+    ghost.textContent = count + ' lecture' + (count === 1 ? '' : 's');
+    document.body.appendChild(ghost);
+    return ghost;
+  }
+  function queueExistingJobIds(ids) {
+    var unique = ids.filter(function (id, index) { return id && ids.indexOf(id) === index; });
+    if (!unique.length) return Promise.resolve(null);
+    if (!lpBridge.connected()) { toast('Preview mode — existing lectures were not queued.'); return Promise.resolve(null); }
+    return lpBridge.call('queue_jobs', { job_ids: unique }).then(function (result) {
+      // Older desktop bridges expose the same normal queue one job at a time.
+      // This fallback still sends each existing ID exactly once and never
+      // routes an internal drag through file import.
+      if (result !== null && result !== undefined) return result;
+      return unique.reduce(function (chain, id) {
+        return chain.then(function () { return lpBridge.call('enqueue_job', id); });
+      }, Promise.resolve(null));
+    }).then(function (result) {
+      renderJobs(); renderQueue(); renderProcessingStrip();
+      return result;
+    });
   }
   // Display labels for the per-job processing options (chosen before start and
   // locked for that run). The backend stores preset balanced/detailed and
@@ -2274,8 +2374,9 @@
     updateExportPdfDescription();
     var grid = LP.state.slidesView === 'grid';
     // the container is a flex column for list, an auto-fill grid for tiles
+    list.dataset.view = grid ? 'grid' : 'list';
     list.style.display = grid ? 'grid' : 'flex';
-    list.style.gridTemplateColumns = grid ? 'repeat(auto-fill,minmax(104px,1fr))' : '';
+    list.style.gridTemplateColumns = '';
     list.style.alignContent = grid ? 'start' : '';
     list.style.gap = grid ? '8px' : '9px';
     if (grid) {
@@ -2288,13 +2389,13 @@
         else if (s.state === 'rejected') { bd = 'var(--red)'; tint = 'var(--red-soft)'; label = 'rejected'; labelColor = 'var(--red)'; }
         else { bd = 'var(--border)'; label = 'accepted'; labelColor = 'var(--blue-ink)'; }
         var img = slideImg(s.thumb || s.img, 'width:100%;height:100%;object-fit:cover;display:block', 18, labelColor);
-        return '<div class="lp-hit' + entrance + '" data-slide="' + i + '" style="display:flex;flex-direction:column;gap:5px;' +
+        return '<div class="lp-hit lp-slide-card' + entrance + '" data-slide="' + i + '" style="display:flex;flex-direction:column;gap:5px;min-width:0;' +
           'background:' + tint + ';border:2px solid ' + bd + ';border-radius:10px;padding:5px;cursor:pointer">' +
-          '<div style="aspect-ratio:16/10;overflow:hidden;background:var(--sunk);border-radius:6px;display:flex;' +
+          '<div class="lp-slide-card-thumb" style="aspect-ratio:16/10;overflow:hidden;background:var(--sunk);border-radius:6px;display:flex;' +
           'align-items:center;justify-content:center">' + img + '</div>' +
-          '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:4px">' +
-          '<span style="font:700 11px \'JetBrains Mono\'">' + esc(s.time) + '</span>' +
-          '<span style="font:700 8.5px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</span>' +
+          '<div class="lp-slide-card-meta" style="display:flex;align-items:baseline;justify-content:space-between;gap:4px;min-width:0">' +
+          '<span class="lp-slide-card-time" style="font:700 11px \'JetBrains Mono\'">' + esc(s.time) + '</span>' +
+          '<span class="lp-slide-card-status" style="font:700 8.5px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</span>' +
           '</div></div>';
       }).join('');
       finishSlides(v);
@@ -2319,9 +2420,9 @@
         label = 'accepted'; labelColor = 'var(--blue-ink)';
       }
       var thumbImg = slideImg(s.thumb || s.img, 'width:100%;height:100%;object-fit:cover;border-radius:5px;display:block', 16, icon);
-      return '<div class="lp-hit" data-slide="' + i + '" style="display:flex;align-items:center;gap:11px;' + wrap + '">' +
-        '<div style="width:60px;height:38px;flex:none;overflow:hidden;background:var(--sunk);border:1.5px solid ' + thumbBd + ';border-radius:6px;display:flex;align-items:center;justify-content:center">' + thumbImg + '</div>' +
-        '<div><div style="font:700 13px \'JetBrains Mono\'">' + esc(s.time) + '</div><div style="font:700 10px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</div></div></div>';
+      return '<div class="lp-hit lp-slide-card" data-slide="' + i + '" style="display:flex;align-items:center;gap:11px;min-width:0;' + wrap + '">' +
+        '<div class="lp-slide-card-thumb" style="width:60px;height:38px;flex:none;overflow:hidden;background:var(--sunk);border:1.5px solid ' + thumbBd + ';border-radius:6px;display:flex;align-items:center;justify-content:center">' + thumbImg + '</div>' +
+        '<div class="lp-slide-card-meta" style="min-width:0;overflow:hidden"><div class="lp-slide-card-time" style="font:700 13px \'JetBrains Mono\'">' + esc(s.time) + '</div><div class="lp-slide-card-status" style="font:700 10px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</div></div></div>';
     }).join('');
     finishSlides(v);
   }
@@ -3060,6 +3161,13 @@
     var state = 'gate', returnState = 'gate', retryPending = false, cancelPending = false;
     var activeOperation = null, terminal = false, offer = null, bootstrapPending = true, healthy = false;
     var validationPath = null, acknowledged = false, checklist = [], checkProgress = {}, startupFailure = null;
+    function requiredChecklistReady(items) {
+      var requiredIds = ['windows_version', 'ffmpeg_ffprobe', 'whisper_runtime', 'bundled_model', 'data_directory'];
+      if (!Array.isArray(items) || items.length !== requiredIds.length) return false;
+      return requiredIds.every(function (id) {
+        return items.some(function (item) { return item && item.id === id && item.verdict === 'ready'; });
+      });
+    }
     function valid(value) {
       return !!(value && value.operation_id === activeOperation && value.app_version && value.source &&
         value.affected_components && Number.isSafeInteger(value.download_size_bytes) && value.download_size_bytes >= 0);
@@ -3067,7 +3175,7 @@
     function snapshot() {
       return { state: state, returnState: returnState, retryPending: retryPending, cancelPending: cancelPending,
         activeOperation: activeOperation, terminal: terminal, offer: offer, bootstrapPending: bootstrapPending, healthy: healthy,
-        validationPath: validationPath, acknowledged: acknowledged, checklist: checklist, checkProgress: checkProgress,
+        validationPath: validationPath, acknowledged: acknowledged, checklist: checklist, checklistReady: requiredChecklistReady(checklist), checkProgress: checkProgress,
         startupFailure: startupFailure };
     }
     function accept(event) { return !!(event && event.operation_id === activeOperation && !terminal); }
@@ -3352,31 +3460,26 @@
       if (bar) bar.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
       text('runtime-checking-counter', resolvedCount + ' of ' + total + ' checked');
     }
-    // btn-runtime-continue and btn-runtime-skip are byte-identical in effect
-    // (UI-SPEC "Continue vs Skip effect", owner-resolved) and share one
-    // acknowledge() handler wired to both in wire().
-    var CHECKLIST_WINDOWS_ADVISORY = "Your Windows version isn't fully tested with LecturePack. Everything checked above works, so you can continue — reliability on this exact version isn't guaranteed.";
+    // The checklist is a rendering of the backend's five canonical verdicts.
+    // It never infers health from a detail string or from a partial payload.
     function renderChecklist() {
-      var host = $('runtime-checklist-rows'), empty = $('runtime-checklist-empty');
+      var host = $('runtime-checklist-rows'), empty = $('runtime-checklist-empty'), done = $('btn-runtime-done');
       if (!host || !empty) return;
-      // Read only id/verdict/detail -- no health arithmetic of our own on
-      // component evidence (backend decides, UI renders).
-      var items = eventModel.snapshot().checklist;
-      var complete = Array.isArray(items) && items.length === FIRST_RUN_ROWS.length;
+      var view = eventModel.snapshot();
+      var items = Array.isArray(view.checklist) ? view.checklist : [];
+      var byId = {};
+      items.forEach(function (item) { if (item && item.id) byId[item.id] = item; });
+      var complete = items.length === FIRST_RUN_ROWS.length && FIRST_RUN_ROWS.every(function (row) { return !!byId[row.id]; });
+      var ready = !!view.checklistReady;
       empty.hidden = complete;
-      if (!complete) {
-        while (host.firstElementChild) host.firstElementChild.remove();
-        return;
-      }
+      if (done) { done.disabled = !ready; done.hidden = !ready; }
       var rowIndex = 0;
-      items.forEach(function (item) {
-        var meta = null;
-        for (var i = 0; i < FIRST_RUN_ROWS.length; i++) { if (FIRST_RUN_ROWS[i].id === item.id) { meta = FIRST_RUN_ROWS[i]; break; } }
-        var label = meta ? meta.label : String(item.id);
+      FIRST_RUN_ROWS.forEach(function (row) {
+        var item = byId[row.id] || { id: row.id, verdict: 'pending', detail: '' };
         var dataState = FIRST_RUN_VERDICT_STATES[item.verdict] || null;
-        var badgeText = item.verdict === 'needs_attention' ? 'Needs Attention' : 'Ready';
-        updateFirstRunRow(host, rowIndex++, item.id, label, badgeText, dataState,
-          item.verdict === 'needs_attention' ? CHECKLIST_WINDOWS_ADVISORY : '');
+        var badgeText = item.verdict === 'needs_attention' ? 'Needs Attention' : item.verdict === 'ready' ? 'Ready' : 'Pending';
+        var advisory = item.detail || (item.verdict === 'needs_attention' ? 'This required check needs attention.' : '');
+        updateFirstRunRow(host, rowIndex++, row.id, row.label, badgeText, dataState, advisory);
       });
       while (host.children.length > rowIndex) host.lastElementChild.remove();
     }
@@ -3425,27 +3528,14 @@
         Array.prototype.forEach.call(el.querySelectorAll('[data-runtime-state]'), function (panel) { panel.hidden = panel.dataset.runtimeState !== next; });
       }
       renderComponents(); renderOffer(); renderChecking(); renderChecklist(); renderStartupFailure();
-      // Per the UI-SPEC nav contract, checklist is the one state in this
-      // overlay with no Exit affordance -- Continue and Skip already cover
-      // the low-commitment path; every other state (including checking)
-      // restores it. The focus helper already filters out zero-size
-      // elements, so hiding Exit here removes it from the trap cleanly and
-      // Continue/Skip remain the two focusable controls in checklist.
-      if (stateChanged) {
-        var exitButton = $('btn-runtime-exit');
-        if (exitButton) exitButton.hidden = next === 'checklist';
-      }
+      // Runtime Setup is a blocking gate. It has no renderer-side exit or
+      // bypass path; the only checklist action is Done after green verdicts.
       // runtime-checking-heading and runtime-checklist-heading carry
-      // tabindex="-1" for markup consistency with every other overlay
-      // heading, but per the UI-SPEC Focal Point rule neither is this
-      // state's initial focus target below -- checking focuses the Exit
-      // control (nothing else competes for attention) and checklist
-      // focuses Continue (the single focal action). runtime-checklist-body
-      // is likewise never rewritten by JS: the Ready-only and Mixed
-      // fixtures must render byte-identical heading/body copy, differing
-      // only in one row's badge.
+      // tabindex="-1" keeps the state headings available as stable focus
+      // targets while the backend remains authoritative for every verdict.
       var targets = { gate: 'btn-runtime-repair', confirm: 'btn-runtime-confirm', repairing: 'btn-runtime-cancel', offline: 'btn-runtime-offline-retry', failed: 'btn-runtime-failed-retry', diagnostics: 'runtime-diagnostics-heading', ready: 'runtime-ready-heading',
-        checking: 'btn-runtime-exit', checklist: 'btn-runtime-continue', startup_failed: 'btn-startup-retry' };
+        checking: 'runtime-checking-heading', checklist: 'runtime-checklist-heading', startup_failed: 'btn-startup-retry' };
+      if (next === 'checklist' && view.checklistReady) targets.checklist = 'btn-runtime-done';
       if (stateChanged) {
         var target = $(targets[next]); if (target) target.focus();
       }
@@ -3555,27 +3645,31 @@
       if (view.state === 'ready') ready();
     }
     var acknowledgeInFlight = false;
-    // Continue and Skip are byte-identical in effect (UI-SPEC "Continue vs
-    // Skip effect", owner-resolved) -- both call this one handler.
     function acknowledge() {
       var snap = eventModel.snapshot();
-      if (snap.state !== 'checklist' || acknowledgeInFlight) return; // idempotent
+      if (snap.state !== 'checklist' || !snap.checklistReady || acknowledgeInFlight) return; // idempotent and green-only
       acknowledgeInFlight = true;
-      var continueBtn = $('btn-runtime-continue'), skipBtn = $('btn-runtime-skip');
-      if (continueBtn) continueBtn.disabled = true;
-      if (skipBtn) skipBtn.disabled = true;
+      var doneBtn = $('btn-runtime-done');
+      if (doneBtn) doneBtn.disabled = true;
       lpBridge.call('acknowledge_setup').then(function (json) {
-        var refreshed = null;
-        // A bridge hiccup (json resolves empty/null) must not trap the user
-        // behind a modal: the reducer's acknowledge() transition advances
-        // the flag locally even when the payload is empty.
-        if (json) { try { refreshed = JSON.parse(json); } catch (e) { refreshed = null; } }
+        var refreshed = parseBridgeResult(json);
+        // Done is an authoritative backend transition. An absent response or
+        // an explicit FEATURE_UNAVAILABLE/error envelope must leave the gate
+        // open instead of locally pretending setup was persisted.
+        if (!refreshed || refreshed.ok === false) {
+          if (doneBtn) { doneBtn.disabled = false; doneBtn.hidden = false; }
+          acknowledgeInFlight = false;
+          toast((refreshed && (refreshed.error || refreshed.message)) || 'LecturePack could not save setup completion. Try again.');
+          return;
+        }
         var view = eventModel.acknowledge(refreshed);
         syncDemoAdmission(view);
         closeOverlay();
-        if (continueBtn) continueBtn.disabled = false;
-        if (skipBtn) skipBtn.disabled = false;
         acknowledgeInFlight = false;
+      }, function () {
+        if (doneBtn) doneBtn.disabled = false;
+        acknowledgeInFlight = false;
+        toast('LecturePack could not save setup completion. Try again.');
       });
     }
     // Per-component checking progress (D-08/D-09). The reducer records the
@@ -3766,9 +3860,7 @@
       $('btn-runtime-offline-retry').addEventListener('click', beginNewRepair);
       $('btn-runtime-failed-retry').addEventListener('click', beginNewRepair);
       $('btn-runtime-cancel').addEventListener('click', cancel);
-      $('btn-runtime-exit').addEventListener('click', function () { lpBridge.call('exit_application'); window.close(); });
-      $('btn-runtime-continue').addEventListener('click', acknowledge);
-      $('btn-runtime-skip').addEventListener('click', acknowledge);
+      $('btn-runtime-done').addEventListener('click', acknowledge);
       Array.prototype.forEach.call(document.querySelectorAll('[data-runtime-diagnostics]'), function (button) { button.addEventListener('click', function () { diagnostics(button); }); });
       $('btn-runtime-diagnostics-back').addEventListener('click', back);
       function diagnosticFeedback(promise, ok, bad) { promise.then(function (json) { var r; try { r = JSON.parse(json); } catch (e) {} announce('runtime-live-polite', r && /copied|saved/.test(r.type || '') ? ok : bad); }, function () { announce('runtime-live-polite', bad); }); }
@@ -4712,6 +4804,8 @@
   var TOUR_STORAGE_KEY = 'lecturepack.guided-tour.seen.v1';
   var browserStorage = function () { return window.localStorage; };
   var DEMO_DRAG_MIME = 'application/x-lecturepack-demo';
+  var INTERNAL_JOB_DRAG_MIME = 'application/x-lecturepack-job-ids';
+  var internalJobDragIds = [];
   var TOUR_PHASES = {
     import: { screen: 'home', target: '#dropzone', title: 'Add the demo video', copy: 'Drag the Polar Bears demo into this lecture area, or click the tile to use it.', next: 'Add demo to continue' },
     processing: { screen: 'process', target: '#pipeline-stages', title: 'Watch real processing', copy: 'This is the live local pipeline. It advances only as each step actually completes.', next: 'Processing safely…' },
@@ -4815,6 +4909,33 @@
   var demoAdmissionAvailable = false;
   var demoHomeDismissed = tourSeen();
   var tourRuntimeHealthy = false;
+  var guidedTourEligibility = null;
+  var demoCleanupRequested = false;
+  var demoCleanupConfirmed = false;
+
+  function applyGuidedTourEligibility(payload) {
+    var source = payload && (payload.guided_tour || payload.guided_tour_state || payload.tour);
+    if (!source && payload && typeof payload.tour_eligible === 'boolean') source = payload;
+    if (!source || typeof source !== 'object') return false;
+    var eligible = source.eligible === true;
+    if (source.eligible === undefined) eligible = source.completed !== true && source.skipped !== true;
+    if (source.completed === true || source.skipped === true) eligible = false;
+    guidedTourEligibility = {
+      version: String(source.version || source.current_version || ''),
+      eligible: eligible,
+      completed: source.completed === true,
+      skipped: source.skipped === true
+    };
+    guidedTour.setEligibility(eligible);
+    demoHomeDismissed = !eligible;
+    renderDemoHomeAvailability();
+    return true;
+  }
+
+  function tourEligibilityAllowsOffer() {
+    if (guidedTourEligibility) return guidedTourEligibility.eligible === true;
+    return !lpBridge.connected() && !guidedTour.snapshot().completed;
+  }
 
   function setDemoAdmissionAvailable(available) {
     var next = available === true, wasAvailable = demoAdmissionAvailable;
@@ -4831,7 +4952,7 @@
       guidedTour.exit(); guidedDemoFlow.exit(); renderGuidedTour();
       setDemoTourInteraction(false);
       renderSlideDetectionPreset();
-      if (guidedDemo.snapshot().active) endGuidedDemo('runtime_unavailable');
+      endGuidedDemo('runtime_unavailable', true);
       renderDemoCard();
       return;
     }
@@ -4840,12 +4961,15 @@
   }
   function renderDemoHomeAvailability() {
     var demoHome = $('home-demo');
-    var firstRun = !!(LP.data && LP.data.jobs && LP.data.jobs.length === 0);
-    // The empty workspace is the first-run entry point, even when a prior
-    // tour dismissal is still present in the browser profile.  A zero-job
-    // launch must always expose the demo alongside the import guidance.
-    if (demoHome) demoHome.hidden = !firstRun &&
-      ((!demoAdmissionAvailable) || (demoHomeDismissed && !guidedTour.snapshot().active));
+    var state = guidedTour.snapshot();
+    var locallyDismissed = demoHomeDismissed && !guidedTour.snapshot().active;
+    var offerable = tourEligibilityAllowsOffer();
+    var showDemo = offerable || state.active || state.prompt;
+    // Local dismissal only suppresses a stale browser-preview prompt. An
+    // authoritative current-version eligibility response clears this local
+    // bit before the demo is offered to an existing user.
+    if (locallyDismissed && !offerable) showDemo = state.active || state.prompt;
+    if (demoHome) demoHome.hidden = !(demoAdmissionAvailable && showDemo);
   }
 
   function stageLabel(name) {
@@ -4896,7 +5020,7 @@
     var card = $('glowing-demo-card'), status = $('demo-card-status'), action = $('demo-card-action');
     if (!card || !status || !action) return;
     var d = guidedDemo.snapshot();
-    var firstRunUnavailable = !demoAdmissionAvailable && LP.state.jobsEmpty;
+    var firstRunUnavailable = !demoAdmissionAvailable;
     card.disabled = firstRunUnavailable || d.status === 'starting' || d.status === 'cancelling';
     card.setAttribute('aria-disabled', card.disabled ? 'true' : 'false');
     card.title = firstRunUnavailable ? 'Complete runtime setup before starting the guided demo.' : '';
@@ -4913,9 +5037,7 @@
       status.textContent = stageLabel(d.stage) + ' · ' + Math.round(d.progress) + '%';
       action.textContent = d.status === 'starting' ? 'Starting…' : d.status === 'cancelling' ? 'Stopping…' : 'End demo'; return;
     }
-    // §6: the demo's outputs stay fully explorable after it ends, so the card
-    // must not claim its files were removed while they are still open.
-    if (d.status === 'ended') { status.textContent = 'Demo complete — its slides, transcript, and study pack stay available to explore.'; action.textContent = 'Run demo again'; return; }
+    if (d.status === 'ended') { status.textContent = 'Demo cleaned up.'; action.textContent = 'Use demo video'; return; }
     status.textContent = 'Move this demo video into the lecture drop area, or click to use it.';
     action.textContent = 'Use demo video';
     refreshControlStates();
@@ -5025,6 +5147,20 @@
     var phase = currentTourPhase();
     return phase && document.querySelector(phase.target);
   }
+  function setTourDimRect(id, left, top, width, height) {
+    var el = $(id);
+    if (!el) return;
+    el.style.left = Math.max(0, Math.round(left)) + 'px';
+    el.style.top = Math.max(0, Math.round(top)) + 'px';
+    el.style.width = Math.max(0, Math.round(width)) + 'px';
+    el.style.height = Math.max(0, Math.round(height)) + 'px';
+  }
+  function clearTourDim() {
+    setTourDimRect('tour-dim-top', 0, 0, 0, 0);
+    setTourDimRect('tour-dim-right', 0, 0, 0, 0);
+    setTourDimRect('tour-dim-bottom', 0, 0, 0, 0);
+    setTourDimRect('tour-dim-left', 0, 0, 0, 0);
+  }
   function scheduleTourGeometry() {
     if (tourGeometryFrame !== null) return;
     tourGeometryFrame = requestAnimationFrame(function () {
@@ -5040,37 +5176,35 @@
     // inside a hidden screen, or absent after navigation collapses the
     // spotlight instead of drawing the fallback box at the viewport corner.
     if (!target || !target.isConnected || target.closest('[hidden]') || demoFlowPhase() === 'finished') {
-      box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; return;
+      box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; clearTourDim(); return;
     }
     var before = target.getBoundingClientRect();
     if (before.width === 0 && before.height === 0) {
       // Mounted but currently unmeasurable (its screen is still painting):
       // hide rather than point at (0,0), and re-check shortly.
-      box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true;
+      box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; clearTourDim();
       setTimeout(function () { scheduleTourGeometry(); }, 200);
       return;
     }
     if (before.top < 0 || before.left < 0 || before.bottom > window.innerHeight || before.right > window.innerWidth) {
       target.scrollIntoView({block: 'nearest', inline: 'nearest'});
     }
-    var r = target.getBoundingClientRect(), pad = 7;
-    // PC polish: keep the guided-demo glow visible after navigating to a new
-    // screen. Some targets (e.g. #pipeline-stages before the first pipeline
-    // event) legitimately have zero height; collapsing the box to 0x0 made the
-    // overlay disappear for the rest of the demo. Use a fallback minimum box
-    // so the active step stays emphasised, and re-measure on the next frame.
-    var minW = 120, minH = 40;
-    var effW = Math.max(minW, r.width), effH = Math.max(minH, r.height);
-    var left = Math.max(6, Math.min(Math.round(r.left - pad), window.innerWidth - Math.round(effW + pad * 2) - 6));
-    var top = Math.max(6, Math.min(Math.round(r.top - pad), window.innerHeight - Math.round(effH + pad * 2) - 6));
-    var width = Math.max(0, Math.min(Math.round(effW + pad * 2), window.innerWidth - left - 6));
-    var height = Math.max(0, Math.min(Math.round(effH + pad * 2), window.innerHeight - top - 6));
+    var r = target.getBoundingClientRect(), pad = 7, viewportWidth = window.innerWidth, viewportHeight = window.innerHeight;
+    var left = Math.max(0, Math.min(Math.round(r.left - pad), viewportWidth));
+    var top = Math.max(0, Math.min(Math.round(r.top - pad), viewportHeight));
+    var width = Math.max(0, Math.min(Math.round(r.width + pad * 2), viewportWidth - left));
+    var height = Math.max(0, Math.min(Math.round(r.height + pad * 2), viewportHeight - top));
+    var bottomHeight = window.innerHeight - top - height;
     box.style.left = left + 'px';
     box.style.top = top + 'px';
     box.style.width = width + 'px';
     box.style.height = height + 'px';
+    setTourDimRect('tour-dim-top', 0, 0, viewportWidth, top);
+    setTourDimRect('tour-dim-right', left + width, 0, window.innerWidth - left - width, viewportHeight);
+    setTourDimRect('tour-dim-bottom', 0, top + height, viewportWidth, bottomHeight);
+    setTourDimRect('tour-dim-left', 0, top, left, height);
     arrow.hidden = false;
-    arrow.style.left = Math.round(r.left + Math.min(Math.max(r.width, minW) - 18, 24)) + 'px';
+    arrow.style.left = Math.round(Math.max(8, r.left + Math.min(Math.max(r.width, 0) - 18, 24))) + 'px';
     arrow.style.top = Math.max(8, Math.round(r.top - 19)) + 'px';
     var self = this;
     if (r.width === 0 || r.height === 0) {
@@ -5083,7 +5217,7 @@
     if (!overlay) return;
     installTourTraceObserver();
     setTourOverlayHidden(!demoAdmissionAvailable || (!state.active && !state.prompt));
-    if (overlay.hidden) { setDemoTourInteraction(false); return; }
+    if (overlay.hidden) { setDemoTourInteraction(false); clearTourDim(); return; }
     var isPrompt = state.prompt, flow = guidedDemoFlow.snapshot();
     // §6: the tour ends on a celebration, not an anticlimax. The exports
     // step's Finish advances to a completion card with two real destinations.
@@ -5092,7 +5226,7 @@
     $('tour-step-label').textContent = isPrompt ? 'WELCOME' : finished ? 'DEMO · COMPLETE' : 'DEMO · ' + flow.phase.toUpperCase();
     $('tour-title').textContent = isPrompt ? 'A quick look around' : finished ? 'Your first study pack is ready' : phase.title;
     $('tour-copy').textContent = isPrompt ? 'Want a short, user-controlled tour of the main parts of LecturePack?' :
-      finished ? 'The demo lecture produced real slides, a transcript, and a study pack — all of it stays available to explore.' : phase.copy;
+      finished ? 'The demo walkthrough is complete. LecturePack will clean up its temporary demo content before you continue.' : phase.copy;
     $('tour-prompt-actions').hidden = !isPrompt;
     $('tour-step-actions').hidden = !state.active || finished;
     $('tour-finish-actions').hidden = !finished;
@@ -5104,18 +5238,20 @@
     $('tour-progress').innerHTML = isPrompt ? '' : Object.keys(TOUR_PHASES).map(function (name) { return '<span class="' + ((finished || name === flow.phase) ? 'active' : '') + '"></span>'; }).join('');
     $('tour-spotlight-box').style.display = state.active && !finished ? 'block' : 'none';
     $('tour-arrow').style.display = state.active && !finished ? 'block' : 'none';
+    if (!state.active || finished) clearTourDim();
     setDemoTourInteraction(state.active && flow.phase === 'import');
     // Geometry stays scheduled whenever the tour is active (PC polish contract);
     // positionTourSpotlight itself collapses the glow during the finished phase.
     if (state.active) scheduleTourGeometry();
   }
   function offerGuidedTour() {
-    if (!demoAdmissionAvailable || !tourRuntimeHealthy) return;
+    if (!demoAdmissionAvailable || !tourRuntimeHealthy || !tourEligibilityAllowsOffer()) return;
     closeAllModals();           // the tour never shares the screen with a modal (F-2)
     guidedTour.offer(); renderGuidedTour();
   }
   function startGuidedTour(replay) {
     if (!demoAdmissionAvailable) return;
+    if (!replay && !tourEligibilityAllowsOffer()) return;
     closeAllModals();           // the tour never shares the screen with a modal (F-2)
     if (replay) guidedTour.replay(); else guidedTour.start();
     guidedDemoFlow.start();
@@ -5195,6 +5331,8 @@
     // Do not reset the current run: active attempts returned above.
     if (demoFlowPhase() !== 'import') guidedDemoFlow.beginAttempt();
     guidedDemoFlow.imported(); guidedDemoFlow.running();
+    demoCleanupRequested = false;
+    demoCleanupConfirmed = false;
     // PC polish: once the demo job is queued/running, the initial new-job
     // setup card must not remain visible over the active processing screen.
     setOnb(null);
@@ -5220,22 +5358,30 @@
       toast(state.error || message);
     });
   }
-  function endGuidedDemo(reason) {
+  function endGuidedDemo(reason, force) {
     var current = guidedDemo.snapshot();
-    if (!current.active) return;
+    force = force === true || reason === 'tour_exit' || reason === 'tour_complete';
+    if (!force && !current.active) return;
+    if (demoCleanupConfirmed || demoCleanupRequested) return;
     var endingAttempt = current.attempt, endingOperationId = current.operationId, endingSessionId = current.sessionId;
-    guidedDemo.cancelling(); renderDemoCard();
+    demoCleanupRequested = true;
+    if (current.active) { guidedDemo.cancelling(); renderDemoCard(); }
     if (!lpBridge.connected()) {
-      guidedDemo.settleEndResult({ ok: false, error: 'Guided demo needs the LecturePack desktop app to stop safely.' }, endingAttempt, endingOperationId, endingSessionId);
+      if (current.active) guidedDemo.settleEndResult({ ok: false, error: 'Guided demo needs the LecturePack desktop app to stop safely.' }, endingAttempt, endingOperationId, endingSessionId);
+      demoCleanupRequested = false;
       renderDemoCard(); return;
     }
     lpBridge.endDemoJob(reason || 'ended').then(function (value) {
-      if (!guidedDemo.isCurrentAttempt(endingAttempt, endingOperationId, endingSessionId)) return;
-      guidedDemo.settleEndResult(parseBridgeResult(value), endingAttempt, endingOperationId, endingSessionId);
+      var result = parseBridgeResult(value);
+      if (result && result.ok === true) demoCleanupConfirmed = true;
+      else demoCleanupRequested = false;
+      if (current.active && !guidedDemo.isCurrentAttempt(endingAttempt, endingOperationId, endingSessionId)) return;
+      if (current.active) guidedDemo.settleEndResult(result, endingAttempt, endingOperationId, endingSessionId);
       renderDemoCard();
     }, function () {
-      if (!guidedDemo.isCurrentAttempt(endingAttempt, endingOperationId, endingSessionId)) return;
-      guidedDemo.settleEndResult({ ok: false, error: 'Could not confirm that the demo stopped. Try again.' }, endingAttempt, endingOperationId, endingSessionId);
+      demoCleanupRequested = false;
+      if (current.active && !guidedDemo.isCurrentAttempt(endingAttempt, endingOperationId, endingSessionId)) return;
+      if (current.active) guidedDemo.settleEndResult({ ok: false, error: 'Could not confirm that the demo stopped. Try again.' }, endingAttempt, endingOperationId, endingSessionId);
       renderDemoCard();
     });
   }
@@ -5249,6 +5395,7 @@
     if (!before.operationId && before.status === 'starting' && event.status === 'started') guidedDemo.started({ ok: true, operation_id: event.operation_id, session_id: event.session_id }, before.attempt);
     var handled = guidedDemo.event(event);
     if (!handled.accepted) return;
+    if (event.status === 'cleaned') { demoCleanupConfirmed = true; demoCleanupRequested = true; }
     var eventStage = String(event.stage || '').toLowerCase().replace(/[\s-]+/g, '_');
     if (eventStage === 'review_ready') {
       // A late or duplicate review-ready signal must not yank the student back
@@ -5276,7 +5423,10 @@
     $('btn-tour-exit').addEventListener('click', exitGuidedTour);
     $('btn-tour-open-pack').addEventListener('click', function () { finishGuidedTour('pack'); });
     $('btn-tour-import-own').addEventListener('click', function () { finishGuidedTour('import'); });
-    $('btn-replay-tour').addEventListener('click', function () { startGuidedTour(true); });
+    $('btn-replay-tour').addEventListener('click', function () {
+      startGuidedTour(true);
+      startGuidedDemo();
+    });
     var demoCard = $('glowing-demo-card');
     demoCard.addEventListener('click', function () {
       if (demoCard.disabled) return;
@@ -5500,16 +5650,25 @@
     if (pv) pv.style.display = 'none';
   }
 
-  function onScrub(e) {
+  function bestTimelineSlide(e) {
     var strip = $('timeline-strip');
-    if (!strip || !LP.data.slides.length) return;
+    if (!strip || !LP.data.slides.length || !e) return null;
     var r = strip.getBoundingClientRect();
+    if (!r.width) return null;
     var pct = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100));
-    var best = LP.data.slides[0], bd = 1e9;
+    var best = LP.data.slides[0], bd = Infinity, bestIndex = 0;
     LP.data.slides.forEach(function (s, i) {
       var d = Math.abs(s.pct - pct);
-      if (d < bd) { bd = d; best = s; best._i = i; }
+      if (d < bd) { bd = d; best = s; bestIndex = i; }
     });
+    best._i = bestIndex;
+    return { slide: best, rect: r };
+  }
+
+  function onScrub(e) {
+    var nearest = bestTimelineSlide(e);
+    if (!nearest) return;
+    var strip = $('timeline-strip'), best = nearest.slide, r = nearest.rect;
 
     // Needle stays inside the strip.
     $('scrub-wrap').hidden = false;
@@ -5538,6 +5697,39 @@
     }
     pv.style.left = left + 'px';
     pv.style.top = top + 'px';
+  }
+
+  var timelinePointerDrag = { active: false, pointerId: null };
+  function beginTimelinePointerDrag(e) {
+    if (!LP.data.slides.length || e.button !== undefined && e.button !== 0) return;
+    timelinePointerDrag.active = true;
+    timelinePointerDrag.pointerId = e.pointerId;
+    e.preventDefault();
+    var strip = $('timeline-strip');
+    if (strip && strip.setPointerCapture && e.pointerId !== undefined) {
+      try { strip.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+    onScrub(e);
+  }
+  function moveTimelinePointerDrag(e) {
+    if (!timelinePointerDrag.active || (e.pointerId !== undefined && e.pointerId !== timelinePointerDrag.pointerId)) return;
+    e.preventDefault();
+    onScrub(e);
+  }
+  function endTimelinePointerDrag(e) {
+    if (!timelinePointerDrag.active || (e.pointerId !== undefined && e.pointerId !== timelinePointerDrag.pointerId)) return;
+    var nearest = bestTimelineSlide(e);
+    timelinePointerDrag.active = false;
+    timelinePointerDrag.pointerId = null;
+    var strip = $('timeline-strip');
+    if (strip && strip.releasePointerCapture && e.pointerId !== undefined) {
+      try { strip.releasePointerCapture(e.pointerId); } catch (err) {}
+    }
+    if (!nearest) { hideScrub(); return; }
+    // The preview above is renderer-only. Commit one viewed-slide change on
+    // release so a drag never reloads the backend once per pixel.
+    LP.state.viewingSlide = nearest.slide._i;
+    renderSlides();
   }
 
   /* ======================= export ======================= */
@@ -5839,6 +6031,7 @@
       }
     });
     var updateCheckToken = 0;
+    $('btn-reset-lecturepack').addEventListener('click', confirmResetLecturePack);
     $('btn-check-updates').addEventListener('click', function () {
       var token = ++updateCheckToken, button = $('btn-check-updates'), status = $('update-status');
       if (status) status.textContent = 'Checking…';
@@ -5952,6 +6145,7 @@
       var panel = $('downloads-panel');
       panel.hidden = !panel.hidden;
       this.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+      if (!panel.hidden) { renderDownloads(); positionDownloadsPanel(); }
     });
     $('downloads-close').addEventListener('click', function () {
       $('downloads-panel').hidden = true;
@@ -5966,6 +6160,13 @@
       else if (button.dataset.downloadAct === 'remove') lpBridge.call('remove_media_download', payload);
       else if (button.dataset.downloadAct === 'retry') lpBridge.call('retry_media_download', payload);
     });
+    document.addEventListener('pointerdown', function (e) {
+      var panel = $('downloads-panel'), indicator = $('downloads-indicator');
+      if (!panel || panel.hidden || panel.contains(e.target) || indicator.contains(e.target)) return;
+      panel.hidden = true;
+      indicator.setAttribute('aria-expanded', 'false');
+    });
+    window.addEventListener('resize', positionDownloadsPanel);
 
     // ---- Home multi-select ----
     $('btn-select-mode').addEventListener('click', function (e) {
@@ -5994,6 +6195,7 @@
     });
     dz.addEventListener('dragover', function (e) {
       e.preventDefault();
+      if (readInternalJobDrag(e).length || internalJobDragIds.length) { e.stopPropagation(); return; }
       if (hasDemoDrag(e)) { dz.classList.add('lp-demo-drop-hover'); return; }
       if (LP.state.onb !== 'detected') setOnb('drop');
     });
@@ -6002,6 +6204,7 @@
     });
     dz.addEventListener('drop', function (e) {
       e.preventDefault();
+      if (readInternalJobDrag(e).length || internalJobDragIds.length) { e.stopPropagation(); return; }
       if (hasDemoDrag(e)) { clearDemoDropState(); useDroppedDemo(); return; }
       importDroppedFiles(e.dataTransfer && e.dataTransfer.files);
     });
@@ -6009,6 +6212,7 @@
     // because its handler already imported the first file and the event bubbles.
     window.addEventListener('dragover', function (e) {
       e.preventDefault();
+      if (readInternalJobDrag(e).length || internalJobDragIds.length) return;
       if (hasDemoDrag(e)) return;
       var types = e.dataTransfer && e.dataTransfer.types;
       var hasFiles = false;
@@ -6021,9 +6225,36 @@
     });
     window.addEventListener('drop', function (e) {
       e.preventDefault();
+      if (readInternalJobDrag(e).length || internalJobDragIds.length) return;
       setOnb(null);
       if (e.target && e.target.closest && e.target.closest('#dropzone')) return;
       importDroppedFiles(e.dataTransfer && e.dataTransfer.files);
+    });
+
+    var processQueueTargets = [$('process-queue-target'), document.querySelector('[data-nav="process"]')].filter(Boolean);
+    processQueueTargets.forEach(function (processQueueTarget) {
+      processQueueTarget.addEventListener('dragover', function (e) {
+        if (!readInternalJobDrag(e).length && !internalJobDragIds.length) return;
+        e.preventDefault(); e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        processQueueTarget.classList.add('lp-existing-drop-hover');
+      });
+      processQueueTarget.addEventListener('dragleave', function (e) {
+        if (!processQueueTarget.contains(e.relatedTarget)) processQueueTarget.classList.remove('lp-existing-drop-hover');
+      });
+      processQueueTarget.addEventListener('drop', function (e) {
+        var ids = readInternalJobDrag(e);
+        if (!ids.length && internalJobDragIds.length) ids = internalJobDragIds.slice();
+        if (!ids.length) return;
+        e.preventDefault(); e.stopPropagation();
+        processQueueTarget.classList.remove('lp-existing-drop-hover');
+        internalJobDragIds = [];
+        if (processQueueTarget.dataset.nav === 'process') setScreen('process');
+        queueExistingJobIds(ids).then(function (result) {
+          var count = result && Number.isFinite(result.count) ? result.count : ids.length;
+          toast(count + ' lecture' + (count === 1 ? '' : 's') + ' queued');
+        }, function () { toast('The selected lectures could not be queued.'); });
+      });
     });
 
     $('btn-show-empty').addEventListener('click', function () { setJobsEmpty(true); });
@@ -6128,6 +6359,29 @@
       // running, failed, cancelled) opens Process with its final/live state.
       selectJob(jobId, { screen: cardJob && cardJob.status === 'done' ? 'review' : 'process' });
     });
+    $('jobs-grid').addEventListener('dragstart', function (e) {
+      var card = e.target.closest('.lp-card[data-existing-job-drag="true"]');
+      if (!card || !e.dataTransfer) return;
+      var ids = internalDragIdsFor(card.dataset.job);
+      if (!ids.length) { e.preventDefault(); return; }
+      internalJobDragIds = ids.slice();
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData(INTERNAL_JOB_DRAG_MIME, JSON.stringify(ids));
+      e.dataTransfer.setData('text/plain', ids.length + ' LecturePack lecture' + (ids.length === 1 ? '' : 's'));
+      var ghost = createInternalDragGhost(ids.length);
+      try { e.dataTransfer.setDragImage(ghost, 18, 18); } catch (err) {}
+      setTimeout(function () { if (ghost.parentNode) ghost.remove(); }, 0);
+      card.classList.add('lp-dragging');
+    });
+    $('jobs-grid').addEventListener('dragend', function (e) {
+      var card = e.target.closest('.lp-card[data-existing-job-drag="true"]');
+      if (card) card.classList.remove('lp-dragging');
+      internalJobDragIds = [];
+      Array.prototype.forEach.call(document.querySelectorAll('[data-existing-job-drop-target], [data-nav="process"]'), function (target) {
+        target.classList.remove('lp-existing-drop-hover');
+      });
+    });
+
     $('jobs-grid').addEventListener('dblclick', function (e) {
       var title = e.target.closest('.lp-card[data-job] [data-job-title]');
       if (!title) return;
@@ -6303,6 +6557,13 @@
     var scrubPv = $('scrub-preview');
     if (scrubPv && scrubPv.parentNode !== document.body) document.body.appendChild(scrubPv);
     strip.addEventListener('mousemove', onScrub);
+    strip.addEventListener('pointerdown', beginTimelinePointerDrag);
+    strip.addEventListener('pointermove', function (e) {
+      if (timelinePointerDrag.active) moveTimelinePointerDrag(e);
+      else onScrub(e);
+    });
+    strip.addEventListener('pointerup', endTimelinePointerDrag);
+    strip.addEventListener('pointercancel', endTimelinePointerDrag);
     strip.addEventListener('mouseleave', hideScrub);
     // Position is stale once the layout shifts — hide on scroll/resize.
     window.addEventListener('resize', hideScrub);
@@ -6721,6 +6982,7 @@
     lpBridge.on('bootstrap_complete', function (json) {
       var b = parseBridgePayload(json, null);
       if (!b) return;
+      applyGuidedTourEligibility(b);
       // One routing implementation, not two: completion routes through the
       // same admit() the initial bootstrap uses.
       RuntimeSetupGate.admit(b);
@@ -6889,6 +7151,11 @@
       var jobs = parseBridgePayload(json, null);
       if (!Array.isArray(jobs)) return;
       LP.data.jobs = jobs;
+      var viewedJobRemoved = !!(LP.state.jobId && !_jobById(LP.state.jobId));
+      if (viewedJobRemoved) {
+        setActiveJob('', '');
+        if (!guidedTour.snapshot().active) setScreen('home');
+      }
       // Forget selections whose job is gone, else the count lies.
       if (LP.state.selecting) {
         var alive = {};
@@ -7508,6 +7775,7 @@
             var b = JSON.parse(json);
             if (b.theme) applyTheme(b.theme, false);
             if (b.version) applyAppVersion(b.version);
+            applyGuidedTourEligibility(b);
             RuntimeSetupGate.admit(b);
             // Gate on bootstrap_pending, never on a runtime_health_state
             // string comparison (that string legitimately reads "PENDING"
@@ -7764,6 +8032,13 @@
   }
   var pendingTranscriptJump = null;
 
+  function transcriptTimestampSeconds(value) {
+    var parts = String(value || '').split(':').map(Number);
+    if (parts.some(function (part) { return !isFinite(part); })) return 0;
+    return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] :
+      parts.length === 2 ? parts[0] * 60 + parts[1] : Number(parts[0] || 0);
+  }
+
   function transcriptScrollHost() {
     return document.querySelector('main [data-screen="transcript"]');
   }
@@ -7772,11 +8047,15 @@
     if (!pendingTranscriptJump || pendingTranscriptJump.jobId !== LP.state.jobId) return;
     var wanted = pendingTranscriptJump.timestamp;
     var rows = document.querySelectorAll('#transcript-blocks [data-transcript-time]');
-    var target = null;
+    var target = null, wantedSeconds = transcriptTimestampSeconds(wanted), nearest = null, nearestDistance = Infinity;
     Array.prototype.some.call(rows, function (row) {
-      if (row.dataset.transcriptTime === wanted) { target = row; return true; }
+      var value = row.dataset.transcriptTime || row.dataset.start || '';
+      var distance = Math.abs(transcriptTimestampSeconds(value) - wantedSeconds);
+      if (distance < nearestDistance) { nearestDistance = distance; nearest = row; }
+      if (value === wanted) { target = row; return true; }
       return false;
     });
+    if (!target) target = nearest;
     if (!target) return; // keep the request until transcript_changed supplies the block
     pendingTranscriptJump = null;
     setTimeout(function () {
