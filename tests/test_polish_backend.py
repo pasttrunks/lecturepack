@@ -235,6 +235,37 @@ def test_sidecar_health_response_exposes_canonical_first_run_checklist():
     assert responses[-1]["checklist"] == checklist
 
 
+def test_sidecar_self_test_preserves_packaged_health_checklist():
+    module = _sidecar_module()
+    checklist = [{"id": "windows_version", "verdict": "ready", "detail": "ok"}]
+    sidecar = module.Sidecar.__new__(module.Sidecar)
+    sidecar.packaged_health = SimpleNamespace()
+    sidecar._packaged_self_test = module.Sidecar._packaged_self_test.__get__(sidecar)
+    sidecar._engine_error = ""
+    sidecar.args = SimpleNamespace(self_test=False, self_test_fault="")
+    sidecar.runtime_root = Path("C:/runtime")
+    sidecar.repo_root = None
+    sidecar.data_dir = Path("C:/data")
+    sidecar.controller = object()
+    sidecar.study_v2 = SimpleNamespace(study_core_info=lambda: {})
+    sidecar.media_fetch = SimpleNamespace(
+        is_available=lambda: False,
+        version=lambda: "",
+        youtube_support=lambda: {},
+    )
+
+    sidecar.packaged_health.run_packaged_health = lambda **_kwargs: {
+        "passed": True,
+        "startup_ok": True,
+        "checks": [{"id": "controller", "ok": True, "required": True, "fatal_at_startup": True}],
+        "checklist": checklist,
+    }
+
+    health = sidecar._packaged_self_test(include_sidecar=False)
+
+    assert health["checklist"] == checklist
+
+
 def test_bridge_health_adapter_normalizes_raw_packaged_checks_to_five_rows(tmp_path):
     node = shutil.which("node")
     if node is None:

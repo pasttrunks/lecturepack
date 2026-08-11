@@ -2,6 +2,7 @@ from pathlib import Path
 import hashlib
 import importlib.util
 import os
+import sys
 
 from PyInstaller.building.build_main import Analysis, COLLECT, EXE, PYZ
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
@@ -9,6 +10,11 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 SPIKE_ROOT = Path(SPECPATH).resolve()
 REPO_ROOT = SPIKE_ROOT.parent
+# PyInstaller is invoked with the locked canonical virtualenv, which also has
+# an installed `lecturepack` package. Put this checkout first so the frozen
+# sidecar contains the exact source revision being packaged rather than a
+# stale site-packages copy from another worktree/release.
+sys.path.insert(0, str(REPO_ROOT))
 RUNTIME_ROOT = Path(os.environ.get("LECTUREPACK_RUNTIME_ROOT", str(REPO_ROOT))).expanduser().resolve()
 OUT_NAME = "LecturePackSidecar"
 OFFICIAL_BUILD = os.environ.get("LECTUREPACK_OFFICIAL_BUILD") == "1"

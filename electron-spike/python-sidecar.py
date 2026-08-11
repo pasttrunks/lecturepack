@@ -850,6 +850,7 @@ class Sidecar:
                 smoke_wav=smoke_wav,
             )
         checks = list(health["checks"])
+        checklist = list(health.get("checklist", []))
         if include_sidecar:
             sidecar_ok = True
             checks.insert(0, {
@@ -865,6 +866,7 @@ class Sidecar:
             "passed": all(check.get("ok") for check in checks if check.get("required")),
             "startup_ok": all(check.get("ok") for check in checks if check.get("fatal_at_startup")),
             "checks": checks,
+            "checklist": checklist,
         }
 
     def _job_objects(self) -> list[Any]:

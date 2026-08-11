@@ -714,6 +714,12 @@ def test_sidecar_spec_is_cpu_only_and_headless():
     assert "qtwebengine" not in (SPIKE / "python-sidecar.py").read_text(encoding="utf-8").lower()
 
 
+def test_sidecar_spec_prioritizes_this_checkout_over_installed_engine_package():
+    spec = (SPIKE / "sidecar.spec").read_text(encoding="utf-8")
+    assert "sys.path.insert(0, str(REPO_ROOT))" in spec
+    assert "pathex=[str(REPO_ROOT)]" in spec
+
+
 @pytest.mark.skipif(
     not (ROOT / ".venv" / "Scripts" / "python.exe").is_file(),
     reason="locked project Python is not available",
