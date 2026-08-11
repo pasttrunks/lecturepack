@@ -1722,3 +1722,35 @@ safe replay boundary without changing real jobs.
 **Rationale:** Explicit reasons preserve the small current command surface and
 make the sidecar authoritative even when the renderer's legacy marker is the
 only UI-side signal.
+
+## AD-44: Add a packaged state-contract gate beside processing acceptance
+
+**Date:** 2026-08-11
+
+**Status:** Implemented for the v2.0.1 polish/integration candidate
+
+**Context:** The existing packaged processing gate intentionally runs a
+bundled demo through completion and then inspects its artifacts. The 2.0.1
+demo contract removes that temporary job at its terminal boundary, so that
+gate cannot independently prove existing-user eligibility, replay identity,
+crash reconciliation, queue idempotency, or reset containment.
+
+**Decision:** Keep the existing processing gate unchanged as a separate
+runtime/export signal and add `scripts/polish_packaged_state_acceptance.py`.
+It drives the frozen sidecar over the production JSONL protocol with separate
+disposable fixtures, uses the real packaged Polar Bears media, records the
+external-source and packaged-model hashes, and fails on any state/identity
+regression or orphaned sidecar.
+
+**Alternatives considered:**
+
+- Treating the generic processing gate's demo artifact lookup as proof of demo
+  lifecycle: rejected because correct cleanup makes that lookup intentionally
+  empty.
+- Reusing the user's data directory for a richer fixture: rejected by the
+  repository safety rules and because it would make reset evidence unsafe.
+- Adding a second runtime/queue implementation to make the gate easier:
+  rejected; the gate speaks to the existing packaged sidecar contract.
+
+**Rationale:** Separate gates make each acceptance claim observable without
+weakening cleanup or contaminating real user state.
