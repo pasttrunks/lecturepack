@@ -766,15 +766,23 @@
     {
       "direction": "command",
       "event_fields": [],
-      "mapped_to": "health_check+list_jobs",
+      "mapped_to": "Electron host bootstrap snapshot",
       "name": "get_bootstrap",
-      "notes": "app.js requests initial state via get_bootstrap; Electron intercepts as a noop and drives bootstrap via ready + host bootstrap.",
+      "notes": "Returns the latest host bootstrap snapshot, including the same durable guided_tour object sent by bootstrap_complete.",
       "phase8": "bootstrap/runtime readiness",
       "production_core": true,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
-      "status": "PARTIAL"
+      "response_fields": [
+        "bootstrap_pending",
+        "runtime_health_state",
+        "setup_acknowledged",
+        "setup_complete",
+        "healthy",
+        "guided_tour",
+        "checklist"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -3078,16 +3086,20 @@
       "event_fields": [],
       "mapped_to": "queue_jobs",
       "name": "queue_jobs",
-      "notes": "Queues a batch of jobs for processing.",
-      "phase8": "qol multi-import",
-      "production_core": false,
+      "notes": "Queues existing job IDs through the authoritative JobQueue, preserving order, preventing duplicates, and returning queued_ids plus explicit skipped reasons.",
+      "phase8": "internal drag/drop queue",
+      "production_core": true,
       "request_fields": [
         "job_ids"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
-        "count"
+        "count",
+        "queued_ids",
+        "queued",
+        "positions",
+        "skipped"
       ],
       "status": "IMPLEMENTED"
     },
@@ -3275,7 +3287,10 @@
         "event",
         "current_version",
         "seen_version",
+        "version",
         "status",
+        "completed",
+        "skipped",
         "eligible"
       ],
       "mapped_to": "onboarding_state",
@@ -3284,7 +3299,7 @@
       "phase8": "guided tour versioning",
       "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [],
       "status": "IMPLEMENTED"
     },

@@ -5,6 +5,8 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
+import subprocess
 from types import SimpleNamespace
 
 from lecturepack.infrastructure.config_manager import ConfigManager
@@ -136,6 +138,7 @@ def test_queue_existing_jobs_is_ordered_and_idempotent(tmp_path):
 
     sidecar = module.Sidecar.__new__(module.Sidecar)
     sidecar.queue = queue
+    sidecar.data_dir = tmp_path
     sidecar.electron_backend = SimpleNamespace(enqueue_job=lambda q, job_id: q.enqueue(job_id))
     sidecar._job_objects = lambda: [ready_a, ready_b, completed]
     sidecar._job_status = module.Sidecar._job_status.__get__(sidecar)
@@ -145,9 +148,9 @@ def test_queue_existing_jobs_is_ordered_and_idempotent(tmp_path):
     responses = []
     sidecar._respond = lambda *_args, **kwargs: responses.append(kwargs)
 
-    sidecar._queue_existing_jobs(
+    sidecar._queue_jobs(
         "req-1",
-        "queue_existing_jobs",
+        "queue_jobs",
         {"job_ids": [ready_b.job_id, ready_a.job_id, ready_b.job_id, completed.job_id, "missing"]},
     )
     sidecar._queue_existing_jobs(
@@ -201,3 +204,55 @@ def test_setup_acknowledgement_requires_current_passing_health():
     sidecar._acknowledge_setup("req-2", "acknowledge_setup")
     assert responses[-1]["setup_acknowledged"] is True
     assert config.persisted is True
+
+
+def test_bridge_keeps_demo_identity_and_bootstrap_state_on_real_boundary(tmp_path):
+    if shutil.which("node") is None:
+        return
+    harness = tmp_path / "bridge-polish-contract.js"
+    harness.write_text(
+        r"""
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+const calls = [];
+const context = {
+  console: { error() {} },
+  window: {
+    localStorage: { setItem() {} },
+    lecturePackElectron: {
+      request(command, payload) {
+        calls.push({ command, payload });
+        if (command === 'import_video') return Promise.resolve({ ok: true, job_id: 'demo-job', demo_session_id: 'demo-session' });
+        if (command === 'start_job') return Promise.resolve({ ok: true, job_id: 'demo-job', started: true });
+        if (command === 'end_demo_job') return Promise.resolve({ ok: true, status: 'cleaned', job_id: 'demo-job', session_id: 'demo-session' });
+        if (command === 'get_bootstrap') return Promise.resolve({ ok: true, guided_tour: { version: '2.0.1', eligible: true } });
+        return Promise.resolve({ ok: true });
+      },
+      onMessage() {}
+    }
+  }
+};
+vm.createContext(context);
+vm.runInContext(source, context, { filename: 'electron-bridge.js' });
+(async () => {
+  await context.window.lpBridge.startDemoJob();
+  await context.window.lpBridge.endDemoJob('tour_skip');
+  const bootstrap = await context.window.lpBridge.call('get_bootstrap');
+  if (calls[0].command !== 'import_video' || calls[0].payload.bundled_demo !== true) throw new Error('demo import mapping changed');
+  if (calls[1].command !== 'start_job' || calls[1].payload.job_id !== 'demo-job') throw new Error('demo start lost explicit job identity');
+  if (calls[2].command !== 'end_demo_job' || calls[2].payload.job_id !== 'demo-job' || calls[2].payload.reason !== 'tour_skip') throw new Error('demo end was not identity-safe');
+  if (calls[3].command !== 'get_bootstrap' || !bootstrap.guided_tour) throw new Error('bootstrap state did not cross host');
+})().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [shutil.which("node"), str(harness), str(ROOT / "electron-spike" / "electron-bridge.js")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

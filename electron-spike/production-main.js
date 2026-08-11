@@ -979,7 +979,21 @@ function resetUserDataFiles() {
       continue;
     }
     try {
-      if (fs.existsSync(target)) {
+      let exists = false;
+      try {
+        fs.lstatSync(target);
+        exists = true;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+      if (exists) {
+        const stat = fs.lstatSync(target);
+        if (stat.isSymbolicLink()) {
+          const resolved = fs.realpathSync.native(target);
+          if (!resolved.startsWith(`${root}${path.sep}`)) {
+            throw new Error('refusing to remove a userData link outside its root');
+          }
+        }
         fs.unlinkSync(target);
         removed.push(name);
       }
