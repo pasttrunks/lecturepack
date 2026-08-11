@@ -132,18 +132,34 @@ def test_pending_bootstrap_does_not_hijack_an_active_repair() -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_healthy_unacknowledged_reaches_checklist_and_acknowledged_does_not() -> None:
+def test_healthy_unacknowledged_waits_for_full_checklist_and_acknowledged_does_not() -> None:
     result = run_node(
         r'''
+        const readyChecklist = [
+          {id: 'windows_version', verdict: 'ready', detail: ''},
+          {id: 'ffmpeg_ffprobe', verdict: 'ready', detail: ''},
+          {id: 'whisper_runtime', verdict: 'ready', detail: ''},
+          {id: 'bundled_model', verdict: 'ready', detail: ''},
+          {id: 'data_directory', verdict: 'ready', detail: ''}
+        ];
         const gateA = RuntimeSetupGateModel();
-        const a = gateA.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false});
-        if (a.state !== 'checklist') process.exit(1);
-        if (a.healthy !== true) process.exit(2);
+        const incomplete = gateA.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false});
+        if (incomplete.state !== 'checking') process.exit(1);
+        if (incomplete.checklistReady !== false) process.exit(2);
+        for (const id of ['windows_version', 'ffmpeg_ffprobe', 'whisper_runtime', 'bundled_model', 'data_directory']) {
+          if (incomplete.checkProgress[id] !== 'pending') process.exit(3);
+        }
+
+        const a = gateA.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false, checklist: readyChecklist});
+        if (a.state !== 'checklist') process.exit(4);
+        if (a.checklistReady !== true) process.exit(5);
+        if (a.healthy !== true) process.exit(6);
 
         const gateB = RuntimeSetupGateModel();
-        const b = gateB.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: true});
-        if (b.state === 'checklist') process.exit(3);
-        if (b.healthy !== true) process.exit(4);
+        const b = gateB.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: true, checklist: readyChecklist});
+        if (b.state === 'checklist') process.exit(7);
+        if (b.checklistReady !== true) process.exit(8);
+        if (b.healthy !== true) process.exit(9);
         '''
     )
     assert result.returncode == 0, result.stderr
@@ -175,19 +191,30 @@ def test_progress_ignored_outside_checking_and_for_unknown_ids() -> None:
 def test_acknowledge_sets_flag_and_refreshes_checklist_leaving_state_at_checklist() -> None:
     result = run_node(
         r'''
+        const readyChecklist = [
+          {id: 'windows_version', verdict: 'ready', detail: ''},
+          {id: 'ffmpeg_ffprobe', verdict: 'ready', detail: ''},
+          {id: 'whisper_runtime', verdict: 'ready', detail: ''},
+          {id: 'bundled_model', verdict: 'ready', detail: ''},
+          {id: 'data_directory', verdict: 'ready', detail: ''}
+        ];
         const gate = RuntimeSetupGateModel();
-        gate.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false});
-        const refreshed = {checklist: [{id: 'windows_version', verdict: 'ready', detail: ''}]};
+        gate.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false, checklist: readyChecklist});
+        const refreshed = {checklist: readyChecklist};
         const view = gate.acknowledge(refreshed);
         if (view.acknowledged !== true) process.exit(1);
         if (view.state !== 'checklist') process.exit(2);
-        if (!Array.isArray(view.checklist) || view.checklist.length !== 1) process.exit(3);
+        if (!Array.isArray(view.checklist) || view.checklist.length !== 5) process.exit(3);
+        if (view.checklistReady !== true) process.exit(4);
 
-        // An empty-resolution acknowledge still advances the flag locally.
+        // An incomplete bootstrap remains in checking even if a direct reducer
+        // caller flips the local acknowledgement flag.
         const gate2 = RuntimeSetupGateModel();
         gate2.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false});
         const view2 = gate2.acknowledge(null);
-        if (view2.acknowledged !== true) process.exit(4);
+        if (view2.acknowledged !== true) process.exit(5);
+        if (view2.state !== 'checking') process.exit(6);
+        if (view2.checklistReady !== false) process.exit(7);
         '''
     )
     assert result.returncode == 0, result.stderr
@@ -212,25 +239,42 @@ def test_reset_preserves_acknowledged_flag_while_clearing_operation_state() -> N
 def test_to_checklist_is_a_no_op_unless_healthy_and_unacknowledged() -> None:
     result = run_node(
         r'''
+        const readyChecklist = [
+          {id: 'windows_version', verdict: 'ready', detail: ''},
+          {id: 'ffmpeg_ffprobe', verdict: 'ready', detail: ''},
+          {id: 'whisper_runtime', verdict: 'ready', detail: ''},
+          {id: 'bundled_model', verdict: 'ready', detail: ''},
+          {id: 'data_directory', verdict: 'ready', detail: ''}
+        ];
         const gate = RuntimeSetupGateModel();
         // Not healthy yet -- no-op.
         let view = gate.toChecklist();
         if (view.state === 'checklist') process.exit(1);
+        if (view.checklistReady !== false) process.exit(2);
 
-        gate.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: true});
+        gate.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: true, checklist: readyChecklist});
         // Healthy but already acknowledged -- no-op.
         view = gate.toChecklist();
-        if (view.state === 'checklist') process.exit(2);
+        if (view.state === 'checklist') process.exit(3);
 
         const gate2 = RuntimeSetupGateModel();
         gate2.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false});
-        // Reset the transient checklist auto-transition to prove toChecklist
-        // itself is what moves it (simulate an already-closed overlay by
-        // beginning and resetting an operation first).
+        // Healthy but incomplete data must remain in checking, even when the
+        // reducer is asked directly to transition.
         gate2.begin('op'); gate2.abandon();
         view = gate2.toChecklist();
-        if (view.state !== 'checklist') process.exit(3);
-        if (view.healthy !== true) process.exit(4);
+        if (view.state !== 'checking') process.exit(4);
+        if (view.checklistReady !== false) process.exit(5);
+
+        const gate3 = RuntimeSetupGateModel();
+        gate3.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false, checklist: readyChecklist});
+        // Reset the transient auto-transition to prove toChecklist itself is
+        // what moves a complete healthy snapshot to the checklist.
+        gate3.begin('op'); gate3.abandon();
+        view = gate3.toChecklist();
+        if (view.state !== 'checklist') process.exit(6);
+        if (view.checklistReady !== true) process.exit(7);
+        if (view.healthy !== true) process.exit(8);
         '''
     )
     assert result.returncode == 0, result.stderr
@@ -241,8 +285,9 @@ def test_pre_existing_reducer_payload_shapes_preserve_old_pending_and_healthy_se
     test_setup_gate_repair.py::test_executable_reducer_seam_covers_the_authoritative_gate_lifecycle
     and asserts the D-11 failure-gate behaviour is byte-identical, and that the
     HEALTHY payload's `bootstrapPending`/`healthy` fields are byte-identical.
-    (Its `state` is intentionally allowed to advance to 'checklist' per D-12 --
-    that is this plan's whole point, not a regression.)"""
+    (Its `state` remains in the checking path until the authoritative five-row
+    checklist is present; that readiness invariant is the D-12 transition
+    contract.)"""
     result = run_node(
         r'''
         const gate = RuntimeSetupGateModel();
@@ -295,19 +340,19 @@ def test_markup_contains_every_new_element_id_exactly_once() -> None:
     for element_id in (
         "runtime-checking-heading", "runtime-checking-rows", "runtime-checking-progress",
         "runtime-checking-counter", "runtime-checklist-heading", "runtime-checklist-body",
-        "runtime-checklist-rows", "runtime-checklist-empty", "btn-runtime-continue", "btn-runtime-skip",
+        "runtime-checklist-rows", "runtime-checklist-empty", "btn-runtime-done",
     ):
         assert block.count(f'id="{element_id}"') == 1, element_id
 
 
 def test_every_overlay_id_has_a_writer_in_app_js_except_the_static_label() -> None:
     """The BUG-04 lesson, enforced as an automated test: an id shipped with no
-    writer anywhere in app.js is a permanent hardcoded value. Exactly one
-    allowlisted id exists -- the overlay's static aria-labelledby target,
-    which has no dynamic value -- and the allowlist itself is asserted to
-    have exactly one member so it cannot quietly grow."""
-    allow = {"runtime-setup-title"}
-    assert len(allow) == 1
+    writer anywhere in app.js is a permanent hardcoded value. Two allowlisted
+    ids are static markup -- the overlay's aria-labelledby target and its
+    checklist body copy -- and the allowlist cardinality is asserted so it
+    cannot quietly grow."""
+    allow = {"runtime-setup-title", "runtime-checklist-body"}
+    assert len(allow) == 2
     block = overlay_block()
     app = read_ui("app.js")
     ids = set(re.findall(r'id="([a-z0-9-]+)"', block)) - allow
@@ -355,17 +400,19 @@ def test_app_css_uses_document_width_without_a_viewport_scrollbar_gutter() -> No
     assert "body{width:100vw;" not in css
 
 
-def test_targets_focus_map_routes_checking_to_exit_and_checklist_to_continue() -> None:
+def test_targets_focus_map_routes_checking_to_heading_and_ready_checklist_to_done() -> None:
     controller = gate_controller_source()
     targets_block = controller.split("var targets = {", 1)[1].split("};", 1)[0]
-    assert "checking: 'btn-runtime-exit'" in targets_block
-    assert "checklist: 'btn-runtime-continue'" in targets_block
+    assert "checking: 'runtime-checking-heading'" in targets_block
+    assert "checklist: 'runtime-checklist-heading'" in targets_block
+    assert "if (next === 'checklist' && view.checklistReady) targets.checklist = 'btn-runtime-done';" in controller
 
 
-def test_render_hides_exit_control_only_for_checklist_state() -> None:
+def test_render_guards_checklist_readiness_and_focuses_done_only_when_green() -> None:
     controller = gate_controller_source()
     render_body = controller.split("function render(dataChanged, forceCheckingOpen) {", 1)[1].split("\n    }", 1)[0]
-    assert "exitButton.hidden = next === 'checklist'" in render_body
+    assert "if (view.state === 'checklist' && !view.checklistReady) view = eventModel.waitForChecklist();" in render_body
+    assert "if (next === 'checklist' && view.checklistReady) targets.checklist = 'btn-runtime-done';" in render_body
 
 
 def test_anti_flicker_constant_reads_motion_normal_token_with_documented_fallback() -> None:
@@ -425,7 +472,7 @@ def test_render_checking_iterates_the_fixed_canonical_array_not_progress_keys() 
 
 def test_checklist_heading_and_body_are_never_rewritten_by_js() -> None:
     """The Ready-only and Mixed fixtures must render byte-identical
-    heading/body/Continue copy -- proven structurally by showing renderChecklist()
+    heading/body/Done copy -- proven structurally by showing renderChecklist()
     never targets those static ids, so their only source is the markup's own
     (identical, unconditional) production text."""
     app = read_ui("app.js")
@@ -478,11 +525,13 @@ def test_acknowledge_setup_is_called_through_lp_bridge_exactly_once() -> None:
     assert app.count("lpBridge.call('acknowledge_setup')") == 1
 
 
-def test_continue_and_skip_are_wired_to_the_same_handler() -> None:
+def test_done_is_the_only_checklist_completion_control() -> None:
     controller = gate_controller_source()
     wire_body = controller.split("function wire() {", 1)[1].split("\n    }", 1)[0]
-    assert "$('btn-runtime-continue').addEventListener('click', acknowledge);" in wire_body
-    assert "$('btn-runtime-skip').addEventListener('click', acknowledge);" in wire_body
+    assert wire_body.count("$('btn-runtime-done').addEventListener('click', acknowledge);") == 1
+    assert "btn-runtime-continue" not in wire_body
+    assert "btn-runtime-skip" not in wire_body
+    assert "btn-runtime-exit" not in wire_body
 
 
 def test_sync_demo_admission_boolean_includes_acknowledged_term() -> None:
@@ -512,12 +561,19 @@ def test_close_ready_diverts_to_checklist_for_healthy_unacknowledged_snapshot() 
     controller = gate_controller_source()
     body = controller.split("function closeReady() {", 1)[1].split("\n    }", 1)[0]
     assert "snap.healthy && !snap.acknowledged" in body
-    assert "eventModel.toChecklist();" in body
+    assert "eventModel.toChecklist()" in body
 
     result = run_node(
         r'''
+        const readyChecklist = [
+          {id: 'windows_version', verdict: 'ready', detail: ''},
+          {id: 'ffmpeg_ffprobe', verdict: 'ready', detail: ''},
+          {id: 'whisper_runtime', verdict: 'ready', detail: ''},
+          {id: 'bundled_model', verdict: 'ready', detail: ''},
+          {id: 'data_directory', verdict: 'ready', detail: ''}
+        ];
         const gate = RuntimeSetupGateModel();
-        gate.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false});
+        gate.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false, checklist: readyChecklist});
         gate.begin('repair-op', 'repairing');
         gate.event({operation_id: 'repair-op', kind: 'admitted'});
         let snap = gate.snapshot();
@@ -527,6 +583,14 @@ def test_close_ready_diverts_to_checklist_for_healthy_unacknowledged_snapshot() 
         const view = gate.toChecklist();
         if (view.state !== 'checklist') process.exit(3);
         if (view.healthy !== true) process.exit(4);
+
+        const incompleteGate = RuntimeSetupGateModel();
+        incompleteGate.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false});
+        incompleteGate.begin('incomplete-op', 'repairing');
+        incompleteGate.event({operation_id: 'incomplete-op', kind: 'admitted'});
+        const waiting = incompleteGate.toChecklist();
+        if (waiting.state !== 'checking') process.exit(5);
+        if (waiting.checklistReady !== false) process.exit(6);
         '''
     )
     assert result.returncode == 0, result.stderr
@@ -577,6 +641,13 @@ def test_progress_returns_early_on_invalid_json_without_touching_reducer() -> No
 
 
 def test_no_regression_in_settings_bridge_demo_isolation_and_gate_suites() -> None:
+    """Exercise the adjacent bridge, guided-demo, and gate suites together.
+
+    The guided-demo suite is intentionally kept in this command so its local
+    FFmpeg/model fixture failures remain visible rather than being hidden by
+    the renderer contract test. The release audit reports those environment
+    failures separately from the stale renderer expectations fixed above.
+    """
     result = subprocess.run(
         [
             "python", "-m", "pytest",
