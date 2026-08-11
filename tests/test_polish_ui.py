@@ -55,6 +55,10 @@ def test_guided_tour_uses_authoritative_eligibility_and_cleans_demo() -> None:
     replay = function_block(JS, "$('btn-replay-tour').addEventListener", "var demoCard")
     assert "startGuidedTour(true)" in replay
     assert "startGuidedDemo()" in replay
+    assert "set_guided_tour_state" in JS
+    assert "markTourSeen('skipped')" in JS
+    assert "markTourSeen('completed')" in JS
+    assert "replay_guided_tour" in JS
 
 
 def test_spotlight_is_a_stable_four_region_hole() -> None:
@@ -84,6 +88,9 @@ def test_downloads_review_and_timeline_polish_hooks_are_present() -> None:
     assert 'id="downloads-indicator"' in HTML
     assert 'class="lp-download-popover"' in HTML
     assert "positionDownloadsPanel" in JS
+    assert "normalizedDownloadStatus" in JS
+    assert "download_id" in JS
+    assert "legacy_status" in JS
     assert "document.addEventListener('pointerdown'" in JS
     assert 'aria-expanded' in HTML
 
