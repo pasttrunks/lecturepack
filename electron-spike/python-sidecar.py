@@ -28,6 +28,7 @@ import shutil
 import sys
 import threading
 import time
+import uuid
 from typing import Any
 
 from PySide6.QtCore import QCoreApplication, QProcess, QTimer
@@ -125,6 +126,9 @@ class Sidecar:
         self._download_cancel: dict[str, threading.Event] = {}
         self._data_error = ""
         self._last_health: dict[str, Any] | None = None
+        self._demo_session: dict[str, Any] | None = None
+        self._cleaning_demo = False
+        self._guided_tour_state: dict[str, Any] | None = None
 
         self.repo_root = self._resolve_repo_root()
         if self.repo_root and str(self.repo_root) not in sys.path:
@@ -142,6 +146,7 @@ class Sidecar:
         self._configure_runtime()
         self._connect_controller()
         self._init_queue()
+        self._reconcile_demo_session_on_startup()
 
         self._poll_timer = QTimer(self.app)
         self._poll_timer.setInterval(25)
@@ -201,7 +206,15 @@ class Sidecar:
             from lecturepack.infrastructure.file_manager import FileManager
             from lecturepack.models.job import Job
             from lecturepack import electron_backend, electron_study
-            from lecturepack.services import job_ops, media_fetch, packaged_health, study_service, transcript_store
+            from lecturepack.services import (
+                job_ops,
+                media_fetch,
+                onboarding_state,
+                packaged_health,
+                reset_service,
+                study_service,
+                transcript_store,
+            )
             from lecturepack.services import study_presets, study_v2
             from lecturepack.services.job_queue import JobQueue
 
@@ -214,7 +227,9 @@ class Sidecar:
             self.electron_backend = electron_backend
             self.electron_study = electron_study
             self.media_fetch = media_fetch
+            self.onboarding_state = onboarding_state
             self.packaged_health = packaged_health
+            self.reset_service = reset_service
             self.job_ops = job_ops
             self.study_service = study_service
             self.study_presets = study_presets
@@ -234,6 +249,7 @@ class Sidecar:
                 self._engine_error = self._data_error
             return
         self.config = self.ConfigManager(str(self.data_dir))
+        self._guided_tour_state = self.onboarding_state.ensure_guided_tour_state(self.config)
         ffmpeg = self._first_file(
             self.runtime_root / "bin" / "ffmpeg.exe",
             self.runtime_root / "ffmpeg.exe",
@@ -536,6 +552,20 @@ class Sidecar:
                 self._apply_job_settings(request_id, command, payload)
             elif command == "queue_jobs":
                 self._queue_jobs(request_id, command, payload)
+            elif command == "queue_existing_jobs":
+                self._queue_existing_jobs(request_id, command, payload)
+            elif command == "get_onboarding_state":
+                self._get_onboarding_state(request_id, command)
+            elif command == "set_guided_tour_state":
+                self._set_guided_tour_state(request_id, command, payload)
+            elif command == "replay_guided_tour":
+                self._replay_guided_tour(request_id, command)
+            elif command == "acknowledge_setup":
+                self._acknowledge_setup(request_id, command)
+            elif command == "end_demo_job":
+                self._end_demo_job(request_id, command, payload)
+            elif command == "reset_lecturepack":
+                self._reset_lecturepack(request_id, command)
             elif command == "recover_interrupted_jobs":
                 self._recover_interrupted_jobs(request_id, command)
             elif command == "search_transcripts":
@@ -722,12 +752,50 @@ class Sidecar:
             request_id,
             command,
             healthy=health["startup_ok"],
+            runtime_health_state="HEALTHY" if health["startup_ok"] else "SETUP_REQUIRED",
+            setup_acknowledged=bool(
+                health["startup_ok"]
+                and hasattr(self, "config")
+                and self.config.setup_acknowledged()
+            ),
+            setup_complete=bool(
+                health["startup_ok"]
+                and hasattr(self, "config")
+                and self.config.setup_acknowledged()
+            ),
             engine_loaded=not bool(self._engine_error),
             qt_application="QCoreApplication",
             passed=health["passed"],
             startup_ok=health["startup_ok"],
             checks=health["checks"],
             error=self._engine_error,
+        )
+
+    def _acknowledge_setup(self, request_id: str | None, command: str) -> None:
+        """Persist acknowledgement only against the latest passing health."""
+        health = self._last_health
+        if health is None:
+            health = self._packaged_self_test(include_sidecar=False)
+            self._last_health = health
+        if not health.get("startup_ok") or not hasattr(self, "config"):
+            self._respond(
+                request_id,
+                command,
+                ok=False,
+                error="Runtime Setup must pass its required checks before it can be acknowledged.",
+                error_code="SETUP_REQUIRED",
+                runtime_health_state="SETUP_REQUIRED",
+                setup_acknowledged=False,
+            )
+            return
+        self.config.persist_setup_acknowledged()
+        self._respond(
+            request_id,
+            command,
+            setup_acknowledged=True,
+            setup_complete=True,
+            runtime_health_state="HEALTHY",
+            healthy=True,
         )
 
     def _packaged_self_test(self, *, include_sidecar: bool = True) -> dict[str, Any]:
@@ -918,6 +986,7 @@ class Sidecar:
         return "Queued"
 
     def _list_jobs(self, request_id: str | None, command: str) -> None:
+        guided_tour = self._emit_onboarding_state()
         jobs = self._job_objects()
         if jobs and self.current_job is None:
             self._activate_job(jobs[0], emit_payloads=False)
@@ -933,7 +1002,7 @@ class Sidecar:
             self._emit({"event": "active_job", "id": "", "title": ""})
         self._push_queue()
         self._maybe_resume_queue()
-        self._respond(request_id, command, jobs=summaries)
+        self._respond(request_id, command, jobs=summaries, guided_tour=guided_tour)
 
     def _resolve_demo_video(self) -> Path | None:
         """Resolve the bundled demo video for the normal import path.
@@ -1022,7 +1091,8 @@ class Sidecar:
         }.get(str(value or "study").strip().lower(), "study_pack")
 
     def _import_one(self, path_text: str, *, title: str = "", preset: Any = None,
-                    bundled_demo: bool = False) -> tuple[Any, dict[str, Any], dict[str, Any]]:
+                    bundled_demo: bool = False,
+                    demo_session_id: str | None = None) -> tuple[Any, dict[str, Any], dict[str, Any]]:
         """Import ONE video through the normal single-video path and return
         (job, summary, metadata). Shared by the single import command and the
         batch import command so a multi-file import creates every job through
@@ -1064,6 +1134,14 @@ class Sidecar:
         # Keep the immutable source filename/path in manifest["source"] and a
         # separate, editable display title in manifest["title"].
         job.manifest["title"] = str(title or self.job_ops.clean_display_title(source.name))
+        if bundled_demo:
+            demo_session_id = str(demo_session_id or f"demo-{uuid.uuid4()}")
+            job.manifest.update({
+                "is_demo": True,
+                "bundled_demo": True,
+                "demo_session_id": demo_session_id,
+                "demo_owner": "guided_tour",
+            })
         job.source.update(metadata)
         job.settings["preset"] = self._preset(preset)
         job.settings.setdefault("whisper", {})["engine"] = "cpu"
@@ -1072,6 +1150,24 @@ class Sidecar:
             job.settings["whisper"]["model"] = model
         job.settings["whisper"]["transcription_backend"] = "local-whispercpp"
         job.save()
+        if bundled_demo:
+            self._demo_session = {
+                "session_id": demo_session_id,
+                "job_id": job.job_id,
+                "status": "running",
+            }
+            try:
+                self._write_demo_marker(self._demo_session)
+            except Exception as exc:  # noqa: BLE001 - do not leave an untracked demo job
+                try:
+                    shutil.rmtree(Path(job.paths["root"]))
+                except OSError:
+                    pass
+                self._demo_session = None
+                raise ImportVideoError(
+                    "DEMO_STATE_FAILED",
+                    f"guided demo session could not be recorded: {exc}",
+                ) from exc
         # PC polish: generate the job-card thumbnail immediately at import so
         # the card shows a real video frame before processing starts. A failure
         # must never prevent the import.
@@ -1098,6 +1194,10 @@ class Sidecar:
             job=summary,
             job_id=job.job_id,
             source=metadata,
+            **({
+                "is_demo": True,
+                "demo_session_id": self._demo_session.get("session_id"),
+            } if self._is_demo_job(job) and self._demo_session else {}),
         )
 
     def _import_videos(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
@@ -1193,6 +1293,13 @@ class Sidecar:
         """Enqueue a batch of jobs in their visible order. The queue respects
         the single active slot: the first job claims it on start, the rest
         wait in FIFO order. Nothing is started merely by queuing."""
+        # The production bridge uses this historical command for internal
+        # drag/drop as well as batch actions. Once the real data root exists,
+        # use the identity/status-aware path; the small fallback preserves the
+        # older adapter seam used by lightweight unit fixtures.
+        if hasattr(self, "data_dir"):
+            self._queue_existing_jobs(request_id, command, payload)
+            return
         job_ids = payload.get("job_ids") or []
         if isinstance(job_ids, str):
             try:
@@ -1210,11 +1317,330 @@ class Sidecar:
             positions.append({"job_id": job_id, "position": position})
         self._push_queue()
         self._emit_job_payloads()
-        self._respond(request_id, command, queued=positions, count=len(positions))
+        self._respond(request_id, command, queued=positions,
+                      queued_ids=[row["job_id"] for row in positions],
+                      count=len(positions))
         # "Queue all" is an action, not a parked-state editor. When the active
         # slot is idle, immediately promote and start the first queued job;
         # the existing completion path continues the remaining FIFO entries.
         self._maybe_resume_queue()
+
+    def _queue_existing_jobs(self, request_id: str | None, command: str,
+                             payload: dict[str, Any]) -> None:
+        """Queue already-imported jobs without importing or duplicating them.
+
+        ``JobQueue`` remains the only FIFO authority. This adapter adds the
+        validation/reporting needed by an internal drag/drop action while the
+        historical ``queue_jobs`` batch command remains compatible with the
+        existing batch-import UI.
+        """
+        job_ids = payload.get("job_ids") or []
+        if isinstance(job_ids, str):
+            try:
+                job_ids = json.loads(job_ids)
+            except json.JSONDecodeError:
+                job_ids = []
+        if not isinstance(job_ids, list):
+            job_ids = []
+        jobs_by_id = {str(job.job_id): job for job in self._job_objects()}
+        queued: list[str] = []
+        positions: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for raw_id in job_ids:
+            job_id = str(raw_id or "").strip()
+            if not job_id:
+                continue
+            if job_id in seen:
+                skipped.append({"job_id": job_id, "reason": "duplicate_request"})
+                continue
+            seen.add(job_id)
+            job = jobs_by_id.get(job_id)
+            if job is None:
+                skipped.append({"job_id": job_id, "reason": "not_found"})
+                continue
+            status = self._job_status(job)
+            if status in {"done", "failed", "cancelled", "interrupted"}:
+                skipped.append({"job_id": job_id, "reason": status})
+                continue
+            if self.queue.active == job_id:
+                skipped.append({"job_id": job_id, "reason": "active"})
+                continue
+            if job_id in self.queue.queued():
+                skipped.append({"job_id": job_id, "reason": "already_queued"})
+                continue
+            position = self.electron_backend.enqueue_job(self.queue, job_id)
+            if position is None or position < 0:
+                skipped.append({"job_id": job_id, "reason": "queue_rejected"})
+                continue
+            queued.append(job_id)
+            positions.append({"job_id": job_id, "position": position})
+        self._push_queue()
+        self._emit_job_payloads()
+        self._respond(
+            request_id,
+            command,
+            queued=queued,
+            queued_ids=queued,
+            positions=positions,
+            skipped=skipped,
+            count=len(queued),
+        )
+        self._maybe_resume_queue()
+
+    def _emit_onboarding_state(self) -> dict[str, Any]:
+        if not hasattr(self, "config"):
+            return self._guided_tour_state or {
+                "current_version": 2,
+                "seen_version": 0,
+                "version": "2.0.1",
+                "status": "not_seen",
+                "completed": False,
+                "skipped": False,
+                "eligible": True,
+            }
+        self._guided_tour_state = self.onboarding_state.ensure_guided_tour_state(self.config)
+        self._emit({"event": "onboarding_state",
+                    "guided_tour": dict(self._guided_tour_state),
+                    **self._guided_tour_state})
+        return dict(self._guided_tour_state)
+
+    def _get_onboarding_state(self, request_id: str | None, command: str) -> None:
+        state = self._emit_onboarding_state()
+        self._respond(request_id, command, guided_tour=state, **state)
+
+    def _set_guided_tour_state(self, request_id: str | None, command: str,
+                               payload: dict[str, Any]) -> None:
+        if not hasattr(self, "config"):
+            self._respond(request_id, command, ok=False, error="Runtime state is unavailable.")
+            return
+        status = payload.get("status") or payload.get("state")
+        state = self.onboarding_state.set_guided_tour_status(self.config, status)
+        self._guided_tour_state = state
+        self._emit({"event": "onboarding_state", "guided_tour": dict(state), **state})
+        self._respond(request_id, command, guided_tour=state, **state)
+
+    def _replay_guided_tour(self, request_id: str | None, command: str) -> None:
+        """Reset only the tour offer; the bridge starts a fresh demo session."""
+        if not hasattr(self, "config"):
+            self._respond(request_id, command, ok=False, error="Runtime state is unavailable.")
+            return
+        state = self.onboarding_state.set_guided_tour_status(self.config, "not_seen")
+        self._guided_tour_state = state
+        self._emit({"event": "onboarding_state", "replay": True,
+                    "guided_tour": dict(state), **state})
+        self._respond(request_id, command, replay=True, ready_to_start=True,
+                      guided_tour=state, **state)
+
+    # ------------------------------------------------------------------ #
+    # Temporary guided-demo lifecycle
+    # ------------------------------------------------------------------ #
+    def _demo_marker_path(self) -> Path:
+        return self.data_dir / "demo-session.json"
+
+    def _write_demo_marker(self, session: dict[str, Any]) -> None:
+        self.FileManager.write_json_atomic(str(self._demo_marker_path()), {
+            "schema_version": 1,
+            "session_id": str(session["session_id"]),
+            "job_id": str(session["job_id"]),
+            "status": str(session.get("status") or "running"),
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        })
+
+    def _read_demo_marker(self) -> dict[str, Any] | None:
+        path = self._demo_marker_path()
+        if not path.is_file():
+            return None
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    def _is_demo_job(self, job: Any) -> bool:
+        manifest = getattr(job, "manifest", {}) or {}
+        return bool(
+            manifest.get("is_demo") is True
+            or manifest.get("bundled_demo") is True
+            or manifest.get("demo_session_id")
+        )
+
+    def _remove_demo_inputs(self) -> None:
+        target = self.data_dir / "demo-inputs"
+        if not (target.exists() or target.is_symlink() or os.path.islink(target)):
+            return
+        root = self.data_dir.resolve(strict=False)
+        resolved = target.resolve(strict=False)
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise RuntimeError(f"refusing to remove demo inputs outside data root: {target}") from exc
+        if target.is_symlink() or os.path.islink(target):
+            target.unlink()
+        else:
+            shutil.rmtree(target)
+
+    def _delete_demo_job(self, job_id: str) -> dict[str, Any]:
+        if not _SAFE_JOB_ID.fullmatch(str(job_id or "")):
+            return {"ok": False, "error": "invalid demo job id"}
+        result = self.electron_backend.delete_job(str(self.data_dir), str(job_id))
+        if result.get("ok") and hasattr(self, "queue"):
+            self.queue.remove(str(job_id))
+        return result
+
+    def _reconcile_demo_session_on_startup(self) -> None:
+        """Remove only explicitly marked demo jobs left by a crashed tour."""
+        if self._engine_error or not hasattr(self, "electron_backend"):
+            return
+        marker = self._read_demo_marker()
+        demo_ids: set[str] = set()
+        if marker and _SAFE_JOB_ID.fullmatch(str(marker.get("job_id") or "")):
+            demo_ids.add(str(marker["job_id"]))
+        jobs_root = self.data_dir / "jobs"
+        if jobs_root.is_dir():
+            for directory in jobs_root.iterdir():
+                manifest_path = directory / "manifest.json"
+                if not directory.is_dir() or not manifest_path.is_file():
+                    continue
+                try:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if isinstance(manifest, dict) and (
+                    manifest.get("is_demo") is True
+                    or manifest.get("bundled_demo") is True
+                    or manifest.get("demo_session_id")
+                ):
+                    if _SAFE_JOB_ID.fullmatch(directory.name):
+                        demo_ids.add(directory.name)
+        removed = 0
+        for job_id in sorted(demo_ids):
+            try:
+                result = self._delete_demo_job(job_id)
+                if result.get("ok"):
+                    removed += 1
+            except Exception as exc:  # noqa: BLE001 - startup must surface, not hide, cleanup faults
+                self._emit({"event": "error", "error": f"demo reconciliation: {exc}"})
+        if marker or removed:
+            try:
+                self._demo_marker_path().unlink(missing_ok=True)
+                self._remove_demo_inputs()
+            except (OSError, RuntimeError) as exc:
+                self._emit({"event": "error", "error": f"demo artifact cleanup: {exc}"})
+        if removed:
+            self._push_queue()
+
+    def _cleanup_demo_session(self, reason: str = "tour_end") -> dict[str, Any]:
+        session = self._demo_session or self._read_demo_marker()
+        if not session:
+            return {"ok": True, "status": "not_running"}
+        job_id = str(session.get("job_id") or "")
+        session_id = str(session.get("session_id") or "")
+        if not _SAFE_JOB_ID.fullmatch(job_id):
+            return {"ok": False, "error": "guided demo session has an invalid job id"}
+
+        self._cleaning_demo = True
+        try:
+            if self.current_job is not None and self.current_job.job_id == job_id:
+                if self.current_stage and self.controller is not None:
+                    self.controller.cancel()
+                    self.current_stage = ""
+                    if not self._drain_previous_run():
+                        return {"ok": False, "error": "guided demo workers did not stop safely"}
+            result = self._delete_demo_job(job_id)
+            if not result.get("ok") and (self.data_dir / "jobs" / job_id).exists():
+                return {"ok": False, "error": result.get("error") or "could not remove guided demo job"}
+            if self.current_job is not None and self.current_job.job_id == job_id:
+                self.current_job = None
+                self.current_stage = ""
+                self.stage_percent = {}
+                if self.controller is not None:
+                    self.controller.set_job(None)
+                self._emit({"event": "active_job", "id": "", "title": ""})
+            try:
+                self._demo_marker_path().unlink(missing_ok=True)
+                self._remove_demo_inputs()
+            except (OSError, RuntimeError) as exc:
+                return {"ok": False, "error": f"could not remove guided demo artifacts: {exc}"}
+            self._demo_session = None
+            self._emit({
+                "event": "demo_session",
+                "status": "cleaned",
+                "reason": str(reason or "tour_end"),
+                "session_id": session_id,
+                "job_id": job_id,
+            })
+            self._emit({"event": "jobs_changed", "jobs": [
+                self._summary(job) for job in self._job_objects()
+            ]})
+            self._push_queue()
+            return {
+                "ok": True,
+                "status": "cleaned",
+                "session_id": session_id,
+                "job_id": job_id,
+            }
+        finally:
+            self._cleaning_demo = False
+
+    def _end_demo_job(self, request_id: str | None, command: str,
+                      payload: dict[str, Any]) -> None:
+        session = self._demo_session
+        if session is None:
+            self._respond(request_id, command, status="not_running")
+            return
+        requested = str(payload.get("job_id") or "")
+        if requested and requested != str(session.get("job_id")):
+            self._respond(request_id, command, ok=False,
+                          error="guided demo session does not match requested job")
+            return
+        result = self._cleanup_demo_session(str(payload.get("reason") or "tour_end"))
+        self._respond(request_id, command, **result)
+
+    def _reset_lecturepack(self, request_id: str | None, command: str) -> None:
+        """Stop workers, clear known data-root state, and report failures."""
+        with self._download_lock:
+            for event in self._download_cancel.values():
+                event.set()
+            for item in self._downloads.values():
+                if item.get("status") in {"waiting", "downloading"}:
+                    item["status"] = "cancelled"
+            self._persist_downloads_locked()
+        if self.controller is not None:
+            try:
+                self.controller.cancel()
+            except Exception:
+                pass
+        self.current_stage = ""
+        if not self._drain_previous_run(timeout_ms=8000):
+            self._respond(request_id, command, ok=False,
+                          error="LecturePack workers did not stop safely; reset was not completed.")
+            return
+        result = self.reset_service.reset_data_root(self.data_dir)
+        if not result.get("ok"):
+            self._respond(request_id, command, ok=False, error="LecturePack reset could not remove all owned state.",
+                          reset=result)
+            return
+        self.current_job = None
+        self._demo_session = None
+        self.current_stage = ""
+        self.stage_percent = {}
+        if self.controller is not None:
+            self.controller.set_job(None)
+        self._downloads.clear()
+        self._download_order.clear()
+        self._download_cancel.clear()
+        self.config = self.ConfigManager(str(self.data_dir))
+        self._guided_tour_state = self.onboarding_state.ensure_guided_tour_state(self.config)
+        self.queue = self.JobQueue(str(self.data_dir))
+        self._emit({"event": "active_job", "id": "", "title": ""})
+        self._emit({"event": "jobs_changed", "jobs": []})
+        self._push_queue()
+        self._emit_downloads()
+        self._emit_onboarding_state()
+        self._respond(request_id, command, reset=result,
+                      guided_tour=self._guided_tour_state,
+                      relaunch_required=True)
 
     def _search_transcripts(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         """Search processed transcript text across completed jobs.
@@ -2847,14 +3273,24 @@ class Sidecar:
             for raw in rows:
                 if not isinstance(raw, dict):
                     continue
-                item_id = str(raw.get("id") or "")
+                item_id = str(raw.get("id") or raw.get("download_id") or "")
                 url = str(raw.get("url") or "")
                 if not item_id or not url or item_id in self._downloads:
                     continue
                 item = {key: value for key, value in raw.items()
-                        if key in {"id", "url", "title", "status", "pct", "eta",
-                                   "speed", "error", "name", "path", "downloaded", "total"}}
-                status = str(item.get("status") or "failed")
+                        if key in {"id", "download_id", "url", "title", "status",
+                                   "legacy_status", "progress", "pct", "eta", "speed",
+                                   "error", "name", "path", "downloaded", "total"}}
+                item["id"] = item_id
+                item["download_id"] = item_id
+                raw_status = str(item.get("legacy_status") or item.get("status") or "failed")
+                status = {
+                    "running": "downloading",
+                    "completed": "complete",
+                }.get(raw_status, raw_status)
+                item["status"] = status
+                if "pct" not in item:
+                    item["pct"] = int(item.get("progress", 0) or 0)
                 if status in {"waiting", "downloading"}:
                     item.update({
                         "status": "failed",
@@ -2872,9 +3308,30 @@ class Sidecar:
             if changed:
                 self._persist_downloads_locked()
 
+    @staticmethod
+    def _download_ui_status(status: Any) -> str:
+        return {
+            "downloading": "running",
+            "complete": "completed",
+            "cancelled": "failed",
+        }.get(str(status or "failed"), str(status or "failed"))
+
     def _download_public(self, item: dict[str, Any]) -> dict[str, Any]:
-        return {key: value for key, value in item.items()
-                if key not in {"path"}}
+        public = {key: value for key, value in item.items() if key not in {"path"}}
+        item_id = str(item.get("download_id") or item.get("id") or "")
+        progress = int(item.get("progress", item.get("pct", 0)) or 0)
+        legacy_status = str(item.get("status") or "failed")
+        public.update({
+            "id": item_id,
+            "download_id": item_id,
+            "status": self._download_ui_status(legacy_status),
+            "legacy_status": legacy_status,
+            "progress": max(0, min(100, progress)),
+            "pct": max(0, min(100, progress)),
+            "eta_seconds": int(item.get("eta", 0) or 0),
+            "state": self._download_ui_status(legacy_status),
+        })
+        return public
 
     def _download_snapshot(self) -> list[dict[str, Any]]:
         with self._download_lock:
@@ -2935,7 +3392,7 @@ class Sidecar:
             item = self._downloads.get(download_id)
             if item and item.get("status") in {"failed", "cancelled"}:
                 item.update({"status": "waiting", "pct": 0, "eta": 0,
-                             "speed": 0, "error": ""})
+                             "progress": 0, "speed": 0, "error": ""})
                 retried = True
             if retried:
                 self._persist_downloads_locked()
@@ -2973,10 +3430,12 @@ class Sidecar:
                 item_id = f"download-{time.time_ns()}-{len(added)}"
                 item = {
                     "id": item_id,
+                    "download_id": item_id,
                     "url": url,
                     "title": str(raw.get("title") or "Lecture download"),
                     "status": "waiting",
                     "pct": 0,
+                    "progress": 0,
                     "eta": 0,
                     "speed": 0,
                     "error": "",
@@ -3041,7 +3500,15 @@ class Sidecar:
                     current.update({key: update.get(key, current.get(key))
                                     for key in ("status", "pct", "eta", "speed", "downloaded", "total")})
                     current["status"] = "downloading"
-                self._emit({"event": "media_progress", "download_id": item_id, **update})
+                    current["progress"] = int(current.get("pct", 0) or 0)
+                    progress_payload = dict(update)
+                    progress_payload.update({
+                        "download_id": item_id,
+                        "status": "running",
+                        "progress": current["progress"],
+                        "eta_seconds": int(current.get("eta", 0) or 0),
+                    })
+                self._emit({"event": "media_progress", **progress_payload})
                 self._emit_downloads()
 
             try:
@@ -3056,11 +3523,13 @@ class Sidecar:
                     current = self._downloads.get(item_id)
                     if current:
                         current.update({"status": "complete", "pct": 100,
-                                        "eta": 0, "path": path,
+                                        "progress": 100, "eta": 0, "path": path,
                                         "name": os.path.basename(path)})
                         self._persist_downloads_locked()
                 payload_out = {"ok": True, "download_id": item_id,
-                               "name": os.path.basename(path)}
+                               "name": os.path.basename(path), "status": "completed",
+                               "progress": 100, "eta_seconds": 0,
+                               "title": item.get("title", "")}
                 # The existing normal import path remains the only way a
                 # downloaded recording becomes a LecturePack job.
                 QTimer.singleShot(0, self._poll_timer,
@@ -3072,7 +3541,9 @@ class Sidecar:
                         self._downloads[item_id]["status"] = "cancelled"
                         self._persist_downloads_locked()
                 payload_out = {"ok": False, "cancelled": True,
-                               "download_id": item_id}
+                               "download_id": item_id, "status": "failed",
+                               "legacy_status": "cancelled", "progress": 0,
+                               "title": item.get("title", "")}
             except Exception as exc:  # media_fetch already makes yt-dlp errors friendly
                 with self._download_lock:
                     if item_id in self._downloads:
@@ -3080,7 +3551,9 @@ class Sidecar:
                                                         "error": str(exc)[:300]})
                         self._persist_downloads_locked()
                 payload_out = {"ok": False, "error": str(exc)[:300],
-                               "download_id": item_id}
+                               "download_id": item_id, "status": "failed",
+                               "progress": int(item.get("pct", 0) or 0),
+                               "title": item.get("title", "")}
             finally:
                 with self._download_lock:
                     self._download_cancel.pop(item_id, None)
@@ -3237,6 +3710,10 @@ class Sidecar:
                 "slides_detected": len(self._slides(self.current_job)),
                 "segment_count": self._transcript(self.current_job)["transcript"].get("segments", 0),
             })
+            if self._is_demo_job(self.current_job) and getattr(self, "_demo_session", None) is not None:
+                # Let the bridge/UI consume the terminal pipeline event first,
+                # then remove the temporary demo from the normal library.
+                QTimer.singleShot(0, lambda: self._cleanup_demo_session("tour_complete"))
             # Release the active slot and launch the next queued job (FIFO).
             self._promote_next()
         if not success:
@@ -3306,6 +3783,7 @@ class Sidecar:
 
     def _on_pipeline_failed(self, error: str) -> None:
         if self.current_job is not None:
+            demo_failed = self._is_demo_job(self.current_job) and getattr(self, "_demo_session", None) is not None
             self.current_stage = ""
             self._emit({
                 "event": "job_failed",
@@ -3316,6 +3794,8 @@ class Sidecar:
             self._emit_status("Failed", detail=str(error or "Processing failed"))
             self._emit_job_payloads()
             self._promote_next()
+            if demo_failed:
+                QTimer.singleShot(0, lambda: self._cleanup_demo_session("tour_failed"))
 
     # ------------------------------------------------------------------ #
     # Payload builders

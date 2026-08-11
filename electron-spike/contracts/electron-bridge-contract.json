@@ -7,13 +7,18 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "acknowledge_setup",
-      "notes": "First-run setup acknowledgement is deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Persists acknowledgement only after the latest packaged health result passes; a failed/currently missing runtime cannot be acknowledged.",
+      "phase8": "runtime health authority",
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
-      "response_fields": [],
-      "status": "DEFERRED"
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "runtime_health_state",
+        "setup_acknowledged",
+        "setup_complete"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -465,13 +470,13 @@
       ],
       "mapped_to": "",
       "name": "demo_event",
-      "notes": "Guided demo events are deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Carries an explicitly identified temporary guided-demo session; unrelated real-job events cannot advance it.",
+      "phase8": "guided demo lifecycle",
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -494,15 +499,23 @@
     {
       "direction": "command",
       "event_fields": [],
-      "mapped_to": "cancel_job",
+      "mapped_to": "end_demo_job",
       "name": "end_demo_job",
-      "notes": "The guided demo end maps to cancel_job but is out of the Phase 8 core.",
-      "phase8": "",
-      "production_core": false,
-      "request_fields": [],
-      "request_id_required": false,
-      "response_fields": [],
-      "status": "DEFERRED"
+      "notes": "Stops and removes only the explicitly marked temporary demo job/session; it never cancels the current real lecture.",
+      "phase8": "guided demo lifecycle",
+      "production_core": true,
+      "request_fields": [
+        "job_id",
+        "reason"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "status",
+        "session_id",
+        "job_id"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -953,6 +966,9 @@
         "event",
         "healthy",
         "ok",
+        "runtime_health_state",
+        "setup_acknowledged",
+        "setup_complete",
         "paths",
         "qt_application",
         "response_to"
@@ -1224,7 +1240,7 @@
       ],
       "mapped_to": "",
       "name": "downloads_changed",
-      "notes": "Snapshot of active, waiting, completed, failed, and cancelled background downloads.",
+      "notes": "Snapshot of background downloads independent of popover visibility. Each row contains download_id, title, progress/pct, eta/eta_seconds, and normalized status waiting/running/completed/failed (with legacy_status for cancellation/retry compatibility).",
       "phase8": "",
       "production_core": true,
       "request_fields": [],
@@ -1237,6 +1253,11 @@
       "event_fields": [
         "event",
         "ok",
+        "download_id",
+        "status",
+        "progress",
+        "eta_seconds",
+        "title",
         "path",
         "name",
         "cancelled",
@@ -1313,12 +1334,15 @@
       "direction": "event",
       "event_fields": [
         "event",
+        "download_id",
         "status",
+        "progress",
         "pct",
         "downloaded",
         "total",
         "speed",
-        "eta"
+        "eta",
+        "eta_seconds"
       ],
       "mapped_to": "",
       "name": "media_progress",
@@ -3203,6 +3227,122 @@
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "queue_existing_jobs",
+      "name": "queue_existing_jobs",
+      "notes": "Queues existing ready/paused job IDs through JobQueue, preserving request order and reporting duplicate, active, terminal, and missing IDs without re-importing media.",
+      "phase8": "internal drag/drop queue",
+      "production_core": true,
+      "request_fields": [
+        "job_ids"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "queued",
+        "positions",
+        "skipped",
+        "count"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "get_onboarding_state",
+      "name": "get_onboarding_state",
+      "notes": "Returns current/seen guided-tour versions, explicit status, and eligibility independent of job count.",
+      "phase8": "guided tour versioning",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "current_version",
+        "seen_version",
+        "status",
+        "eligible"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "current_version",
+        "seen_version",
+        "status",
+        "eligible"
+      ],
+      "mapped_to": "onboarding_state",
+      "name": "onboarding_state",
+      "notes": "Durable guided-tour state update for existing-user offers, replay, skip, and completion.",
+      "phase8": "guided tour versioning",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "set_guided_tour_state",
+      "name": "set_guided_tour_state",
+      "notes": "Persists not_seen, skipped, or completed without using renderer localStorage as the authority.",
+      "phase8": "guided tour versioning",
+      "production_core": true,
+      "request_fields": [
+        "status"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "current_version",
+        "seen_version",
+        "status",
+        "eligible"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "replay_guided_tour",
+      "name": "replay_guided_tour",
+      "notes": "Resets only the durable tour offer and returns a ready-to-start state; the subsequent start creates a fresh marked demo session.",
+      "phase8": "guided tour replay",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "ready_to_start",
+        "guided_tour"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "reset_lecturepack",
+      "name": "reset_lecturepack",
+      "notes": "Stops sidecar work, clears known app-owned data-root state with containment checks, clears Electron session storage, and schedules a clean relaunch while preserving bundled runtimes/models and external source files.",
+      "phase8": "safe production reset",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "reset",
+        "user_data",
+        "renderer_session",
+        "relaunch_scheduled"
+      ],
       "status": "IMPLEMENTED"
     }
   ],

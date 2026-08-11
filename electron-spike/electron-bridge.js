@@ -15,7 +15,6 @@
     // DEFERRED. Implemented operations are mapped below and cross JSONL.
     // Commands reached by visible controls resolve to a structured
     // FEATURE_UNAVAILABLE response in call(), never a silent null.
-    acknowledge_setup: true,
     browse_model: true,
     clear_skipped_version: true,
     exit_application: true,
@@ -26,13 +25,12 @@
     save_project: true,
     set_auto_check: true,
     whatsnew_seen: true,
-    // Bootstrap is host-driven in the production app. These legacy calls
-    // stay acknowledged locally as specified by the partial contract.
-    get_bootstrap: true,
+    // UI readiness remains a local acknowledgement; bootstrap retrieval now
+    // crosses the host so it carries the same guided-tour object as the event.
     ui_ready: true,
   };
   var unavailableMessages = {
-    acknowledge_setup: 'First-run setup is already complete in this build.',
+    acknowledge_setup: 'Runtime Setup must pass before it can be acknowledged.',
     browse_model: 'Model browsing is not available in this build.',
     clear_skipped_version: 'Updates are not available in this build.',
     exit_application: 'Close the window to exit LecturePack.',
@@ -43,7 +41,7 @@
     save_project: 'Saving is automatic in this build.',
     set_auto_check: 'Updates are not available in this build.',
     whatsnew_seen: 'What\'s new is not available in this build.',
-    get_bootstrap: 'Bootstrap is host-driven in this build.',
+    get_bootstrap: 'Bootstrap is not available until the Electron host starts.',
     ui_ready: 'UI readiness is acknowledged in this build.'
   };
   function featureUnavailable(name) {
@@ -119,10 +117,12 @@
       legacyPaths.whisper && legacyPaths.whisper.exists);
     var healthy = !!(result && (result.startup_ok === true ||
       (typeof result.startup_ok !== 'boolean' && legacyHealthy)));
+    var setupAcknowledged = !!(result && result.setup_acknowledged === true && healthy);
     return {
       bootstrap_pending: false,
       runtime_health_state: healthy ? 'HEALTHY' : 'SETUP_REQUIRED',
-      setup_acknowledged: false,
+      setup_acknowledged: setupAcknowledged,
+      setup_complete: healthy && setupAcknowledged,
       healthy: healthy,
       engine_loaded: !!(result && result.engine_loaded),
       validation_path: 'full',
@@ -171,7 +171,12 @@
     // D-2: translate the normal pipeline lifecycle into demo_event signals so
     // the guided tour can advance without a separate fake demo pipeline.
     if (demoSession) {
-      if (event === 'pipeline_changed') {
+      var eventJobId = payload.job_id || payload.job || '';
+      var demoEventMatches = !eventJobId || String(eventJobId) === String(demoSession.jobId);
+      if (!demoEventMatches) {
+        // Events for a real lecture must never advance or terminate the demo
+        // session merely because the demo was last imported.
+      } else if (event === 'pipeline_changed') {
         var stages = payload.stages || [];
         var reviewReady = stages.some(function (stage) {
           return stage && stage.label === 'Review Ready' && stage.state === 'done';
@@ -189,6 +194,8 @@
         demoEvent({ status: 'failed', error: String(payload.error || 'Guided demo failed.') });
       } else if (event === 'job_cancelled') {
         demoEvent({ status: 'cleaned', stage: 'ended' });
+      } else if (event === 'demo_session' && String(payload.session_id || '') === String(demoSession.sessionId)) {
+        demoEvent({ status: 'cleaned', stage: 'ended', reason: String(payload.reason || '') });
       }
     }
     // Legacy unscoped ai_token remains a text signal. Scoped Study Ask tokens
@@ -290,7 +297,13 @@
       return { command: 'import_video', payload: { bundled_demo: true } };
     }
     if (name === 'end_demo_job') {
-      return { command: 'cancel_job', payload: {} };
+      return {
+        command: 'end_demo_job',
+        payload: {
+          job_id: demoSession ? String(demoSession.jobId || '') : '',
+          reason: String(typeof first === 'string' ? first : payload.reason || 'tour_end')
+        }
+      };
     }
     if (name === 'start_processing') {
       return {
@@ -299,7 +312,7 @@
           auto_export: payload.auto_export !== false,
           mode: processingMode(typeof first === 'string' ? first : payload.mode),
           preset: payload.preset || bridgeSettings.slide_detection_preset,
-          job_id: typeof first === 'string' ? '' : String(payload.job_id || '')
+           job_id: typeof first === 'string' ? '' : String(payload.job_id || '')
         }
       };
     }
@@ -423,6 +436,15 @@
     if (name === 'queue_jobs') {
       return { command: 'queue_jobs', payload: { job_ids: Array.isArray(payload.job_ids) ? payload.job_ids : [] } };
     }
+    if (name === 'queue_existing_jobs') {
+      return { command: 'queue_existing_jobs', payload: { job_ids: Array.isArray(payload.job_ids) ? payload.job_ids : [] } };
+    }
+    if (name === 'get_bootstrap' || name === 'get_onboarding_state' || name === 'replay_guided_tour' || name === 'reset_lecturepack') {
+      return { command: name, payload: {} };
+    }
+    if (name === 'set_guided_tour_state') {
+      return { command: name, payload: { status: String(payload.status || first || '') } };
+    }
     if (name === 'search_transcripts') {
       return { command: 'search_transcripts', payload: { query: String(payload.query || ''), limit: payload.limit } };
     }
@@ -434,6 +456,9 @@
         command: name,
         payload: name === 'export' ? { job_id: jobIdPayload(first) } : {}
       };
+    }
+    if (name === 'acknowledge_setup') {
+      return { command: name, payload: {} };
     }
     if (name === 'set_setting') {
       var setting = String(payload.key || args[0] || '');
@@ -500,7 +525,7 @@
       if (noopCalls[name]) {
         // Internal bootstrap calls stay acknowledged locally; visible-control
         // commands get a structured unavailable response, never a silent null.
-        if (name === 'get_bootstrap' || name === 'ui_ready') return Promise.resolve(null);
+        if (name === 'ui_ready') return Promise.resolve(null);
         return Promise.resolve(featureUnavailable(name));
       }
       if (isLocalThemeSetting(name, args)) {
@@ -520,6 +545,16 @@
           return { ok: false, sent: false, available: false, error: String(error && error.message || error) };
         });
       }
+      if (name === 'acknowledge_setup') {
+        // Older test/development shells return an empty placeholder response;
+        // keep that visible as unavailable while the production sidecar's
+        // structured health-gated response crosses the real boundary.
+        return api.request('acknowledge_setup', {}).then(function (result) {
+          return result && Object.keys(result).length ? result : featureUnavailable(name);
+        }).catch(function (error) {
+          return { ok: false, error: String(error && error.message || error) };
+        });
+      }
       var mapped = mapCall(name, args);
       return api.request(mapped.command, mapped.payload).catch(function (error) {
         fire('error', json({ command: mapped.command, error: String(error && error.message || error) }));
@@ -537,8 +572,8 @@
         if (!result || result.ok !== true || !result.job_id) {
           return { ok: false, error: (result && result.error) || 'Could not start the guided demo.' };
         }
-        var operationId = 'demo-' + result.job_id;
-        var sessionId = 'session-' + result.job_id;
+         var operationId = String(result.operation_id || ('demo-' + result.job_id));
+         var sessionId = String(result.demo_session_id || result.session_id || ('session-' + result.job_id));
         demoSession = { operationId: operationId, sessionId: sessionId, jobId: result.job_id };
         fire('demo_event', json({
           operation_id: operationId,
@@ -549,7 +584,11 @@
         // Start the normal processing pipeline for the imported demo. A
         // failure must propagate so the guided-demo UI can show an error
         // instead of a false success.
-        return self.call('start_processing', 'study').then(function (started) {
+        return self.call('start_processing', {
+          mode: 'study',
+          preset: 'balanced',
+          job_id: result.job_id
+        }).then(function (started) {
           var startedResult = parse(started);
           if (!startedResult || startedResult.ok !== true) {
             demoSession = null;
@@ -576,8 +615,8 @@
         if (!result || result.ok !== true) {
           return { ok: false, error: (result && result.error) || 'Could not confirm that the demo stopped. Try again.' };
         }
-        demoSession = null;
-        return { ok: true, status: 'cleaned' };
+         demoSession = null;
+         return Object.assign({ ok: true, status: 'cleaned' }, result);
       });
     }
   };

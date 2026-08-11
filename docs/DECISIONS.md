@@ -1655,3 +1655,40 @@ after its packaged self-test, clean-install, negative-path, and updater gates.
 **Rationale:** One tag now maps to one validated desktop product. The retained
 runtime tooling cannot race or overwrite the Electron installer, while a future
 CI migration can replace the manual publication path as a separate decision.
+
+## AD-42: Keep 2.0.1 onboarding and reset state inside existing boundaries
+
+**Date:** 2026-08-11
+
+**Status:** Implemented for the v2.0.1 polish/integration candidate
+
+**Context:** The Electron sidecar already owns the persistent LecturePack data
+root and JobQueue, while Electron owns userData and WebEngine session storage.
+The renderer-only tour marker could hide a new tour from existing users, and a
+generic demo cancel could stop whichever real lecture happened to be active.
+Reset also needed to clear both persistence boundaries without following source
+paths stored in job manifests.
+
+**Decision:** Store the current/seen guided-tour versions and one of
+`not_seen`, `skipped`, or `completed` in the existing atomic `config.json`.
+Mark bundled demo jobs with `is_demo`, `bundled_demo`, and a generated
+`demo_session_id`, plus a data-root marker for crash reconciliation. Route demo
+cleanup through the explicit session/job identity and keep the existing
+`JobQueue` as the sole FIFO authority. Expose normalized download aliases while
+retaining the sidecar's existing internal state names. Implement reset as an
+explicit known-path removal under the canonical data root, followed by clearing
+known Electron userData files and WebEngine storage before relaunch.
+
+**Alternatives considered:**
+
+- Inferring tour/demo state from job count, title, or filename: rejected because
+  existing users and real lectures are not reliable onboarding markers.
+- Adding a second queue, database, or downloader state machine: rejected
+  because the current JobQueue and yt-dlp worker already own those lifecycles.
+- Deleting the whole data directory or Electron userData recursively: rejected
+  because it could remove bundled resources, installed models, or external
+  source files referenced by manifests.
+
+**Rationale:** The smallest additions make the current production seams
+identity-safe and restartable while preserving the selected local JSON/Qt/
+Electron architecture and the existing renderer contract.
