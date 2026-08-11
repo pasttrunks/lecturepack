@@ -1280,39 +1280,72 @@
     panel.style.right = 'auto';
   }
 
+  function downloadId(item) {
+    var value = item && item.download_id != null ? item.download_id : item && item.id;
+    return value == null ? '' : String(value);
+  }
+  function normalizedDownloadStatus(item) {
+    var status = String(item && item.status || '').trim().toLowerCase();
+    if (status === 'waiting' || status === 'running' || status === 'completed' || status === 'failed') return status;
+    // Older bridges exposed their vocabulary as status; newer bridges keep it
+    // under legacy_status while the normalized status remains authoritative.
+    var legacy = String(item && item.legacy_status || '').trim().toLowerCase();
+    if (status === 'downloading' || legacy === 'downloading') return 'running';
+    if (status === 'complete' || legacy === 'complete') return 'completed';
+    if (status === 'cancelled' || legacy === 'cancelled') return 'failed';
+    return 'waiting';
+  }
+  function downloadPercent(item) {
+    var raw = item && item.pct != null ? item.pct : item && item.progress;
+    var pct = Number(raw);
+    if (!isFinite(pct)) pct = 0;
+    if (item && item.pct == null && pct >= 0 && pct <= 1) pct *= 100;
+    return Math.max(0, Math.min(100, pct));
+  }
+  function downloadEta(item) {
+    var raw = item && item.eta_seconds != null ? item.eta_seconds : item && item.eta;
+    var eta = Number(raw);
+    return isFinite(eta) && eta >= 0 ? eta : null;
+  }
   function renderDownloads() {
     var items = mediaLink.downloads || [];
     var indicator = $('downloads-indicator'), panel = $('downloads-panel'), list = $('downloads-list');
     if (!indicator || !panel || !list) return;
-    var active = items.filter(function (item) { return item.status === 'downloading'; })[0];
-    var waiting = items.filter(function (item) { return item.status === 'waiting'; }).length;
-    var unfinished = items.filter(function (item) { return item.status === 'downloading' || item.status === 'waiting'; }).length;
+    var rows = items.map(function (item) {
+      return { item: item, id: downloadId(item), status: normalizedDownloadStatus(item) };
+    });
+    var active = rows.filter(function (row) { return row.status === 'running'; })[0];
+    var waiting = rows.filter(function (row) { return row.status === 'waiting'; }).length;
+    var unfinished = rows.filter(function (row) { return row.status === 'running' || row.status === 'waiting'; }).length;
     indicator.hidden = false;
     var count = $('downloads-indicator-count'), label = $('downloads-indicator-label');
     if (count) { count.hidden = !unfinished; count.textContent = unfinished ? String(unfinished) : ''; }
-    $('downloads-indicator-label').textContent = active
-      ? ('Downloading ' + (active.title || 'lecture') + ' · ' + (active.pct || 0) + '%' + (waiting ? ' · ' + waiting + ' waiting' : ''))
-      : (unfinished ? ('↓ ' + unfinished + ' downloads') : 'Downloads');
-    if (label) label.textContent = active ? ((active.pct || 0) + '%') : 'Downloads';
-    indicator.setAttribute('aria-label', active ? ('Downloads: ' + (active.pct || 0) + '% in progress') : 'Open downloads');
+    if (label) label.textContent = active ? (downloadPercent(active.item) + '%') : 'Downloads';
+    indicator.setAttribute('aria-label', active
+      ? ('Downloads: ' + downloadPercent(active.item) + '% in progress' + (waiting ? ', ' + waiting + ' waiting' : ''))
+      : 'Open downloads');
     if (!items.length) {
       list.innerHTML = '<div style="padding:18px 10px;text-align:center;font:500 12px \'Space Grotesk\';color:var(--muted)">No downloads yet.</div>';
       return;
     }
-    list.innerHTML = items.map(function (item) {
-      var status = item.status || 'waiting';
-      var progress = status === 'downloading'
-        ? '<div style="height:6px;border-radius:4px;background:var(--sunk);overflow:hidden;margin:7px 0 4px"><div class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(' + Math.max(0, Math.min(1, (item.pct || 0) / 100)) + ')"></div></div>'
+    list.innerHTML = rows.map(function (row) {
+      var item = row.item, status = row.status, pct = downloadPercent(item), eta = downloadEta(item);
+      var progress = status === 'running'
+        ? '<div style="height:6px;border-radius:4px;background:var(--sunk);overflow:hidden;margin:7px 0 4px"><div class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(' + (pct / 100) + ')"></div></div>'
         : '';
-      var meta = status === 'downloading'
-        ? ((item.pct || 0) + '%' + (item.speed ? ' · ' + fmtBytes(item.speed) + '/s' : '') + (item.eta ? ' · ~' + fmtDuration(item.eta) + ' left' : ''))
-        : status.charAt(0).toUpperCase() + status.slice(1);
-      var action = status === 'downloading'
-        ? '<button data-download-act="cancel" data-download-id="' + esc(item.id) + '">Cancel</button>'
-        : status === 'waiting'
-          ? '<button data-download-act="remove" data-download-id="' + esc(item.id) + '">Remove</button>'
-          : status === 'failed' || status === 'cancelled'
-            ? '<button data-download-act="retry" data-download-id="' + esc(item.id) + '">Retry</button>' : '';
+      var meta = status === 'running'
+        ? (pct + '%' + (item.speed ? ' · ' + fmtBytes(item.speed) + '/s' : '') + (eta != null ? ' · ~' + fmtDuration(eta) + ' left' : ''))
+        : status === 'completed'
+          ? 'Completed'
+          : status === 'failed'
+            ? (String(item.legacy_status || '').toLowerCase() === 'cancelled' ? 'Cancelled' : 'Failed')
+            : 'Waiting';
+      var action = row.id && status === 'running'
+        ? '<button data-download-act="cancel" data-download-id="' + esc(row.id) + '">Cancel</button>'
+        : row.id && status === 'waiting'
+          ? '<button data-download-act="remove" data-download-id="' + esc(row.id) + '">Remove</button>'
+          : row.id && status === 'failed'
+            ? '<button data-download-act="retry" data-download-id="' + esc(row.id) + '">Retry</button>' : '';
       return '<div style="padding:10px;border-radius:9px;background:var(--panel2);margin-bottom:6px"><div style="display:flex;gap:9px;align-items:start"><div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(item.title || 'Lecture download') + '</div>' + progress + '<div style="font:500 10px \'JetBrains Mono\';color:' + (status === 'failed' ? 'var(--red)' : 'var(--muted)') + '">' + esc(meta) + '</div>' + (item.error ? '<details style="font-size:11px;color:var(--muted);margin-top:5px"><summary>Details</summary><div style="overflow-wrap:anywhere">' + esc(item.error) + '</div></details>' : '') + '</div><div class="lp-download-action">' + action + '</div></div></div>';
     }).join('');
     positionDownloadsPanel();
@@ -4816,8 +4849,25 @@
   function tourSeen() {
     try { return browserStorage().getItem(TOUR_STORAGE_KEY) === '1'; } catch (e) { return false; }
   }
-  function markTourSeen() {
+  function persistGuidedTourState(status) {
+    if (!status || !lpBridge.connected()) return Promise.resolve(null);
+    return lpBridge.call('set_guided_tour_state', { status: status }).then(function (value) {
+      var result = parseBridgeResult(value);
+      if (!result || result.ok !== true) {
+        toast('LecturePack could not save the guided tour state.');
+        return result;
+      }
+      if (result.guided_tour) applyGuidedTourEligibility(result);
+      return result;
+    }, function () {
+      toast('LecturePack could not save the guided tour state.');
+      return null;
+    });
+  }
+  function markTourSeen(status) {
+    status = status || 'skipped';
     try { browserStorage().setItem(TOUR_STORAGE_KEY, '1'); } catch (e) {}
+    return persistGuidedTourState(status);
   }
   var tourTraceEnabled = false;
   var tourTraceQueue = [], tourTraceFlushTimer = null, tourTraceFrame = null;
@@ -5251,14 +5301,30 @@
   }
   function startGuidedTour(replay) {
     if (!demoAdmissionAvailable) return;
-    if (!replay && !tourEligibilityAllowsOffer()) return;
-    closeAllModals();           // the tour never shares the screen with a modal (F-2)
-    if (replay) guidedTour.replay(); else guidedTour.start();
-    guidedDemoFlow.start();
-    renderDemoHomeAvailability();
-    var phase = currentTourPhase();
-    if (phase) setScreen(phase.screen);
-    renderGuidedTour();
+    if (!replay && !tourEligibilityAllowsOffer()) return Promise.resolve(false);
+    function begin() {
+      closeAllModals();           // the tour never shares the screen with a modal (F-2)
+      if (replay) guidedTour.replay(); else guidedTour.start();
+      guidedDemoFlow.start();
+      renderDemoHomeAvailability();
+      var phase = currentTourPhase();
+      if (phase) setScreen(phase.screen);
+      renderGuidedTour();
+      return true;
+    }
+    if (!replay || !lpBridge.connected()) return Promise.resolve(begin());
+    return lpBridge.call('replay_guided_tour').then(function (value) {
+      var result = parseBridgeResult(value);
+      if (!result || result.ok !== true || result.ready_to_start !== true) {
+        toast((result && result.error) || 'Could not replay the guided tour.');
+        return false;
+      }
+      if (result.guided_tour) applyGuidedTourEligibility(result);
+      return begin();
+    }, function () {
+      toast('Could not replay the guided tour.');
+      return false;
+    });
   }
   function exitGuidedTour() {
     guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen(); demoHomeDismissed = true;
@@ -5283,7 +5349,7 @@
   // The completion card's two destinations. Both end the tour like a normal
   // exit (seen-marked, demo settled) and then land somewhere useful.
   function finishGuidedTour(destination) {
-    guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen(); demoHomeDismissed = true;
+    guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen('completed'); demoHomeDismissed = true;
     renderDemoHomeAvailability(); renderGuidedTour();
     renderSlideDetectionPreset();
     endGuidedDemo('tour_complete');
@@ -5325,7 +5391,10 @@
     if (current.active) { endGuidedDemo('user_cancelled'); return; }
     if (!demoAdmissionAvailable) return;
     if (!lpBridge.connected()) { toast('Guided demo needs the LecturePack desktop app.'); return; }
-    if (!guidedTour.snapshot().active) startGuidedTour(true);
+    if (!guidedTour.snapshot().active) {
+      Promise.resolve(startGuidedTour(true)).then(function (started) { if (started) startGuidedDemo(); });
+      return;
+    }
     // A retry after clean-up (or a failed start) is a new demo, not a
     // continuation of whatever action-led screen the prior run last reached.
     // Do not reset the current run: active attempts returned above.
@@ -5424,8 +5493,7 @@
     $('btn-tour-open-pack').addEventListener('click', function () { finishGuidedTour('pack'); });
     $('btn-tour-import-own').addEventListener('click', function () { finishGuidedTour('import'); });
     $('btn-replay-tour').addEventListener('click', function () {
-      startGuidedTour(true);
-      startGuidedDemo();
+      Promise.resolve(startGuidedTour(true)).then(function (started) { if (started) startGuidedDemo(); });
     });
     var demoCard = $('glowing-demo-card');
     demoCard.addEventListener('click', function () {
@@ -6903,7 +6971,7 @@
         if (!anyModalOpen()) {
           var tourSnap = guidedTour.snapshot();
           if (tourSnap.active) exitGuidedTour();
-          else if (tourSnap.prompt) { guidedTour.exit(); markTourSeen(); demoHomeDismissed = true; renderGuidedTour(); renderDemoHomeAvailability(); }
+          else if (tourSnap.prompt) { guidedTour.exit(); markTourSeen('skipped'); demoHomeDismissed = true; renderGuidedTour(); renderDemoHomeAvailability(); }
         }
         return;
       }
@@ -7228,9 +7296,10 @@
     lpBridge.on('media_progress', function (json) {
       try {
         var update = parseBridgePayload(json || '{}', {});
-        var item = mediaLink.downloads.filter(function (candidate) { return candidate.id === update.download_id; })[0];
+        var updateId = update.download_id != null ? String(update.download_id) : String(update.id || '');
+        var item = mediaLink.downloads.filter(function (candidate) { return downloadId(candidate) === updateId; })[0];
         if (item) {
-          ['status', 'pct', 'eta', 'speed', 'downloaded', 'total'].forEach(function (key) {
+          ['status', 'legacy_status', 'progress', 'pct', 'eta', 'eta_seconds', 'speed', 'downloaded', 'total'].forEach(function (key) {
             if (update[key] !== undefined) item[key] = update[key];
           });
           renderDownloads();
