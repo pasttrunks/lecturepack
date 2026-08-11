@@ -1754,3 +1754,41 @@ regression or orphaned sidecar.
 
 **Rationale:** Separate gates make each acceptance claim observable without
 weakening cleanup or contaminating real user state.
+
+## AD-45: Keep packaged readiness and the first-run checklist on one contract
+
+**Date:** 2026-08-11
+
+**Status:** Implemented for the v2.0.1 polish/integration candidate
+
+**Context:** The packaged sidecar returned detailed release-health checks to
+the Electron host. That list contains separate ffmpeg/ffprobe and Whisper
+smoke records, as well as optional checks, while the renderer's first-run gate
+expects exactly five canonical checklist records. The host therefore marked
+the runtime healthy and opened the checklist before its rows could receive
+their verdicts, leaving the user-facing "You're ready to go" copy above
+Pending rows.
+
+**Decision:** Adapt packaged health evidence through the existing backend
+`build_first_run_checklist` service, forward the resulting five
+`{id, verdict, detail}` records through the sidecar, and consume that field in
+both production bootstrap paths. The bridge also groups older raw health
+envelopes into the same five records as a compatibility fallback. The waiting
+state remains the existing honest checking panel with per-component progress,
+a determinate counter, and the existing slower-Whisper notice; no fabricated
+percentage or long-running animation is added.
+
+**Alternatives considered:**
+
+- Making the renderer infer groups from raw health checks: rejected because
+  backend health ownership already exists and would duplicate verdict logic in
+  the UI.
+- Showing the checklist heading while verdicts are pending: rejected because
+  it communicates readiness before the actionable Done control is valid.
+- Adding an indeterminate or decorative progress animation: rejected because
+  the startup checks already expose real milestones and an honest count.
+
+**Rationale:** One authoritative checklist reaches the renderer only after
+the same checks that establish packaged startup health have completed. The
+heading, Ready rows, and Done action therefore appear together, while the
+existing progress treatment makes the short local validation wait legible.

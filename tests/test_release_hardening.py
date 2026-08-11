@@ -45,6 +45,10 @@ def test_packaged_health_contract_has_stable_required_checks(tmp_path, monkeypat
     assert [check["id"] for check in result["checks"]] == list(packaged_health.CHECK_ORDER)
     assert result["passed"] is True
     assert result["startup_ok"] is True
+    assert [item["id"] for item in result["checklist"]] == [
+        "windows_version", "ffmpeg_ffprobe", "whisper_runtime", "bundled_model", "data_directory",
+    ]
+    assert all(set(item) == {"id", "verdict", "detail"} for item in result["checklist"])
 
 
 def test_source_sidecar_health_uses_checked_in_smoke_asset():

@@ -206,6 +206,93 @@ def test_setup_acknowledgement_requires_current_passing_health():
     assert config.persisted is True
 
 
+def test_sidecar_health_response_exposes_canonical_first_run_checklist():
+    module = _sidecar_module()
+    checklist = [
+        {"id": "windows_version", "verdict": "ready", "detail": "ok"},
+        {"id": "ffmpeg_ffprobe", "verdict": "ready", "detail": "ok"},
+        {"id": "whisper_runtime", "verdict": "ready", "detail": "ok"},
+        {"id": "bundled_model", "verdict": "ready", "detail": "ok"},
+        {"id": "data_directory", "verdict": "ready", "detail": "ok"},
+    ]
+    sidecar = module.Sidecar.__new__(module.Sidecar)
+    sidecar._engine_error = ""
+    sidecar._packaged_self_test = lambda include_sidecar=False: {
+        "passed": True,
+        "startup_ok": True,
+        "checks": [
+            {"id": "ffmpeg", "ok": True, "detail": "ok", "fatal_at_startup": True},
+            {"id": "ffprobe", "ok": True, "detail": "ok", "fatal_at_startup": True},
+        ],
+        "checklist": checklist,
+    }
+    sidecar._emit = lambda _payload: None
+    responses = []
+    sidecar._respond = lambda *_args, **kwargs: responses.append(kwargs)
+
+    sidecar._health_check("req-health", "health_check")
+
+    assert responses[-1]["checklist"] == checklist
+
+
+def test_bridge_health_adapter_normalizes_raw_packaged_checks_to_five_rows(tmp_path):
+    node = shutil.which("node")
+    if node is None:
+        return
+    harness = tmp_path / "bridge-checklist-contract.js"
+    harness.write_text(
+        r"""
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+const rawChecks = [
+  { id: 'data_directory', ok: true, detail: 'ok' },
+  { id: 'ffmpeg', ok: true, detail: 'ok' },
+  { id: 'ffprobe', ok: true, detail: 'ok' },
+  { id: 'whisper_runtime', ok: true, detail: 'ok' },
+  { id: 'whisper_smoke', ok: true, detail: 'ok' },
+  { id: 'bundled_model', ok: true, detail: 'ok' },
+  { id: 'study_core', ok: true, detail: 'ok' }
+];
+const context = {
+  console: { error() {} },
+  window: {
+    localStorage: { setItem() {} },
+    lecturePackElectron: {
+      request(command) {
+        if (command === 'health_check') return Promise.resolve({
+          startup_ok: true, healthy: true, engine_loaded: true,
+          passed: true, checks: rawChecks
+        });
+        return Promise.resolve({ ok: true });
+      },
+      onMessage() {}
+    }
+  }
+};
+vm.createContext(context);
+vm.runInContext(source, context, { filename: 'electron-bridge.js' });
+(async () => {
+  const assessment = JSON.parse(await context.window.lpBridge.retryRuntimeAssessment());
+  const expected = ['windows_version', 'ffmpeg_ffprobe', 'whisper_runtime', 'bundled_model', 'data_directory'];
+  if (JSON.stringify(assessment.checklist.map((item) => item.id)) !== JSON.stringify(expected)) throw new Error('wrong checklist ids');
+  if (assessment.checklist[0].verdict !== 'needs_attention') throw new Error('missing Windows evidence must not look ready');
+  if (assessment.checklist.slice(1).some((item) => item.verdict !== 'ready')) throw new Error('grouped checks were not ready');
+  if (assessment.checklist.some((item) => Object.keys(item).sort().join(',') !== 'detail,id,verdict')) throw new Error('checklist leaked fields');
+})().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
+""".strip() + "\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [node, str(harness), str(ROOT / "electron-spike" / "electron-bridge.js")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_demo_exit_reason_persists_durable_tour_state_without_renderer_storage(tmp_path):
     module = _sidecar_module()
     config = ConfigManager(str(tmp_path))

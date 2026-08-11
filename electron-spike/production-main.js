@@ -782,6 +782,7 @@ async function bootstrap(session, attempt) {
     if (attempt !== session.startupAttempt) return;
     const jobs = Array.isArray(listed.jobs) ? listed.jobs : [];
     const setupAcknowledged = health.startup_ok === true && health.setup_acknowledged === true;
+    const checklist = Array.isArray(health.checklist) ? health.checklist : [];
     const guidedTour = listed.guided_tour || null;
     if (!jobs.length) {
       completeStartup(session);
@@ -792,7 +793,7 @@ async function bootstrap(session, attempt) {
         setup_acknowledged: setupAcknowledged,
         setup_complete: setupAcknowledged,
         healthy: true,
-        checklist: health.checks || [],
+        checklist,
         guided_tour: guidedTour
       };
       session.latestBootstrap = bootstrapPayload;
@@ -813,7 +814,7 @@ async function bootstrap(session, attempt) {
       setup_acknowledged: setupAcknowledged,
       setup_complete: setupAcknowledged,
       healthy: true,
-      checklist: health.checks || [],
+      checklist,
       guided_tour: guidedTour
     };
     session.latestBootstrap = bootstrapPayload;
@@ -1336,7 +1337,8 @@ async function handleCommand(session, command, payload) {
       setup_complete: !!(session.latestHealth && session.latestHealth.setup_acknowledged === true),
       healthy: !!(session.latestHealth && session.latestHealth.startup_ok === true),
       guided_tour: session.guidedTour || null,
-      checklist: session.latestHealth && session.latestHealth.checks || []
+      checklist: session.latestHealth && Array.isArray(session.latestHealth.checklist)
+        ? session.latestHealth.checklist : []
     };
   }
   if (command === 'browse_video') return browseVideo(session);

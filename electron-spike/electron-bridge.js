@@ -106,6 +106,59 @@
     }));
   }
 
+  var FIRST_RUN_CHECKLIST_IDS = [
+    'windows_version',
+    'ffmpeg_ffprobe',
+    'whisper_runtime',
+    'bundled_model',
+    'data_directory'
+  ];
+
+  function checklistRecord(id, verdict, detail) {
+    return {
+      id: id,
+      verdict: verdict === 'ready' ? 'ready' : 'needs_attention',
+      detail: String(detail || '')
+    };
+  }
+
+  function normalizeChecklist(result, checks) {
+    var authoritative = result && Array.isArray(result.checklist) ? result.checklist : [];
+    var authoritativeById = {};
+    authoritative.forEach(function (item) {
+      if (item && FIRST_RUN_CHECKLIST_IDS.indexOf(item.id) !== -1) authoritativeById[item.id] = item;
+    });
+    var rawById = {};
+    checks.forEach(function (check) {
+      if (check && check.id) rawById[check.id] = check;
+    });
+
+    function fromRaw(id, rawIds) {
+      var direct = rawById[id];
+      if (direct) return checklistRecord(id, direct.ok === true ? 'ready' : 'needs_attention', direct.detail);
+      var records = rawIds.map(function (rawId) { return rawById[rawId]; }).filter(Boolean);
+      if (!records.length) return checklistRecord(id, 'needs_attention', id + ' health result missing');
+      var ready = records.length === rawIds.length && records.every(function (check) { return check.ok === true; });
+      var detail = records.filter(function (check) { return check.ok !== true; })
+        .map(function (check) { return String(check.detail || (check.id + ' health check failed')); })
+        .join('; ');
+      return checklistRecord(id, ready ? 'ready' : 'needs_attention', detail || 'All required checks passed.');
+    }
+
+    var rawGroups = {
+      windows_version: ['windows_version'],
+      ffmpeg_ffprobe: ['ffmpeg', 'ffprobe'],
+      whisper_runtime: ['whisper_runtime', 'whisper_smoke'],
+      bundled_model: ['bundled_model'],
+      data_directory: ['data_directory']
+    };
+    return FIRST_RUN_CHECKLIST_IDS.map(function (id) {
+      var item = authoritativeById[id];
+      if (item) return checklistRecord(id, item.verdict, item.detail);
+      return fromRaw(id, rawGroups[id]);
+    });
+  }
+
   function bootstrapFromHealth(result) {
     var checks = result && Array.isArray(result.checks) ? result.checks : [];
     var failed = checks.filter(function (check) { return !check || check.ok !== true; });
@@ -126,9 +179,7 @@
       healthy: healthy,
       engine_loaded: !!(result && result.engine_loaded),
       validation_path: 'full',
-      checklist: checks.map(function (check) {
-        return { id: check.id, verdict: check.ok === true ? 'ready' : 'needs_attention', detail: check.detail || '' };
-      }),
+      checklist: normalizeChecklist(result, checks),
       failed_components: failed.map(function (check) {
         return { component: check.id, friendly_name: check.title || check.detail || check.id };
       }),

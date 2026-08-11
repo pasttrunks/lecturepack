@@ -768,6 +768,7 @@ class Sidecar:
             passed=health["passed"],
             startup_ok=health["startup_ok"],
             checks=health["checks"],
+            checklist=health.get("checklist", []),
             error=self._engine_error,
         )
 
