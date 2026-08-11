@@ -32,6 +32,7 @@ from electron_packaged_acceptance import (  # noqa: E402
 )
 from lecturepack.infrastructure.config_manager import ConfigManager  # noqa: E402
 from lecturepack.models.job import Job  # noqa: E402
+from lecturepack.services.first_run_checklist import FIRST_RUN_CHECKLIST_ITEMS  # noqa: E402
 
 
 def sha256(path: Path) -> str:
@@ -152,6 +153,17 @@ def run_gate(app_dir: Path, data_root: Path, results_dir: Path,
             checks,
             "runtime_setup_fatal_checks",
             {"startup_ok": health.get("startup_ok"), "checks": health.get("checks", [])},
+            details,
+        )
+        checklist = health.get("checklist")
+        check(
+            isinstance(checklist, list)
+            and [item.get("id") for item in checklist] == list(FIRST_RUN_CHECKLIST_ITEMS)
+            and all(set(item) == {"id", "verdict", "detail"} for item in checklist)
+            and all(item.get("verdict") == "ready" for item in checklist),
+            checks,
+            "runtime_setup_checklist_contract",
+            checklist,
             details,
         )
         optional_failed = [
