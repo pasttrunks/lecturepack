@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import re
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +14,15 @@ CSS = (UI / "app.css").read_text(encoding="utf-8")
 
 def function_block(source: str, start: str, end: str) -> str:
     return source.split(start, 1)[1].split(end, 1)[0]
+
+
+def run_runtime_reducer(body: str) -> subprocess.CompletedProcess[str]:
+    constants = JS.split("var FIRST_RUN_ROWS = [", 1)[1].rsplit(
+        "function RuntimeSetupGateModel()", 1
+    )[0]
+    reducer = function_block(JS, "function RuntimeSetupGateModel()", "var RuntimeSetupGate")
+    program = "var FIRST_RUN_ROWS = [" + constants + "function RuntimeSetupGateModel()" + reducer + body
+    return subprocess.run(["node", "-e", program], capture_output=True, text=True)
 
 
 def test_runtime_setup_is_green_only_and_reset_is_backend_owned() -> None:
@@ -39,6 +49,30 @@ def test_runtime_setup_is_green_only_and_reset_is_backend_owned() -> None:
     assert "LecturePack media, settings, and app history." in JS
     assert "Original lecture/video files outside LecturePack will not be deleted." in JS
     assert "lpBridge.call('reset_lecturepack')" in JS
+
+
+def test_healthy_incomplete_bootstrap_waits_before_exposing_checklist() -> None:
+    result = run_runtime_reducer(
+        r'''
+        const gate = RuntimeSetupGateModel();
+        let view = gate.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false, checklist: []});
+        if (view.state !== 'checking' || view.checklistReady) process.exit(1);
+        if (Object.keys(view.checkProgress).length !== 5) process.exit(2);
+        const ready = [
+          {id: 'windows_version', verdict: 'ready'},
+          {id: 'ffmpeg_ffprobe', verdict: 'ready'},
+          {id: 'whisper_runtime', verdict: 'ready'},
+          {id: 'bundled_model', verdict: 'ready'},
+          {id: 'data_directory', verdict: 'ready'}
+        ];
+        view = gate.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false, checklist: ready});
+        if (view.state !== 'checklist' || !view.checklistReady) process.exit(3);
+        const malformed = RuntimeSetupGateModel();
+        malformed.bootstrap({runtime_health_state: 'HEALTHY', bootstrap_pending: false, setup_acknowledged: false, checklist: ready.slice(0, 4)});
+        if (malformed.toChecklist().state !== 'checking') process.exit(4);
+        '''
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_guided_tour_uses_authoritative_eligibility_and_cleans_demo() -> None:
@@ -105,3 +139,11 @@ def test_downloads_review_and_timeline_polish_hooks_are_present() -> None:
     assert "LP.state.viewingSlide = nearest.slide._i" in JS
     assert "transcriptTimestampSeconds" in JS
     assert "scrollIntoView({ block: 'center' })" in JS
+
+
+def test_runtime_checklist_render_has_a_defensive_readiness_guard() -> None:
+    runtime_render = function_block(JS, "function render(dataChanged, forceCheckingOpen)", "function neutralPanels")
+    checklist_render = function_block(JS, "function renderChecklist()", "function renderOffer")
+    assert "view.state === 'checklist' && !view.checklistReady" in runtime_render
+    assert "eventModel.waitForChecklist()" in runtime_render
+    assert "empty.hidden = ready" in checklist_render

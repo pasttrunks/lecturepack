@@ -3194,10 +3194,16 @@
     var state = 'gate', returnState = 'gate', retryPending = false, cancelPending = false;
     var activeOperation = null, terminal = false, offer = null, bootstrapPending = true, healthy = false;
     var validationPath = null, acknowledged = false, checklist = [], checkProgress = {}, startupFailure = null;
+    var REQUIRED_CHECK_IDS = ['windows_version', 'ffmpeg_ffprobe', 'whisper_runtime', 'bundled_model', 'data_directory'];
+    function waitForChecklist() {
+      state = 'checking';
+      checkProgress = {};
+      REQUIRED_CHECK_IDS.forEach(function (id) { checkProgress[id] = 'pending'; });
+      return snapshot();
+    }
     function requiredChecklistReady(items) {
-      var requiredIds = ['windows_version', 'ffmpeg_ffprobe', 'whisper_runtime', 'bundled_model', 'data_directory'];
-      if (!Array.isArray(items) || items.length !== requiredIds.length) return false;
-      return requiredIds.every(function (id) {
+      if (!Array.isArray(items) || items.length !== REQUIRED_CHECK_IDS.length) return false;
+      return REQUIRED_CHECK_IDS.every(function (id) {
         return items.some(function (item) { return item && item.id === id && item.verdict === 'ready'; });
       });
     }
@@ -3249,9 +3255,7 @@
           // An in-flight repair operation is never hijacked by a pending
           // bootstrap arriving mid-repair.
           if (validationPath === 'full' && !activeOperation) {
-            state = 'checking';
-            checkProgress = {};
-            FIRST_RUN_ROWS.forEach(function (row) { checkProgress[row.id] = 'pending'; });
+            waitForChecklist();
           }
           return snapshot();
         }
@@ -3262,11 +3266,11 @@
           healthy = true;
           if (activeOperation && !terminal) this.event({ operation_id: activeOperation, kind: 'admitted' });
           else if (!activeOperation && !acknowledged) {
-            // D-12: a first-ever healthy admission always shows the
-            // checklist; an already-acknowledged admission leaves the state
-            // exactly where the pre-01-07 reducer left it, so the
-            // controller's existing close path still closes the overlay.
-            state = 'checklist';
+            // A healthy result without the authoritative five-row checklist
+            // is still incomplete. Keep the existing checking panel visible
+            // until the backend result can support a real checklist frame.
+            if (requiredChecklistReady(checklist)) state = 'checklist';
+            else waitForChecklist();
           }
         }
         return snapshot();
@@ -3311,9 +3315,13 @@
          is not the only future caller, so the healthy/unacknowledged guard
          lives here rather than at each call site. */
       toChecklist: function () {
-        if (healthy && !acknowledged) state = 'checklist';
+        if (healthy && !acknowledged) {
+          if (requiredChecklistReady(checklist)) state = 'checklist';
+          else waitForChecklist();
+        }
         return snapshot();
       },
+      waitForChecklist: waitForChecklist,
       event: function (event) {
         if (!accept(event)) return snapshot();
         if (event.kind === 'metadata_ready') return this.offer(event.offer || event);
@@ -3502,9 +3510,12 @@
       var items = Array.isArray(view.checklist) ? view.checklist : [];
       var byId = {};
       items.forEach(function (item) { if (item && item.id) byId[item.id] = item; });
-      var complete = items.length === FIRST_RUN_ROWS.length && FIRST_RUN_ROWS.every(function (row) { return !!byId[row.id]; });
       var ready = !!view.checklistReady;
-      empty.hidden = complete;
+      // A checklist frame is meaningful only when all five authoritative
+      // records are present and green. If a malformed/partial payload reaches
+      // this renderer boundary, keep its waiting copy visible and keep Done
+      // hidden instead of presenting a false readiness state.
+      empty.hidden = ready;
       if (done) { done.disabled = !ready; done.hidden = !ready; }
       var rowIndex = 0;
       FIRST_RUN_ROWS.forEach(function (row) {
@@ -3546,7 +3557,11 @@
       return Number(bytes).toLocaleString('en-US') + ' bytes';
     }
     function render(dataChanged, forceCheckingOpen) {
-      var view = eventModel.snapshot(), next = view.state;
+      var view = eventModel.snapshot();
+      // Defensive DOM-boundary guard: no malformed bootstrap or stale event
+      // may expose the checklist heading before the five green records exist.
+      if (view.state === 'checklist' && !view.checklistReady) view = eventModel.waitForChecklist();
+      var next = view.state;
       if (STATES.indexOf(next) < 0) return;
       var el = overlay(); if (!el) return;
       if (closeInFlight) return;
@@ -3625,8 +3640,10 @@
       // the demo offer (D-17), so skipping it here would silently drop the
       // demo offer for the users with the roughest install.
       if (snap.healthy && !snap.acknowledged) {
-        eventModel.toChecklist();
-        announce('runtime-live-assertive', "You're ready to go.");
+        var view = eventModel.toChecklist();
+        announce('runtime-live-assertive', view.state === 'checklist'
+          ? "You're ready to go."
+          : 'LecturePack is still checking the required runtime components.');
         render();
         return;
       }
