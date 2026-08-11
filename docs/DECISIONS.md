@@ -1692,3 +1692,33 @@ known Electron userData files and WebEngine storage before relaunch.
 **Rationale:** The smallest additions make the current production seams
 identity-safe and restartable while preserving the selected local JSON/Qt/
 Electron architecture and the existing renderer contract.
+
+## AD-43: Let the sidecar own terminal guided-tour persistence
+
+**Date:** 2026-08-11
+
+**Status:** Implemented for the v2.0.1 polish/integration candidate
+
+**Context:** The merged renderer retains a legacy localStorage marker for the
+guided tour while the current renderer/backend contract requires durable
+eligibility. A renderer exit can also occur before a demo job exists, so a
+cleanup-only hook is insufficient.
+
+**Decision:** The sidecar records only explicit `tour_exit`/`tour_skip` and
+`tour_complete` reasons received through `end_demo_job`; operational
+cancellation and runtime failure remain retry-eligible. Starting the marked
+bundled demo resets only the durable tour offer to `not_seen`, which provides a
+safe replay boundary without changing real jobs.
+
+**Alternatives considered:**
+
+- Trusting renderer localStorage: rejected because reset, upgrade, and a
+  second profile can disagree with the authoritative persisted state.
+- Marking every demo cancellation as skipped: rejected because a failed or
+  interrupted demo must remain retryable.
+- Adding another tour database/state framework: rejected because the existing
+  atomic config and sidecar session marker already provide the needed boundary.
+
+**Rationale:** Explicit reasons preserve the small current command surface and
+make the sidecar authoritative even when the renderer's legacy marker is the
+only UI-side signal.

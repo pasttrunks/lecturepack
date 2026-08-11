@@ -206,6 +206,28 @@ def test_setup_acknowledgement_requires_current_passing_health():
     assert config.persisted is True
 
 
+def test_demo_exit_reason_persists_durable_tour_state_without_renderer_storage(tmp_path):
+    module = _sidecar_module()
+    config = ConfigManager(str(tmp_path))
+    sidecar = module.Sidecar.__new__(module.Sidecar)
+    sidecar.config = config
+    sidecar.onboarding_state = onboarding_state
+    sidecar._demo_session = None
+    sidecar._guided_tour_state = None
+    sidecar._emit = lambda _payload: None
+    responses = []
+    sidecar._respond = lambda *_args, **kwargs: responses.append(kwargs)
+
+    sidecar._end_demo_job("req-skip", "end_demo_job", {"reason": "tour_exit"})
+    assert responses[-1]["ok"] is True
+    assert responses[-1]["guided_tour"]["status"] == "skipped"
+    assert onboarding_state.guided_tour_state(config.settings)["eligible"] is False
+
+    sidecar._end_demo_job("req-complete", "end_demo_job", {"reason": "tour_complete"})
+    assert responses[-1]["guided_tour"]["status"] == "completed"
+    assert onboarding_state.guided_tour_state(config.settings)["completed"] is True
+
+
 def test_bridge_keeps_demo_identity_and_bootstrap_state_on_real_boundary(tmp_path):
     if shutil.which("node") is None:
         return

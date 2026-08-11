@@ -1123,6 +1123,16 @@ class Sidecar:
         if not os.access(source, os.R_OK):
             raise ImportVideoError("UNREADABLE", f"video is not readable: {source}")
         if bundled_demo:
+            # Starting a bundled demo is the real replay/new-tour boundary.
+            # Reset only the durable offer state; ordinary lecture imports do
+            # not affect onboarding and existing jobs remain untouched.
+            if hasattr(self, "config"):
+                self._guided_tour_state = self.onboarding_state.set_guided_tour_status(
+                    self.config, "not_seen"
+                )
+                self._emit({"event": "onboarding_state",
+                            "guided_tour": dict(self._guided_tour_state),
+                            **self._guided_tour_state})
             source = self._copy_demo_if_needed(source)
         if self.controller is None:
             raise RuntimeError(self._engine_error or "engine is not loaded")
@@ -1432,6 +1442,33 @@ class Sidecar:
         self._respond(request_id, command, replay=True, ready_to_start=True,
                       guided_tour=state, **state)
 
+    def _record_guided_tour_terminal_state(self, reason: Any) -> dict[str, Any] | None:
+        """Persist explicit renderer demo-exit reasons at the state boundary.
+
+        The current renderer also keeps a legacy localStorage marker. Do not
+        make that browser-only marker authoritative: the sidecar owns the
+        durable state and can safely interpret the two explicit tour reasons
+        that cross the demo-session boundary. Operational cancellation and
+        runtime failure deliberately remain eligible for a later retry.
+        """
+        normalized = str(reason or "").strip().lower()
+        status = {
+            "tour_complete": "completed",
+            "tour_completed": "completed",
+            "complete": "completed",
+            "completed": "completed",
+            "tour_exit": "skipped",
+            "tour_skip": "skipped",
+            "skip": "skipped",
+            "skipped": "skipped",
+        }.get(normalized)
+        if status is None or not hasattr(self, "config"):
+            return None
+        state = self.onboarding_state.set_guided_tour_status(self.config, status)
+        self._guided_tour_state = state
+        self._emit({"event": "onboarding_state", "guided_tour": dict(state), **state})
+        return state
+
     # ------------------------------------------------------------------ #
     # Temporary guided-demo lifecycle
     # ------------------------------------------------------------------ #
@@ -1563,6 +1600,7 @@ class Sidecar:
             except (OSError, RuntimeError) as exc:
                 return {"ok": False, "error": f"could not remove guided demo artifacts: {exc}"}
             self._demo_session = None
+            guided_tour = self._record_guided_tour_terminal_state(reason)
             self._emit({
                 "event": "demo_session",
                 "status": "cleaned",
@@ -1579,6 +1617,7 @@ class Sidecar:
                 "status": "cleaned",
                 "session_id": session_id,
                 "job_id": job_id,
+                **({"guided_tour": guided_tour} if guided_tour else {}),
             }
         finally:
             self._cleaning_demo = False
@@ -1586,15 +1625,18 @@ class Sidecar:
     def _end_demo_job(self, request_id: str | None, command: str,
                       payload: dict[str, Any]) -> None:
         session = self._demo_session
+        reason = str(payload.get("reason") or "tour_end")
         if session is None:
-            self._respond(request_id, command, status="not_running")
+            guided_tour = self._record_guided_tour_terminal_state(reason)
+            self._respond(request_id, command, ok=True, status="not_running",
+                          **({"guided_tour": guided_tour} if guided_tour else {}))
             return
         requested = str(payload.get("job_id") or "")
         if requested and requested != str(session.get("job_id")):
             self._respond(request_id, command, ok=False,
                           error="guided demo session does not match requested job")
             return
-        result = self._cleanup_demo_session(str(payload.get("reason") or "tour_end"))
+        result = self._cleanup_demo_session(reason)
         self._respond(request_id, command, **result)
 
     def _reset_lecturepack(self, request_id: str | None, command: str) -> None:
