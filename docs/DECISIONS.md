@@ -1792,3 +1792,68 @@ percentage or long-running animation is added.
 the same checks that establish packaged startup health have completed. The
 heading, Ready rows, and Done action therefore appear together, while the
 existing progress treatment makes the short local validation wait legible.
+
+## AD-46: Route AI-first Study through a payload-minimizing server gateway
+
+**Date:** 2026-08-12
+
+**Status:** Implemented locally; deployment and real-provider acceptance pending
+
+**Context:** Production Study needs higher-quality lecture analysis, grounded
+materials, Ask, Teach Me, and semantic short-answer grading without exposing
+provider credentials or provider/model choices in the desktop application.
+The approved AI-first Study assignment explicitly introduces this narrow
+network boundary; it is an exception to the earlier local-only Study policy,
+not a general authorization for telemetry or unrelated network access.
+
+**Decision:** Keep the Electron renderer and Python sidecar provider-neutral.
+The desktop sends only task-scoped lecture evidence to the first-party HTTPS
+gateway, authenticated by an anonymous installation token. The gateway owns a
+fixed task allowlist, server-selected two-to-three-route provider chains,
+schema validation, rate limits, safe errors, and payload-free owner alerts.
+Its D1 records contain operational metadata only; transcript text, prompts,
+responses, and slide images are never persisted by the gateway. The primary
+Study build is a two-pass analysis/material flow. Deterministic Basic Study is
+available only after an explicit failure or user choice, and never silently
+replaces the AI path.
+
+Provider credentials and route selection remain server-side. Provider/model
+identifiers appear only inside the student's explicit copied technical
+diagnostics and payload-free owner alerts; they are never presented in normal
+Study or Settings UI. LecturePack persists only normalized Study artifacts,
+provenance, mastery, safe failure diagnostics, and a bounded concept-level
+interaction cache in the existing per-job data root. Original videos remain
+local and are never read by the gateway client.
+
+**Alternatives considered:**
+
+- Direct provider calls or BYOK in the desktop: rejected because secrets and
+  routing policy would ship to every client and create a provider setup UI.
+- A bundled local model or vector database: rejected because it changes the
+  approved release footprint and is outside this phase.
+- One unvalidated provider response: rejected because malformed output could
+  cross directly into persisted study state and no route fallback would exist.
+- Silent deterministic fallback: rejected because students could believe they
+  received the requested AI system when generation had actually failed.
+- Storing payloads in D1 for debugging: rejected because lecture evidence is
+  not needed for rate limiting or reliability diagnosis.
+
+**Rationale:** One narrow gateway preserves a simple student experience while
+keeping secrets, model changes, retries, limits, and provider failover outside
+the desktop release. Explicit Basic mode makes failure honest and recoverable,
+and the metadata-only server boundary minimizes retained lecture data.
+
+**Official provider/platform contracts checked 2026-08-12:**
+
+- OpenRouter structured outputs:
+  `https://openrouter.ai/docs/guides/features/structured-outputs`
+- OpenRouter web-search server tool:
+  `https://openrouter.ai/docs/guides/features/server-tools/web-search`
+- NVIDIA NIM OpenAI-compatible inference reference:
+  `https://docs.api.nvidia.com/nim/reference/openai-gpt-oss-120b-infer`
+- Cloudflare Workers Web Crypto, D1 Worker API, and rate-limit bindings:
+  `https://developers.cloudflare.com/workers/runtime-apis/web-crypto/`,
+  `https://developers.cloudflare.com/d1/worker-api/d1-database/`, and
+  `https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/`
+- Resend send-email API:
+  `https://resend.com/docs/api-reference/emails/send-email`

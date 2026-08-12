@@ -233,8 +233,13 @@ def test_delete_concept_removes_related_items(tmp_path):
     job = FakeJob(tmp_path)
     content = {
         "schema_version": 2,
+        "lecture_analysis": {
+            "concepts": [{"id": "c1"}, {"id": "c2"}],
+            "relationships": [{"from_concept_id": "c1", "to_concept_id": "c2"}],
+        },
         "concepts": [
             {"id": "c1", "title": "Troy", "explanation": "x", "sources": [], "emphasis": None},
+            {"id": "c2", "title": "Legacy", "explanation": "y", "sources": [], "emphasis": None},
         ],
         "flashcards": [
             {"id": "f1", "front": "Q", "back": "A", "concept_ids": ["c1"], "sources": []},
@@ -243,10 +248,29 @@ def test_delete_concept_removes_related_items(tmp_path):
             {"id": "q1", "question": "Q", "qtype": "mc", "options": ["a", "b"],
              "correct_index": 0, "explanation": "e", "concept_ids": ["c1"], "sources": []},
         ],
+        "study_guide": [{"heading": "Troy", "concept_ids": ["c1"]}],
+        "key_terms": [{"label": "Hisarlik", "concept_ids": ["c1"]}],
+        "teach_me_foundations": [{"concept_id": "c1", "concept_ids": ["c1"]}],
+        "quick_study_material": {
+            "five_minute": ["c1", "c2"], "ten_minute": ["c1", "c2"],
+            "twenty_minute": ["c1", "c2"], "full": ["c1", "c2"],
+        },
+        "cached_responses": [{"key": "one", "concept_ids": ["c1"], "response": {}}],
+        "enrichment": [{"concept_id": "c1", "sources": []}],
     }
     study_v2.save_content(job, content)
+    study_v2.record_quiz_result(job, "history", ["c1"], False)
     assert study_v2.delete_concept(job, "c1") is True
     loaded = study_v2.load_content(job)
-    assert loaded["concepts"] == []
+    assert [item["id"] for item in loaded["concepts"]] == ["c2"]
     assert loaded["flashcards"] == []
     assert loaded["quiz"] == []
+    assert loaded["study_guide"] == []
+    assert loaded["key_terms"] == []
+    assert loaded["teach_me_foundations"] == []
+    assert loaded["cached_responses"] == []
+    assert loaded["enrichment"] == []
+    assert loaded["lecture_analysis"]["concepts"] == [{"id": "c2"}]
+    assert loaded["lecture_analysis"]["relationships"] == []
+    assert loaded["quick_study_material"]["full"] == ["c2"]
+    assert study_v2.load_progress(job)["concepts"]["c1"]["mastery"] == "NEEDS_REVIEW"

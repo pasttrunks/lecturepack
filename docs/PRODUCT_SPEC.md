@@ -249,3 +249,33 @@ LecturePackData/
 ```
 
 The original video is never copied into the job directory. A source fingerprint (file size + mtime + partial SHA-256 of first/last 64 KB + ffprobe duration) detects whether the original file has changed.
+
+---
+
+## 15. As-built AI-first Study addendum (2026-08-12)
+
+This dated addendum supersedes the original v1.0 optional-local-LLM and
+local-only-network statements for the Study surface only. The production shell
+is Electron with the existing Python sidecar. Video inspection, audio
+extraction, Whisper transcription, slide extraction/OCR, alignment, review,
+and export remain local.
+
+After local lecture processing completes, LecturePack automatically sends a
+path-free evidence bundle (selected transcript text/timestamps, extracted slide
+text/relationships, and at most a few explicitly selected accepted-slide
+images) through the first-party HTTPS Study gateway. The original video and
+audio are never uploaded. The gateway authenticates an anonymous installation,
+selects server-owned provider/model routes, validates structured responses,
+and retains only operational usage metadata—not prompts, transcripts,
+responses, or slide images.
+
+AI Study performs a canonical lecture-analysis pass followed by a material
+generation pass and prepares Study Guide, Flashcards, mixed Quiz, Ask, Quick
+Study, and Teach Me as equal modes. Every saved item carries lecture or verified
+web provenance where applicable. No Study account, API key, provider picker,
+model picker, local model installation, or token UI is required. The existing
+deterministic generator remains available as the explicit Basic Study fallback.
+
+AD-46 in `docs/DECISIONS.md` and the AI-first Study boundary in
+`docs/ARCHITECTURE.md` are authoritative for the narrow network/privacy
+exception and failure behavior.

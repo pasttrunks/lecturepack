@@ -5,11 +5,14 @@ import { fileURLToPath } from 'node:url';
 
 const spikeRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(spikeRoot, '..');
+const buildRoot = process.env.LECTUREPACK_BUILD_ROOT
+  ? path.resolve(process.env.LECTUREPACK_BUILD_ROOT)
+  : spikeRoot;
 const uiDir = path.join(repoRoot, 'app', 'ui');
-const packagedSidecar = path.join(spikeRoot, 'dist-sidecar', 'LecturePackSidecar');
+const packagedSidecar = path.join(buildRoot, 'dist-sidecar', 'LecturePackSidecar');
 const demoAssets = path.join(spikeRoot, 'assets');
 const icon = path.join(repoRoot, 'app', 'packaging', 'lecturepack.ico');
-const outputDir = path.join(spikeRoot, 'dist');
+const outputDir = path.join(buildRoot, 'dist');
 const productionAsarFiles = new Set([
   'package.json',
   'production-main.js',
@@ -22,6 +25,8 @@ const productionAsarFiles = new Set([
 for (const required of [uiDir, packagedSidecar, demoAssets, icon]) {
   if (!pathExists(required)) throw new Error(`Required Electron package input is missing: ${required}`);
 }
+
+fs.mkdirSync(buildRoot, { recursive: true });
 
 function pathExists(candidate) {
   return fs.existsSync(candidate);

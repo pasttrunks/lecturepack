@@ -60,6 +60,7 @@
   // pipeline lifecycle into demo_event signals so the guided tour can advance
   // without a separate fake demo pipeline.
   var demoSession = null;
+  var DEMO_SIGNAL = Object.freeze({ event: 'demo_event' });
 
   function fire(name) {
     var args = Array.prototype.slice.call(arguments, 1);
@@ -207,7 +208,7 @@
 
   function demoEvent(payload) {
     if (!demoSession) return;
-    fire('demo_event', json(Object.assign({
+    fire(DEMO_SIGNAL.event, json(Object.assign({
       operation_id: demoSession.operationId,
       session_id: demoSession.sessionId
     }, payload)));
@@ -635,7 +636,7 @@
          var operationId = String(result.operation_id || ('demo-' + result.job_id));
          var sessionId = String(result.demo_session_id || result.session_id || ('session-' + result.job_id));
         demoSession = { operationId: operationId, sessionId: sessionId, jobId: result.job_id };
-        fire('demo_event', json({
+        fire(DEMO_SIGNAL.event, json({
           operation_id: operationId,
           session_id: sessionId,
           status: 'started',

@@ -1712,8 +1712,18 @@
       studyV2.quickSummary = null;
       studyV2.askStreaming = false;
       studyV2.askAnswer = null;
+      studyV2.teachConceptId = '';
+      studyV2.teachResult = null;
+      studyV2.teachLoading = false;
+      studyV2.teachGrade = null;
+      studyV2.quizGrading = false;
+      studyV2.quizGrades = {};
+      studyV2.quizGradingQuestionId = '';
       studyV2.viewJobId = '';
-      if (LP.state.screen === 'study') renderStudyV2Overview();
+      if (LP.state.screen === 'study') {
+        renderStudyGenerationState();
+        renderStudyV2Overview();
+      }
     }
     if (lpBridge.connected() && !opts.silent) {
       try { lpBridge.call('view_job', jobId); } catch (err) { /* cached data already shown */ }
@@ -3038,7 +3048,7 @@
       if (name === 'study') {
         studyV2Load();   // load grounded Study V2 content + progress
       }
-      if ((name === 'study' || name === 'settings') && lpBridge.connected()) {
+      if (name === 'settings' && lpBridge.connected()) {
         lpBridge.call('smart_study_status');
       }
       if (name === 'settings' && lpBridge.connected()) {
@@ -4029,6 +4039,7 @@
     quizPicks: {},
     quizCorrect: 0,
     quizAsked: [],
+    quizGrades: {},
     quickSession: null,
     quickIndex: 0,
     quickCorrect: 0,
@@ -4042,6 +4053,14 @@
     flashFilterIds: null,
     askStreaming: false,
     askAnswer: null,
+    quickMinutes: '5',
+    teachConceptId: '',
+    teachResult: null,
+    teachLoading: false,
+    teachGrade: null,
+    quizGrading: false,
+    quizGradingQuestionId: '',
+    loadError: '',
     viewJobId: '',
     restoredView: false,
     resumeMode: 'flashcards',
@@ -4068,12 +4087,15 @@
         quizCorrect: studyV2.quizCorrect,
         quizAnswers: studyV2.quizAnswers,
         quizPicks: studyV2.quizPicks,
+        quizGrades: studyV2.quizGrades,
         quickIndex: studyV2.quickIndex,
         quickCorrect: studyV2.quickCorrect,
         quickTotal: studyV2.quickTotal,
         quickMissed: studyV2.quickMissed,
         quickActive: !!studyV2.quickSession,
         quickSummary: studyV2.quickSummary,
+        quickMinutes: studyV2.quickMinutes,
+        teachConceptId: studyV2.teachConceptId,
         reviewOnly: !!studyV2.reviewOnly
       }));
     } catch (e) { /* browser storage is a convenience, not a dependency */ }
@@ -4085,9 +4107,9 @@
     try {
       var saved = JSON.parse(localStorage.getItem(key) || 'null');
       if (!saved || typeof saved !== 'object') return false;
-      if (saved.lastMode === 'overview' || saved.lastMode === 'flashcards' || saved.lastMode === 'quiz' || saved.lastMode === 'ask') studyV2.mode = saved.lastMode;
-      if (saved.resumeMode === 'flashcards' || saved.resumeMode === 'quiz' || saved.resumeMode === 'ask') studyV2.resumeMode = saved.resumeMode;
-      else if (saved.lastMode === 'flashcards' || saved.lastMode === 'quiz' || saved.lastMode === 'ask') studyV2.resumeMode = saved.lastMode;
+      if (['overview', 'flashcards', 'quiz', 'ask', 'quick', 'teach'].indexOf(saved.lastMode) >= 0) studyV2.mode = saved.lastMode;
+      if (['flashcards', 'quiz', 'ask', 'quick', 'teach'].indexOf(saved.resumeMode) >= 0) studyV2.resumeMode = saved.resumeMode;
+      else if (['flashcards', 'quiz', 'ask', 'quick', 'teach'].indexOf(saved.lastMode) >= 0) studyV2.resumeMode = saved.lastMode;
       studyV2.flashIndex = Math.max(0, Number(saved.flashIndex) || 0);
       studyV2.flashResults = {
         got: Math.max(0, Number(saved.flashGot) || 0),
@@ -4098,11 +4120,14 @@
       studyV2.quizCorrect = Math.max(0, Number(saved.quizCorrect) || 0);
       studyV2.quizAnswers = Array.isArray(saved.quizAnswers) ? saved.quizAnswers : [];
       studyV2.quizPicks = saved.quizPicks && typeof saved.quizPicks === 'object' ? saved.quizPicks : {};
+      studyV2.quizGrades = saved.quizGrades && typeof saved.quizGrades === 'object' ? saved.quizGrades : {};
       studyV2.quickIndex = Math.max(0, Number(saved.quickIndex) || 0);
       studyV2.quickCorrect = Math.max(0, Number(saved.quickCorrect) || 0);
       studyV2.quickTotal = Math.max(0, Number(saved.quickTotal) || 0);
       studyV2.quickMissed = Array.isArray(saved.quickMissed) ? saved.quickMissed : [];
       studyV2.quickSummary = saved.quickSummary || null;
+      studyV2.quickMinutes = ['5', '10', '20', 'full'].indexOf(String(saved.quickMinutes)) >= 0 ? String(saved.quickMinutes) : '5';
+      studyV2.teachConceptId = String(saved.teachConceptId || '');
       studyV2.reviewOnly = !!saved.reviewOnly;
       studyV2.restoredQuickActive = !!saved.quickActive;
       return true;
@@ -4140,19 +4165,85 @@
       studyV2.content = res.content;
       studyV2.progress = res.progress || { concepts: {}, flashcard_results: {}, quiz_attempts: [] };
       studyV2.summary = res.summary || {};
+      studyV2.loadError = '';
       if (studyV2.quickSession == null && studyV2.progress.quick_study &&
           studyV2.progress.quick_study.items && studyV2.progress.quick_study.items.length &&
           (studyV2.quickIndex > 0 || studyV2.restoredQuickActive)) {
         studyV2.quickSession = studyV2.progress.quick_study;
       }
       studyV2.restoredQuickActive = false;
+      renderStudyGenerationState();
       renderStudyV2Overview();
       if (restoreMode && studyV2.mode !== 'overview') {
         setStudyV2Mode(studyV2.mode, !!studyV2.quickSession);
       } else if (studyV2.mode === 'flashcards' && studyV2.quickSession) renderQuickStudy();
       else if (studyV2.mode === 'flashcards') renderStudyFlashcards();
       else if (studyV2.mode === 'quiz') renderStudyQuiz();
-    }).catch(function () {});
+      else if (studyV2.mode === 'quick') renderQuickStudy();
+      else if (studyV2.mode === 'teach') renderStudyTeach();
+    }).catch(function () {
+      if (LP.state.jobId !== requestedJobId) return;
+      studyV2.loadError = 'Study data could not be loaded. Retry, or use Basic Study.';
+      renderStudyGenerationState();
+    });
+  }
+
+  function renderStudyGenerationState() {
+    var panel = $('study-generation-panel');
+    if (!panel) return;
+    var content = studyV2.content || {};
+    var metadata = content.generation_metadata || {};
+    var status = studyV2.loadError ? 'failed' : String(content.study_status || 'preparing');
+    var usable = status === 'ready' || status === 'basic';
+    var badge = $('study-generation-badge');
+    var title = $('study-generation-title');
+    var detail = $('study-generation-detail');
+    var progressWrap = $('study-generation-progress-wrap');
+    var progressBar = $('study-generation-progress-bar');
+    var actions = $('study-generation-actions');
+    var retry = $('btn-study-ai-retry');
+    var copy = $('btn-study-copy-diagnostics');
+    var basic = $('btn-study-use-basic');
+    var readyBadge = $('study-ready-status-badge');
+    panel.dataset.studyStatus = status;
+    panel.hidden = status === 'ready';
+    badge.textContent = status === 'failed' ? 'Needs attention' : status === 'basic' ? 'Basic' : 'Preparing';
+    if (status === 'preparing') {
+      title.textContent = metadata.stage || 'Preparing your Study system';
+      detail.textContent = 'LecturePack is understanding the lecture and building grounded study material.';
+      progressWrap.hidden = false;
+      progressBar.style.transform = 'scaleX(' + (Math.max(0, Math.min(99, Number(metadata.progress_percent) || 0)) / 100) + ')';
+      actions.hidden = true;
+    } else if (status === 'failed') {
+      var lastError = metadata.last_error || {};
+      title.textContent = 'Study AI needs attention';
+      detail.textContent = studyV2.loadError || lastError.message || 'Study AI could not finish. Retry, or continue with Basic Study.';
+      progressWrap.hidden = true;
+      actions.hidden = false;
+      retry.hidden = false;
+      copy.hidden = false;
+      basic.hidden = false;
+    } else if (status === 'basic') {
+      title.textContent = 'Basic Study is active';
+      detail.textContent = 'This lecture is using deterministic study material. Your sources and mastery still work.';
+      progressWrap.hidden = true;
+      actions.hidden = false;
+      retry.hidden = false;
+      copy.hidden = true;
+      basic.hidden = true;
+    }
+    if (readyBadge) {
+      readyBadge.hidden = status !== 'basic';
+      readyBadge.textContent = 'Basic';
+    }
+    document.querySelectorAll('.study-mode-tab').forEach(function (button) {
+      button.disabled = !usable && button.dataset.studyMode !== 'overview';
+    });
+    var readyPanel = $('study-ready-panel');
+    var overviewContent = $('study-overview-content');
+    if (readyPanel) readyPanel.hidden = !usable;
+    if (overviewContent) overviewContent.hidden = !usable;
+    if (!usable && studyV2.mode !== 'overview') setStudyV2Mode('overview');
   }
 
   function conceptMastery(cid) {
@@ -4176,25 +4267,40 @@
     var needsReview = summary.needs_review || 0;
     $('study-needs-review-line').textContent = needsReview + ' concepts left to review';
 
+    var guideHtml = content.lecture_summary ?
+      '<div class="study-guide-section"><h3>Lecture summary</h3><p>' + escText(content.lecture_summary) + '</p></div>' : '';
+    (content.study_guide || []).forEach(function (section) {
+      guideHtml += '<div class="study-guide-section"><h3>' + escText(section.heading || 'Key idea') + '</h3><p>' + escText(section.body || '') + '</p>' +
+        (studyItemSourcesHtml(section) ? '<div class="study-provenance-row" style="margin-top:9px">' + studyItemSourcesHtml(section) + '</div>' : '') + '</div>';
+    });
+    [['Key terms', content.key_terms], ['People', content.people], ['Dates', content.dates], ['Common misconceptions', content.misconceptions]].forEach(function (group) {
+      if (!Array.isArray(group[1]) || !group[1].length) return;
+      var rows = group[1].map(function (item) {
+        return '<div style="padding:8px 0;border-top:1px solid var(--line)"><div style="font-weight:700;font-size:13px">' + escText(item.label || '') + '</div><div style="font-size:12px;line-height:1.5;color:var(--secondary-text)">' + escText(item.detail || '') + '</div>' +
+          (studyItemSourcesHtml(item) ? '<div class="study-provenance-row" style="margin-top:6px">' + studyItemSourcesHtml(item) + '</div>' : '') + '</div>';
+      }).join('');
+      guideHtml += '<div class="study-guide-section"><h3>' + escText(group[0]) + '</h3>' + rows + '</div>';
+    });
+    $('study-guide-root').innerHTML = guideHtml || '<div style="font:500 12px JetBrains Mono;color:var(--muted)">The study guide will appear when lecture analysis is ready.</div>';
+
     // Key concepts
     var conceptsHtml = '';
     (content.concepts || []).forEach(function (c) {
       var mastery = conceptMastery(c.id);
       var masteryLabel = { NEW: 'New', LEARNING: 'Learning', MASTERED: 'Mastered', NEEDS_REVIEW: 'Needs review' }[mastery] || 'New';
-      var sources = (c.sources || []).map(function (s) {
-        var parts = [];
-        if (s.segment_id != null) parts.push('<button class="lp-hit study-source study-source-time" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
-        if (s.slide_id != null) parts.push('<button class="lp-hit study-source study-source-slide" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
-        return parts.join(' ');
-      }).join('');
+      var sources = studyItemSourcesHtml(c);
       var emphasisBadge = c.emphasis ? '<span style="font:600 9px JetBrains Mono;color:var(--orange-ink);background:var(--orange-soft);border:1.5px solid var(--orange);border-radius:5px;padding:2px 6px;text-transform:uppercase">Emphasized</span>' : '';
       conceptsHtml += '<div class="study-concept" style="background:var(--sunk);border:1.5px solid var(--line);border-radius:10px;padding:14px 16px">' +
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-weight:700;font-size:14px;flex:1">' + escText(c.title) + '</span>' + emphasisBadge + '<span style="font:600 10px JetBrains Mono;color:var(--muted)">' + masteryLabel + '</span></div>' +
         '<div style="font-size:13px;color:var(--secondary-text);line-height:1.55;margin-bottom:8px">' + escText(c.explanation) + '</div>' +
-        (sources ? '<div style="display:flex;gap:6px;flex-wrap:wrap">' + sources + '</div>' : '') +
+        (sources ? '<div class="study-provenance-row">' + sources + '</div>' : '') +
         '<div style="display:flex;gap:6px;margin-top:8px"><button class="lp-hit study-explain" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--ink)">Explain</button>' +
         '<button class="lp-hit study-edit" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--muted)">Edit</button>' +
-        '<button class="lp-hit study-delete" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--red)">Delete</button></div></div>';
+        '<button class="lp-hit study-regenerate" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--muted)">Regenerate</button>' +
+        '<button class="lp-hit study-delete" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--red)">Delete</button>' +
+        '<select class="study-mastery-select" data-concept-id="' + escText(c.id) + '" aria-label="Mastery for ' + escText(c.title) + '">' +
+        ['NEW', 'LEARNING', 'MASTERED', 'NEEDS_REVIEW'].map(function (value) { return '<option value="' + value + '"' + (value === mastery ? ' selected' : '') + '>' + ({ NEW: 'New', LEARNING: 'Learning', MASTERED: 'Mastered', NEEDS_REVIEW: 'Needs review' }[value]) + '</option>'; }).join('') +
+        '</select></div></div>';
     });
     $('study-concepts-list').innerHTML = conceptsHtml || '<div style="font:500 12px JetBrains Mono;color:var(--muted)">No concepts yet. Process a lecture to build Study content.</div>';
 
@@ -4229,6 +4335,35 @@
     return idx || '?';
   }
 
+  function studyItemSourcesHtml(item) {
+    item = item || {};
+    var lecture = item.lecture_sources || item.sources || [];
+    var web = item.web_sources || [];
+    var parts = [];
+    if (lecture.length) {
+      parts.push('<span class="study-provenance-badge" data-provenance="lecture">From lecture</span>');
+    }
+    if (item.provenance === 'extra_context') {
+      parts.push('<span class="study-provenance-badge" data-provenance="context">Extra context</span>');
+    }
+    if (web.length) {
+      parts.push('<span class="study-provenance-badge" data-provenance="web">Web verified</span>');
+    }
+    lecture.forEach(function (source) {
+      if (source.segment_id != null) {
+        parts.push('<button class="lp-hit study-source study-source-time" data-segment="' + escText(source.segment_id) + '" data-ms="' + (source.start_ms || 0) + '">Transcript ' + fmtTime(source.start_ms) + '</button>');
+      }
+      if (source.slide_id != null) {
+        parts.push('<button class="lp-hit study-source study-source-slide" data-slide="' + escText(source.slide_id) + '">Slide ' + escText(studySlideLabel(source.slide_id)) + '</button>');
+      }
+    });
+    web.forEach(function (source) {
+      if (!source || !source.url) return;
+      parts.push('<a class="study-web-source" href="' + escText(source.url) + '" target="_blank" rel="noopener noreferrer">' + escText(source.title || 'Web source') + '</a>');
+    });
+    return parts.join(' ');
+  }
+
   function studyV2FlashcardList() {
     var cards = (studyV2.content && studyV2.content.flashcards) || [];
     if (studyV2.flashFilterIds && studyV2.flashFilterIds.length) {
@@ -4247,7 +4382,6 @@
   }
 
   function renderStudyFlashcards() {
-    if (studyV2.quickSession) { renderQuickStudy(); return; }
     var cards = studyV2FlashcardList();
     var root = $('study-flashcards-root');
     if (!cards.length) {
@@ -4274,12 +4408,7 @@
       bindStudyFlashcardSessionButtons();
       return;
     }
-    var sources = (card.sources || []).map(function (s) {
-      var parts = [];
-      if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
-      if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
-      return parts.join(' ');
-    }).join('');
+    var sources = studyItemSourcesHtml(card);
     var progress = 'Card ' + (studyV2.flashIndex + 1) + ' of ' + cards.length;
     root.innerHTML = '<div class="study-focus-content" style="max-width:620px;margin:0 auto">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>' + progress + '</span><span>Space to reveal</span></div>' +
@@ -4288,7 +4417,8 @@
       '<div style="font-size:22px;font-weight:700;line-height:1.4;margin-bottom:18px">' + escText(card.front) + '</div>' +
       (studyV2.flashRevealed ? '<div style="border-top:1.5px solid var(--line);padding-top:18px;font-size:16px;color:var(--ink);line-height:1.55">' + escText(card.back) + '</div>' : '<button id="btn-study-flash-show" class="lp-hit lp-press" style="font:700 14px Space Grotesk;background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:9px;padding:11px 20px;cursor:pointer;margin:0 auto">Show answer</button>') +
       '</div>' +
-      (sources ? '<div style="display:flex;justify-content:center;gap:6px;margin-top:14px">' + sources + '</div>' : '') +
+      (sources ? '<div class="study-provenance-row" style="justify-content:center;margin-top:14px">' + sources + '</div>' : '') +
+      '<div style="display:flex;justify-content:center;gap:7px;margin-top:12px"><button class="lp-hit study-edit" data-kind="flashcard" data-id="' + escText(card.id) + '">Edit</button><button class="lp-hit study-regenerate" data-kind="flashcard" data-id="' + escText(card.id) + '">Regenerate</button><button class="lp-hit study-delete" data-kind="flashcard" data-id="' + escText(card.id) + '">Delete</button></div>' +
       (studyV2.flashRevealed ?
         '<div style="display:flex;justify-content:center;gap:10px;margin-top:20px">' +
         '<button id="btn-study-flash-again" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:9px;padding:10px 18px;cursor:pointer;color:var(--ink)">Review again</button>' +
@@ -4335,19 +4465,21 @@
     return null;
   }
 
-  function quickStudySources(sources) {
-    return (sources || []).map(function (s) {
-      var parts = [];
-      if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
-      if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
-      return parts.join(' ');
-    }).join('');
+  function quickStudySources(item) {
+    return studyItemSourcesHtml(item || {});
   }
 
   function renderQuickStudy() {
-    var root = $('study-flashcards-root');
+    var root = $('study-quick-root');
     var session = studyV2.quickSession;
-    if (!root || !session) return;
+    if (!root) return;
+    document.querySelectorAll('.study-duration').forEach(function (button) {
+      button.classList.toggle('active', String(button.dataset.studyMinutes) === String(studyV2.quickMinutes));
+    });
+    if (!session) {
+      root.innerHTML = '<div style="max-width:620px;margin:0 auto;text-align:center;padding:52px 24px"><div style="font:700 21px Space Grotesk;margin-bottom:8px">Ready for a focused review?</div><div style="font:500 13px JetBrains Mono;color:var(--muted);line-height:1.6">Choose 5, 10, 20 minutes, or the full set above. Starting a different length rebuilds the session locally without another AI call.</div></div>';
+      return;
+    }
     var items = session.items || [];
     if (studyV2.quickIndex >= items.length) {
       studyV2.quickSummary = {
@@ -4372,7 +4504,7 @@
     var header = '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>Quick Study</span><span>' + (studyV2.quickIndex + 1) + ' of ' + items.length + '</span></div>' +
       '<div style="height:4px;border-radius:3px;background:var(--sunk);overflow:hidden;margin-bottom:24px"><div style="width:' + (((studyV2.quickIndex + 1) / items.length) * 100) + '%;height:100%;background:var(--orange)"></div></div>';
     var body = '';
-    var sources = quickStudySources(data.sources);
+    var sources = quickStudySources(data);
     if (item.kind === 'quiz') {
       var options = (data.options || []).map(function (option, idx) {
         var selected = studyV2.quickSelected === idx;
@@ -4466,29 +4598,31 @@
       return;
     }
     var savedPick = Object.prototype.hasOwnProperty.call(studyV2.quizPicks, studyV2.quizIndex) ? Number(studyV2.quizPicks[studyV2.quizIndex]) : null;
-    var answered = savedPick !== null && !Number.isNaN(savedPick);
-    var optionsHtml = (q.options || []).map(function (opt, i) {
-      var color = answered ? (i === q.correct_index ? 'var(--green)' : i === savedPick ? 'var(--red)' : 'var(--border)') : 'var(--border)';
-      return '<button class="lp-hit study-quiz-opt" data-opt="' + i + '" style="display:block;width:100%;text-align:left;font:600 14px Space Grotesk;background:var(--sunk);border:1.5px solid ' + color + ';border-radius:9px;padding:11px 14px;cursor:pointer;color:var(--ink);margin-bottom:8px"' + (answered ? ' disabled' : '') + '>' + escText(opt) + '</button>';
-    }).join('');
+    var isShortAnswer = q.qtype === 'short_answer';
+    var grade = studyV2.quizGrades[q.id] || null;
+    var answered = isShortAnswer ? !!grade : savedPick !== null && !Number.isNaN(savedPick);
+    var optionsHtml = isShortAnswer ?
+      '<textarea id="study-quiz-short-answer" class="study-short-answer" placeholder="Answer in your own words"' + (answered || studyV2.quizGrading ? ' disabled' : '') + '></textarea>' +
+      '<button id="btn-study-grade-short-answer" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;margin-top:10px"' + (answered || studyV2.quizGrading ? ' disabled' : '') + '>' + (studyV2.quizGrading ? 'Grading…' : 'Grade answer') + '</button>' :
+      (q.options || []).map(function (opt, i) {
+        var color = answered ? (i === q.correct_index ? 'var(--green)' : i === savedPick ? 'var(--red)' : 'var(--border)') : 'var(--border)';
+        return '<button class="lp-hit study-quiz-opt" data-opt="' + i + '" style="display:block;width:100%;text-align:left;font:600 14px Space Grotesk;background:var(--sunk);border:1.5px solid ' + color + ';border-radius:9px;padding:11px 14px;cursor:pointer;color:var(--ink);margin-bottom:8px"' + (answered ? ' disabled' : '') + '>' + escText(opt) + '</button>';
+      }).join('');
     root.innerHTML = '<div class="study-focus-content" style="max-width:680px;margin:0 auto">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>Question ' + (studyV2.quizIndex + 1) + ' of ' + questions.length + '</span><span>Choose one</span></div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>Question ' + (studyV2.quizIndex + 1) + ' of ' + questions.length + '</span><span>' + (isShortAnswer ? 'Short answer' : q.qtype === 'true_false' ? 'True or false' : 'Choose one') + '</span></div>' +
       '<div style="height:4px;border-radius:3px;background:var(--sunk);overflow:hidden;margin-bottom:24px"><div style="width:' + (((studyV2.quizIndex + 1) / questions.length) * 100) + '%;height:100%;background:var(--orange)"></div></div>' +
       '<div style="font-size:18px;font-weight:700;line-height:1.4;margin-bottom:18px;text-align:center">' + escText(q.question) + '</div>' +
       optionsHtml +
-      '<div id="study-quiz-feedback" style="margin-top:14px"></div></div>';
+      '<div id="study-quiz-feedback" style="margin-top:14px"></div>' +
+      '<div style="display:flex;gap:7px;justify-content:center;margin-top:16px"><button class="lp-hit study-edit" data-kind="quiz" data-id="' + escText(q.id) + '">Edit</button><button class="lp-hit study-regenerate" data-kind="quiz" data-id="' + escText(q.id) + '">Regenerate</button><button class="lp-hit study-delete" data-kind="quiz" data-id="' + escText(q.id) + '">Delete</button></div></div>';
     bindStudyQuizButtons();
-    if (answered) renderStudyQuizFeedback(q, savedPick);
+    if (answered && isShortAnswer) renderStudyShortAnswerFeedback(q, grade);
+    else if (answered) renderStudyQuizFeedback(q, savedPick);
   }
 
   function renderStudyQuizFeedback(q, selectedIndex) {
     var correct = (q.correct_index === selectedIndex);
-    var srcHtml = (q.sources || []).map(function (s) {
-      var parts = [];
-      if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
-      if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
-      return parts.join(' ');
-    }).join('');
+    var srcHtml = studyItemSourcesHtml(q);
     var fb = $('study-quiz-feedback');
     if (!fb) return;
     fb.innerHTML = (correct ? '<div style="color:var(--green);font-weight:700;font-size:15px;margin-bottom:6px">âœ“ Correct</div>' : '<div style="color:var(--red);font-weight:700;font-size:15px;margin-bottom:6px">âœ• Not quite</div>') +
@@ -4496,6 +4630,22 @@
       (srcHtml ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' + srcHtml + '</div>' : '') +
       '<button id="btn-study-quiz-next" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer">Next</button>';
     if (fb.firstElementChild) fb.firstElementChild.textContent = correct ? 'Correct' : 'Not quite';
+    var next = $('btn-study-quiz-next');
+    if (next) next.addEventListener('click', function () {
+      studyV2.quizIndex++; studyV2PersistView(); renderStudyQuiz();
+    });
+  }
+
+  function renderStudyShortAnswerFeedback(q, result) {
+    var fb = $('study-quiz-feedback');
+    if (!fb || !result) return;
+    var sourceHtml = studyItemSourcesHtml(result) || studyItemSourcesHtml(q);
+    fb.innerHTML = '<div style="padding:14px 16px;background:var(--panel2);border-radius:9px">' +
+      '<div style="font-weight:700;color:' + (result.correct ? 'var(--green)' : 'var(--red)') + ';margin-bottom:6px">' + (result.correct ? 'Correct' : 'Keep working') + ' · ' + Math.round((Number(result.score) || 0) * 100) + '%</div>' +
+      '<div style="font-size:13px;line-height:1.55;color:var(--secondary-text)">' + escText(result.feedback || '') + '</div>' +
+      (result.ideal_answer ? '<div style="font-size:13px;line-height:1.55;margin-top:9px"><strong>Strong answer:</strong> ' + escText(result.ideal_answer) + '</div>' : '') +
+      (sourceHtml ? '<div class="study-provenance-row" style="margin-top:10px">' + sourceHtml + '</div>' : '') +
+      '<button id="btn-study-quiz-next" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;margin-top:12px">Next</button></div>';
     var next = $('btn-study-quiz-next');
     if (next) next.addEventListener('click', function () {
       studyV2.quizIndex++; studyV2PersistView(); renderStudyQuiz();
@@ -4523,12 +4673,7 @@
           }).then(function () { studyV2Load(); }).catch(function () {});
         }
         studyV2PersistView();
-        var srcHtml = (q.sources || []).map(function (s) {
-          var parts = [];
-          if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
-          if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
-          return parts.join(' ');
-        }).join('');
+        var srcHtml = studyItemSourcesHtml(q);
         var fb = $('study-quiz-feedback');
         fb.innerHTML = (correct ? '<div style="color:var(--green);font-weight:700;font-size:15px;margin-bottom:6px">✓ Correct</div>' : '<div style="color:var(--red);font-weight:700;font-size:15px;margin-bottom:6px">✕ Not quite</div>') +
           (q.explanation ? '<div style="font-size:13px;color:var(--secondary-text);line-height:1.5;margin-bottom:8px">' + escText(q.explanation) + '</div>' : '') +
@@ -4539,6 +4684,37 @@
         if (next) next.addEventListener('click', function () {
           studyV2.quizIndex++; studyV2PersistView(); renderStudyQuiz();
         });
+      });
+    });
+    var grade = $('btn-study-grade-short-answer');
+    if (grade) grade.addEventListener('click', function () {
+      var questions = (studyV2.content && studyV2.content.quiz) || [];
+      var q = questions[studyV2.quizIndex];
+      var input = $('study-quiz-short-answer');
+      var answer = input && input.value.trim();
+      if (!q || !answer || !lpBridge.connected() || studyV2.quizGrading) return;
+      studyV2.quizGrading = true;
+      studyV2.quizGradingQuestionId = q.id;
+      renderStudyQuiz();
+      lpBridge.call('study_v2_grade_short_answer', {
+        job_id: LP.state.jobId,
+        question_id: q.id,
+        question: q.question,
+        answer: answer,
+        rubric: q.rubric || q.explanation || '',
+        concept_ids: q.concept_ids || []
+      }).then(function (result) {
+        if (!result || result.ok === false) {
+          studyV2.quizGrading = false;
+          studyV2.quizGradingQuestionId = '';
+          toast((result && result.error) || 'This answer could not be graded.');
+          renderStudyQuiz();
+        }
+      }).catch(function () {
+        studyV2.quizGrading = false;
+        studyV2.quizGradingQuestionId = '';
+        toast('This answer could not be graded.');
+        renderStudyQuiz();
       });
     });
   }
@@ -4552,6 +4728,48 @@
       '<button class="lp-hit study-ask-chip" data-q="What are the key concepts?" style="font:600 12px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;color:var(--ink)">Key concepts</button>' +
       '<button class="lp-hit study-ask-chip" data-q="Quiz me on this" style="font:600 12px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;color:var(--ink)">Quiz me</button>' +
       '</div>';
+  }
+
+  function renderStudyTeach() {
+    var select = $('study-teach-concept');
+    var root = $('study-teach-root');
+    if (!select || !root) return;
+    var concepts = (studyV2.content && studyV2.content.concepts) || [];
+    if (!concepts.length) {
+      select.innerHTML = '<option value="">No concepts available</option>';
+      root.innerHTML = '<div style="text-align:center;padding:52px 24px;font:500 13px JetBrains Mono;color:var(--muted)">Teach Me will be ready when lecture concepts are available.</div>';
+      return;
+    }
+    if (!studyV2.teachConceptId || !concepts.some(function (concept) { return concept.id === studyV2.teachConceptId; })) {
+      studyV2.teachConceptId = concepts[0].id;
+    }
+    select.innerHTML = concepts.map(function (concept) {
+      return '<option value="' + escText(concept.id) + '"' + (concept.id === studyV2.teachConceptId ? ' selected' : '') + '>' + escText(concept.title) + '</option>';
+    }).join('');
+    if (studyV2.teachLoading) {
+      root.innerHTML = '<div style="text-align:center;padding:52px 24px"><div style="font:700 19px Space Grotesk;margin-bottom:7px">Building your explanation…</div><div style="font:500 13px JetBrains Mono;color:var(--muted)">Grounding the lesson in this lecture.</div></div>';
+      return;
+    }
+    var result = studyV2.teachResult;
+    if (!result || result.concept_ids && result.concept_ids.indexOf(studyV2.teachConceptId) < 0) {
+      var foundation = ((studyV2.content && studyV2.content.teach_me_foundations) || []).find(function (item) {
+        return item.concept_id === studyV2.teachConceptId;
+      });
+      root.innerHTML = '<div style="max-width:680px;margin:0 auto;text-align:center;padding:46px 24px"><div style="font:700 20px Space Grotesk;margin-bottom:8px">Learn one idea step by step</div><div style="font-size:14px;line-height:1.6;color:var(--secondary-text)">' + escText(foundation && foundation.explanation || 'Choose a concept and LecturePack will teach it using the lecture evidence.') + '</div>' +
+        (foundation && studyItemSourcesHtml(foundation) ? '<div class="study-provenance-row" style="justify-content:center;margin-top:13px">' + studyItemSourcesHtml(foundation) + '</div>' : '') + '</div>';
+      return;
+    }
+    var concept = concepts.find(function (item) { return item.id === studyV2.teachConceptId; }) || {};
+    var grade = studyV2.teachGrade;
+    root.innerHTML = '<div class="study-teach-card">' +
+      '<div><div style="font:700 22px Space Grotesk;margin-bottom:8px">' + escText(concept.title || 'Concept') + '</div><div style="font-size:15px;line-height:1.65;color:var(--secondary-text)">' + escText(result.explanation || '') + '</div></div>' +
+      (result.analogy ? '<div class="study-guide-section"><h3>Try this analogy</h3><p>' + escText(result.analogy) + '</p></div>' : '') +
+      (studyItemSourcesHtml(result) ? '<div class="study-provenance-row">' + studyItemSourcesHtml(result) + '</div>' : '') +
+      '<div class="study-guide-section"><h3>Check your understanding</h3><p style="margin-bottom:10px">' + escText(result.check_question || '') + '</p>' +
+      '<textarea id="study-teach-answer" class="study-short-answer" placeholder="Explain it in your own words"' + (grade ? ' disabled' : '') + '></textarea>' +
+      '<button id="btn-study-teach-grade" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;margin-top:10px"' + (grade ? ' disabled' : '') + '>Check answer</button>' +
+      (grade ? '<div style="margin-top:13px;padding:12px 14px;background:var(--panel);border-radius:8px"><div style="font-weight:700;color:' + (grade.correct ? 'var(--green)' : 'var(--red)') + '">' + (grade.correct ? 'You have it' : 'Keep working') + ' · ' + Math.round((Number(grade.score) || 0) * 100) + '%</div><div style="font-size:13px;line-height:1.55;color:var(--secondary-text);margin-top:5px">' + escText(grade.feedback || '') + '</div></div>' : '') +
+      '</div></div>';
   }
 
   function studyAskSend() {
@@ -4605,34 +4823,42 @@
     var wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-top:9px';
     sources.forEach(function (source) {
+      if (source && (source.kind === 'web' || source.url)) {
+        var link = document.createElement('a');
+        link.className = 'study-web-source';
+        link.href = source.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Web verified · ' + (source.title || 'Source');
+        wrap.appendChild(link);
+        return;
+      }
       var button = document.createElement('button');
-      button.className = 'lp-hit study-source';
-      button.dataset.segment = source.segment_id == null ? '' : source.segment_id;
-      button.dataset.ms = source.start_ms || 0;
-      button.textContent = source.start_ms != null ? 'Transcript ' + fmtTime(source.start_ms) : 'Transcript source';
-      button.style.cssText = 'font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer';
+      button.className = 'lp-hit study-source' + (source.slide_id != null ? ' study-source-slide' : '');
+      if (source.slide_id != null) {
+        button.dataset.slide = source.slide_id;
+        button.textContent = 'From lecture · Slide ' + studySlideLabel(source.slide_id);
+      } else {
+        button.dataset.segment = source.segment_id;
+        button.dataset.ms = source.start_ms || 0;
+        button.textContent = 'From lecture · ' + (source.start_ms != null ? 'Transcript ' + fmtTime(source.start_ms) : 'Transcript source');
+      }
       wrap.appendChild(button);
     });
     answer.parentNode.appendChild(wrap);
   }
 
   function setStudyV2Mode(mode, keepQuick) {
-    if (mode === 'flashcards' && !keepQuick && studyV2.quickSession) {
-      studyV2.quickSession = null;
-      studyV2.quickSummary = null;
-      studyV2.quickIndex = 0;
-      studyV2.quickCorrect = 0;
-      studyV2.quickTotal = 0;
-      studyV2.quickMissed = [];
-    }
+    if (['overview', 'flashcards', 'quiz', 'ask', 'quick', 'teach'].indexOf(mode) < 0) mode = 'overview';
     studyV2.mode = mode;
     if (mode !== 'overview') studyV2.resumeMode = mode;
     studyV2PersistView();
     document.querySelectorAll('.study-mode-tab').forEach(function (btn) {
       var active = btn.dataset.studyMode === mode;
       btn.className = 'lp-hit lp-tab study-mode-tab' + (active ? ' active' : '');
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
-    ['overview', 'flashcards', 'quiz', 'ask'].forEach(function (m) {
+    ['overview', 'flashcards', 'quiz', 'ask', 'quick', 'teach'].forEach(function (m) {
       $('study-mode-' + m).hidden = mode !== m;
     });
     // A mode switch relays out the whole workspace. Without this the spotlight
@@ -4642,6 +4868,37 @@
     if (mode === 'flashcards') renderStudyFlashcards();
     if (mode === 'quiz') renderStudyQuiz();
     if (mode === 'ask') renderStudyAsk();
+    if (mode === 'quick') renderQuickStudy();
+    if (mode === 'teach') renderStudyTeach();
+  }
+
+  function startQuickStudy(minutes) {
+    if (!lpBridge.connected()) return;
+    studyV2.quickMinutes = String(minutes || '5');
+    var requestedJobId = LP.state.jobId || '';
+    setStudyV2Mode('quick');
+    var root = $('study-quick-root');
+    if (root) root.innerHTML = '<div style="text-align:center;padding:52px 24px;font:500 13px JetBrains Mono;color:var(--muted)">Building your focused session…</div>';
+    lpBridge.call('study_v2_quick_study', {
+      job_id: requestedJobId,
+      minutes: studyV2.quickMinutes
+    }).then(function (res) {
+      if (LP.state.jobId !== requestedJobId || (res && res.job_id && res.job_id !== requestedJobId)) return;
+      if (!res || !res.session) {
+        toast('Quick Study could not be prepared.');
+        renderQuickStudy();
+        return;
+      }
+      studyV2.quickSession = res.session;
+      studyV2.quickIndex = 0; studyV2.quickCorrect = 0; studyV2.quickTotal = 0;
+      studyV2.quickMissed = []; studyV2.quickRevealed = false;
+      studyV2.quickAnswered = false; studyV2.quickSelected = null; studyV2.quickSummary = null;
+      studyV2PersistView();
+      renderQuickStudy();
+    }).catch(function () {
+      toast('Quick Study could not be prepared.');
+      renderQuickStudy();
+    });
   }
 
   function bindStudyV2Events() {
@@ -4663,23 +4920,17 @@
     });
     var quick = $('btn-study-quick');
     if (quick) quick.addEventListener('click', function () {
-      if (!lpBridge.connected()) return;
-      var requestedJobId = LP.state.jobId || '';
-      lpBridge.call('study_v2_quick_study', { job_id: requestedJobId }).then(function (res) {
-        if (LP.state.jobId !== requestedJobId || (res && res.job_id && res.job_id !== requestedJobId)) return;
-        if (res && res.session) {
-          studyV2.quickSession = res.session;
-          studyV2.quickIndex = 0; studyV2.quickCorrect = 0; studyV2.quickTotal = 0;
-          studyV2.quickMissed = []; studyV2.quickRevealed = false;
-          studyV2.quickAnswered = false; studyV2.quickSelected = null; studyV2.quickSummary = null;
-          setStudyV2Mode('flashcards', true);
-        }
-      }).catch(function () {});
+      startQuickStudy('10');
+    });
+    document.querySelectorAll('.study-duration').forEach(function (button) {
+      button.addEventListener('click', function () {
+        startQuickStudy(button.dataset.studyMinutes || '5');
+      });
     });
     var cont = $('btn-study-continue');
     if (cont) cont.addEventListener('click', function () {
       if (studyV2.quickSession && studyV2.quickIndex < (studyV2.quickSession.items || []).length) {
-        setStudyV2Mode('flashcards', true); return;
+        setStudyV2Mode('quick', true); return;
       }
       var needsReview = (studyV2.summary && studyV2.summary.needs_review > 0);
       if (needsReview) {
@@ -4694,11 +4945,76 @@
       studyV2.reviewOnly = true; studyV2.flashFilterIds = null; studyV2.flashIndex = 0;
       setStudyV2Mode('flashcards');
     });
+    var retryAi = $('btn-study-ai-retry');
+    if (retryAi) retryAi.addEventListener('click', function () {
+      if (!lpBridge.connected()) return;
+      retryAi.disabled = true;
+      lpBridge.call('study_v2_retry', { job_id: LP.state.jobId }).then(function (result) {
+        retryAi.disabled = false;
+        if (result && result.content) studyV2.content = result.content;
+        renderStudyGenerationState();
+        if (!result || result.ok === false) toast((result && result.error) || 'Study AI could not be retried.');
+      }).catch(function () {
+        retryAi.disabled = false;
+        toast('Study AI could not be retried.');
+      });
+    });
+    var useBasic = $('btn-study-use-basic');
+    if (useBasic) useBasic.addEventListener('click', function () {
+      if (!lpBridge.connected()) return;
+      lpBridge.call('study_v2_use_basic', { job_id: LP.state.jobId }).then(function (result) {
+        if (result && result.content) {
+          studyV2.content = result.content;
+          renderStudyGenerationState();
+          studyV2Load();
+        } else toast((result && result.error) || 'Basic Study could not be prepared.');
+      }).catch(function () { toast('Basic Study could not be prepared.'); });
+    });
+    var copyDiagnostics = $('btn-study-copy-diagnostics');
+    if (copyDiagnostics) copyDiagnostics.addEventListener('click', function () {
+      if (!lpBridge.connected()) return;
+      lpBridge.call('study_v2_copy_diagnostics', { job_id: LP.state.jobId }).then(function (result) {
+        var text = JSON.stringify((result && result.diagnostics) || {}, null, 2);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () { toast('Diagnostics copied.'); }).catch(function () { toast('Diagnostics could not be copied.'); });
+        }
+      }).catch(function () { toast('Diagnostics could not be copied.'); });
+    });
     var send = $('btn-study-ask-send');
     if (send) send.addEventListener('click', studyAskSend);
     var askInput = $('study-ask-input');
     if (askInput) askInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); studyAskSend(); }
+    });
+    var teachSelect = $('study-teach-concept');
+    if (teachSelect) teachSelect.addEventListener('change', function () {
+      studyV2.teachConceptId = teachSelect.value;
+      studyV2.teachResult = null;
+      studyV2.teachGrade = null;
+      studyV2PersistView();
+      renderStudyTeach();
+    });
+    var teachStart = $('btn-study-teach-start');
+    if (teachStart) teachStart.addEventListener('click', function () {
+      if (!lpBridge.connected() || !studyV2.teachConceptId || studyV2.teachLoading) return;
+      studyV2.teachLoading = true;
+      studyV2.teachResult = null;
+      studyV2.teachGrade = null;
+      renderStudyTeach();
+      lpBridge.call('study_v2_teach_me', {
+        job_id: LP.state.jobId,
+        concept_id: studyV2.teachConceptId
+      }).then(function (result) {
+        if (!result || result.ok === false) {
+          studyV2.teachLoading = false;
+          toast((result && result.error) || 'Teach Me could not start.');
+          renderStudyTeach();
+        }
+      }).catch(function () {
+        studyV2.teachLoading = false;
+        toast('Teach Me could not start.');
+        renderStudyTeach();
+      });
     });
     // Source navigation + edit/delete/explain (delegated)
     var concepts = $('study-concepts-list');
@@ -4709,11 +5025,40 @@
       if (edit) { studyV2EditItem(edit.dataset.kind, edit.dataset.id); return; }
       var del = e.target.closest('.study-delete');
       if (del) { studyV2DeleteItem(del.dataset.kind, del.dataset.id); return; }
+      var regenerate = e.target.closest('.study-regenerate');
+      if (regenerate) { studyV2RegenerateItem(regenerate.dataset.kind, regenerate.dataset.id); return; }
       var explain = e.target.closest('.study-explain');
       if (explain) { studyV2ExplainItem(explain.dataset.id); }
     });
+    if (concepts) concepts.addEventListener('change', function (e) {
+      var select = e.target.closest('.study-mastery-select');
+      if (!select || !lpBridge.connected()) return;
+      lpBridge.call('study_v2_set_mastery', {
+        job_id: LP.state.jobId,
+        concept_id: select.dataset.conceptId,
+        mastery: select.value
+      }).then(function () { studyV2Load(); }).catch(function () {
+        toast('Mastery could not be updated.');
+      });
+    });
+    var guideRoot = $('study-guide-root');
+    if (guideRoot) guideRoot.addEventListener('click', function (e) {
+      var source = e.target.closest('.study-source');
+      if (source) navigateStudySource(source);
+    });
     var flashRoot = $('study-flashcards-root');
     if (flashRoot) flashRoot.addEventListener('click', function (e) {
+      var t = e.target.closest('.study-source');
+      if (t) navigateStudySource(t);
+      var edit = e.target.closest('.study-edit');
+      if (edit) studyV2EditItem(edit.dataset.kind, edit.dataset.id);
+      var regenerate = e.target.closest('.study-regenerate');
+      if (regenerate) studyV2RegenerateItem(regenerate.dataset.kind, regenerate.dataset.id);
+      var del = e.target.closest('.study-delete');
+      if (del) studyV2DeleteItem(del.dataset.kind, del.dataset.id);
+    });
+    var quickRoot = $('study-quick-root');
+    if (quickRoot) quickRoot.addEventListener('click', function (e) {
       var t = e.target.closest('.study-source');
       if (t) navigateStudySource(t);
       var quickAction = e.target.closest('[data-quick-action]');
@@ -4736,11 +5081,19 @@
       var quickOpt = e.target.closest('[data-quick-opt]');
       if (quickOpt) quickStudySelectQuiz(Number(quickOpt.dataset.quickOpt));
     });
+    if (quickRoot) {
+      quickRoot.tabIndex = 0;
+      quickRoot.addEventListener('keydown', function (e) {
+        if (e.code !== 'Space' || studyV2.mode !== 'quick') return;
+        var action = quickRoot.querySelector('[data-quick-action="reveal"]');
+        if (action) { e.preventDefault(); action.click(); }
+      });
+    }
     if (flashRoot) {
       flashRoot.tabIndex = 0;
       flashRoot.addEventListener('keydown', function (e) {
         if (e.code !== 'Space' || studyV2.mode !== 'flashcards') return;
-        var action = flashRoot.querySelector('[data-quick-action="reveal"], #btn-study-flash-show');
+        var action = flashRoot.querySelector('#btn-study-flash-show');
         if (action) { e.preventDefault(); action.click(); }
       });
     }
@@ -4748,6 +5101,12 @@
     if (quizRoot) quizRoot.addEventListener('click', function (e) {
       var t = e.target.closest('.study-source');
       if (t) navigateStudySource(t);
+      var edit = e.target.closest('.study-edit');
+      if (edit) studyV2EditItem(edit.dataset.kind, edit.dataset.id);
+      var regenerate = e.target.closest('.study-regenerate');
+      if (regenerate) studyV2RegenerateItem(regenerate.dataset.kind, regenerate.dataset.id);
+      var del = e.target.closest('.study-delete');
+      if (del) studyV2DeleteItem(del.dataset.kind, del.dataset.id);
     });
     var askFeed = $('study-ask-feed');
     if (askFeed) askFeed.addEventListener('click', function (e) {
@@ -4759,6 +5118,35 @@
       }
       var t = e.target.closest('.study-source');
       if (t) navigateStudySource(t);
+    });
+    var teachRoot = $('study-teach-root');
+    if (teachRoot) teachRoot.addEventListener('click', function (e) {
+      var source = e.target.closest('.study-source');
+      if (source) { navigateStudySource(source); return; }
+      var gradeButton = e.target.closest('#btn-study-teach-grade');
+      if (!gradeButton || !studyV2.teachResult || !lpBridge.connected()) return;
+      var answer = (($('study-teach-answer') || {}).value || '').trim();
+      if (!answer) return;
+      gradeButton.disabled = true;
+      gradeButton.textContent = 'Checking…';
+      lpBridge.call('study_v2_grade_short_answer', {
+        job_id: LP.state.jobId,
+        question_id: 'teach:' + studyV2.teachConceptId,
+        question: studyV2.teachResult.check_question,
+        answer: answer,
+        rubric: studyV2.teachResult.rubric || '',
+        concept_ids: [studyV2.teachConceptId]
+      }).then(function (result) {
+        if (!result || result.ok === false) {
+          gradeButton.disabled = false;
+          gradeButton.textContent = 'Check answer';
+          toast((result && result.error) || 'This answer could not be checked.');
+        }
+      }).catch(function () {
+        gradeButton.disabled = false;
+        gradeButton.textContent = 'Check answer';
+        toast('This answer could not be checked.');
+      });
     });
   }
 
@@ -4811,6 +5199,23 @@
           lpBridge.call('study_v2_delete', { job_id: LP.state.jobId, kind: kind, id: id }).then(function () { studyV2Load(); }).catch(function () {});
         } }
       ]
+    });
+  }
+
+  function studyV2RegenerateItem(kind, id) {
+    if (!kind || !id || !lpBridge.connected()) return;
+    lpBridge.call('study_v2_regenerate', {
+      job_id: LP.state.jobId,
+      kind: kind,
+      id: id
+    }).then(function (result) {
+      if (!result || result.ok === false) {
+        toast((result && result.error) || 'This Study item could not be regenerated.');
+        return;
+      }
+      toast('Refreshing only the connected Study items…');
+    }).catch(function () {
+      toast('This Study item could not be regenerated.');
     });
   }
 
@@ -4936,7 +5341,7 @@
     // Targets the Study V2 overview actions. The old '#demo-study-actions' chat
     // row lives inside '#study-legacy[hidden]', so the spotlight collapsed and
     // the step rendered with no dim, no ring and no arrow at all.
-    study: { screen: 'study', target: '#demo-study-actions-v2', prepare: function () { setStudyV2Mode('overview'); }, title: 'Your study workspace', copy: 'Concepts, flashcards and a quiz, generated locally from this lecture. Continue when you are ready.', next: 'Next' },
+    study: { screen: 'study', target: '#demo-study-actions-v2', prepare: function () { setStudyV2Mode('overview'); }, title: 'Your study workspace', copy: 'Concepts, flashcards and a quiz, prepared from this lecture with linked evidence. Continue when you are ready.', next: 'Next' },
     exports: { screen: 'exports', target: '#btn-export-all', title: 'See export options', copy: 'Exporting unlocks for your own processed lecture. This temporary demo only shows where those options live.', next: 'Finish' }
   };
   function tourSeen() {
@@ -7492,7 +7897,18 @@
     lpBridge.on('jobs_changed', function (json) {
       var jobs = parseBridgePayload(json, null);
       if (!Array.isArray(jobs)) return;
+      var alive = {};
+      jobs.forEach(function (job) { if (job && job.id) alive[job.id] = true; });
       LP.data.jobs = jobs;
+      // Prune selection state before any job-removal navigation. Keeping this
+      // adjacent to the received summary array makes the data-shape boundary
+      // explicit and prevents a stale selection count during that navigation.
+      if (LP.state.selecting) {
+        Object.keys(LP.state.selected).forEach(function (id) {
+          if (!alive[id]) delete LP.state.selected[id];
+        });
+        renderSelCount();
+      }
       var viewedJobRemoved = !!(LP.state.jobId && !_jobById(LP.state.jobId));
       if (viewedJobRemoved) {
         var demoTourActive = guidedTour.snapshot().active &&
@@ -7500,15 +7916,6 @@
         setActiveJob('', '');
         if (demoTourActive) dismissGuidedDemoAfterCleanup();
         else if (!guidedTour.snapshot().active) setScreen('home');
-      }
-      // Forget selections whose job is gone, else the count lies.
-      if (LP.state.selecting) {
-        var alive = {};
-        LP.data.jobs.forEach(function (j) { if (j.id) alive[j.id] = true; });
-        Object.keys(LP.state.selected).forEach(function (id) {
-          if (!alive[id]) delete LP.state.selected[id];
-        });
-        renderSelCount();
       }
       renderJobs();           // poster URLs are stable, so loaded ones stay cached
       restoreAppSessionOnce();
@@ -7926,6 +8333,64 @@
       var payload = parseBridgePayload(json, null);
       if (payload && payload.job && payload.job !== LP.state.jobId) return;
       appendStudyAskSources(payload && payload.sources ? payload.sources : []);
+    });
+    lpBridge.on('study_generation', function (json) {
+      var payload = parseBridgePayload(json, null);
+      if (!payload || (payload.job && payload.job !== LP.state.jobId)) return;
+      studyV2.content = studyV2.content || { concepts: [], flashcards: [], quiz: [] };
+      studyV2.content.study_status = payload.status || studyV2.content.study_status || 'preparing';
+      studyV2.content.generation_metadata = studyV2.content.generation_metadata || {};
+      if (payload.stage) studyV2.content.generation_metadata.stage = payload.stage;
+      if (payload.progress_percent != null) studyV2.content.generation_metadata.progress_percent = payload.progress_percent;
+      if (payload.error) studyV2.content.generation_metadata.last_error = { message: payload.error };
+      renderStudyGenerationState();
+      if (payload.status === 'ready' || payload.status === 'basic' || payload.status === 'failed' || payload.refresh_status === 'ready') {
+        studyV2Load();
+      }
+    });
+    lpBridge.on('study_teach_ready', function (json) {
+      var payload = parseBridgePayload(json, null);
+      if (!payload || (payload.job && payload.job !== LP.state.jobId)) return;
+      studyV2.teachLoading = false;
+      if (payload.ok && payload.result) {
+        studyV2.teachConceptId = payload.concept_id || studyV2.teachConceptId;
+        studyV2.teachResult = payload.result;
+        studyV2.teachGrade = null;
+      } else {
+        toast(payload.error || 'Teach Me could not prepare this lesson.');
+      }
+      renderStudyTeach();
+    });
+    lpBridge.on('study_short_answer_graded', function (json) {
+      var payload = parseBridgePayload(json, null);
+      if (!payload || (payload.job && payload.job !== LP.state.jobId)) return;
+      var questionId = String(payload.question_id || '');
+      if (!payload.ok || !payload.result) {
+        studyV2.quizGrading = false;
+        studyV2.quizGradingQuestionId = '';
+        toast(payload.error || 'This answer could not be graded.');
+        if (questionId.indexOf('teach:') === 0) renderStudyTeach();
+        else renderStudyQuiz();
+        return;
+      }
+      if (payload.progress) studyV2.progress = payload.progress;
+      if (payload.summary) studyV2.summary = payload.summary;
+      if (questionId.indexOf('teach:') === 0) {
+        studyV2.teachGrade = payload.result;
+        renderStudyTeach();
+      } else {
+        studyV2.quizGrades[questionId] = payload.result;
+        studyV2.quizGrading = false;
+        studyV2.quizGradingQuestionId = '';
+        var questions = (studyV2.content && studyV2.content.quiz) || [];
+        var index = questions.findIndex(function (question) { return question.id === questionId; });
+        if (index >= 0 && studyV2.quizAnswers.indexOf(index) < 0) {
+          studyV2.quizAnswers.push(index);
+          if (payload.result.correct) studyV2.quizCorrect++;
+        }
+        studyV2PersistView();
+        renderStudyQuiz();
+      }
     });
     lpBridge.on('groq_status', function (json) {
       var d = parseBridgePayload(json, null), el = $('groq-status');

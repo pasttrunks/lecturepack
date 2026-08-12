@@ -114,6 +114,8 @@ hiddenimports = [
     "lecturepack.services.transcript_formats",
     "lecturepack.services.study_service",
     "lecturepack.services.study_v2",
+    "lecturepack.services.ai_gateway",
+    "lecturepack.services.ai_study_service",
     "lecturepack.services.packaged_health",
     "lecturepack.infrastructure.whisper_detector",
     "lecturepack.infrastructure.whisper_path_staging",

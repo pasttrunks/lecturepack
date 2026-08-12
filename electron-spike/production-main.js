@@ -740,7 +740,12 @@ function startSidecar(session, attempt) {
   session.logger.write('sidecar_starting', { command, args, data_dir: dataDir });
   const child = spawn(command, args, {
     cwd,
-    env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
+    env: {
+      ...process.env,
+      PYTHONUNBUFFERED: '1',
+      PYTHONUTF8: '1',
+      LECTUREPACK_APP_VERSION: app.getVersion()
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
     shell: false

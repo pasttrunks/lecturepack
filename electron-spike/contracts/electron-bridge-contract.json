@@ -104,6 +104,69 @@
       "status": "IMPLEMENTED"
     },
     {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "status",
+        "stage",
+        "progress_percent",
+        "refresh_status",
+        "error"
+      ],
+      "mapped_to": "",
+      "name": "study_generation",
+      "notes": "Reports job-scoped background Study AI generation and targeted refresh state without provider details.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "concept_id",
+        "ok",
+        "result",
+        "error"
+      ],
+      "mapped_to": "",
+      "name": "study_teach_ready",
+      "notes": "Returns one concept-scoped Teach Me lesson and comprehension check.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "question_id",
+        "ok",
+        "result",
+        "progress",
+        "summary",
+        "error"
+      ],
+      "mapped_to": "",
+      "name": "study_short_answer_graded",
+      "notes": "Returns semantic grading feedback for a short-answer quiz or Teach Me check.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
       "direction": "command",
       "event_fields": [],
       "mapped_to": "",
@@ -2151,7 +2214,7 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "study_v2_status",
-      "notes": "Returns the full Study V2 snapshot: content, progress, summary, and Rust core diagnostic. Ensures Study V2 content exists (old-job migration) before returning.",
+      "notes": "Returns the full Study snapshot and automatically starts AI migration for eligible old jobs.",
       "phase8": "",
       "production_core": true,
       "request_fields": [
@@ -2163,7 +2226,84 @@
         "content",
         "progress",
         "summary",
-        "core_info"
+        "core_info",
+        "worker_running"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_retry",
+      "notes": "Explicitly retries the canonical two-pass Study AI build.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "started",
+        "content"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_use_basic",
+      "notes": "Makes the explicit per-job Basic Study choice and prevents a running AI build from replacing it.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "content"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_copy_diagnostics",
+      "notes": "Returns a compact, secret-free diagnostics object for user-authorized clipboard copy.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "diagnostics"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_set_mastery",
+      "notes": "Sets an explicit mastery state for one concept.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id",
+        "concept_id",
+        "mastery"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "progress",
+        "summary"
       ],
       "status": "IMPLEMENTED"
     },
@@ -2213,17 +2353,62 @@
       "direction": "command",
       "event_fields": [],
       "mapped_to": "",
+      "name": "study_v2_grade_short_answer",
+      "notes": "Starts semantic grading for a short-answer quiz or Teach Me comprehension check.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id",
+        "question_id",
+        "question",
+        "answer",
+        "rubric",
+        "concept_ids"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "started",
+        "question_id"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
       "name": "study_v2_quick_study",
       "notes": "Builds a Quick Study session using the Rust core, prioritizing weak/unlearned content.",
       "phase8": "",
       "production_core": true,
       "request_fields": [
-        "job_id"
+        "job_id",
+        "minutes"
       ],
       "request_id_required": true,
       "response_fields": [
         "ok",
         "session"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_teach_me",
+      "notes": "Starts a concept-scoped Teach Me lesson through the server-routed Study path.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id",
+        "concept_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "started",
+        "concept_id"
       ],
       "status": "IMPLEMENTED"
     },
@@ -2296,7 +2481,8 @@
       "request_id_required": true,
       "response_fields": [
         "ok",
-        "content"
+        "started",
+        "concept_ids"
       ],
       "status": "IMPLEMENTED"
     },

@@ -954,6 +954,79 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 /* The row clips nothing: give the offset shadows somewhere to land. */
 .study-mode-nav{padding-bottom:4px}
 
+/* AI-first Study states and the two additional first-class modes. */
+.study-generation-panel{
+  flex:none;display:flex;flex-direction:column;gap:13px;padding:17px 20px;
+  background:var(--panel);border:2px solid var(--border);border-radius:13px;
+  box-shadow:var(--shadow-soft)}
+.study-generation-panel[hidden]{display:none}
+.study-generation-panel[data-study-status="failed"]{border-color:var(--red)}
+.study-generation-panel[data-study-status="basic"]{border-color:var(--secondary-border)}
+.study-generation-heading{display:flex;align-items:flex-start;gap:12px}
+.study-generation-title{font:700 16px 'Space Grotesk';color:var(--ink);margin-bottom:3px}
+.study-generation-detail{font:500 12px 'JetBrains Mono';color:var(--muted);line-height:1.5}
+.study-status-badge{
+  flex:none;font:700 9px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;
+  color:var(--orange-ink);background:var(--orange-soft);border:1.5px solid var(--orange);
+  border-radius:6px;padding:4px 7px}
+.study-status-badge[hidden]{display:none}
+.study-generation-panel[data-study-status="failed"] .study-status-badge{
+  color:var(--red);background:var(--red-soft);border-color:var(--red)}
+.study-generation-panel[data-study-status="basic"] .study-status-badge,
+#study-ready-status-badge{
+  color:var(--secondary-text);background:var(--panel2);border-color:var(--secondary-border)}
+.study-generation-progress{height:7px;overflow:hidden;background:var(--sunk);border-radius:5px}
+.study-generation-progress[hidden]{display:none}
+.study-generation-progress-bar{height:100%;width:100%;background:var(--orange);transform:scaleX(0);transform-origin:left center}
+.study-generation-actions{display:flex;gap:9px;flex-wrap:wrap}
+.study-generation-actions[hidden]{display:none}
+.study-generation-actions button,.study-teach-picker button{
+  font:700 12px 'Space Grotesk';border:2px solid var(--border);border-radius:8px;
+  padding:8px 13px;background:var(--panel);color:var(--ink);cursor:pointer}
+.study-generation-actions #btn-study-ai-retry,.study-teach-picker #btn-study-teach-start{
+  background:var(--orange);color:var(--on-signal);border-color:var(--orange-ink)}
+.study-mode-tab:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.study-quick-toolbar,.study-teach-toolbar{
+  flex:none;display:flex;align-items:center;justify-content:space-between;gap:18px;
+  padding:15px 18px;background:var(--panel);border:2px solid var(--border);
+  border-radius:13px;box-shadow:var(--shadow-soft)}
+.study-mode-title{font:700 17px 'Space Grotesk';color:var(--ink)}
+.study-mode-subtitle{font:500 12px 'JetBrains Mono';color:var(--muted);margin-top:3px}
+.study-duration-options,.study-teach-picker{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.study-duration{
+  font:700 11px 'JetBrains Mono';padding:7px 11px;border:1.5px solid var(--border);
+  border-radius:7px;background:var(--panel);color:var(--ink);cursor:pointer}
+.study-duration.active{background:var(--orange-soft);border-color:var(--orange);color:var(--orange-ink)}
+.study-teach-picker select,.study-mastery-select{
+  max-width:310px;font:600 12px 'Space Grotesk';background:var(--sunk);color:var(--ink);
+  border:2px solid var(--border);border-radius:8px;padding:8px 10px}
+.study-provenance-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.study-source{
+  font:600 11px 'JetBrains Mono';border:1.5px solid var(--blue);border-radius:6px;
+  padding:3px 8px;cursor:pointer;color:var(--blue-ink);background:var(--blue-soft)}
+.study-source-slide{color:var(--green);background:var(--green-soft);border-color:var(--green)}
+.study-provenance-badge{
+  font:700 9px 'JetBrains Mono';letter-spacing:.04em;border:1.5px solid var(--line);
+  border-radius:5px;padding:3px 6px;color:var(--secondary-text);background:var(--panel)}
+.study-provenance-badge[data-provenance="lecture"]{color:var(--blue-ink);background:var(--blue-soft);border-color:var(--blue)}
+.study-provenance-badge[data-provenance="web"]{color:var(--green);background:var(--green-soft);border-color:var(--green)}
+.study-web-source{font:600 11px 'JetBrains Mono';color:var(--green);text-decoration:none;border-bottom:1px solid currentColor}
+.study-guide-section{background:var(--sunk);border:1.5px solid var(--line);border-radius:10px;padding:14px 16px}
+.study-guide-section h3{font-size:14px;margin:0 0 7px}
+.study-guide-section p{font-size:13px;line-height:1.55;color:var(--secondary-text);margin:0}
+.study-short-answer{width:100%;min-height:110px;box-sizing:border-box;resize:vertical;font:500 14px 'Space Grotesk';background:var(--sunk);color:var(--ink);border:2px solid var(--border);border-radius:9px;padding:11px 13px}
+.study-focus-root .study-edit,.study-focus-root .study-regenerate,.study-focus-root .study-delete{
+  font:600 11px 'Space Grotesk';background:var(--panel);color:var(--muted);
+  border:1.5px solid var(--border);border-radius:6px;padding:5px 9px;cursor:pointer}
+.study-focus-root .study-delete{color:var(--red)}
+.study-teach-card{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+
+@media (max-width:900px){
+  .study-quick-toolbar,.study-teach-toolbar{align-items:flex-start;flex-direction:column}
+  .study-teach-picker{width:100%}
+  .study-teach-picker select{flex:1;max-width:none}
+}
+
 @media (prefers-reduced-motion:reduce){
   .lp-tab.study-mode-tab,
   .lp-tab.study-mode-tab:not(:disabled):hover,

@@ -129,6 +129,12 @@ class Sidecar:
         self._demo_session: dict[str, Any] | None = None
         self._cleaning_demo = False
         self._guided_tour_state: dict[str, Any] | None = None
+        self._study_workers_lock = threading.Lock()
+        self._study_workers: dict[str, threading.Thread] = {}
+        self._ai_interaction_workers: dict[str, threading.Thread] = {}
+        self._pending_study_refresh: dict[str, dict[str, set[str]]] = {}
+        self._study_basic_opt_out: set[str] = set()
+        self._ai_gateway_client = None
 
         self.repo_root = self._resolve_repo_root()
         if self.repo_root and str(self.repo_root) not in sys.path:
@@ -212,6 +218,8 @@ class Sidecar:
                 onboarding_state,
                 packaged_health,
                 reset_service,
+                ai_gateway,
+                ai_study_service,
                 study_service,
                 transcript_store,
             )
@@ -230,6 +238,8 @@ class Sidecar:
             self.onboarding_state = onboarding_state
             self.packaged_health = packaged_health
             self.reset_service = reset_service
+            self.ai_gateway = ai_gateway
+            self.ai_study_service = ai_study_service
             self.job_ops = job_ops
             self.study_service = study_service
             self.study_presets = study_presets
@@ -656,12 +666,24 @@ class Sidecar:
                 self._save_notes(request_id, command, payload)
             elif command == "study_v2_status":
                 self._study_v2_status(request_id, command, payload)
+            elif command == "study_v2_retry":
+                self._study_v2_retry(request_id, command, payload)
+            elif command == "study_v2_use_basic":
+                self._study_v2_use_basic(request_id, command, payload)
+            elif command == "study_v2_copy_diagnostics":
+                self._study_v2_copy_diagnostics(request_id, command, payload)
+            elif command == "study_v2_set_mastery":
+                self._study_v2_set_mastery(request_id, command, payload)
             elif command == "study_v2_record_flashcard":
                 self._study_v2_record_flashcard(request_id, command, payload)
             elif command == "study_v2_record_quiz":
                 self._study_v2_record_quiz(request_id, command, payload)
+            elif command == "study_v2_grade_short_answer":
+                self._study_v2_grade_short_answer(request_id, command, payload)
             elif command == "study_v2_quick_study":
                 self._study_v2_quick_study(request_id, command, payload)
+            elif command == "study_v2_teach_me":
+                self._study_v2_teach_me(request_id, command, payload)
             elif command == "study_v2_summary":
                 self._study_v2_summary(request_id, command, payload)
             elif command == "study_v2_edit":
@@ -1937,15 +1959,19 @@ class Sidecar:
             raise ValueError("transcript corrections must be an array")
         segments = self.transcript_store.load_working(job.paths)
         changed = 0
-        for segment, value in zip(segments, texts):
+        changed_segment_ids: list[str] = []
+        for index, (segment, value) in enumerate(zip(segments, texts)):
             text = str(value)
             if segment.get("text", "") != text:
                 segment["text"] = text
                 segment["edited"] = True
                 changed += 1
+                changed_segment_ids.append(str(index))
         self.transcript_store.save_working(job.paths, segments)
         transcript = self._transcript(job)
         self._emit({"event": "transcript_changed", "job": job.job_id, **transcript})
+        if changed_segment_ids:
+            self._start_partial_study_refresh(job, changed_segment_ids)
         self._respond(request_id, command, job_id=job.job_id, saved=True, changed=changed)
 
     def _export(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
@@ -2755,8 +2781,199 @@ class Sidecar:
             "notes": notes,
         })
 
+    def _gateway_client(self):
+        """Return the one anonymous, server-routed Study gateway client."""
+        with self._study_workers_lock:
+            if self._ai_gateway_client is None:
+                self._ai_gateway_client = self.ai_gateway.GatewayClient(self.data_dir)
+            return self._ai_gateway_client
+
+    def _emit_study_generation(self, payload: dict[str, Any]) -> None:
+        """Forward background Study progress without exposing provider details."""
+        clean = dict(payload or {})
+        job_id = str(clean.pop("job_id", "") or "")
+        if "error" in clean:
+            clean["error"] = str(clean.get("error") or "Study AI needs attention.")[:500]
+        self._emit({"event": "study_generation", "job": job_id, **clean})
+
+    def _study_worker_running(self, job_id: str) -> bool:
+        with self._study_workers_lock:
+            worker = self._study_workers.get(str(job_id or ""))
+            return bool(worker and worker.is_alive())
+
+    def _start_ai_study(self, job: Any, *, force: bool = False) -> bool:
+        """Start the canonical two-pass Study build once per job."""
+        if self._shutting_down or job is None:
+            return False
+        job_id = str(job.job_id)
+        content = self.study_v2.load_content(job)
+        if not force and content.get("study_status") in {
+                self.study_v2.STUDY_READY, self.study_v2.STUDY_BASIC}:
+            return False
+        with self._study_workers_lock:
+            existing = self._study_workers.get(job_id)
+            if existing and existing.is_alive():
+                return False
+            if force:
+                self._study_basic_opt_out.discard(job_id)
+            self.study_v2.update_generation_state(
+                job, stage="Queued for Study AI", progress_percent=1,
+                last_successful_stage="Local lecture processing")
+
+            def worker() -> None:
+                try:
+                    def progress(payload: dict[str, Any]) -> None:
+                        with self._study_workers_lock:
+                            opted_out = job_id in self._study_basic_opt_out
+                        if not opted_out:
+                            self._emit_study_generation(payload)
+
+                    def cancelled() -> bool:
+                        with self._study_workers_lock:
+                            return job_id in self._study_basic_opt_out
+
+                    self.ai_study_service.prepare_ai_study(
+                        job, self._gateway_client(), progress=progress,
+                        cancelled=cancelled)
+                except (self.ai_gateway.GatewayError,
+                        self.ai_study_service.StudyContentError):
+                    # The service already persisted a safe, retryable failure.
+                    pass
+                except Exception:  # noqa: BLE001 - background boundary
+                    self.study_v2.mark_generation_failed(
+                        job,
+                        code="unexpected_generation_error",
+                        message="Study AI could not finish. Retry, or use Basic Study.",
+                        diagnostics={"last_successful_stage": "Local lecture processing"},
+                    )
+                    self._emit_study_generation({
+                        "job_id": job_id,
+                        "status": self.study_v2.STUDY_FAILED,
+                        "stage": "Study AI needs attention",
+                        "progress_percent": 0,
+                        "error": "Study AI could not finish. Retry, or use Basic Study.",
+                    })
+                finally:
+                    with self._study_workers_lock:
+                        opted_out = job_id in self._study_basic_opt_out
+                    if opted_out:
+                        self.study_v2.use_basic_study(job)
+                        self._emit_study_generation({
+                            "job_id": job_id,
+                            "status": self.study_v2.STUDY_BASIC,
+                            "stage": "Basic Study ready",
+                            "progress_percent": 100,
+                        })
+                    pending: dict[str, set[str]] = {}
+                    with self._study_workers_lock:
+                        self._study_workers.pop(job_id, None)
+                        pending = self._pending_study_refresh.pop(job_id, {})
+                    if pending and not self._shutting_down:
+                        self._start_partial_study_refresh(
+                            job,
+                            list(pending.get("segments", set())),
+                            concept_ids=list(pending.get("concepts", set())),
+                        )
+
+            thread = threading.Thread(
+                target=worker, daemon=True, name=f"lp-study-build-{job_id[:16]}")
+            self._study_workers[job_id] = thread
+            self._emit_study_generation({
+                "job_id": job_id,
+                "status": self.study_v2.STUDY_PREPARING,
+                "stage": "Queued for Study AI",
+                "progress_percent": 1,
+            })
+            thread.start()
+        return True
+
+    def _start_partial_study_refresh(self, job: Any,
+                                     changed_segment_ids: list[str], *,
+                                     concept_ids: list[str] | None = None) -> bool:
+        """Refresh only concepts connected to edited lecture evidence."""
+        if self._shutting_down or job is None:
+            return False
+        job_id = str(job.job_id)
+        segments = {str(value) for value in (changed_segment_ids or []) if str(value)}
+        concepts = {str(value) for value in (concept_ids or []) if str(value)}
+        if not segments and not concepts:
+            return False
+        with self._study_workers_lock:
+            existing = self._study_workers.get(job_id)
+            if existing and existing.is_alive():
+                pending = self._pending_study_refresh.setdefault(
+                    job_id, {"segments": set(), "concepts": set()})
+                pending["segments"].update(segments)
+                pending["concepts"].update(concepts)
+                return True
+
+            def worker() -> None:
+                try:
+                    self.ai_study_service.regenerate_affected(
+                        job,
+                        self._gateway_client(),
+                        sorted(segments),
+                        concept_ids=sorted(concepts) or None,
+                        progress=self._emit_study_generation,
+                    )
+                except (self.ai_gateway.GatewayError,
+                        self.ai_study_service.StudyContentError):
+                    pass
+                except Exception:  # noqa: BLE001 - background boundary
+                    self._emit_study_generation({
+                        "job_id": job_id,
+                        "status": self.study_v2.load_content(job).get("study_status"),
+                        "stage": "Concept refresh needs attention",
+                        "progress_percent": 0,
+                        "refresh_status": "failed",
+                        "error": "The edited Study items could not be refreshed.",
+                    })
+                finally:
+                    with self._study_workers_lock:
+                        opted_out = job_id in self._study_basic_opt_out
+                    if opted_out:
+                        self.study_v2.use_basic_study(job)
+                    pending: dict[str, set[str]] = {}
+                    with self._study_workers_lock:
+                        self._study_workers.pop(job_id, None)
+                        pending = self._pending_study_refresh.pop(job_id, {})
+                    if pending and not self._shutting_down:
+                        self._start_partial_study_refresh(
+                            job,
+                            list(pending.get("segments", set())),
+                            concept_ids=list(pending.get("concepts", set())),
+                        )
+
+            thread = threading.Thread(
+                target=worker, daemon=True, name=f"lp-study-refresh-{job_id[:16]}")
+            self._study_workers[job_id] = thread
+            thread.start()
+        return True
+
+    def _start_ai_interaction(self, key: str, target: Any) -> bool:
+        """Run an Ask/Teach/grade interaction off the Qt command loop."""
+        if self._shutting_down:
+            return False
+        with self._study_workers_lock:
+            existing = self._ai_interaction_workers.get(key)
+            if existing and existing.is_alive():
+                return False
+
+            def worker() -> None:
+                try:
+                    target()
+                finally:
+                    with self._study_workers_lock:
+                        self._ai_interaction_workers.pop(key, None)
+
+            thread = threading.Thread(
+                target=worker, daemon=True, name=f"lp-study-interaction-{key[:24]}")
+            self._ai_interaction_workers[key] = thread
+            thread.start()
+        return True
+
     def _ask_ai(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
-        prompt = str(payload.get("prompt") or "")
+        prompt = str(payload.get("prompt") or "").strip()
         try:
             job = self._job_for(payload)
         except (FileNotFoundError, RuntimeError):
@@ -2765,68 +2982,75 @@ class Sidecar:
             self._emit({"event": "ai_done"})
             self._respond(request_id, command, ok=True, job_id="")
             return
-        segments = self.transcript_store.load_working(job.paths) or []
-        try:
-            study_content = self.study_v2.ensure_study_v2(job)
-        except Exception:
-            study_content = self.study_v2.load_content(job)
-        o = self._ollama_settings()
-        local_ready = bool(o.get("enabled") and o.get("model"))
-        if not local_ready:
-            answer = self.electron_study.builtin_answer(prompt, segments, study_content)
-            self._emit({"event": "ai_token", "job": job.job_id, "text": answer})
-            self._emit({"event": "ai_sources",
-                        "job": job.job_id,
-                        "sources": self.electron_study.builtin_sources(
-                            prompt, segments, content=study_content)})
-            self._emit({"event": "ai_done", "job": job.job_id})
-            self._emit({"event": "ai_status",
-                        "job": job.job_id,
-                        "label": self.study_presets.PROVIDER_BUILTIN, "model": ""})
-            try:
-                self.study_service.append_chat_message(job, "user", prompt)
-                self.study_service.append_chat_message(job, "assistant", answer)
-            except Exception:
-                pass
-            self._respond(request_id, command, ok=True, job_id=job.job_id)
+        if not prompt:
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error="Ask a question first.")
             return
-        # Local AI path: use the existing StudyAssistantWorker (Qt thread).
-        from lecturepack.services.study_assistant_service import StudyAssistantWorker
-        transcript_text = StudyAssistantWorker.transcript_context(segments)
-        self._emit({"event": "ai_status", "job": job.job_id,
-                    "label": "Thinking…", "model": o.get("model")})
-        worker = StudyAssistantWorker(
-            "chat", transcript_text, o, history=[], question=prompt, count=5)
-        self._ai_worker = worker
-
-        def ok(task, result):
-            answer = (result or {}).get("answer", "") if isinstance(result, dict) else ""
-            answer = answer or "I couldn't find an answer in the transcript."
+        study_content = self.study_v2.load_content(job)
+        if study_content.get("study_status") == self.study_v2.STUDY_BASIC:
+            segments = self.transcript_store.load_working(job.paths) or []
+            answer = self.electron_study.builtin_answer(
+                prompt, segments, study_content)
             self._emit({"event": "ai_token", "job": job.job_id, "text": answer})
-            self._emit({"event": "ai_sources",
-                        "job": job.job_id,
-                        "sources": self.electron_study.builtin_sources(
-                            prompt, segments, content=study_content)})
-            self._emit({"event": "ai_done", "job": job.job_id})
-            self._emit({"event": "ai_status",
-                        "job": job.job_id,
-                        "label": self.study_presets.PROVIDER_LOCAL, "model": o.get("model")})
-            try:
-                self.study_service.append_chat_message(job, "user", prompt)
-                self.study_service.append_chat_message(job, "assistant", answer)
-            except Exception:
-                pass
-
-        def fail(kind, message, details):
-            self._emit({"event": "ai_token", "job": job.job_id, "text": f"⚠ {message}"})
+            self._emit({
+                "event": "ai_sources", "job": job.job_id,
+                "sources": self.electron_study.builtin_sources(
+                    prompt, segments, content=study_content),
+            })
             self._emit({"event": "ai_done", "job": job.job_id})
             self._emit({"event": "ai_status", "job": job.job_id,
-                        "label": "AI error", "model": o.get("model")})
+                        "label": "Basic Study", "state": "ready"})
+            self._respond(request_id, command, ok=True, job_id=job.job_id,
+                          started=False, basic=True)
+            return
+        self._emit({"event": "ai_status", "job": job.job_id,
+                    "label": "LecturePack Study", "state": "thinking"})
 
-        worker.finished_ok.connect(ok)
-        worker.failed.connect(fail)
-        worker.start()
-        self._respond(request_id, command, ok=True, job_id=job.job_id)
+        def interaction() -> None:
+            try:
+                result = self.ai_study_service.ask(
+                    job, self._gateway_client(), prompt)
+                lecture_sources = list(
+                    result.get("lecture_sources") or result.get("sources") or [])
+                web_sources = [
+                    {**source, "kind": "web"}
+                    for source in (result.get("web_sources") or [])
+                    if isinstance(source, dict)
+                ]
+                self._emit({
+                    "event": "ai_token", "job": job.job_id,
+                    "text": str(result.get("answer") or
+                                "I could not find that in this lecture."),
+                })
+                self._emit({
+                    "event": "ai_sources", "job": job.job_id,
+                    "sources": lecture_sources + web_sources,
+                })
+                self._emit({"event": "ai_done", "job": job.job_id})
+                self._emit({"event": "ai_status", "job": job.job_id,
+                            "label": "LecturePack Study", "state": "ready"})
+            except (self.ai_gateway.GatewayError,
+                    self.ai_study_service.StudyContentError,
+                    ValueError) as exc:
+                message = str(exc)[:500] or "Study AI could not answer that question."
+                self._emit({"event": "ai_token", "job": job.job_id,
+                            "text": message})
+                self._emit({"event": "ai_done", "job": job.job_id})
+                self._emit({"event": "ai_status", "job": job.job_id,
+                            "label": "Study AI needs attention", "state": "error"})
+            except Exception:  # noqa: BLE001 - background boundary
+                self._emit({
+                    "event": "ai_token", "job": job.job_id,
+                    "text": "Study AI could not answer right now. Please retry.",
+                })
+                self._emit({"event": "ai_done", "job": job.job_id})
+                self._emit({"event": "ai_status", "job": job.job_id,
+                            "label": "Study AI needs attention", "state": "error"})
+
+        key = f"ask:{job.job_id}:{request_id or time.monotonic_ns()}"
+        started = self._start_ai_interaction(key, interaction)
+        self._respond(request_id, command, ok=started, job_id=job.job_id,
+                      started=started)
 
     def _generate_quiz(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         job = self.current_job
@@ -3067,12 +3291,22 @@ class Sidecar:
     # Study V2: grounded concepts, mastery, quick study
     # ------------------------------------------------------------------ #
     def _study_v2_status(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
-        """Return the full Study V2 snapshot: content, progress, summary, and
-        the Rust core diagnostic. Ensures Study V2 content exists (old-job
-        migration) before returning."""
+        """Return Study state and automatically migrate eligible old jobs."""
         job = self._job_for(payload)
         try:
-            content = self.study_v2.ensure_study_v2(job)
+            content = self.study_v2.load_content(job)
+            metadata = content.get("generation_metadata") or {}
+            has_transcript = bool(self.transcript_store.load_working(job.paths))
+            should_start = (
+                content.get("study_status") == self.study_v2.STUDY_PREPARING
+                or (
+                    content.get("study_status") == self.study_v2.STUDY_BASIC
+                    and metadata.get("basic_reason") == "legacy_migration"
+                )
+            )
+            if has_transcript and should_start and not self._study_worker_running(job.job_id):
+                self._start_ai_study(job)
+                content = self.study_v2.load_content(job)
         except Exception as exc:  # noqa: BLE001 - never crash on bad study data
             self._respond(request_id, command, ok=False, job_id=job.job_id,
                           error=f"Study data could not be loaded: {exc}")
@@ -3082,7 +3316,65 @@ class Sidecar:
         core_info = self.study_v2.study_core_info()
         self._respond(request_id, command, ok=True, job_id=job.job_id,
                       content=content, progress=progress, summary=summary,
-                      core_info=core_info)
+                      core_info=core_info,
+                      worker_running=self._study_worker_running(job.job_id))
+
+    def _study_v2_retry(self, request_id: str | None, command: str,
+                        payload: dict[str, Any]) -> None:
+        """Explicitly retry the full Study AI generation path."""
+        job = self._job_for(payload)
+        if not self.transcript_store.load_working(job.paths):
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error="A transcript is required before Study AI can run.")
+            return
+        started = self._start_ai_study(job, force=True)
+        self._respond(request_id, command, ok=started, job_id=job.job_id,
+                      started=started, content=self.study_v2.load_content(job))
+
+    def _study_v2_use_basic(self, request_id: str | None, command: str,
+                            payload: dict[str, Any]) -> None:
+        """Honor the user's explicit Basic Study choice for this job."""
+        job = self._job_for(payload)
+        with self._study_workers_lock:
+            self._study_basic_opt_out.add(str(job.job_id))
+        try:
+            content = self.study_v2.use_basic_study(job)
+        except Exception as exc:  # noqa: BLE001 - user-facing boundary
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error=f"Basic Study could not be prepared: {exc}")
+            return
+        self._emit_study_generation({
+            "job_id": job.job_id,
+            "status": self.study_v2.STUDY_BASIC,
+            "stage": "Basic Study ready",
+            "progress_percent": 100,
+        })
+        self._respond(request_id, command, ok=True, job_id=job.job_id,
+                      content=content)
+
+    def _study_v2_copy_diagnostics(self, request_id: str | None, command: str,
+                                   payload: dict[str, Any]) -> None:
+        """Return only safe, secret-free support diagnostics."""
+        job = self._job_for(payload)
+        self._respond(
+            request_id, command, ok=True, job_id=job.job_id,
+            diagnostics=self.ai_study_service.diagnostics(job))
+
+    def _study_v2_set_mastery(self, request_id: str | None, command: str,
+                              payload: dict[str, Any]) -> None:
+        """Apply a manual mastery correction through the persisted model."""
+        job = self._job_for(payload)
+        concept_id = str(payload.get("concept_id") or "")
+        mastery = str(payload.get("mastery") or "")
+        try:
+            progress = self.study_v2.set_manual_mastery(job, concept_id, mastery)
+        except ValueError as exc:
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error=str(exc))
+            return
+        self._respond(
+            request_id, command, ok=True, job_id=job.job_id,
+            progress=progress, summary=self.study_v2.calculate_study_summary(job))
 
     def _study_v2_record_flashcard(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         """Record a flashcard review result through the Rust core."""
@@ -3136,17 +3428,195 @@ class Sidecar:
         self._respond(request_id, command, ok=True, job_id=job.job_id,
                       progress=progress, summary=summary)
 
+    def _study_v2_grade_short_answer(self, request_id: str | None, command: str,
+                                     payload: dict[str, Any]) -> None:
+        """Semantically grade a short answer through the Study gateway."""
+        job = self._job_for(payload)
+        question_id = str(payload.get("question_id") or "")
+        question = str(payload.get("question") or "")
+        rubric = str(payload.get("rubric") or payload.get("ideal_answer") or "")
+        answer = str(payload.get("answer") or "").strip()
+        concept_ids = payload.get("concept_ids") or []
+        if isinstance(concept_ids, str):
+            try:
+                concept_ids = json.loads(concept_ids)
+            except json.JSONDecodeError:
+                concept_ids = []
+        if not isinstance(concept_ids, list):
+            concept_ids = []
+        content = self.study_v2.load_content(job)
+        item = None
+        if question_id:
+            item = next((value for value in content.get("quiz", [])
+                         if str(value.get("id") or "") == question_id), None)
+            if item:
+                question = str(item.get("question") or question)
+                rubric = str(item.get("rubric") or item.get("ideal_answer") or
+                             item.get("explanation") or rubric)
+                concept_ids = list(item.get("concept_ids") or concept_ids)
+        if not question or not answer:
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error="A question and answer are required.")
+            return
+        if content.get("study_status") == self.study_v2.STUDY_BASIC:
+            source_item = item or next((value for value in content.get("teach_me_foundations", [])
+                                        if str(value.get("concept_id") or "") in {
+                                            str(cid) for cid in concept_ids}), {})
+            ideal = ""
+            if item:
+                ideal = str((item.get("accepted_answers") or [""])[0] or "")
+            ideal = ideal or rubric
+            expected_words = {
+                word.casefold() for word in re.findall(r"[A-Za-z0-9']+", ideal)
+                if len(word) > 2
+            }
+            answer_words = {
+                word.casefold() for word in re.findall(r"[A-Za-z0-9']+", answer)
+                if len(word) > 2
+            }
+            score = min(1.0, len(expected_words & answer_words) /
+                        max(1, min(8, len(expected_words))))
+            correct = score >= 0.5
+            result = {
+                "correct": correct,
+                "score": round(score, 3),
+                "feedback": (
+                    "Your answer covers the main Basic Study points."
+                    if correct else
+                    "Compare your answer with the lecture-backed explanation and try again."
+                ),
+                "ideal_answer": ideal,
+                "concept_ids": [str(value) for value in concept_ids],
+                "sources": list(source_item.get("sources") or []),
+                "lecture_sources": list(source_item.get("lecture_sources") or
+                                         source_item.get("sources") or []),
+                "web_sources": [],
+                "provenance": "lecture",
+                "basic": True,
+            }
+            progress = self.study_v2.record_quiz_result(
+                job, question_id or f"basic-{time.monotonic_ns()}",
+                [str(value) for value in concept_ids], correct)
+            self._emit({
+                "event": "study_short_answer_graded", "job": job.job_id,
+                "question_id": question_id, "ok": True, "result": result,
+                "progress": progress,
+                "summary": self.study_v2.calculate_study_summary(job),
+            })
+            self._respond(request_id, command, ok=True, job_id=job.job_id,
+                          started=False, basic=True, question_id=question_id)
+            return
+
+        def interaction() -> None:
+            try:
+                result = self.ai_study_service.grade_short_answer(
+                    job, self._gateway_client(), question=question,
+                    answer=answer, rubric=rubric,
+                    concept_ids=[str(value) for value in concept_ids])
+                progress = self.study_v2.load_progress(job)
+                if question_id:
+                    progress = self.study_v2.record_quiz_result(
+                        job, question_id, [str(value) for value in concept_ids],
+                        bool(result.get("correct")))
+                self._emit({
+                    "event": "study_short_answer_graded",
+                    "job": job.job_id,
+                    "question_id": question_id,
+                    "ok": True,
+                    "result": result,
+                    "progress": progress,
+                    "summary": self.study_v2.calculate_study_summary(job),
+                })
+            except (self.ai_gateway.GatewayError,
+                    self.ai_study_service.StudyContentError,
+                    ValueError) as exc:
+                self._emit({
+                    "event": "study_short_answer_graded",
+                    "job": job.job_id,
+                    "question_id": question_id,
+                    "ok": False,
+                    "error": str(exc)[:500],
+                })
+            except Exception:  # noqa: BLE001 - background boundary
+                self._emit({
+                    "event": "study_short_answer_graded",
+                    "job": job.job_id,
+                    "question_id": question_id,
+                    "ok": False,
+                    "error": "Study AI could not grade this answer right now.",
+                })
+
+        key = f"grade:{job.job_id}:{request_id or time.monotonic_ns()}"
+        started = self._start_ai_interaction(key, interaction)
+        self._respond(request_id, command, ok=started, job_id=job.job_id,
+                      started=started, question_id=question_id)
+
     def _study_v2_quick_study(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         """Build a Quick Study session using the Rust core."""
         job = self._job_for(payload)
+        minutes = payload.get("minutes", payload.get("duration", 10))
         try:
-            session = self.study_v2.build_quick_study_session(job)
+            session = self.study_v2.build_quick_study_session(job, minutes=minutes)
         except Exception as exc:  # noqa: BLE001 - never crash on bad study data
             self._respond(request_id, command, ok=False, job_id=job.job_id,
                           error=f"Could not build Quick Study: {exc}")
             return
         self._respond(request_id, command, ok=True, job_id=job.job_id,
                       session=session)
+
+    def _study_v2_teach_me(self, request_id: str | None, command: str,
+                           payload: dict[str, Any]) -> None:
+        """Generate one concept-scoped teaching step and comprehension check."""
+        job = self._job_for(payload)
+        concept_id = str(payload.get("concept_id") or "")
+        if not concept_id:
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error="Choose a concept first.")
+            return
+        content = self.study_v2.load_content(job)
+        if content.get("study_status") == self.study_v2.STUDY_BASIC:
+            foundation = next((item for item in content.get("teach_me_foundations", [])
+                               if str(item.get("concept_id") or "") == concept_id), None)
+            if foundation is None:
+                self._respond(request_id, command, ok=False, job_id=job.job_id,
+                              error="This concept does not have a Basic Study lesson.")
+                return
+            self._emit({
+                "event": "study_teach_ready", "job": job.job_id,
+                "concept_id": concept_id, "ok": True,
+                "result": {**foundation, "basic": True},
+            })
+            self._respond(request_id, command, ok=True, job_id=job.job_id,
+                          started=False, basic=True, concept_id=concept_id)
+            return
+
+        def interaction() -> None:
+            try:
+                result = self.ai_study_service.teach_me(
+                    job, self._gateway_client(), concept_id)
+                self._emit({
+                    "event": "study_teach_ready", "job": job.job_id,
+                    "concept_id": concept_id, "ok": True, "result": result,
+                })
+            except (self.ai_gateway.GatewayError,
+                    self.ai_study_service.StudyContentError,
+                    ValueError) as exc:
+                self._emit({
+                    "event": "study_teach_ready", "job": job.job_id,
+                    "concept_id": concept_id, "ok": False,
+                    "error": str(exc)[:500],
+                })
+            except Exception:  # noqa: BLE001 - background boundary
+                self._emit({
+                    "event": "study_teach_ready", "job": job.job_id,
+                    "concept_id": concept_id, "ok": False,
+                    "error": "Study AI could not prepare this lesson right now.",
+                })
+
+        key = f"teach:{job.job_id}:{concept_id}"
+        started = self._start_ai_interaction(key, interaction)
+        self._respond(request_id, command, ok=started, job_id=job.job_id,
+                      started=started, concept_id=concept_id)
 
     def _study_v2_summary(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         """Return the study summary (mastery counts, progress percent)."""
@@ -3202,17 +3672,36 @@ class Sidecar:
         job = self._job_for(payload)
         kind = str(payload.get("kind") or "")
         item_id = str(payload.get("id") or "")
-        # For V1, regeneration falls back to deterministic content for the
-        # whole pack (the AI path is wired through the existing async worker).
-        # A targeted single-item regeneration is a future refinement.
-        try:
-            content = self.study_v2.ensure_study_v2(job)
-        except Exception as exc:  # noqa: BLE001 - never crash on bad study data
+        content = self.study_v2.load_content(job)
+        concept_ids: list[str] = []
+        if kind == "concept":
+            if any(str(item.get("id") or "") == item_id
+                   for item in content.get("concepts", [])):
+                concept_ids = [item_id]
+        elif kind in {"flashcard", "quiz"}:
+            key = "flashcards" if kind == "flashcard" else "quiz"
+            item = next((value for value in content.get(key, [])
+                         if str(value.get("id") or "") == item_id), None)
+            if item:
+                concept_ids = [str(value) for value in item.get("concept_ids", [])
+                               if str(value)]
+        if not concept_ids:
             self._respond(request_id, command, ok=False, job_id=job.job_id,
-                          error=f"Could not regenerate: {exc}")
+                          error="The selected Study item could not be found.")
             return
-        self._respond(request_id, command, ok=True, job_id=job.job_id,
-                      kind=kind, id=item_id, content=content)
+        changed_segments: list[str] = []
+        for concept in content.get("concepts", []):
+            if str(concept.get("id") or "") not in concept_ids:
+                continue
+            for source in concept.get("sources", []) or []:
+                segment_id = str(source.get("segment_id") or "")
+                if segment_id and segment_id not in changed_segments:
+                    changed_segments.append(segment_id)
+        started = self._start_partial_study_refresh(
+            job, changed_segments, concept_ids=concept_ids)
+        self._respond(request_id, command, ok=started, job_id=job.job_id,
+                      started=started, kind=kind, id=item_id,
+                      concept_ids=concept_ids)
 
     # ------------------------------------------------------------------ #
     # Phase 9: paste link / yt-dlp
@@ -3814,6 +4303,9 @@ class Sidecar:
         self.current_stage = "Review Ready"
         self._emit_job_payloads()
         self._emit_status("Review Ready", detail="Transcript and slides are ready")
+        # Study AI begins as soon as local lecture assets are complete. It is
+        # independent of export and never blocks queue promotion or shutdown.
+        self._start_ai_study(self.current_job)
         if self.auto_export and self.current_job.get_stage_status("Export") != "completed":
             QTimer.singleShot(0, self._start_automatic_export)
         else:

@@ -465,3 +465,56 @@ auto-downloaded. Backend is CPU-only in this build.
   transcript rendered with the same block widgets.
 - `ui/widgets/focus_mode.py` — fades nav rail, command bar and status bar to
   opacity 0 and hides them; floating "Exit Focus" button + `Esc`.
+
+## AI-first Study production boundary
+
+### Desktop ownership
+
+- `lecturepack/services/study_v2.py` owns schema-3 Study content and progress.
+  Source-derived evidence references remain separate from normalized AI
+  material, and mastery survives retries and targeted regeneration.
+- `lecturepack/services/ai_study_service.py` builds a path-free lecture bundle,
+  runs hierarchical analysis when needed, selects bounded slide/web evidence,
+  and performs the second materials pass. It also owns local retrieval for
+  Ask, Teach Me context, semantic grading requests, and targeted regeneration.
+- `lecturepack/services/ai_gateway.py` is the only desktop HTTPS client. It
+  registers an anonymous installation, refreshes its signed token, enforces a
+  fixed task allowlist and response bound, and exposes only sanitized
+  diagnostics. Original video paths and bytes never enter its request shape.
+- `electron-spike/python-sidecar.py` starts at most one Study build worker per
+  job after processing completes. Pipeline export remains non-blocking. It
+  emits progress/failure/ready events and serializes retries, explicit Basic
+  opt-out, mastery edits, Ask, Teach Me, grading, Quick Study, and partial
+  refresh through the existing JSONL boundary.
+
+### Gateway ownership
+
+- `ai-gateway/` is a dependency-free Cloudflare Worker. It owns installation
+  authentication, task allowlisting, install/network/D1 rate limits,
+  server-controlled provider/model routes, schema validation, safe error
+  normalization, and payload-free owner alerts.
+- OpenRouter and NVIDIA are interchangeable server routes. The renderer and
+  sidecar never accept provider or model input from a student. Every task
+  fails closed unless 2-3 configured routes span at least two independent
+  endpoint hosts; provider-side 4xx/5xx responses advance to the next route.
+- D1 stores installation/rate-limit/request metadata only. The gateway does
+  not persist transcripts, prompts, completions, accepted slide images, or
+  original video content.
+- Optional web enrichment is bounded and returned with explicit URLs. Vision
+  is bounded to selected accepted slides. Both are supplemental evidence for
+  the second pass, not separate autonomous agents.
+
+### Failure and provenance contract
+
+- Study status is one of `preparing`, `ready`, `failed`, or `basic`. A failed
+  primary build exposes Retry, Copy diagnostics, and Use Basic Study. Basic is
+  never selected silently.
+- Copied diagnostics revalidate a strict allowlist and may identify attempted
+  provider/model routes, status codes, retry count, request ID, app version,
+  and internal stage names. They never contain prompts, transcript text,
+  responses, auth tokens, or provider credentials.
+- Every generated item can carry lecture segment/slide references, optional
+  extra-context provenance, and optional web citations. The renderer labels
+  those sources distinctly and opens only normalized HTTPS web links.
+- Quick Study is derived from persisted Study content and Rust-first mastery
+  ordering; selecting 5, 10, 20 minutes, or Full makes no provider request.

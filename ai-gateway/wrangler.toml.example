@@ -1,0 +1,54 @@
+name = "lecturepack-ai-gateway"
+main = "src/index.js"
+compatibility_date = "2026-08-12"
+workers_dev = true
+
+# Copy this file to wrangler.toml, create the D1 database, and replace the
+# placeholder. Provider keys, TOKEN_SIGNING_SECRET, NETWORK_HASH_SECRET, and
+# RESEND_API_KEY must be Wrangler secrets, never plaintext vars.
+[[d1_databases]]
+binding = "DB"
+database_name = "lecturepack-ai-gateway"
+database_id = "replace-with-production-d1-id"
+migrations_dir = "migrations"
+
+# Fast, permissive edge protection. Durable per-install/day enforcement is
+# additionally backed by D1 because this binding is intentionally eventually
+# consistent and local to a Cloudflare location.
+[[ratelimits]]
+name = "INSTALL_LIMITER"
+namespace_id = "21001"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "NETWORK_LIMITER"
+namespace_id = "21002"
+simple = { limit = 180, period = 60 }
+
+[[ratelimits]]
+name = "REGISTRATION_LIMITER"
+namespace_id = "21003"
+simple = { limit = 20, period = 60 }
+
+[vars]
+MIN_APP_VERSION = "2.0.1"
+DAILY_INSTALL_LIMIT = "250"
+TOKEN_TTL_DAYS = "90"
+MAX_REQUEST_BYTES = "3500000"
+OWNER_ALERT_EMAIL = "discordsammy2@gmail.com"
+ALERT_FROM_EMAIL = "LecturePack Alerts <alerts@replace-with-verified-domain.example>"
+ALERT_COOLDOWN_SECONDS = "3600"
+TELEMETRY_RETENTION_DAYS = "30"
+
+# Models and route order are intentionally server-controlled. At minimum set
+# OPENROUTER_PRIMARY_MODEL, NVIDIA_PRIMARY_MODEL, and
+# OPENROUTER_FALLBACK_MODEL as non-secret Worker vars, then store the matching
+# provider API keys as secrets. Task-specific *_<TASK>_MODEL vars override the
+# generic values. AI_ROUTE_CONFIG can replace these defaults with a JSON array
+# of 2-3 route descriptors per task.
+OPENROUTER_PRIMARY_MODEL = ""
+NVIDIA_PRIMARY_MODEL = ""
+OPENROUTER_FALLBACK_MODEL = ""
+OPENROUTER_VISION_MODEL = ""
+NVIDIA_VISION_MODEL = ""
+OPENROUTER_VISION_FALLBACK_MODEL = ""
