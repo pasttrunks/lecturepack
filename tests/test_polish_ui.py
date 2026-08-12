@@ -97,8 +97,8 @@ def test_guided_tour_uses_authoritative_eligibility_and_cleans_demo() -> None:
 
 def test_guided_demo_waits_for_import_action_and_handles_hidden_card() -> None:
     start = function_block(JS, "function startGuidedDemo()", "function endGuidedDemo")
-    assert "Opening the tour is not consent" in start
-    assert "startGuidedTour(true);" in start
+    assert "late animation callback" in start
+    assert "startGuidedTour(true)" not in start
     assert "guidedDemoFlow.beginAttempt();" in start
     assert "renderGuidedTour();\n      return;" in start
 

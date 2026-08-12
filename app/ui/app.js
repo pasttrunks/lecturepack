@@ -5409,9 +5409,9 @@
     if (!demoAdmissionAvailable) return;
     if (!lpBridge.connected()) { toast('Guided demo needs the LecturePack desktop app.'); return; }
     if (!guidedTour.snapshot().active) {
-      // Opening the tour is not consent to start its job. Keep this fallback
-      // at the import gate even if an older caller reaches it directly.
-      startGuidedTour(true);
+      // A late animation callback must not reopen replay after the user exits.
+      // Every normal entry point opens/awaits the import gate before calling
+      // this function, so an inactive tour is a safe no-op.
       return;
     }
     // A retry after clean-up (or a failed start) is a new demo, not a
