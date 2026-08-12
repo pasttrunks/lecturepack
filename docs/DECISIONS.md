@@ -1968,7 +1968,7 @@ intentionally non-blocking and does not affect Study requests.
 
 ---
 
-## AD-47: The guided demo is a self-contained screen with pre-baked real output
+## AD-48: The guided demo is a self-contained screen with pre-baked real output
 
 **Date:** 2026-08-12
 **Status:** Implemented
@@ -2026,3 +2026,61 @@ configured.
 **Consequence:** the demo no longer teaches where the Review controls are. That
 is deliberate: the value proposition is what the app produces, not where its
 buttons live, and chrome is learned in seconds by using it.
+
+---
+
+## AD-49: Waiting, slide review, and demo state must represent one real system each
+
+**Date:** 2026-08-12
+
+**Status:** Implemented
+
+**Context:** Live evidence showed the Study preparation panel at `0%` while the
+lecture pipeline was still detecting slides. No Study stage existed yet, so an
+eight-row idle checklist and an AI elapsed clock falsely implied that Study AI
+had started and stalled. Review also exposed a Grid/List choice inside a
+250-pixel rail where the grid could resolve to only one column, while accepted
+selection received a louder full-card fill than the export-changing rejected
+state. Finally, AD-48 made the old live-screen spotlight renderer unreachable,
+but its geometry, focus, animation, and test contracts remained in production.
+
+**Decision:** Treat lecture processing, Study AI preparation, slide navigation,
+and the walkthrough as separate presentation systems with explicit boundaries:
+
+- When Study has no generation stage, render one honest waiting row. While the
+  lecture pipeline is active it says that Study is waiting for transcript and
+  slides; otherwise it says Study AI is starting. Hide the AI progress bar and
+  source list, and do not start the Study elapsed clock until a real stage is
+  received.
+- Keep Review's narrow slide rail as a list. Its Compact/Roomy control changes
+  density only. Put the actual deck grid in a full-window **All slides** dialog
+  using `repeat(auto-fill,minmax(168px,1fr))`.
+- Encode accepted selection as an unfilled checkbox, rejected as the loud red
+  state, and the slide currently being viewed as an orange outline. Keeping a
+  slide updates both its accepted state and selected flag immediately.
+- Delete the unreachable spotlight renderer, scrim geometry, focus trap,
+  lifted-card animation, and the tests that specified them. Keep only the
+  provider-neutral demo eligibility contract and the identity-safe real-demo
+  session reducer. Reset terminal cleanup guards when starting a new demo
+  attempt so a second run can still be stopped safely.
+
+**Alternatives considered:**
+
+- Show the full Study checklist at `0%`: rejected because it assigns lecture
+  work and elapsed time to an AI task that does not yet exist.
+- Hide Study entirely until the lecture finishes: rejected because an explicit
+  waiting state explains what will happen next and confirms the request was
+  accepted.
+- Keep Grid/List in the rail with smaller cards: rejected because shrinking
+  cards does not create useful deck-level scanning in that width.
+- Tint every accepted slide card: rejected because acceptance is the normal
+  state; rejection and current viewing carry more decision value.
+- Leave unreachable tour code for old tests: rejected because those tests made
+  deleted behavior an accidental maintenance contract and allowed the second
+  renderer to return.
+
+**Rationale:** Every visible progress indicator now belongs to work that has
+actually started, every slide control has a layout capable of expressing its
+label, and the first-run walkthrough has one renderer rather than two. The UI
+therefore communicates backend state without inventing activity and keeps the
+highest-consequence review state visually loudest.

@@ -83,11 +83,10 @@ def test_set_slide_detection_preset_guards_against_pipeline_running():
     assert "LP.state.pipelineRunning" in guard_line
 
 
-def test_guided_demo_lock_function_is_unchanged():
-    """The demo-path lock itself must remain untouched -- this plan adds a
-    parallel check for normal processing, not a rewrite of the demo lock."""
+def test_guided_demo_lock_tracks_the_real_demo_session():
+    """The setting locks only while the bundled lecture is actually running."""
     body = _function_body(JS, "guidedDemoSensitivityLocked")
-    assert body.strip() == "return guidedTour.snapshot().active && demoFlowPhase() !== 'idle';"
+    assert body.strip() == "return guidedDemo.snapshot().active;"
 
 
 def test_pipeline_running_flag_declared_in_state():

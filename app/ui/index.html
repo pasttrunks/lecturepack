@@ -286,7 +286,15 @@
         <div class="lp-review-row" style="flex:1;display:flex;gap:14px;min-height:0">
           <!-- slide list -->
           <div class="lp-review-col lp-review-col-slides" style="width:250px;flex:none;display:flex;flex-direction:column;min-height:0">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span style="font-weight:700;font-size:14px">Slides <span id="slides-sel" style="color:var(--blue-ink);font:500 12px 'JetBrains Mono'">· 2 sel</span></span><div style="display:flex;border:2px solid var(--border);border-radius:8px;overflow:hidden"><button class="lp-hit lp-seg active" data-view="grid" type="button">Grid</button><button class="lp-hit lp-seg" data-view="list" type="button">List</button></div></div>
+            <div class="lp-slide-rail-head">
+              <span style="font-weight:700;font-size:14px">Slides <span id="slides-sel" style="color:var(--blue-ink);font:500 12px 'JetBrains Mono'">· 2 kept</span></span>
+              <button id="btn-all-slides" class="lp-hit lp-press-sm" type="button">All slides</button>
+            </div>
+            <div class="lp-slide-density" role="group" aria-label="Slide list density">
+              <span>Density</span>
+              <button class="lp-hit active" type="button" data-slide-density="compact" aria-pressed="true">Compact</button>
+              <button class="lp-hit" type="button" data-slide-density="comfortable" aria-pressed="false">Roomy</button>
+            </div>
             <div id="slide-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:9px;padding-right:4px"></div>
             <div id="demo-review-actions" style="display:flex;gap:7px;margin-top:11px">
               <button id="btn-keep" class="lp-hit" style="flex:1;font:700 13px 'Space Grotesk';background:var(--green-fill);color:var(--on-signal);border:1.5px solid var(--green);border-radius:9px;padding:9px 0;cursor:pointer;">Keep</button>
@@ -730,7 +738,7 @@
 
       <!-- Guided demo. A SELF-CONTAINED screen: it measures nothing in the live
            UI, mutates nothing outside itself, and shows pre-baked real output of
-           the bundled Polar Bears lecture. See docs/DECISIONS.md AD-47. -->
+           the bundled Polar Bears lecture. See docs/DECISIONS.md AD-48. -->
       <section data-screen="demo" hidden aria-label="LecturePack demo" style="padding:0">
         <div class="lp-demo-shell">
           <header class="lp-demo-bar">
@@ -821,7 +829,7 @@
     <button id="status-job" type="button" hidden>
       <span id="status-job-name">Processing</span>
       <span id="status-queued" hidden></span>
-      <span class="lp-status-track"><span id="status-bar" class="lp-fill"></span></span>
+      <span class="lp-status-track"><span id="status-bar" class="lp-fill" style="width:100%;transform:scaleX(0)"></span></span>
       <span id="status-detail"></span>
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
     </button>
@@ -833,36 +841,15 @@
   <!-- focus exit pill -->
   <button id="focus-pill" hidden style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;font:700 12px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:22px;padding:9px 18px;cursor:pointer;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>Exit focus · Esc</button>
 
-  <!-- Guided tour: the outer layer and spotlight never receive pointer input.
-       Only this compact card is interactive, avoiding QtWebEngine SVG/mask hit
-       testing while leaving the highlighted application control usable. -->
-  <div id="guided-tour-overlay" hidden aria-live="polite" aria-atomic="true">
-    <div id="tour-dim-top" class="tour-dim-region" aria-hidden="true"></div>
-    <div id="tour-dim-right" class="tour-dim-region" aria-hidden="true"></div>
-    <div id="tour-dim-bottom" class="tour-dim-region" aria-hidden="true"></div>
-    <div id="tour-dim-left" class="tour-dim-region" aria-hidden="true"></div>
-    <div id="tour-spotlight-box" aria-hidden="true"></div>
-    <div id="tour-arrow" aria-hidden="true"></div>
-    <section id="guided-tour-card" aria-labelledby="tour-title">
-      <div id="tour-step-label">QUICK TOUR</div>
-      <h2 id="tour-title">A quick look around</h2>
-      <p id="tour-copy">See the main steps, then stay in control of what happens next.</p>
-      <div id="tour-progress" aria-hidden="true"></div>
-      <div id="tour-prompt-actions">
-        <button id="btn-tour-start" class="lp-hit lp-press" type="button">Take guided tour</button>
-        <button id="btn-tour-skip" class="lp-hit lp-press-sm" type="button">Skip to app</button>
-      </div>
-      <div id="tour-step-actions" hidden>
-        <button id="btn-tour-exit" class="lp-hit lp-press-sm" type="button">Exit demo</button>
-        <span style="flex:1"></span>
-        <button id="btn-tour-back" class="lp-hit lp-press-sm" type="button">Back</button>
-        <button id="btn-tour-next" class="lp-hit lp-press" type="button">Next</button>
-      </div>
-      <div id="tour-finish-actions" hidden>
-        <button id="btn-tour-open-pack" class="lp-hit lp-press" type="button">Open my study pack</button>
-        <button id="btn-tour-import-own" class="lp-hit lp-press-sm" type="button">Import my own lecture</button>
-      </div>
-    </section>
+  <!-- Full-window deck overview: the narrow Review rail stays a real list. -->
+  <div id="all-slides-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="all-slides-title">
+    <div class="lp-all-slides-shell">
+      <header class="lp-all-slides-head">
+        <div><span class="lp-all-slides-kicker">Review</span><h2 id="all-slides-title">All slides</h2><p id="all-slides-count">0 slides</p></div>
+        <button id="btn-all-slides-close" class="lp-hit lp-press-sm" type="button" aria-label="Close all slides">Close</button>
+      </header>
+      <div id="all-slides-grid" class="lp-all-slides-grid"></div>
+    </div>
   </div>
 
   <!-- ===== NEW JOB OVERLAY ===== -->

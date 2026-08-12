@@ -3,7 +3,7 @@
    where fetch() of a sibling file is blocked by web security. A script
    tag is not, so the demo cannot fail to load its own data. */
 window.LP_DEMO_DATA = {
-  "_provenance": "Real output of LecturePack's own pipeline on app/assets/demo/demo_lecture.mp4 (Polar Bears, 00:10). Slide frames extracted at the timestamps the slide detector selected; transcript lines are the Whisper output; concept, flashcard and quiz content is what Study generated from this lecture. Baked so the demo is instant, offline and deterministic — see docs/DECISIONS.md AD-47.",
+  "_provenance": "Real output of LecturePack's own pipeline on app/assets/demo/demo_lecture.mp4 (Polar Bears, 00:10). Slide frames extracted at the timestamps the slide detector selected; transcript lines are the Whisper output; concept, flashcard and quiz content is what Study generated from this lecture. Baked so the demo is instant, offline and deterministic — see docs/DECISIONS.md AD-48.",
   "source": {
     "name": "polar_bears.mp4",
     "duration": "00:10",

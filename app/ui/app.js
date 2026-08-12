@@ -7,6 +7,9 @@
   'use strict';
 
   var $ = function (id) { return document.getElementById(id); };
+  // One guarded indirection keeps feature stores consistent and preserves a
+  // single place to substitute storage in renderer-level tests.
+  var browserStorage = function () { return window.localStorage; };
   var esc = function (s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -32,31 +35,10 @@
     if (nm && name) nm.textContent = name;
   }
 
-  /* ======================= guided tour models =======================
-     These reducers deliberately contain no DOM or bridge calls.  The DOM
-     controller below is a thin projection of their state, which keeps the
-     user-controlled tour and stale-event filtering testable without a live
-     QtWebEngine window. */
-  function GuidedTourModel(seen) {
-    var active = false, prompt = false, step = -1, completed = !!seen;
-    function snapshot() { return { active: active, prompt: prompt, step: step, completed: completed }; }
-    return {
-      offer: function () { if (!completed && !active) prompt = true; return snapshot(); },
-      start: function () { prompt = false; active = true; step = 0; return snapshot(); },
-      replay: function () { prompt = false; active = true; step = 0; return snapshot(); },
-      next: function (count) { if (active && step < count - 1) step += 1; return snapshot(); },
-      back: function () { if (active && step > 0) step -= 1; return snapshot(); },
-      exit: function () { active = false; prompt = false; step = -1; completed = true; return snapshot(); },
-      setEligibility: function (eligible) {
-        if (active) return snapshot();
-        completed = eligible !== true;
-        if (!eligible) prompt = false;
-        return snapshot();
-      },
-      snapshot: snapshot
-    };
-  }
-
+  /* ======================= demo session model =======================
+     This reducer deliberately contains no DOM or bridge calls. The
+     self-contained demo screen owns presentation; this model only rejects
+     stale start/stop events from the real bundled-lecture hand-off. */
   function GuidedDemoSessionModel() {
     var operationId = '', sessionId = '', active = false, status = 'idle', stage = '', progress = 0, error = '', terminal = false, attempt = 0;
     function snapshot() { return { operationId: operationId, sessionId: sessionId, active: active, status: status, stage: stage, progress: progress, error: error, terminal: terminal, attempt: attempt }; }
@@ -132,27 +114,6 @@
     };
   }
 
-  function GuidedDemoFlowModel() {
-    var phase = 'idle', imported = false, reviewDecisionMade = false;
-    function snapshot() {
-      return { phase: phase, imported: imported, reviewDecisionMade: reviewDecisionMade,
-        nextEnabled: phase === 'study' || phase === 'exports',
-        backEnabled: phase === 'study' || phase === 'exports' };
-    }
-    return {
-      beginAttempt: function () { phase = 'import'; imported = false; reviewDecisionMade = false; return snapshot(); },
-      start: function () { phase = 'import'; imported = false; reviewDecisionMade = false; return snapshot(); },
-      imported: function () { if (phase === 'import') { imported = true; phase = 'processing'; } return snapshot(); },
-      running: function () { if (phase === 'processing') phase = 'processing'; return snapshot(); },
-      reviewReady: function () { if (phase === 'processing') phase = 'review'; return snapshot(); },
-      reviewDecision: function () { if (phase === 'review') { reviewDecisionMade = true; phase = 'study'; } return snapshot(); },
-      next: function () { if (phase === 'study') phase = 'exports'; else if (phase === 'exports') phase = 'finished'; return snapshot(); },
-      back: function () { if (phase === 'exports') phase = 'study'; else if (phase === 'study') phase = 'review'; return snapshot(); },
-      exit: function () { phase = 'idle'; imported = false; reviewDecisionMade = false; return snapshot(); },
-      snapshot: snapshot
-    };
-  }
-
   function SlideDetectionPresetModel() {
     var selected = 'balanced';
     var presets = { low: 'conservative', balanced: 'balanced', high: 'detailed' };
@@ -168,10 +129,8 @@
       snapshot: snapshot
     };
   }
-  /* ===================== guided tour models end ===================== */
-  window.LPTourModel = GuidedTourModel;
+  /* ===================== demo session model end ===================== */
   window.LPDemoSessionModel = GuidedDemoSessionModel;
-  window.LPDemoFlowModel = GuidedDemoFlowModel;
   window.LPSlideDetectionPresetModel = SlideDetectionPresetModel;
 
   var THUMB_SVG = '<svg width="{S}" height="{S}" viewBox="0 0 24 24" fill="none" stroke="{C}" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
@@ -228,7 +187,7 @@
         settings: { count: 10, difficulty: 'Basic', style: 'Term → definition', scope: 'Entire lecture' }
       },
       viewingSlide: 2,
-      slidesView: 'grid',   // grid = visual tiles, list = compact rows
+      slideDensity: 'compact',
 
       updateInfo: null,
       smartStudy: null,   // last smart_study payload
@@ -867,8 +826,6 @@
      it resolves from app state. Works for a real job too: a job is "decided"
      once every slide carries an accepted/rejected state. */
   function reviewDecisionTaken() {
-    var demo = guidedDemoFlow.snapshot();
-    if (demo.phase === 'study' || demo.phase === 'exports' || demo.reviewDecisionMade) return true;
     var slides = (LP.data && LP.data.slides) || [];
     if (!slides.length) return false;
     return slides.every(function (sl) {
@@ -1133,8 +1090,6 @@
   function bulkGroup() {
     var ids = Object.keys(LP.state.selected);
     if (!ids.length) return;
-    // F-2: never stack a modal over the guided tour.
-    if (guidedTour.snapshot().active || guidedTour.snapshot().prompt) { toast('Finish or leave the guided tour first.'); return; }
     lpModal({
       title: 'Group ' + ids.length + (ids.length === 1 ? ' lecture' : ' lectures'),
       bodyHtml: '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px">Course / subject</label>' +
@@ -1462,8 +1417,6 @@
     });
   }
   function setJobGroup(job) {
-    // F-2: never stack the Group lecture modal over the guided tour.
-    if (guidedTour.snapshot().active || guidedTour.snapshot().prompt) { toast('Finish or leave the guided tour first.'); return; }
     lpModal({
       title: 'Group lecture',
       bodyHtml: '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px">Course / subject</label>' +
@@ -2055,10 +2008,6 @@
       logEl.innerHTML = logHtml;
       if (stick) logEl.scrollTop = logEl.scrollHeight;
     }
-    // The guided-tour processing spotlight is measured before the live stage
-    // list fills in. Re-measure after that DOM growth so the border and arrow
-    // continue to describe the actual target instead of the initial skeleton.
-    if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') scheduleTourGeometry();
   }
 
    function pipelineStageNode() {
@@ -2193,7 +2142,6 @@
      while (stagesEl.children.length < stages.length) stagesEl.appendChild(pipelineStageNode());
       stages.forEach(function (st, index) { applyPipelineStage(stagesEl.children[index], st); });
       renderPipelineLog($('proc-log'), logs);
-      if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') scheduleTourGeometry();
       refreshControlStates();
    }
 
@@ -2440,81 +2388,100 @@
     return { show: show, refit: refit };
   })();
 
-  /* Slide review has two genuinely different jobs, so it gets two layouts.
-     GRID = image tiles, for scanning a deck fast and spotting the slide you
-     want. LIST = compact rows with timecode + status, for working through
-     judgements precisely. Before this the Grid/List control was inert markup
-     (two <span>s, no handler anywhere) while the only layout that existed was
-     the row one -- so it also mislabelled itself as "Grid". */
-  /* Grid tiles animate their entrance ONLY when the user enters grid view, not
-     on every render. renderSlides() rebuilds innerHTML on every slide click,
-     Next/Prev, and now every Keep/Reject (which auto-advances), so an
-     unconditional .lp-anim-in made the whole grid re-play its 140ms slide-up on
-     every single interaction -- a full-grid flash per judgement click. The list
-     branch never carried the class, which is why only grid regressed. */
-  var _gridEntrance = true;   // true so the first paint still animates
+  /* Review has one narrow working rail and one deliberate deck overview.
+     A "Grid/List" toggle inside a 250px rail could never produce a useful grid:
+     its auto-fill expression resolved to one 246px column. The rail is now
+     always a list with density control; visual deck scanning lives in the
+     full-window All Slides dialog where 168px cards can actually form a grid. */
+  function slideReviewState(slide) {
+    return slide && slide.state === 'rejected' ? 'rejected' : 'accepted';
+  }
+
+  function slideCheckHtml(selected) {
+    return '<span class="lp-slide-check" data-checked="' + (selected ? 'true' : 'false') +
+      '" aria-hidden="true">' + (selected ? '&#10003;' : '') + '</span>';
+  }
+
+  function slideRailCardHtml(slide, index, viewing) {
+    var state = slideReviewState(slide), selected = state !== 'rejected' && slide.sel === true;
+    var label = state === 'rejected' ? 'Rejected' : (viewing ? 'Viewing' : 'Kept');
+    var image = slideImg(slide.thumb || slide.img, '', 16, state === 'rejected' ? 'var(--red)' : 'var(--muted)');
+    return '<button type="button" class="lp-hit lp-slide-card lp-slide-rail-card" data-slide="' + index +
+      '" data-state="' + state + '" data-viewing="' + (viewing ? 'true' : 'false') +
+      '" data-selected="' + (selected ? 'true' : 'false') + '" aria-label="Slide ' + (index + 1) +
+      ', ' + esc(slide.time || '') + ', ' + label.toLowerCase() + '">' +
+      '<span class="lp-slide-card-thumb">' + image + '</span>' +
+      '<span class="lp-slide-card-meta"><span class="lp-slide-card-time">' + esc(slide.time) + '</span>' +
+      '<span class="lp-slide-card-status">' + label + '</span></span>' + slideCheckHtml(selected) + '</button>';
+  }
+
+  function allSlidesCardHtml(slide, index, viewing) {
+    var state = slideReviewState(slide), selected = state !== 'rejected' && slide.sel === true;
+    var label = state === 'rejected' ? 'Rejected' : (viewing ? 'Viewing' : 'Kept');
+    var image = slideImg(slide.thumb || slide.img, '', 22, state === 'rejected' ? 'var(--red)' : 'var(--muted)');
+    return '<button type="button" class="lp-hit lp-all-slide-card" data-slide="' + index +
+      '" data-state="' + state + '" data-viewing="' + (viewing ? 'true' : 'false') +
+      '" data-selected="' + (selected ? 'true' : 'false') + '" aria-label="Open slide ' + (index + 1) +
+      ', ' + esc(slide.time || '') + ', ' + label.toLowerCase() + '">' +
+      '<span class="lp-all-slide-image">' + image + '</span>' +
+      '<span class="lp-all-slide-meta"><span><strong>Slide ' + (index + 1) + '</strong><time>' +
+      esc(slide.time) + '</time></span><span class="lp-all-slide-state">' + label + '</span>' +
+      slideCheckHtml(selected) + '</span></button>';
+  }
+
+  function renderAllSlides() {
+    var grid = $('all-slides-grid'), count = $('all-slides-count');
+    if (!grid) return;
+    var viewing = LP.state.viewingSlide;
+    grid.innerHTML = LP.data.slides.map(function (slide, index) {
+      return allSlidesCardHtml(slide, index, index === viewing);
+    }).join('');
+    if (count) {
+      var kept = LP.data.slides.filter(function (slide) { return slideReviewState(slide) === 'accepted'; }).length;
+      count.textContent = LP.data.slides.length + ' slides · ' + kept + ' kept';
+    }
+  }
+
+  var allSlidesReturnFocus = null;
+  function openAllSlides() {
+    var overlay = $('all-slides-overlay');
+    if (!overlay || !LP.data.slides.length) return;
+    allSlidesReturnFocus = document.activeElement;
+    renderAllSlides();
+    overlay.hidden = false;
+    focusFirst(overlay);
+  }
+
+  function closeAllSlides(restoreFocus) {
+    var overlay = $('all-slides-overlay');
+    if (!overlay || overlay.hidden) return;
+    overlay.hidden = true;
+    if (restoreFocus !== false && allSlidesReturnFocus && allSlidesReturnFocus.isConnected) {
+      allSlidesReturnFocus.focus();
+    }
+    allSlidesReturnFocus = null;
+  }
+
   function renderSlides() {
     var v = LP.state.viewingSlide;
     var list = $('slide-list');
     updateExportPdfDescription();
-    var grid = LP.state.slidesView === 'grid';
-    // the container is a flex column for list, an auto-fill grid for tiles
-    list.dataset.view = grid ? 'grid' : 'list';
-    list.style.display = grid ? 'grid' : 'flex';
-    list.style.gridTemplateColumns = '';
-    list.style.alignContent = grid ? 'start' : '';
-    list.style.gap = grid ? '8px' : '9px';
-    if (grid) {
-      var entrance = _gridEntrance ? ' lp-anim-in' : '';
-      _gridEntrance = false;
-      list.innerHTML = LP.data.slides.map(function (s, i) {
-        var viewing = i === v, bd, tint = 'var(--panel)', label, labelColor;
-        if (viewing) { bd = 'var(--orange)'; tint = 'var(--orange-soft)'; label = s.sel ? 'viewing · sel' : 'viewing'; labelColor = 'var(--orange-ink)'; }
-        else if (s.sel) { bd = 'var(--blue)'; tint = 'var(--blue-tint)'; label = 'selected'; labelColor = 'var(--blue-ink)'; }
-        else if (s.state === 'rejected') { bd = 'var(--red)'; tint = 'var(--red-soft)'; label = 'rejected'; labelColor = 'var(--red)'; }
-        else { bd = 'var(--border)'; label = 'accepted'; labelColor = 'var(--blue-ink)'; }
-        var img = slideImg(s.thumb || s.img, 'width:100%;height:100%;object-fit:cover;display:block', 18, labelColor);
-        return '<div class="lp-hit lp-slide-card' + entrance + '" data-slide="' + i + '" style="display:flex;flex-direction:column;gap:5px;min-width:0;' +
-          'background:' + tint + ';border:2px solid ' + bd + ';border-radius:10px;padding:5px;cursor:pointer">' +
-          '<div class="lp-slide-card-thumb" style="aspect-ratio:16/10;overflow:hidden;background:var(--sunk);border-radius:6px;display:flex;' +
-          'align-items:center;justify-content:center">' + img + '</div>' +
-          '<div class="lp-slide-card-meta" style="display:flex;align-items:baseline;justify-content:space-between;gap:4px;min-width:0">' +
-          '<span class="lp-slide-card-time" style="font:700 11px \'JetBrains Mono\'">' + esc(s.time) + '</span>' +
-          '<span class="lp-slide-card-status" style="font:700 8.5px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</span>' +
-          '</div></div>';
-      }).join('');
-      finishSlides(v);
-      return;
-    }
-    list.innerHTML = LP.data.slides.map(function (s, i) {
-      var viewing = i === v;
-      var wrap, thumbBd = 'var(--line)', icon = 'var(--muted)', label, labelColor;
-      if (viewing) {
-        wrap = 'background:var(--orange-soft);border:2px solid var(--orange);border-radius:11px;padding:7px;cursor:pointer;box-shadow:var(--shadow-soft)';
-        thumbBd = 'var(--orange)'; icon = 'var(--orange-ink)';
-        label = s.sel ? 'viewing · sel' : 'viewing'; labelColor = 'var(--orange-ink)';
-      } else if (s.sel) {
-        wrap = 'background:var(--blue-tint);border:2px solid var(--blue);border-radius:11px;padding:7px;cursor:pointer;box-shadow:var(--shadow-soft)';
-        thumbBd = 'var(--blue)'; icon = 'var(--blue-ink)';
-        label = 'selected'; labelColor = 'var(--blue-ink)';
-      } else if (s.state === 'rejected') {
-        wrap = 'background:var(--red-soft);border:1.5px solid var(--line);border-radius:11px;padding:8px;cursor:pointer';
-        label = 'rejected'; labelColor = 'var(--red)';
-      } else {
-        wrap = 'background:var(--panel);border:1.5px solid var(--line);border-left:5px solid var(--blue);border-radius:11px;padding:8px;cursor:pointer';
-        label = 'accepted'; labelColor = 'var(--blue-ink)';
-      }
-      var thumbImg = slideImg(s.thumb || s.img, 'width:100%;height:100%;object-fit:cover;border-radius:5px;display:block', 16, icon);
-      return '<div class="lp-hit lp-slide-card" data-slide="' + i + '" style="display:flex;align-items:center;gap:11px;min-width:0;' + wrap + '">' +
-        '<div class="lp-slide-card-thumb" style="width:60px;height:38px;flex:none;overflow:hidden;background:var(--sunk);border:1.5px solid ' + thumbBd + ';border-radius:6px;display:flex;align-items:center;justify-content:center">' + thumbImg + '</div>' +
-        '<div class="lp-slide-card-meta" style="min-width:0;overflow:hidden"><div class="lp-slide-card-time" style="font:700 13px \'JetBrains Mono\'">' + esc(s.time) + '</div><div class="lp-slide-card-status" style="font:700 10px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</div></div></div>';
+    list.dataset.density = LP.state.slideDensity;
+    list.innerHTML = LP.data.slides.map(function (slide, index) {
+      return slideRailCardHtml(slide, index, index === v);
     }).join('');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-slide-density]'), function (button) {
+      var active = button.dataset.slideDensity === LP.state.slideDensity;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    if (!$('all-slides-overlay').hidden) renderAllSlides();
     finishSlides(v);
   }
 
   function finishSlides(v) {
     var selCount = LP.data.slides.filter(function (s) { return s.sel; }).length;
-    $('slides-sel').textContent = '· ' + selCount + ' sel';
+    $('slides-sel').textContent = '· ' + selCount + ' kept';
     var cur = LP.data.slides[v];
     previewCtl.show(cur);
     $('slide-frame-meta').innerHTML = cur
@@ -3009,6 +2976,7 @@
 
   function setScreen(name) {
     if (LP.state.screen === name) return;
+    if (name !== 'review') closeAllSlides(false);
     // Home's Continue card must reflect the screen the student just left in
     // this same session, not only state captured during a job switch or app
     // shutdown. Capture before changing LP.state.screen so the saved target
@@ -3062,15 +3030,6 @@
     });
     // N-5: transient toasts do not survive a screen change.
     dismissToast();
-    // N-8: the tour follows the student, not the script. If they manually
-    // reach the next expected screen, the tour advances to match; otherwise
-    // re-measure so the spotlight never glows around empty space.
-    if (guidedTour.snapshot().active) {
-      var phaseNow = demoFlowPhase();
-      if (phaseNow === 'review' && name === 'study') { guidedDemoFlow.reviewDecision(); renderGuidedTour(); }
-      else if (phaseNow === 'study' && name === 'exports') { guidedDemoFlow.next(); renderGuidedTour(); }
-      else scheduleTourGeometry();
-    }
     if (typeof saveAppSession === 'function') saveAppSession();
     if (name === 'home' && typeof renderContinueCard === 'function') renderContinueCard();
   }
@@ -3172,7 +3131,7 @@
   // Highest-z-index open overlay, or null when none is open.
   function topOverlay() {
     var open = [];
-    ['runtime-setup-overlay', 'onb-overlay', 'whatsnew-overlay',
+    ['runtime-setup-overlay', 'all-slides-overlay', 'onb-overlay', 'whatsnew-overlay',
       'batch-overlay', 'search-overlay', 'palette-overlay'].forEach(function (id) {
       var el = $(id);
       if (el && !el.hidden) open.push(el);
@@ -3727,9 +3686,6 @@
       return row ? row.checking : '';
     }
     function admit(bootstrap) {
-      if (bootstrap && Object.prototype.hasOwnProperty.call(bootstrap, 'tour_trace_enabled')) {
-        setTourTraceEnabled(bootstrap.tour_trace_enabled === true);
-      }
       bootstrapSnapshot = bootstrap && bootstrap.setup_required || bootstrap || bootstrapSnapshot;
       var before = eventModel.snapshot(), view = eventModel.bootstrap(bootstrap);
       if (before.state === 'checking' && view.state !== 'checking') clearCheckingTimers();
@@ -4221,6 +4177,11 @@
     return -1;
   }
 
+  function studyPrepStage(stage) {
+    var index = studyPrepIndex(stage);
+    return index >= 0 ? STUDY_PREP_STAGES[index] : null;
+  }
+
   function formatElapsed(ms) {
     var total = Math.max(0, Math.round(ms / 1000));
     var mins = Math.floor(total / 60), secs = total % 60;
@@ -4246,8 +4207,31 @@
     var pct = Math.max(0, Math.min(99, Number(metadata.progress_percent) || 0));
     var active = studyPrepIndex(stage);
 
+    // `study_status: preparing` exists as soon as a lecture is imported. It
+    // does NOT prove that Study AI has started: while the local transcript and
+    // slides are still being built, generation_metadata.stage is deliberately
+    // empty. Rendering the full AI checklist at 0% in that state made healthy
+    // lecture processing look like a two-minute AI hang. Show the dependency,
+    // not eight idle tasks, and do not start the Study wait clock early.
+    if (!stage) {
+      stopStudyPrepClock();
+      var waitingForLecture = LP.state.pipelineRunning === true;
+      host.innerHTML = '<div class="lp-prep-stage" data-state="waiting">' +
+        '<span class="lp-prep-marker"></span>' +
+        '<span class="lp-prep-text"><span class="lp-prep-label">' +
+        (waitingForLecture ? 'Waiting for lecture processing to finish' : 'Starting Study AI') +
+        '</span><span class="lp-prep-note">' +
+        (waitingForLecture ? 'Study starts after the transcript and slides are ready' : 'Joining the Study AI queue') +
+        '</span></span></div>';
+      host.hidden = false;
+      if (meta) meta.hidden = true;
+      if (inputs) { inputs.textContent = ''; inputs.hidden = true; }
+      return;
+    }
+
     // The clock starts with the panel, not with each stage: it measures how
-    // long the STUDENT has been waiting, which is the number they care about.
+    // long the student has been waiting for Study AI, not time spent in the
+    // prerequisite local lecture pipeline.
     if (!studyPrepStartedAt) {
       studyPrepStartedAt = Date.now();
       if (studyPrepTimer) clearInterval(studyPrepTimer);
@@ -4325,11 +4309,20 @@
     if (status === 'ready') hideStudyPrepStages();
     badge.textContent = status === 'failed' ? 'Needs attention' : status === 'basic' ? 'Basic' : 'Preparing';
     if (status === 'preparing') {
-      // The stage name is the headline now -- it is the thing that actually
-      // changes, and burying it in a subtitle is what made this look frozen.
-      title.textContent = 'Building your study material';
-      detail.textContent = metadata.stage || 'Preparing your Study system';
-      progressWrap.hidden = false;
+      var stage = String(metadata.stage || '');
+      var stageInfo = studyPrepStage(stage);
+      var waitingForLecture = !stage && LP.state.pipelineRunning === true;
+      // The stage name is the headline: it is the thing that actually changes.
+      // An empty stage is a dependency state, not 0% AI progress.
+      title.textContent = stage
+        ? (stageInfo ? stageInfo.label : stage)
+        : (waitingForLecture ? 'Waiting for lecture processing' : 'Starting Study AI');
+      detail.textContent = stage
+        ? (stageInfo ? stageInfo.note : 'Working on your grounded study material')
+        : (waitingForLecture
+          ? 'Study AI starts automatically when the transcript and slides are ready.'
+          : 'Your lecture is ready. Study AI is joining the queue.');
+      progressWrap.hidden = !stage;
       progressBar.style.transform = 'scaleX(' + (Math.max(0, Math.min(99, Number(metadata.progress_percent) || 0)) / 100) + ')';
       renderStudyPrepStages(metadata);
       actions.hidden = true;
@@ -4982,10 +4975,6 @@
     ['overview', 'flashcards', 'quiz', 'ask', 'quick', 'teach'].forEach(function (m) {
       $('study-mode-' + m).hidden = mode !== m;
     });
-    // A mode switch relays out the whole workspace. Without this the spotlight
-    // keeps the rect of the panel that WAS there -- which is how the Study step
-    // ended up as a stale band lying across the flashcard content.
-    if (guidedTour.snapshot().active) scheduleTourGeometry();
     if (mode === 'flashcards') renderStudyFlashcards();
     if (mode === 'quiz') renderStudyQuiz();
     if (mode === 'ask') renderStudyAsk();
@@ -5422,162 +5411,33 @@
     renderDemoHomeAvailability();
   }
 
-  /* ======================= guided tour / demo ======================= */
-  var TOUR_STORAGE_KEY = 'lecturepack.guided-tour.seen.v1';
-  var browserStorage = function () { return window.localStorage; };
+  /* ======================= guided demo lifecycle =======================
+     The walkthrough is a self-contained screen. This block owns only the
+     durable eligibility state and the optional real bundled-lecture run; it
+     performs no live-screen measurement, spotlighting, or geometry work. */
   var DEMO_DRAG_MIME = 'application/x-lecturepack-demo';
   var INTERNAL_JOB_DRAG_MIME = 'application/x-lecturepack-job-ids';
   var internalJobDragIds = [];
-  /* Each step may declare:
-       screen    -- the screen setScreen() must be on
-       prepare   -- a precondition run BEFORE the target is measured. A step is
-                    only allowed to target something it can guarantee visible;
-                    Study V2 persists its last mode, so without this the Study
-                    step measured a hidden '#study-mode-overview' and produced a
-                    full-width stripe instead of a box.
-       target    -- selector, or an ARRAY whose bounding union becomes the hole.
-                    The scrim is four rects tiling around ONE hole, so a union
-                    must stay a single rectangle -- disjoint holes are not
-                    expressible and must not be attempted.
-       keepClear -- selectors the coach card must not cover, on top of the hole
-                    itself. "Fits on screen" is not the same as "does not cover
-                    what the user needs to see".
-       present   -- 'card' (default) or 'tip'. A 360px card cannot sit beside a
-                    control in Review's three-column layout -- spotlight bottom
-                    left, thumbnails above, slide preview right -- so EVERY
-                    placement buries something the student needs. In tip mode
-                    the card narrows and docks to a corner well clear of the
-                    subject instead of trying to hug it.
-       reveals   -- hidden containers this step's own preconditions guarantee
-                    are shown by the time it runs. '#home-demo' is hidden only
-                    when the demo is unavailable, in which case the tour cannot
-                    start at all. Declaring it keeps the "no target inside a
-                    hidden ancestor" check honest instead of blanket-exempting
-                    every conditional container (BUG-34 was a zero-size card
-                    inside this very element). */
-  var TOUR_PHASES = {
-    import: { screen: 'home', target: ['#dropzone', '#glowing-demo-card'], reveals: ['#home-demo'], title: 'Add the demo video', copy: 'Drag the Polar Bears demo into this lecture area, or click the tile to use it.', next: 'Add demo to continue' },
-    processing: { screen: 'process', target: '#pipeline-stages', title: 'Watch real processing', copy: 'This is the live local pipeline. It advances only as each step actually completes.', next: 'Processing safely…' },
-    review: { screen: 'review', target: '#demo-review-actions', keepClear: ['#slide-frame', '#slide-list'], present: 'tip', title: 'Make one review choice', copy: 'Use Keep or Reject on the existing review controls to continue.', next: 'Make a review choice' },
-    // Targets the Study V2 overview actions. The old '#demo-study-actions' chat
-    // row lives inside '#study-legacy[hidden]', so the spotlight collapsed and
-    // the step rendered with no dim, no ring and no arrow at all.
-    study: { screen: 'study', target: '#demo-study-actions-v2', prepare: function () { setStudyV2Mode('overview'); }, title: 'Your study workspace', copy: 'Concepts, flashcards and a quiz, prepared from this lecture with linked evidence. Continue when you are ready.', next: 'Next' },
-    exports: { screen: 'exports', target: '#btn-export-all', title: 'See export options', copy: 'Exporting unlocks for your own processed lecture. This temporary demo only shows where those options live.', next: 'Finish' }
-  };
-  function tourSeen() {
-    try { return browserStorage().getItem(TOUR_STORAGE_KEY) === '1'; } catch (e) { return false; }
-  }
+
   function persistGuidedTourState(status) {
     if (!status || !lpBridge.connected()) return Promise.resolve(null);
     return lpBridge.call('set_guided_tour_state', { status: status }).then(function (value) {
       var result = parseBridgeResult(value);
       if (!result || result.ok !== true) {
-        toast('LecturePack could not save the guided tour state.');
+        toast('LecturePack could not save the demo state.');
         return result;
       }
       if (result.guided_tour) applyGuidedTourEligibility(result);
       return result;
     }, function () {
-      toast('LecturePack could not save the guided tour state.');
+      toast('LecturePack could not save the demo state.');
       return null;
     });
   }
-  function markTourSeen(status) {
-    status = status || 'skipped';
-    try { browserStorage().setItem(TOUR_STORAGE_KEY, '1'); } catch (e) {}
-    return persistGuidedTourState(status);
-  }
-  var tourTraceEnabled = false;
-  var tourTraceQueue = [], tourTraceFlushTimer = null, tourTraceFrame = null;
-  var tourTraceObserver = null;
 
-  function flushTourTrace() {
-    tourTraceFlushTimer = null;
-    if (!tourTraceQueue.length || !lpBridge.connected()) return;
-    var batch = tourTraceQueue.splice(0, tourTraceQueue.length);
-    lpBridge.call('log_tour_trace', JSON.stringify(batch));
-  }
-
-  function traceTour(kind, detail) {
-    if (!tourTraceEnabled) return;
-    var flow = guidedDemoFlow.snapshot();
-    var record = {
-      event: kind,
-      at: performance.now(),
-      guidedTour: guidedTour.snapshot(),
-      demoPhase: flow.phase,
-      demoAdmissionAvailable: demoAdmissionAvailable
-    };
-    if (detail) record.detail = detail;
-    tourTraceQueue.push(record);
-    if (tourTraceFlushTimer === null) tourTraceFlushTimer = setTimeout(flushTourTrace, 100);
-  }
-
-  function traceTourFrame(timestamp) {
-    tourTraceFrame = null;
-    if (!tourTraceEnabled) return;
-    traceTour('requestAnimationFrame', { timestamp: timestamp });
-    tourTraceFrame = requestAnimationFrame(traceTourFrame);
-  }
-
-  function installTourTraceObserver() {
-    var overlay = $('guided-tour-overlay');
-    if (!tourTraceEnabled || !overlay || tourTraceObserver) return;
-    tourTraceObserver = new MutationObserver(function (mutations) {
-      mutations.forEach(function (mutation) {
-        traceTour('mutation', {
-          type: mutation.type,
-          attributeName: mutation.attributeName,
-          oldValue: mutation.oldValue,
-          addedNodes: mutation.addedNodes.length,
-          removedNodes: mutation.removedNodes.length
-        });
-      });
-    });
-    tourTraceObserver.observe(overlay, {
-      attributes: true,
-      childList: true,
-      attributeOldValue: true
-    });
-  }
-
-  function setTourTraceEnabled(enabled) {
-    var next = enabled === true;
-    if (next === tourTraceEnabled) {
-      if (next) installTourTraceObserver();
-      return;
-    }
-    tourTraceEnabled = next;
-    if (!next) {
-      if (tourTraceObserver) tourTraceObserver.disconnect();
-      tourTraceObserver = null;
-      if (tourTraceFrame !== null) cancelAnimationFrame(tourTraceFrame);
-      tourTraceFrame = null;
-      if (tourTraceFlushTimer !== null) clearTimeout(tourTraceFlushTimer);
-      tourTraceFlushTimer = null;
-      tourTraceQueue = [];
-      return;
-    }
-    installTourTraceObserver();
-    tourTraceFrame = requestAnimationFrame(traceTourFrame);
-  }
-
-  function setTourOverlayHidden(next) {
-    var overlay = $('guided-tour-overlay');
-    if (!overlay) return;
-    var previous = overlay.hidden;
-    overlay.hidden = !!next;
-    traceTour('overlay.hidden', { previous: previous, next: overlay.hidden });
-  }
-
-  var guidedTour = GuidedTourModel(tourSeen());
   var guidedDemo = GuidedDemoSessionModel();
-  var guidedDemoFlow = GuidedDemoFlowModel();
   var slideDetectionPreset = SlideDetectionPresetModel();
   var demoAdmissionAvailable = false;
-  var demoHomeDismissed = tourSeen();
-  var tourRuntimeHealthy = false;
   var guidedTourEligibility = null;
   var demoCleanupRequested = false;
   var demoCleanupConfirmed = false;
@@ -5595,69 +5455,49 @@
       completed: source.completed === true,
       skipped: source.skipped === true
     };
-    guidedTour.setEligibility(eligible);
-    demoHomeDismissed = !eligible;
     renderDemoHomeAvailability();
     return true;
   }
 
   function tourEligibilityAllowsOffer() {
+    if (demoCompleted()) return false;
     if (guidedTourEligibility) return guidedTourEligibility.eligible === true;
-    return !lpBridge.connected() && !guidedTour.snapshot().completed;
+    return !lpBridge.connected();
   }
 
   function setDemoAdmissionAvailable(available) {
-    var next = available === true, wasAvailable = demoAdmissionAvailable;
+    var next = available === true;
     demoAdmissionAvailable = next;
-    tourRuntimeHealthy = next;
     var onboarding = $('settings-onboarding'), replay = $('btn-replay-tour');
-    renderDemoHomeAvailability();
     if (onboarding) onboarding.hidden = !next;
     if (replay) replay.disabled = !next;
+    renderDemoHomeAvailability();
     if (!next) {
-      // A repair/reset may arrive while a tour is open. Hide every entry point
-      // immediately; a late bridge callback cannot re-open it without a new
-      // healthy admission from RuntimeSetupGate.
-      guidedTour.exit(); guidedDemoFlow.exit(); renderGuidedTour();
-      setDemoTourInteraction(false);
+      if (LP.state.screen === 'demo') setScreen('home');
       renderSlideDetectionPreset();
       endGuidedDemo('runtime_unavailable', true);
       renderDemoCard();
       return;
     }
     renderDemoCard();
-    if (!wasAvailable) offerGuidedTour();
   }
+
   function renderDemoHomeAvailability() {
     var demoHome = $('home-demo');
-    var state = guidedTour.snapshot();
-    var locallyDismissed = demoHomeDismissed && !guidedTour.snapshot().active;
-    var offerable = tourEligibilityAllowsOffer();
-    var showDemo = offerable || state.active || state.prompt;
-    // Local dismissal only suppresses a stale browser-preview prompt. An
-    // authoritative current-version eligibility response clears this local
-    // bit before the demo is offered to an existing user.
-    if (locallyDismissed && !offerable) showDemo = state.active || state.prompt;
-    if (demoHome) demoHome.hidden = !(demoAdmissionAvailable && showDemo);
+    if (demoHome) demoHome.hidden = !(demoAdmissionAvailable && tourEligibilityAllowsOffer());
   }
 
   function stageLabel(name) {
     var labels = { prepare: 'Preparing demo', inspect: 'Inspecting video', extract_audio: 'Extracting audio', transcribe: 'Transcribing audio', detect_slides: 'Detecting slides', align: 'Aligning notes', review_ready: 'Preparing review', export: 'Building Study Pack', complete: 'Complete' };
     return labels[name] || friendlyProcessingLabel(name) || 'Preparing demo';
   }
+
   function guidedDemoSensitivityLocked() {
-    return guidedTour.snapshot().active && demoFlowPhase() !== 'idle';
+    return guidedDemo.snapshot().active;
   }
-  // D-08: the sensitivity preset must also be locked during NORMAL (non-demo)
-  // processing, not just the guided demo -- otherwise a user can click a
-  // different preset while a job runs, see it render "active", but the
-  // already-running job silently ignores it because its preset was
-  // snapshotted at start_processing() time. LP.state.pipelineRunning is the
-  // sibling flag for that case (set/cleared via the pipeline_changed and
-  // status_changed handlers). Output mode has no Process-screen control at
-  // all (onboarding sets LP.state.onbMode once; start_processing reads it
-  // once), so it is already non-editable mid-run by omission -- no code
-  // change needed for that half of D-08.
+
+  // Processing settings are snapshotted at start. Lock them for both the
+  // bundled demo and normal jobs so a visible mid-run change never lies.
   function renderSlideDetectionPreset() {
     var group = $('proc-sensitivity'), note = $('proc-sensitivity-note');
     if (!group) return;
@@ -5669,7 +5509,7 @@
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
       button.disabled = locked;
-      button.title = demoLocked ? 'Guided demo uses its fixed reliable setting.' :
+      button.title = demoLocked ? 'Demo processing uses its fixed reliable setting.' :
         (locked ? 'Setting is locked while processing runs.' : '');
       button.style.fontWeight = active ? '700' : '500';
       button.style.borderColor = active ? 'var(--secondary-border)' : 'transparent';
@@ -5679,12 +5519,14 @@
     });
     if (note) note.hidden = !locked;
   }
+
   function setSlideDetectionPreset(label) {
     if (guidedDemoSensitivityLocked() || LP.state.pipelineRunning) return;
     var state = slideDetectionPreset.select(label);
     renderSlideDetectionPreset();
     lpBridge.call('set_setting', 'slide_detection_preset', state.preset);
   }
+
   function renderDemoCard() {
     var card = $('glowing-demo-card'), status = $('demo-card-status'), action = $('demo-card-action');
     if (!card || !status || !action) return;
@@ -5692,76 +5534,41 @@
     var firstRunUnavailable = !demoAdmissionAvailable;
     card.disabled = firstRunUnavailable || d.status === 'starting' || d.status === 'cancelling';
     card.setAttribute('aria-disabled', card.disabled ? 'true' : 'false');
-    card.title = firstRunUnavailable ? 'Complete runtime setup before starting the guided demo.' : '';
+    card.title = firstRunUnavailable ? 'Complete runtime setup before opening the demo.' : '';
     card.dataset.demoState = d.status === 'failed' || d.status === 'error' ? 'error' : (d.active ? 'running' : 'idle');
     if (firstRunUnavailable) {
-      status.textContent = 'Guided demo will be available after runtime setup is ready.';
+      status.textContent = 'The demo will be available after runtime setup is ready.';
       action.textContent = 'Runtime setup required';
       return;
     }
     if (d.status === 'error' || d.status === 'failed') {
-      status.textContent = d.error || 'The guided demo could not start.'; action.textContent = 'Try again'; return;
+      status.textContent = d.error || 'The demo lecture could not start.';
+      action.textContent = 'Try again';
+      return;
     }
     if (d.active) {
       status.textContent = stageLabel(d.stage) + ' · ' + Math.round(d.progress) + '%';
-      action.textContent = d.status === 'starting' ? 'Starting…' : d.status === 'cancelling' ? 'Stopping…' : 'End demo'; return;
+      action.textContent = d.status === 'starting' ? 'Starting…' : d.status === 'cancelling' ? 'Stopping…' : 'End demo';
+      return;
     }
     var idleAction = demoCompleted() ? 'Use demo video' : 'Take the 60-second tour';
-    if (d.status === 'ended') { status.textContent = 'Demo cleaned up.'; action.textContent = idleAction; return; }
+    if (d.status === 'ended') {
+      status.textContent = 'Demo cleaned up.';
+      action.textContent = idleAction;
+      return;
+    }
     status.textContent = demoCompleted()
-      ? 'Process this real 10-second lecture again, or drag it into the drop area.'
-      : 'See what LecturePack does, using a real 10-second lecture. No processing yet.';
+      ? 'Process this real 10-second lecture again.'
+      : 'See real LecturePack output from a 10-second lecture. No processing yet.';
     action.textContent = idleAction;
     refreshControlStates();
   }
-  function demoFlowPhase() { return guidedDemoFlow.snapshot().phase; }
-  function currentTourPhase() { return TOUR_PHASES[demoFlowPhase()] || null; }
-  var liftedDemoCardPlaceholder = null, liftedDemoCardStyle = null;
-  function positionLiftedDemoCard() {
-    var card = $('glowing-demo-card');
-    if (!card || !liftedDemoCardPlaceholder) return;
-    var r = liftedDemoCardPlaceholder.getBoundingClientRect();
-    card.style.left = Math.round(r.left) + 'px';
-    card.style.top = Math.round(r.top) + 'px';
-    card.style.width = Math.round(r.width) + 'px';
-    card.style.height = Math.round(r.height) + 'px';
-  }
-  function liftDemoCardAboveTourScrim() {
-    var card = $('glowing-demo-card'), overlay = $('guided-tour-overlay');
-    if (!card || !overlay) return;
-    if (!liftedDemoCardPlaceholder) {
-      var r = card.getBoundingClientRect(), placeholder = document.createElement('div');
-      placeholder.id = 'guided-demo-card-placeholder';
-      placeholder.setAttribute('aria-hidden', 'true');
-      placeholder.style.cssText = 'display:block;width:' + Math.round(r.width) + 'px;height:' + Math.round(r.height) + 'px';
-      liftedDemoCardStyle = card.getAttribute('style');
-      card.parentNode.insertBefore(placeholder, card);
-      liftedDemoCardPlaceholder = placeholder;
-      overlay.appendChild(card);
-      card.classList.add('lp-demo-tour-lifted');
-    }
-    positionLiftedDemoCard();
-  }
-  function restoreDemoCardBelowTourScrim() {
-    var card = $('glowing-demo-card');
-    if (!card || !liftedDemoCardPlaceholder) return;
-    liftedDemoCardPlaceholder.parentNode.insertBefore(card, liftedDemoCardPlaceholder);
-    liftedDemoCardPlaceholder.remove(); liftedDemoCardPlaceholder = null;
-    card.classList.remove('lp-demo-tour-lifted');
-    if (liftedDemoCardStyle === null) card.removeAttribute('style');
-    else card.setAttribute('style', liftedDemoCardStyle);
-    liftedDemoCardStyle = null;
-  }
-  function setDemoTourInteraction(active) {
-    var card = $('glowing-demo-card'), dropzone = $('dropzone');
-    if (active) liftDemoCardAboveTourScrim(); else restoreDemoCardBelowTourScrim();
-    if (card) card.classList.toggle('lp-demo-tour-active', !!active);
-    if (dropzone) dropzone.classList.toggle('lp-demo-tour-active', !!active);
-  }
+
   function hideModelTooltip() {
     var tooltip = $('ai-model-tooltip');
     if (tooltip) tooltip.hidden = true;
   }
+
   function showModelTooltip() {
     var value = $('ai-model-name'), tooltip = $('ai-model-tooltip');
     if (!value || !tooltip || !value.textContent || value.textContent === '—') { hideModelTooltip(); return; }
@@ -5774,6 +5581,7 @@
       tooltip.style.top = Math.max(inset, Math.min(rect.bottom + inset, window.innerHeight - height - inset)) + 'px';
     });
   }
+
   function setModelValue(value) {
     var model = $('ai-model-name');
     if (!model) return;
@@ -5792,6 +5600,7 @@
     var friendly = /base\.en/i.test(file) ? 'Whisper Base English model' : 'Whisper model · ' + file;
     name.textContent = friendly;
   }
+
   function wireModelTooltip() {
     var model = $('ai-model-name');
     if (!model) return;
@@ -5800,301 +5609,7 @@
     model.addEventListener('focus', showModelTooltip);
     model.addEventListener('blur', hideModelTooltip);
   }
-  function tourFocusable() {
-    var card = $('guided-tour-card'), tourTarget = currentTourTarget(), items = card ? visibleFocusable(card) : [];
-    if (tourTarget && tourTarget.matches('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')) items.unshift(tourTarget);
-    else if (tourTarget) items = items.concat(visibleFocusable(tourTarget));
-    return items.filter(function (item, index) { return items.indexOf(item) === index && ((!card || card.contains(item)) || (tourTarget && tourTarget.contains(item))); });
-  }
-  function trapTourFocus(e) {
-    var items = tourFocusable();
-    if (!items.length) { e.preventDefault(); return; }
-    var first = items[0], last = items[items.length - 1], active = document.activeElement;
-    if (items.indexOf(active) === -1) { e.preventDefault(); first.focus(); return; }
-    if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
-    else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
-  }
-  var tourGeometryFrame = null;
-  function currentTourTarget() {
-    var phase = currentTourPhase();
-    if (!phase) return null;
-    if (typeof phase.target === 'string') return document.querySelector(phase.target);
-    // Union step: return the first present element as the focus anchor; the
-    // measured rect is the bounding union of all of them (see tourTargetRect).
-    for (var i = 0; i < phase.target.length; i++) {
-      var el = document.querySelector(phase.target[i]);
-      if (el) return el;
-    }
-    return null;
-  }
-  // The rect the spotlight lights. For a union step this is the bounding box of
-  // every present element, so a single hole covers the whole affordance instead
-  // of lighting one and leaving its twin ringed but dimmed.
-  function tourTargetRect(target) {
-    var phase = currentTourPhase();
-    var r = target.getBoundingClientRect();
-    if (!phase || typeof phase.target === 'string') return r;
-    var l = r.left, t = r.top, rt = r.right, b = r.bottom;
-    phase.target.forEach(function (sel) {
-      var el = document.querySelector(sel);
-      if (!el || el.closest('[hidden]')) return;
-      var o = el.getBoundingClientRect();
-      if (!o.width && !o.height) return;
-      l = Math.min(l, o.left); t = Math.min(t, o.top);
-      rt = Math.max(rt, o.right); b = Math.max(b, o.bottom);
-    });
-    return {left: l, top: t, right: rt, bottom: b, width: rt - l, height: b - t};
-  }
-  function setTourDimRect(id, left, top, width, height) {
-    var el = $(id);
-    if (!el) return;
-    el.style.left = Math.max(0, Math.round(left)) + 'px';
-    el.style.top = Math.max(0, Math.round(top)) + 'px';
-    el.style.width = Math.max(0, Math.round(width)) + 'px';
-    el.style.height = Math.max(0, Math.round(height)) + 'px';
-  }
-  function clearTourDim() {
-    setTourDimRect('tour-dim-top', 0, 0, 0, 0);
-    setTourDimRect('tour-dim-right', 0, 0, 0, 0);
-    setTourDimRect('tour-dim-bottom', 0, 0, 0, 0);
-    setTourDimRect('tour-dim-left', 0, 0, 0, 0);
-    var card = $('guided-tour-card');
-    if (card) card.removeAttribute('data-anchored');
-  }
-  // Anchor the coach card beside the target: below -> above -> right -> left,
-  // first side it fits with a 16px gutter. A card pinned to a corner sits on
-  // top of the very control it is describing (DEMO-IMPORT, DEMO-EXPORTS).
-  // Static placement only -- AD-20 keeps animated tour geometry out of the
-  // compositor, so this writes final positions and never transitions.
-  function positionTourCard(r, pad) {
-    var card = $('guided-tour-card');
-    if (!card || !r) return;
-    var step = currentTourPhase();
-    card.dataset.present = (step && step.present) || 'card';
-    if (step && step.present === 'tip') {
-      // Docked by CSS, away from the spotlight. Anchoring is what fails here.
-      card.removeAttribute('data-anchored');
-      return;
-    }
-    var g = 16, cw = card.offsetWidth, ch = card.offsetHeight;
-    var vw = window.innerWidth, vh = window.innerHeight;
-    var box = {l: r.left - pad, t: r.top - pad, r: r.right + pad, b: r.bottom + pad};
-    var clamp = function (v, max) { return Math.max(g, Math.min(v, max - g)); };
-    var cx = clamp(r.left + r.width / 2 - cw / 2, vw - cw);
-    var cy = clamp(r.top + r.height / 2 - ch / 2, vh - ch);
-    var spots = [
-      {x: cx, y: box.b + g, fits: box.b + g + ch + g <= vh},
-      {x: cx, y: box.t - g - ch, fits: box.t - g - ch >= g},
-      {x: box.r + g, y: cy, fits: box.r + g + cw + g <= vw},
-      {x: box.l - g - cw, y: cy, fits: box.l - g - cw >= g}
-    ];
-    // A placement that merely fits can still bury what the step is asking the
-    // user to look at -- on Review the card sat over the slide being judged.
-    // Steps declare those regions; a spot that hits one is not a candidate.
-    var phaseNow = currentTourPhase();
-    var keepClear = ((phaseNow && phaseNow.keepClear) || []).map(function (sel) {
-      var el = document.querySelector(sel);
-      if (!el || el.closest('[hidden]')) return null;
-      var k = el.getBoundingClientRect();
-      return (k.width && k.height) ? k : null;
-    }).filter(Boolean);
-    spots.forEach(function (sp) {
-      if (!sp.fits) return;
-      sp.fits = !keepClear.some(function (k) {
-        return !(sp.x >= k.right || sp.x + cw <= k.left ||
-                 sp.y >= k.bottom || sp.y + ch <= k.top);
-      });
-    });
-    // Nothing fits only when the target nearly fills the window; then some
-    // overlap is unavoidable, so dock against the side with the most room
-    // rather than defaulting to a corner that buries the target.
-    var pick = spots.filter(function (s) { return s.fits; })[0];
-    if (!pick) {
-      pick = [
-        {x: cx, y: clamp(vh - ch, vh - ch), room: vh - box.b},
-        {x: cx, y: g, room: box.t},
-        {x: clamp(vw - cw, vw - cw), y: cy, room: vw - box.r},
-        {x: g, y: cy, room: box.l}
-      ].sort(function (a, b) { return b.room - a.room; })[0];
-    }
-    card.style.setProperty('--tour-card-x', Math.round(pick.x) + 'px');
-    card.style.setProperty('--tour-card-y', Math.round(pick.y) + 'px');
-    card.setAttribute('data-anchored', '');
-  }
-  var lastPreparedTourPhase = null;
-  function applyTourStepPrecondition() {
-    var phase = demoFlowPhase(), step = TOUR_PHASES[phase];
-    if (phase === lastPreparedTourPhase) return;
-    lastPreparedTourPhase = phase;
-    if (step && typeof step.prepare === 'function') {
-      try { step.prepare(); } catch (e) {}
-    }
-  }
-  /* Deliberately NOT reset on collapse. Collapsing is exactly what happens when
-     the student leaves Study's overview to try Quick Study, and re-arming here
-     would force them straight back -- the loop this replaced. Re-entry always
-     changes phase (idle -> import on replay), so phase identity is enough. */
-  function scheduleTourGeometry() {
-    if (tourGeometryFrame !== null) return;
-    tourGeometryFrame = requestAnimationFrame(function () {
-      tourGeometryFrame = null;
-      positionTourSpotlight();
-    });
-  }
-  function positionTourSpotlight() {
-    var state = guidedTour.snapshot(), box = $('tour-spotlight-box'), arrow = $('tour-arrow');
-    if (!state.active || !box || !arrow) return;
-    // prepare() runs ONCE on step entry, never per measurement. positionTour-
-    // Spotlight re-runs on every rAF, resize and scroll, so calling prepare
-    // here unconditionally pinned the sub-mode: selecting Quick Study or
-    // Continue studying switched Study V2's mode, which rescheduled geometry,
-    // which forced the mode straight back to overview. The buttons looked dead
-    // until the tour was exited.
-    applyTourStepPrecondition();
-    var target = currentTourTarget();
-    // N-8: never leave a glow around empty space. A target that is unmounted,
-    // inside a hidden screen, or absent after navigation collapses the
-    // spotlight instead of drawing the fallback box at the viewport corner.
-    if (!target || !target.isConnected || target.closest('[hidden]') || demoFlowPhase() === 'finished') {
-      box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; clearTourDim(); return;
-    }
-    var before = tourTargetRect(target);
-    if (before.width === 0 && before.height === 0) {
-      // Mounted but currently unmeasurable (its screen is still painting):
-      // hide rather than point at (0,0), and re-check shortly.
-      box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; clearTourDim();
-      setTimeout(function () { scheduleTourGeometry(); }, 200);
-      return;
-    }
-    if (before.top < 0 || before.left < 0 || before.bottom > window.innerHeight || before.right > window.innerWidth) {
-      target.scrollIntoView({block: 'nearest', inline: 'nearest'});
-    }
-    var r = tourTargetRect(target), pad = 7, viewportWidth = window.innerWidth, viewportHeight = window.innerHeight;
-    var left = Math.max(0, Math.min(Math.round(r.left - pad), viewportWidth));
-    var top = Math.max(0, Math.min(Math.round(r.top - pad), viewportHeight));
-    var width = Math.max(0, Math.min(Math.round(r.width + pad * 2), viewportWidth - left));
-    var height = Math.max(0, Math.min(Math.round(r.height + pad * 2), viewportHeight - top));
-    var bottomHeight = window.innerHeight - top - height;
-    box.style.left = left + 'px';
-    box.style.top = top + 'px';
-    box.style.width = width + 'px';
-    box.style.height = height + 'px';
-    // The four regions must TILE the viewport, never overlap: top and bottom
-    // own the full width, so left and right own only the target's height band.
-    // 'right' previously spanned the full height, double-painting the two
-    // right-hand corners (.65 over .65 = .878) while the left corners stayed
-    // at .65 -- the visible vertical seam at left+width of every target.
-    setTourDimRect('tour-dim-top', 0, 0, viewportWidth, top);
-    setTourDimRect('tour-dim-right', left + width, top, viewportWidth - left - width, height);
-    setTourDimRect('tour-dim-bottom', 0, top + height, viewportWidth, bottomHeight);
-    setTourDimRect('tour-dim-left', 0, top, left, height);
-    positionTourCard(r, pad);
-    arrow.hidden = false;
-    arrow.style.left = Math.round(Math.max(8, r.left + Math.min(Math.max(r.width, 0) - 18, 24))) + 'px';
-    arrow.style.top = Math.max(8, Math.round(r.top - 19)) + 'px';
-    var self = this;
-    if (r.width === 0 || r.height === 0) {
-      setTimeout(function () { scheduleTourGeometry(); }, 200);
-    }
-    positionLiftedDemoCard();
-  }
-  function renderGuidedTour() {
-    var state = guidedTour.snapshot(), overlay = $('guided-tour-overlay');
-    if (!overlay) return;
-    installTourTraceObserver();
-    setTourOverlayHidden(!demoAdmissionAvailable || (!state.active && !state.prompt));
-    if (overlay.hidden) { setDemoTourInteraction(false); clearTourDim(); return; }
-    var isPrompt = state.prompt, flow = guidedDemoFlow.snapshot();
-    // §6: the tour ends on a celebration, not an anticlimax. The exports
-    // step's Finish advances to a completion card with two real destinations.
-    var finished = state.active && flow.phase === 'finished';
-    var phase = state.active && !finished ? currentTourPhase() : null;
-    $('tour-step-label').textContent = isPrompt ? 'WELCOME' : finished ? 'DEMO · COMPLETE' : 'DEMO · ' + flow.phase.toUpperCase();
-    $('tour-title').textContent = isPrompt ? 'A quick look around' : finished ? 'Your first study pack is ready' : phase.title;
-    $('tour-copy').textContent = isPrompt ? 'Want a short, user-controlled tour of the main parts of LecturePack?' :
-      finished ? 'The demo walkthrough is complete. LecturePack will clean up its temporary demo content before you continue.' : phase.copy;
-    $('tour-prompt-actions').hidden = !isPrompt;
-    $('tour-step-actions').hidden = !state.active || finished;
-    $('tour-finish-actions').hidden = !finished;
-    if (!finished) {
-      $('btn-tour-back').disabled = !state.active || !flow.backEnabled;
-      $('btn-tour-next').disabled = !state.active || !flow.nextEnabled;
-      $('btn-tour-next').textContent = state.active ? phase.next : 'Next';
-    }
-    $('tour-progress').innerHTML = isPrompt ? '' : Object.keys(TOUR_PHASES).map(function (name) { return '<span class="' + ((finished || name === flow.phase) ? 'active' : '') + '"></span>'; }).join('');
-    $('tour-spotlight-box').style.display = state.active && !finished ? 'block' : 'none';
-    $('tour-arrow').style.display = state.active && !finished ? 'block' : 'none';
-    if (!state.active || finished) clearTourDim();
-    setDemoTourInteraction(state.active && flow.phase === 'import');
-    // Geometry stays scheduled whenever the tour is active (PC polish contract);
-    // positionTourSpotlight itself collapses the glow during the finished phase.
-    if (state.active) scheduleTourGeometry();
-  }
-  function offerGuidedTour() {
-    if (!demoAdmissionAvailable || !tourRuntimeHealthy || !tourEligibilityAllowsOffer()) return;
-    closeAllModals();           // the tour never shares the screen with a modal (F-2)
-    guidedTour.offer(); renderGuidedTour();
-  }
-  function startGuidedTour(replay) {
-    if (!demoAdmissionAvailable) return;
-    if (!replay && !tourEligibilityAllowsOffer()) return Promise.resolve(false);
-    function begin() {
-      closeAllModals();           // the tour never shares the screen with a modal (F-2)
-      if (replay) guidedTour.replay(); else guidedTour.start();
-      guidedDemoFlow.start();
-      renderDemoHomeAvailability();
-      var phase = currentTourPhase();
-      if (phase) setScreen(phase.screen);
-      renderGuidedTour();
-      return true;
-    }
-    if (!replay || !lpBridge.connected()) return Promise.resolve(begin());
-    return lpBridge.call('replay_guided_tour').then(function (value) {
-      var result = parseBridgeResult(value);
-      if (!result || result.ok !== true || result.ready_to_start !== true) {
-        toast((result && result.error) || 'Could not replay the guided tour.');
-        return false;
-      }
-      if (result.guided_tour) applyGuidedTourEligibility(result);
-      return begin();
-    }, function () {
-      toast('Could not replay the guided tour.');
-      return false;
-    });
-  }
-  function exitGuidedTour() {
-    guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen(); demoHomeDismissed = true;
-    renderDemoHomeAvailability(); renderGuidedTour();
-    renderSlideDetectionPreset();
-    setScreen('home');
-    endGuidedDemo('tour_exit');
-  }
-  function moveGuidedTour(direction) {
-    var before = guidedTour.snapshot();
-    if (!before.active) return;
-    var flow = guidedDemoFlow.snapshot();
-    if (direction > 0 && !flow.nextEnabled) return;
-    // Finish on the exports step advances to the completion card (§6) instead
-    // of dropping the student back at Home with no next move.
-    if (direction > 0 && flow.phase === 'exports') { guidedDemoFlow.next(); renderGuidedTour(); return; }
-    if (direction > 0) guidedDemoFlow.next(); else guidedDemoFlow.back();
-    var phase = currentTourPhase();
-    if (phase) setScreen(phase.screen);
-    renderGuidedTour();
-  }
-  // The completion card's two destinations. Both end the tour like a normal
-  // exit (seen-marked, demo settled) and then land somewhere useful.
-  function finishGuidedTour(destination) {
-    guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen('completed'); demoHomeDismissed = true;
-    renderDemoHomeAvailability(); renderGuidedTour();
-    renderSlideDetectionPreset();
-    endGuidedDemo('tour_complete');
-    if (destination === 'pack') setScreen('exports');
-    else if (destination === 'import') {
-      setScreen('home');
-      if (lpBridge.connected()) lpBridge.call('browse_video');
-    }
-  }
+
   function parseBridgeResult(value) {
     if (typeof value === 'string') { try { return JSON.parse(value); } catch (e) { return null; } }
     return value && typeof value === 'object' ? value : null;
@@ -6102,9 +5617,6 @@
 
   function applyAppVersion(value) {
     var version = String(value == null ? '' : value).trim();
-    // Settings payloads from older sidecars may carry their neutral
-    // 0.0.0 placeholder. Never let that overwrite Electron's packaged
-    // metadata version supplied through preload.
     if (!version || version === '0.0.0') return;
     LP.data.version = version;
     var target = $('app-version');
@@ -6115,60 +5627,38 @@
     var electron = window.lecturePackElectron;
     if (!electron || typeof electron.getAppVersion !== 'function') return;
     try {
-      Promise.resolve(electron.getAppVersion()).then(applyAppVersion, function () {
-        // Keep the neutral placeholder; never display a fabricated version.
-      });
-    } catch (e) { /* browser preview or an older preload */ }
+      Promise.resolve(electron.getAppVersion()).then(applyAppVersion, function () {});
+    } catch (e) {}
   }
 
-  function startGuidedDemo() {
-    var current = guidedDemo.snapshot();
-    if (current.status === 'starting' || current.status === 'cancelling') return;
-    if (current.active) { endGuidedDemo('user_cancelled'); return; }
-    if (!demoAdmissionAvailable) return;
-    if (!lpBridge.connected()) { toast('Guided demo needs the LecturePack desktop app.'); return; }
-    if (!guidedTour.snapshot().active) {
-      // A late animation callback must not reopen replay after the user exits.
-      // Every normal entry point opens/awaits the import gate before calling
-      // this function, so an inactive tour is a safe no-op.
-      return;
+  function replayDemoScreen() {
+    function begin() {
+      demoSave({ seen: false, completed: false, chapter: 1 });
+      if (guidedTourEligibility) {
+        guidedTourEligibility.eligible = true;
+        guidedTourEligibility.completed = false;
+        guidedTourEligibility.skipped = false;
+      }
+      renderDemoHomeAvailability();
+      openDemo(1);
+      return true;
     }
-    // A retry after clean-up (or a failed start) is a new demo, not a
-    // continuation of whatever action-led screen the prior run last reached.
-    // Do not reset the current run: active attempts returned above.
-    if (demoFlowPhase() !== 'import') {
-      guidedDemoFlow.beginAttempt();
-      renderGuidedTour();
-      return;
-    }
-    guidedDemoFlow.imported(); guidedDemoFlow.running();
-    demoCleanupRequested = false;
-    demoCleanupConfirmed = false;
-    // PC polish: once the demo job is queued/running, the initial new-job
-    // setup card must not remain visible over the active processing screen.
-    setOnb(null);
-    setScreen('process'); renderGuidedTour();
-    var startedAttempt = guidedDemo.starting().attempt;
-    renderDemoCard();
-    lpBridge.startDemoJob().then(function (value) {
-      if (!guidedDemo.isCurrentAttempt(startedAttempt)) return;
+    if (!demoAdmissionAvailable) return Promise.resolve(false);
+    if (!lpBridge.connected()) return Promise.resolve(begin());
+    return lpBridge.call('replay_guided_tour').then(function (value) {
       var result = parseBridgeResult(value);
-      var state = guidedDemo.started(result, startedAttempt);
-      renderDemoCard();
-      // A start completion can arrive after an idempotent end acknowledgement.
-      // Only navigate when it still represents the currently active identity.
-      if (result && result.ok && state.active && !state.terminal &&
-          state.operationId === result.operation_id && state.sessionId === result.session_id) setScreen('process');
-      else if (result && result.error) toast(result.error);
-      else if (!result || result.ok !== true) toast(state.error || 'Could not start the guided demo.');
-    }, function (error) {
-      if (!guidedDemo.isCurrentAttempt(startedAttempt)) return;
-      var message = error && error.message ? error.message : 'Could not start the guided demo.';
-      var state = guidedDemo.started({ ok: false, error: message }, startedAttempt);
-      renderDemoCard();
-      toast(state.error || message);
+      if (!result || result.ok !== true || result.ready_to_start !== true) {
+        toast((result && result.error) || 'Could not replay the demo.');
+        return false;
+      }
+      if (result.guided_tour) applyGuidedTourEligibility(result);
+      return begin();
+    }, function () {
+      toast('Could not replay the demo.');
+      return false;
     });
   }
+
   function endGuidedDemo(reason, force) {
     var current = guidedDemo.snapshot();
     force = force === true || reason === 'tour_exit' || reason === 'tour_complete';
@@ -6178,9 +5668,10 @@
     demoCleanupRequested = true;
     if (current.active) { guidedDemo.cancelling(); renderDemoCard(); }
     if (!lpBridge.connected()) {
-      if (current.active) guidedDemo.settleEndResult({ ok: false, error: 'Guided demo needs the LecturePack desktop app to stop safely.' }, endingAttempt, endingOperationId, endingSessionId);
+      if (current.active) guidedDemo.settleEndResult({ ok: false, error: 'The demo needs the LecturePack desktop app to stop safely.' }, endingAttempt, endingOperationId, endingSessionId);
       demoCleanupRequested = false;
-      renderDemoCard(); return;
+      renderDemoCard();
+      return;
     }
     lpBridge.endDemoJob(reason || 'ended').then(function (value) {
       var result = parseBridgeResult(value);
@@ -6196,91 +5687,38 @@
       renderDemoCard();
     });
   }
-  function dismissGuidedDemoAfterCleanup() {
-    if (!guidedTour.snapshot().active) return false;
-    // The backend has removed the temporary job. End the renderer tour at the
-    // same boundary so its spotlight can never remain attached to an empty
-    // Process/Review workspace while the cleanup event is still settling.
-    guidedTour.exit();
-    guidedDemoFlow.exit();
-    markTourSeen('skipped');
-    demoHomeDismissed = true;
-    renderDemoHomeAvailability();
-    renderGuidedTour();
-    renderDemoCard();
-    renderSlideDetectionPreset();
-    setScreen('home');
-    return true;
-  }
+
   function receiveDemoEvent(value) {
     var event = parseBridgeResult(value);
     if (!event) return;
-    // A start signal can legitimately arrive before the slot return reaches JS.
-    // Adopt only that first live identity; every later mismatched/stale event is
-    // rejected by the model, so another demo cannot repaint this card.
     var before = guidedDemo.snapshot();
-    if (!before.operationId && before.status === 'starting' && event.status === 'started') guidedDemo.started({ ok: true, operation_id: event.operation_id, session_id: event.session_id }, before.attempt);
+    if (!before.operationId && before.status === 'starting' && event.status === 'started') {
+      guidedDemo.started({ ok: true, operation_id: event.operation_id, session_id: event.session_id }, before.attempt);
+    }
     var handled = guidedDemo.event(event);
     if (!handled.accepted) return;
     if (event.status === 'cleaned' || event.status === 'failed') {
       if (event.status === 'cleaned') demoCleanupConfirmed = true;
-      // The sidecar owns terminal demo cleanup for both success and failure;
-      // prevent a later tour-exit path from targeting the removed job again.
       demoCleanupRequested = true;
-      dismissGuidedDemoAfterCleanup();
     }
     var eventStage = String(event.stage || '').toLowerCase().replace(/[\s-]+/g, '_');
-    if (eventStage === 'review_ready') {
-      // A late or duplicate review-ready signal must not yank the student back
-      // once they already made their review choice: the tour follows the
-      // student, not the event stream. Only the processing -> review
-      // transition auto-navigates.
-      var awaitingReview = demoFlowPhase() === 'processing';
-      guidedDemoFlow.reviewReady();
-      if (awaitingReview && guidedTour.snapshot().active) { setScreen('review'); renderGuidedTour(); }
-    } else if ((event.status === 'started' || event.status === 'running') && demoFlowPhase() === 'import') {
-      guidedDemoFlow.imported(); guidedDemoFlow.running();
-    }
+    if (eventStage === 'review_ready' && LP.state.screen === 'process') setScreen('review');
     renderDemoCard();
-    if (event.status === 'failed') toast(event.error || 'Guided demo failed.');
+    renderSlideDetectionPreset();
+    if (event.status === 'failed') toast(event.error || 'Demo processing failed.');
   }
-  function isTourFormInput(target) {
-    if (!target || !target.matches) return false;
-    return target.matches('input, textarea, select, [contenteditable="true"]');
-  }
-  function wireGuidedTour() {
-    $('btn-tour-start').addEventListener('click', function () { startGuidedTour(false); });
-    $('btn-tour-skip').addEventListener('click', exitGuidedTour);
-    $('btn-tour-next').addEventListener('click', function () { moveGuidedTour(1); });
-    $('btn-tour-back').addEventListener('click', function () { moveGuidedTour(-1); });
-    $('btn-tour-exit').addEventListener('click', exitGuidedTour);
-    $('btn-tour-open-pack').addEventListener('click', function () { finishGuidedTour('pack'); });
-    $('btn-tour-import-own').addEventListener('click', function () { finishGuidedTour('import'); });
-    $('btn-replay-tour').addEventListener('click', function () {
-      // Replay deliberately stops at the import gate. The student must choose
-      // the bundled video (or drag it onto the dropzone) before any job starts.
-      startGuidedTour(true);
-    });
+
+  function wireDemoLifecycle() {
+    $('btn-replay-tour').addEventListener('click', replayDemoScreen);
     var demoCard = $('glowing-demo-card');
     demoCard.addEventListener('click', function () {
       if (demoCard.disabled) return;
-      // The tile is the most prominent demo affordance on Home, so it must do
-      // the thing users expect of it: START THE GUIDED TOUR. It used to import
-      // the video silently and leave the tour unstarted, which made the tour
-      // reachable only from the much less discoverable 'Try the demo lecture'
-      // button inside the empty-state panel. Mirrors #btn-load-jobs exactly.
-      if (guidedDemo.snapshot().active) { startGuidedDemo(); return; }
-      // The tile opens the self-contained demo SCREEN. It used to open a
-      // spotlight overlay that measured the live UI; that coupling is what
-      // made the demo fragile, so it is gone (AD-47). Returning users who
-      // already completed the walkthrough get the plain import instead.
+      if (guidedDemo.snapshot().active) { endGuidedDemo('user_cancelled'); return; }
       if (!demoCompleted()) { openDemo(1); return; }
       runDemoForReal();
     });
     demoCard.addEventListener('dragstart', function (e) {
       if (demoCard.disabled) { e.preventDefault(); return; }
-      // PC polish: only the video thumbnail is draggable. The card's title,
-      // metadata, status, and buttons must stay stationary.
       if (!e.target || e.target.tagName !== 'IMG') { e.preventDefault(); return; }
       if (!e.dataTransfer) return;
       e.dataTransfer.effectAllowed = 'copy';
@@ -6288,73 +5726,25 @@
       e.dataTransfer.setData('text/plain', 'Polar Bears 10s Demo.mp4');
     });
     demoCard.addEventListener('dragend', clearDemoDropState);
-    function markReviewDecision() {
-      if (!guidedTour.snapshot().active || demoFlowPhase() !== 'review') return;
-      guidedDemoFlow.reviewDecision();
-      setScreen('study');
-      renderGuidedTour();
-    }
-    // These listeners run after the existing review handlers, so this tour gate
-    // is advanced by the user's actual Keep/Reject action, never a timer.
-    $('btn-keep').addEventListener('click', markReviewDecision);
-    $('btn-reject').addEventListener('click', markReviewDecision);
-    document.addEventListener('keydown', function (e) {
-      if (!guidedTour.snapshot().active || isTourFormInput(e.target)) return;
-      if (e.key === 'ArrowRight') { e.preventDefault(); moveGuidedTour(1); }
-      else if (e.key === 'ArrowLeft') { e.preventDefault(); moveGuidedTour(-1); }
-    });
-    window.addEventListener('resize', scheduleTourGeometry);
-    window.addEventListener('scroll', scheduleTourGeometry, true);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', scheduleTourGeometry);
-      window.visualViewport.addEventListener('scroll', scheduleTourGeometry);
-    }
   }
-  function flyDemoTileToDropzone(done) {
-    var card = $('glowing-demo-card'), target = $('dropzone');
-    if (typeof done !== 'function') done = function () {};
-    var cardHidden = card && (card.hidden || (card.closest && card.closest('[hidden]')));
-    var targetHidden = target && (target.hidden || (target.closest && target.closest('[hidden]')));
-    if (!card || !target || !card.isConnected || !target.isConnected || cardHidden || targetHidden) {
-      // A hidden guided-demo card has no animation box, so animationend will
-      // never fire. This is the fallback for empty-state and replay entry.
-      done(); return;
-    }
-    if (LP.motion && LP.motion.reduced && LP.motion.reduced()) { done(); return; }
-    var from = card.getBoundingClientRect(), to = target.getBoundingClientRect();
-    if (!from.width || !from.height || !to.width || !to.height) { done(); return; }
-    card.style.setProperty('--demo-fly-x', Math.round(to.left - from.left) + 'px');
-    card.style.setProperty('--demo-fly-y', Math.round(to.top - from.top) + 'px');
-    function finish() {
-      card.removeEventListener('animationend', finish);
-      card.classList.remove('lp-demo-fly');
-      card.style.removeProperty('--demo-fly-x'); card.style.removeProperty('--demo-fly-y');
-      done();
-    }
-    card.addEventListener('animationend', finish);
-    card.classList.add('lp-demo-fly');
-  }
+
   function hasDemoDrag(e) {
     var types = e.dataTransfer && e.dataTransfer.types;
     return !!types && Array.prototype.indexOf.call(types, DEMO_DRAG_MIME) !== -1;
   }
-  function clearDemoDropState() { var dz = $('dropzone'); if (dz) dz.classList.remove('lp-demo-drop-hover'); }
+
+  function clearDemoDropState() {
+    var dz = $('dropzone');
+    if (dz) dz.classList.remove('lp-demo-drop-hover');
+  }
+
   function useDroppedDemo() {
     if (!demoAdmissionAvailable) return;
-    if (!guidedTour.snapshot().active) {
-      // External Explorer drops can arrive before the replay command has
-      // completed. Resume the drop action only after the import gate exists.
-      Promise.resolve(startGuidedTour(true)).then(function (started) {
-        if (started) useDroppedDemo();
-      });
+    if (guidedDemo.snapshot().active) {
+      setScreen('process');
       return;
     }
-    if (demoFlowPhase() !== 'import') {
-      guidedDemoFlow.beginAttempt();
-      renderGuidedTour();
-      return;
-    }
-    startGuidedDemo();
+    runDemoForReal();
   }
 
   /* ======================= Smart Study ======================= */
@@ -7121,13 +6511,13 @@
     });
 
     $('btn-show-empty').addEventListener('click', function () { setJobsEmpty(true); });
-    // "Try the demo lecture" (N-3): the empty-state recovery action runs the
-    // existing guided demo -- a real bundled lecture through the real
-    // pipeline, with the tour attached -- instead of a dead sample-library
+    // "Try the demo lecture" (N-3): the empty-state recovery action opens the
+    // self-contained walkthrough. The real bundled lecture runs only after the
+    // student's explicit final-chapter action, instead of a dead sample-library
     // button that seeded nothing.
     $('btn-load-jobs').addEventListener('click', function () {
       if (!demoAdmissionAvailable) { toast('The demo will be available once setup finishes.'); return; }
-      if (guidedDemo.snapshot().active) { startGuidedDemo(); return; }
+      if (guidedDemo.snapshot().active) { setScreen('process'); return; }
       openDemo(demoState().chapter || 1);
     });
 
@@ -7439,17 +6829,21 @@
       var item = e.target.closest('[data-slide]');
       if (item) { LP.state.viewingSlide = +item.dataset.slide; renderSlides(); }
     });
-    // Grid / List view toggle. Was inert markup with no handler at all.
-    Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (b) {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-slide-density]'), function (b) {
       b.addEventListener('click', function () {
-        if (LP.state.slidesView === b.dataset.view) return;
-        LP.state.slidesView = b.dataset.view;
-        if (LP.state.slidesView === 'grid') _gridEntrance = true;
-        Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (o) {
-          o.classList.toggle('active', o.dataset.view === LP.state.slidesView);
-        });
+        if (LP.state.slideDensity === b.dataset.slideDensity) return;
+        LP.state.slideDensity = b.dataset.slideDensity;
         renderSlides();
       });
+    });
+    $('btn-all-slides').addEventListener('click', openAllSlides);
+    $('btn-all-slides-close').addEventListener('click', function () { closeAllSlides(true); });
+    $('all-slides-grid').addEventListener('click', function (e) {
+      var item = e.target.closest('[data-slide]');
+      if (!item) return;
+      LP.state.viewingSlide = +item.dataset.slide;
+      renderSlides();
+      closeAllSlides(true);
     });
     $('btn-prev-slide').addEventListener('click', function () {
       if (!LP.data.slides.length) return;   // N-1: nothing to page through
@@ -7464,7 +6858,7 @@
     $('btn-keep').addEventListener('click', function () {
       var s = LP.data.slides[LP.state.viewingSlide];
       if (!s) return;   // N-1: no slide selected / no lecture loaded
-      s.state = 'accepted';
+      s.state = 'accepted'; s.sel = true;
       lpBridge.call('set_slide_state', LP.state.viewingSlide, 'accepted');
       // Advance after judging: the user is working THROUGH the deck, so keeping
       // or rejecting is implicitly "done with this one". Wraps like the next
@@ -7745,6 +7139,7 @@
       }
       // Escape closes the palette / search / batch overlays.
       if (e.key === 'Escape') {
+        if ($('all-slides-overlay') && !$('all-slides-overlay').hidden) { closeAllSlides(true); return; }
         if (paletteOverlayEl && !paletteOverlayEl.hidden) { closePalette(); return; }
         if ($('search-overlay') && !$('search-overlay').hidden) { closeGlobalSearch(); return; }
         if (batchOverlay && !batchOverlay.hidden) { closeBatchImport(); return; }
@@ -7760,20 +7155,11 @@
       if (e.key === 'Escape') {
         setFocus(false); setOnb(null);
         if (!$('whatsnew-overlay').hidden) hideWhatsNew();
-        // N-7: the guided tour dismisses on Esc exactly like the modals. An
-        // open lpModal owns Esc first (it closes itself), so the tour only
-        // exits when no modal is on top.
-        if (!anyModalOpen()) {
-          var tourSnap = guidedTour.snapshot();
-          if (tourSnap.active) exitGuidedTour();
-          else if (tourSnap.prompt) { guidedTour.exit(); markTourSeen('skipped'); demoHomeDismissed = true; renderGuidedTour(); renderDemoHomeAvailability(); }
-        }
         return;
       }
       var overlay = topOverlay();
       if (overlay) {
         if (e.key === 'Tab') trapFocus(overlay, e);
-        if (e.key === 'Tab' && guidedTour.snapshot().active) trapTourFocus(e);
         return;
       }
       if (editing) return;
@@ -8027,11 +7413,8 @@
       }
       var viewedJobRemoved = !!(LP.state.jobId && !_jobById(LP.state.jobId));
       if (viewedJobRemoved) {
-        var demoTourActive = guidedTour.snapshot().active &&
-          (guidedDemo.snapshot().active || demoCleanupRequested || demoCleanupConfirmed);
         setActiveJob('', '');
-        if (demoTourActive) dismissGuidedDemoAfterCleanup();
-        else if (!guidedTour.snapshot().active) setScreen('home');
+        setScreen('home');
       }
       renderJobs();           // poster URLs are stable, so loaded ones stay cached
       restoreAppSessionOnce();
@@ -9254,7 +8637,7 @@
      model, takes tens of seconds, and can fail -- and when it fails it reads as
      the PRODUCT failing. The real pipeline now runs AFTER the walkthrough, from
      an explicit "Process this lecture for real" button, once the student knows
-     what the stages mean. See docs/DECISIONS.md AD-47. */
+     what the stages mean. See docs/DECISIONS.md AD-48. */
   var DEMO_KEY = 'lecturepack.demo.v2';
   var DEMO_CHAPTERS = 5;
   var DEMO_NEXT = ['See what it found', 'And the words', 'Now study it', 'Take it with you', ''];
@@ -9344,14 +8727,20 @@
     renderDemoChapter(startAt || 1);
   }
 
-  function closeDemo(screen) {
+  function closeDemo(screen, status) {
     demoSave({ seen: true, completed: true, chapter: demoChapter });
+    if (guidedTourEligibility) {
+      guidedTourEligibility.eligible = false;
+      guidedTourEligibility.completed = status !== 'skipped';
+      guidedTourEligibility.skipped = status === 'skipped';
+    }
+    persistGuidedTourState(status || 'completed');
+    renderDemoHomeAvailability();
     renderDemoCard();
     setScreen(screen || 'home');
   }
 
-  /* The real pipeline, on purpose, AFTER the walkthrough. Mirrors
-     startGuidedDemo()'s bridge path with no guided-tour coupling at all. */
+  /* The real pipeline runs, on purpose, only AFTER the walkthrough. */
   function runDemoForReal() {
     if (!demoAdmissionAvailable) { toast('The demo lecture will be available once setup finishes.'); return; }
     if (!lpBridge.connected()) { toast('Processing needs the LecturePack desktop app.'); return; }
@@ -9359,6 +8748,11 @@
     if (current.status === 'starting' || current.active) { closeDemo('process'); return; }
     closeDemo('process');
     setOnb(null);
+    // Terminal cleanup belongs to the prior attempt. Without resetting these
+    // guards, a second demo run could start normally but endGuidedDemo() would
+    // reject its stop request as though cleanup had already completed.
+    demoCleanupRequested = false;
+    demoCleanupConfirmed = false;
     var attempt = guidedDemo.starting().attempt;
     renderDemoCard();
     lpBridge.startDemoJob().then(function (value) {
@@ -9379,8 +8773,8 @@
   function bindDemoScreen() {
     $('btn-demo-next').addEventListener('click', function () { renderDemoChapter(demoChapter + 1); });
     $('btn-demo-back').addEventListener('click', function () { renderDemoChapter(demoChapter - 1); });
-    $('btn-demo-skip').addEventListener('click', function () { closeDemo('home'); });
-    $('btn-demo-own').addEventListener('click', function () { closeDemo('home'); beginBrowseImport(); });
+    $('btn-demo-skip').addEventListener('click', function () { closeDemo('home', 'skipped'); });
+    $('btn-demo-own').addEventListener('click', function () { closeDemo('home', 'completed'); beginBrowseImport(); });
     $('btn-demo-run').addEventListener('click', runDemoForReal);
     $('demo-quiz-opts').addEventListener('click', function (e) {
       var btn = e.target && e.target.closest ? e.target.closest('.lp-demo-opt') : null;
@@ -9449,7 +8843,7 @@
     RuntimeSetupGate.wire();
     RuntimeSetupGate.beginBootstrap();
     wire();
-    wireGuidedTour();
+    wireDemoLifecycle();
     wireModelTooltip();
     wireBridge();
     bindStudyV2Events();

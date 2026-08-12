@@ -17,6 +17,7 @@ import re
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HTML = open(os.path.join(ROOT, "app", "ui", "index.html"), encoding="utf-8").read()
 JS = open(os.path.join(ROOT, "app", "ui", "app.js"), encoding="utf-8").read()
+CSS = open(os.path.join(ROOT, "app", "ui", "app.css"), encoding="utf-8").read()
 
 
 def _element_text(html: str, element_id: str) -> str:
@@ -39,12 +40,12 @@ def test_job_chrome_ships_idle_placeholders():
     assert _element_text(HTML, "side-job-name") == "No lecture loaded"
     assert _element_text(HTML, "proc-source-name") == "No lecture loaded"
     assert _element_text(HTML, "crumb-job") == "Home"
-    assert _element_text(HTML, "status-label") == "Idle"
+    assert _element_text(HTML, "status-state") == "Idle"
 
 
 def test_no_fake_progress_in_shipped_markup():
     """No blinking activity dot or non-zero progress before a job exists."""
-    assert _element_text(HTML, "status-pct") == ""
+    assert _element_text(HTML, "status-detail") == ""
     assert _element_text(HTML, "proc-status-meta") == ""
     # The bar shows empty via transform:scaleX(0) since the motion pass moved
     # progress fills onto the compositor; `width:100%` is the track it scales.
@@ -52,8 +53,9 @@ def test_no_fake_progress_in_shipped_markup():
     assert "scaleX(0)" in bar
     assert "width:100%" in bar
     # the footer chip must not animate while idle
-    chip = re.search(r'id="status-dot"[^>]*style="([^"]*)"', HTML).group(1)
-    assert "lpblink" not in chip
+    dot_rule = CSS.split("#status-dot{", 1)[1].split("}", 1)[0]
+    assert "animation" not in dot_rule
+    assert "lpblink" not in dot_rule
 
 
 def test_storage_widget_hidden_until_backend_reports():

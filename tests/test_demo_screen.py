@@ -1,4 +1,4 @@
-"""The self-contained demo screen (AD-47).
+"""The self-contained demo screen (AD-48).
 
 The old demo was a spotlight overlay that measured the live application UI at
 runtime. Eight separate bugs were fixed in it and it was still not usable,
@@ -167,3 +167,25 @@ def test_study_prep_covers_every_stage_the_backend_emits() -> None:
     assert "if (active < 0 && stage)" in fn, (
         "an unrecognised stage must still render as running"
     )
+
+
+def test_study_prep_distinguishes_lecture_work_from_study_ai_work() -> None:
+    """An empty Study stage means the prerequisite lecture is still running.
+
+    `study_status` is created at import time, before the sidecar queues Study
+    AI. The renderer must not start its AI clock, show a 0% AI progress bar, or
+    draw eight idle AI stages until a real stage arrives.
+    """
+    prep = JS[JS.index("function renderStudyPrepStages"):]
+    prep = prep[:prep.index(chr(10) + "  function ")]
+    assert "if (!stage)" in prep
+    assert "stopStudyPrepClock();" in prep
+    assert "Waiting for lecture processing to finish" in prep
+    assert "Study starts after the transcript and slides are ready" in prep
+    assert "meta.hidden = true" in prep
+
+    generation = JS[JS.index("function renderStudyGenerationState"):]
+    generation = generation[:generation.index(chr(10) + "  function ")]
+    assert "progressWrap.hidden = !stage" in generation
+    assert "Study AI starts automatically when the transcript and slides are ready." in generation
+    assert "title.textContent = stage" in generation

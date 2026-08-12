@@ -111,7 +111,10 @@ The application supports canceling and safely resuming a job.
 
 ### 6.3 Slide Review
 
-- Scrollable slide thumbnails with keep/reject toggle
+- Scrollable compact/roomy slide rail with keep/reject decisions
+- Full-window **All slides** grid for deck-wide scanning
+- Rejected candidates are visually louder than normal accepted selections;
+  acceptance is represented by an unfilled checkbox
 - Full-size preview with timestamp
 - Edit slide start timestamp
 - Merge duplicate slides
@@ -275,6 +278,11 @@ Study, and Teach Me as equal modes. Every saved item carries lecture or verified
 web provenance where applicable. No Study account, API key, provider picker,
 model picker, local model installation, or token UI is required. The existing
 deterministic generator remains available as the explicit Basic Study fallback.
+
+Before the first Study generation stage exists, the Study surface explicitly
+says it is waiting for local transcript and slide processing. It does not show
+an AI percentage, elapsed AI clock, or multi-stage checklist until Study work
+has actually started.
 
 AD-46 in `docs/DECISIONS.md` and the AI-first Study boundary in
 `docs/ARCHITECTURE.md` are authoritative for the narrow network/privacy

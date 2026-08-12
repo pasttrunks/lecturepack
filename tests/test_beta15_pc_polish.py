@@ -134,10 +134,11 @@ def test_demo_card_drag_restricted_to_thumbnail() -> None:
     assert "e.preventDefault(); return;" in drag
 
 
-def test_job_cards_are_not_draggable() -> None:
+def test_only_ready_job_cards_are_draggable_for_queueing() -> None:
     app = read(APP)
     card = block(app, "function _jobCardHtml", "/* ==================== import from a link")
-    assert "draggable" not in card
+    assert "ready ? 'draggable=\"true\" data-existing-job-drag=\"true\" ' : ''" in card
+    assert "cursor:' + (ready ? 'grab' : 'pointer')" in card
 
 
 # --------------------------------------------------------------------------- #
@@ -172,13 +173,14 @@ def test_media_fetch_uses_normal_import_path() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 6. Demo "New Job" card hides when processing starts
+# 6. Demo processing closes onboarding before the real run
 # --------------------------------------------------------------------------- #
 def test_demo_start_hides_new_job_overlay() -> None:
     app = read(APP)
-    demo = block(app, "function startGuidedDemo()", "function endGuidedDemo")
+    demo = block(app, "function runDemoForReal()", "function bindDemoScreen")
     assert "setOnb(null);" in demo
-    assert "setScreen('process'); renderGuidedTour();" in demo
+    assert "closeDemo('process');" in demo
+    assert "lpBridge.startDemoJob()" in demo
 
 
 def test_demo_onboarding_event_does_not_restore_new_job_overlay() -> None:
@@ -196,22 +198,20 @@ def test_demo_onboarding_event_does_not_restore_new_job_overlay() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 7. Guided-demo glow stays visible after navigation
+# 7. The legacy live-screen spotlight cannot return
 # --------------------------------------------------------------------------- #
-def test_tour_spotlight_keeps_minimum_box_after_navigation() -> None:
+def test_demo_has_no_live_screen_spotlight_geometry() -> None:
     app = read(APP)
-    spot = block(app, "function positionTourSpotlight()", "function renderGuidedTour()")
-    assert "minW = 120, minH = 40" in spot
-    assert "Math.max(minW, r.width)" in spot
-    assert "Math.max(minH, r.height)" in spot
-    assert "setTimeout(function () { scheduleTourGeometry(); }, 200)" in spot
+    for token in ("positionTourSpotlight", "positionTourCard", "scheduleTourGeometry"):
+        assert token not in app
 
 
-def test_tour_overlay_remains_visible_across_screens() -> None:
+def test_demo_is_a_real_screen_in_normal_navigation() -> None:
     app = read(APP)
-    render = block(app, "function renderGuidedTour()", "function offerGuidedTour")
-    assert "setTourOverlayHidden(!demoAdmissionAvailable || (!state.active && !state.prompt));" in render
-    assert "if (state.active) scheduleTourGeometry();" in render
+    html = read(HTML)
+    assert '<section data-screen="demo"' in html
+    assert "function openDemo(startAt)" in app
+    assert "setScreen('demo');" in block(app, "function openDemo(startAt)", "function closeDemo")
 
 
 # --------------------------------------------------------------------------- #

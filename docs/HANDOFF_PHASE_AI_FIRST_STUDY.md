@@ -111,9 +111,38 @@ The package health report also records existing optional YouTube degradation bec
 - Chrome/NVIDIA console changes were not required: the saved key already had
   hosted access to both selected models.
 
-The two external signed-onedir tests still require a verified fixture through
-`LECTUREPACK_ONEDIR_FIXTURE`; this is unrelated to the deployed Study gateway
-and does not block user testing of the packaged candidate above.
+## Demo/review hardening integration follow-up
+
+- Fast-forward integrated `sol/demo-rebuild` through `6187437` into this branch.
+- Study's empty pre-stage state now says it is waiting for local lecture
+  processing, with no AI `0%` bar, idle eight-stage checklist, source list, or
+  running AI elapsed clock.
+- Review now uses a Compact/Roomy rail plus a full-window **All slides** grid;
+  accepted selection is an unfilled checkbox, rejection is the loud state, and
+  viewing is outlined in orange.
+- Removed the unreachable spotlight/scrim/geometry/focus/animation renderer and
+  replaced its stale tests with self-contained demo and session-safety
+  contracts. Reset cleanup guards make repeated real-demo runs stoppable.
+- Decision numbering is reconciled: NVIDIA is AD-47, the demo screen is AD-48,
+  and the final waiting/review boundary is AD-49.
+- Full suite with the verified signed-onedir fixture: **1509 passed, 2 skipped,
+  1 intentional duplicate-ZIP warning** in 352.05 seconds. The prior four stale
+  UI failures are resolved, and the two onedir gates pass **5/5** when supplied
+  their required fixture.
+- Current production packaged acceptance passed again with the real Polar Bears
+  lecture and packaged-default gateway in 43 seconds. All Study quality and
+  interaction checks passed; exit was clean with zero orphans. Report:
+  `C:\LecturePackScratch\results\codex-demo-hardening-live-r2-20260812\ai-study-live-packaged-acceptance.json`.
+- Do not use the handoff's old
+  `C:\LecturePackScratch\builds\demo\rebuild-20260812` scratch app to test AI
+  Study: it contains an August 11 pre-AI sidecar because only its renderer was
+  swapped. The current verified package base is
+  `C:\LecturePackScratch\builds\ai-study-production-20260812-r2\dist\LecturePack-win32-x64`.
+
+The only pending evidence is the final Chrome visual pass. Chrome was installed
+with a healthy extension/native host but not running; launching it requires
+explicit user permission. Optional packaged YouTube degradation (`yt_dlp_ejs`
+and JavaScript runtime absent) remains unrelated to local-video or Study flows.
 
 ## Final status
 

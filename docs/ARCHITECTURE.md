@@ -470,6 +470,14 @@ auto-downloaded. Backend is CPU-only in this build.
 
 ### Desktop ownership
 
+- `app/ui/` owns the Electron presentation boundary. Its first-run demo is a
+  normal self-contained screen backed by bundled, attested Polar Bears output;
+  it never measures or spotlights controls on another screen. Review keeps a
+  density-adjustable slide rail and opens deck-wide scanning in the modal
+  `#all-slides-overlay` grid.
+- Study preparation begins only when `generation_metadata.stage` is non-empty.
+  Before that, the renderer describes the dependency on lecture processing and
+  does not attribute a progress percentage or elapsed AI time to Study.
 - `lecturepack/services/study_v2.py` owns schema-3 Study content and progress.
   Source-derived evidence references remain separate from normalized AI
   material, and mastery survives retries and targeted regeneration.

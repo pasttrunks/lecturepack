@@ -186,7 +186,7 @@ def test_job_card_click_navigates_by_job_status() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# N-3 (P1): the empty-state recovery action runs the guided demo
+# N-3 (P1): the empty-state recovery action opens the demo screen
 # --------------------------------------------------------------------------- #
 def test_load_sample_jobs_is_now_try_the_demo_lecture() -> None:
     html = read(HTML)
@@ -194,7 +194,8 @@ def test_load_sample_jobs_is_now_try_the_demo_lecture() -> None:
     assert "Load sample jobs" not in html
     app = read(APP)
     load = block(app, "$('btn-load-jobs').addEventListener('click', function () {", "// Home grid:")
-    assert "startGuidedDemo" in load
+    assert "openDemo(demoState().chapter || 1)" in load
+    assert "runDemoForReal" not in load
     assert "setJobsEmpty(false)" not in load
 
 
@@ -229,84 +230,60 @@ def test_ytdlp_errors_map_friendly() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# N-7 (P2): Escape dismisses the guided tour
+# N-7 (P2): Escape dismisses the full-deck overlay first
 # --------------------------------------------------------------------------- #
-def test_escape_dismisses_tour() -> None:
+def test_escape_dismisses_all_slides_overlay() -> None:
     app = read(APP)
-    esc_key = block(app, "if (e.key === 'Escape') {", "var overlay = topOverlay();")
-    assert "exitGuidedTour();" in esc_key
-    assert "!anyModalOpen()" in esc_key
+    keys = block(app, "window.addEventListener('keydown', function (e) {", "// Tutorial shortcut")
+    assert "$('all-slides-overlay')" in keys
+    assert "closeAllSlides(true); return;" in keys
 
 
 # --------------------------------------------------------------------------- #
-# N-8 (P2): the spotlight hides for absent targets and follows navigation
+# N-8 (P2): the demo no longer measures or mutates live screens
 # --------------------------------------------------------------------------- #
-def test_spotlight_hides_when_target_missing() -> None:
+def test_legacy_spotlight_is_absent() -> None:
     app = read(APP)
-    spot = block(app, "function positionTourSpotlight()", "function renderGuidedTour()")
-    assert "target.closest('[hidden]')" in spot
-    assert "demoFlowPhase() === 'finished'" in spot
-    # A zero-size target COLLAPSES; it does not get a minimum fallback box.
-    # The old minW/minH fallback drew a 120x40 glow at the viewport corner
-    # around empty space, and on '#glowing-demo-card' (zero-size inside the
-    # hidden '#home-demo') it also meant the card never fired animationend, so
-    # the callback that starts the tour never ran at all.
-    assert "minW" not in spot, "the minimum fallback box must stay removed"
-    assert "before.width === 0 && before.height === 0" in spot
-    # Collapsing must clear the scrim too, or the app stays dimmed while the
-    # tour points at nothing.
-    assert spot.count("clearTourDim();") >= 2
-
-
-def test_tour_advances_when_student_reaches_next_screen() -> None:
-    app = read(APP)
-    screen = block(app, "function setScreen(name) {", "function applyTheme(")
-    assert "phaseNow === 'review' && name === 'study'" in screen
-    assert "guidedDemoFlow.reviewDecision();" in screen
-    assert "phaseNow === 'study' && name === 'exports'" in screen
-    assert "scheduleTourGeometry();" in screen
-
-
-# --------------------------------------------------------------------------- #
-# §6 (P2): the tour ends on a celebration with two real destinations
-# --------------------------------------------------------------------------- #
-def test_tour_completion_card() -> None:
     html = read(HTML)
-    assert 'id="tour-finish-actions"' in html
-    assert "Open my study pack" in html
+    for token in ("positionTourSpotlight", "renderGuidedTour", "scheduleTourGeometry"):
+        assert token not in app
+    assert 'id="guided-tour-overlay"' not in html
+
+
+def test_demo_chapters_advance_inside_the_demo_screen() -> None:
+    app = read(APP)
+    chapter = block(app, "function renderDemoChapter(n)", "function paintDemo")
+    assert "Math.max(1, Math.min(DEMO_CHAPTERS, n))" in chapter
+    assert 'document.querySelectorAll(\'[data-screen="demo"] .lp-demo-ch\')' in chapter
+    bind = block(app, "function bindDemoScreen()", "function boot()")
+    assert "renderDemoChapter(demoChapter + 1)" in bind
+    assert "renderDemoChapter(demoChapter - 1)" in bind
+
+
+# --------------------------------------------------------------------------- #
+# Section 6 (P2): the demo ends with two real destinations
+# --------------------------------------------------------------------------- #
+def test_demo_completion_has_real_processing_and_import_destinations() -> None:
+    html = read(HTML)
+    assert 'id="btn-demo-run"' in html
+    assert "Process this lecture for real" in html
+    assert 'id="btn-demo-own"' in html
     assert "Import my own lecture" in html
     app = read(APP)
-    render = block(app, "function renderGuidedTour()", "function offerGuidedTour")
-    assert "Your first study pack is ready" in render
-    assert "$('tour-finish-actions').hidden = !finished;" in render
-    move = block(app, "function moveGuidedTour(direction)", "// The completion card's")
-    assert "flow.phase === 'exports') { guidedDemoFlow.next(); renderGuidedTour(); return; }" in move
-    finish = block(app, "function finishGuidedTour(destination)", "function parseBridgeResult")
-    assert "destination === 'pack'" in finish
-    assert "setScreen('exports');" in finish
-    assert "lpBridge.call('browse_video');" in finish
-    wire = block(app, "function wireGuidedTour()", "function flyDemoTileToDropzone")
-    assert "btn-tour-open-pack" in wire
-    assert "btn-tour-import-own" in wire
-    # The demo card no longer claims the demo's files were removed.
-    card = block(app, "function renderDemoCard()", "function demoFlowPhase()")
-    assert "stay available to explore" in card
-    assert "temporary files were removed" not in card
+    bind = block(app, "function bindDemoScreen()", "function boot()")
+    assert "$('btn-demo-run').addEventListener('click', runDemoForReal)" in bind
+    assert "closeDemo('home', 'completed'); beginBrowseImport();" in bind
 
 
 # --------------------------------------------------------------------------- #
-# F-2 (P2): the group modal never stacks over the tour
+# F-2 (P2): the demo is isolated from unrelated modal state
 # --------------------------------------------------------------------------- #
-def test_group_modal_never_stacks_over_tour() -> None:
+def test_open_demo_only_switches_to_its_own_screen() -> None:
     app = read(APP)
-    group = block(app, "function setJobGroup(job) {", "lpModal({")
-    assert "guidedTour.snapshot().active || guidedTour.snapshot().prompt" in group
-    bulk = block(app, "function bulkGroup() {", "lpModal({")
-    assert "guidedTour.snapshot().active || guidedTour.snapshot().prompt" in bulk
-    start = block(app, "function startGuidedTour(replay)", "function exitGuidedTour")
-    assert "closeAllModals();" in start
-    offer = block(app, "function offerGuidedTour()", "function startGuidedTour")
-    assert "closeAllModals();" in offer
+    opened = block(app, "function openDemo(startAt)", "function closeDemo")
+    assert "setScreen('demo');" in opened
+    assert "setOnb(" not in opened
+    assert "closeAllModals" not in opened
 
 
 # --------------------------------------------------------------------------- #
