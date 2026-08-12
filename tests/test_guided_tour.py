@@ -8,8 +8,10 @@ proof that Next, Back, cleanup, and stale-event handling work.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -358,13 +360,38 @@ def test_css_spotlight_is_pointer_transparent_and_uses_a_static_scrim():
     assert 'id="tour-spotlight-box"' in html
     assert "<mask" not in html.lower()
     assert "<svg id=\"tour" not in html.lower()
-    assert "#guided-tour-overlay{position:fixed;inset:0;z-index:170;pointer-events:none;background:rgba(8,10,14,.65)}" in css
+    # The overlay is a transparent positioning root; the four static dim rects
+    # carry the scrim (see test_spotlight_dim_regions_tile_the_viewport...).
+    assert "#guided-tour-overlay{position:fixed;inset:0;z-index:200;pointer-events:none;background:transparent}" in css
     assert "#tour-spotlight-box" in css
     spotlight = css.split("#guided-tour-overlay", 1)[1].split("#guided-tour-card", 1)[0]
+    # AD-20: a 9999px/100vmax spread shadow, a drop-shadow filter on the arrow,
+    # geometry transitions and will-change were CONFIRMED causes of flicker and
+    # lag on a clean-install Windows machine. None of them may come back.
     assert "9999px" not in spotlight
+    assert "100vmax" not in spotlight
     assert "filter:drop-shadow" not in spotlight
     assert "transition:" not in spotlight
     assert "will-change" not in spotlight
+    assert "backdrop-filter" not in spotlight
+
+    # z-order must be internally ordered AND clear of the app's own layers:
+    # downloads popover 49, model tooltip 180, drag ghost 300.
+    def z_of(selector: str) -> int:
+        # A selector may be split across several rules; find the one with z-index.
+        for chunk in css.split(selector)[1:]:
+            block = chunk.split("}", 1)[0]
+            if "z-index:" in block:
+                return int(block.split("z-index:", 1)[1].split(";", 1)[0].strip())
+        raise AssertionError(f"{selector} declares no z-index")
+
+    scrim = z_of("#guided-tour-overlay")
+    ring = z_of("#tour-spotlight-box")
+    arrow_z = z_of("#tour-arrow")
+    card_z = z_of("#guided-tour-card{")
+    assert scrim < ring < arrow_z < card_z, "tour layers are out of order"
+    assert scrim > 180, "tour scrim must sit above the model tooltip (180)"
+    assert card_z < 300, "tour card must sit below the drag ghost (300)"
     assert "#guided-tour-card" in css and "pointer-events:auto" in css
     assert "#glowing-demo-card.lp-demo-tour-lifted" in css
     assert "pointer-events:auto!important" in css
@@ -383,7 +410,10 @@ def test_first_run_prompt_controls_keyboard_guards_and_replay_are_wired():
     assert "window.addEventListener('scroll', scheduleTourGeometry, true)" in js
     assert "target: '#pipeline-stages'" in js
     assert "target: '#demo-review-actions'" in js
-    assert "target: '#demo-study-actions'" in js
+    # Study V2 owns the visible Study workspace; '#demo-study-actions' lives
+    # inside '#study-legacy[hidden]', so targeting it collapsed the spotlight
+    # and the step rendered with no dim and no ring at all.
+    assert "target: '#demo-study-actions-v2'" in js
     assert "target: '#btn-export-all'" in js
     assert 'id="btn-replay-tour"' in html
     assert '<section id="home-demo"' in html and 'id="home-demo"' in html.split('>', 1)[1]
@@ -431,6 +461,66 @@ def test_model_tooltip_handles_hover_focus_and_safe_empty_values():
     assert "focus" in js and "blur" in js
 
 
+def test_every_tour_target_exists_and_is_not_inside_a_hidden_ancestor():
+    """Regression: the study step pointed at markup Study V2 had superseded.
+
+    '#demo-study-actions' sits inside '<div id="study-legacy" hidden>'. The
+    spotlight collapses on `target.closest('[hidden]')`, so that step rendered
+    with no dim, no ring and no arrow -- while its card still told the user to
+    use a chat box that was not on screen. A target that no step can ever
+    illuminate is a broken step, so assert it statically for all five.
+    """
+    js = APP_JS.read_text(encoding="utf-8")
+    html = HTML.read_text(encoding="utf-8")
+
+    phases = js.split("var TOUR_PHASES = {", 1)[1].split("\n  };", 1)[0]
+    steps = dict(re.findall(r"screen: '(\w+)', target: '#([A-Za-z0-9_-]+)'", phases))
+    steps = {target: screen for screen, target in steps.items()}
+    targets = list(steps)
+    assert len(targets) == 5, f"expected 5 tour targets, found {targets}"
+
+    # Track the real open-element stack; counting <div> substrings misreads
+    # void elements and comments.
+    void = {"area", "base", "br", "col", "embed", "hr", "img", "input",
+            "link", "meta", "param", "source", "track", "wbr"}
+    found: dict[str, list[str]] = {}
+
+    class Ancestry(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            self.stack: list = []
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            a = dict(attrs)
+            node = (tag, a.get("id"), "hidden" in a, a.get("data-screen"))
+            if a.get("id") in targets:
+                # A hidden ancestor is fine if it is the very screen this step
+                # activates -- setScreen() unhides it. It is a bug only when
+                # nothing in the step's own flow will ever reveal it.
+                found[a["id"]] = [
+                    s[1] for s in self.stack
+                    if s[2] and s[1] and s[3] != steps[a["id"]]
+                ]
+            if tag not in void:
+                self.stack.append(node)
+
+        def handle_endtag(self, tag: str) -> None:
+            for i in range(len(self.stack) - 1, -1, -1):
+                if self.stack[i][0] == tag:
+                    del self.stack[i:]
+                    break
+
+    Ancestry().feed(html)
+
+    for target in targets:
+        assert target in found, f"tour target #{target} is not in the markup"
+        assert not found[target], (
+            f"tour target #{target} is inside hidden container(s) "
+            f"{found[target]}; the spotlight will collapse and the step will "
+            "render with no dim, no ring and no arrow"
+        )
+
+
 def test_tour_geometry_is_rAF_coalesced_revealed_remeasured_and_clamped():
     """VIS-05: resize/scroll/DPI changes update the real CSS spotlight once per frame."""
     js = APP_JS.read_text(encoding="utf-8")
@@ -442,8 +532,12 @@ def test_tour_geometry_is_rAF_coalesced_revealed_remeasured_and_clamped():
     assert "tourGeometryFrame !== null" in js
     assert "scrollIntoView({block: 'nearest', inline: 'nearest'})" in js
     assert geometry.count("getBoundingClientRect()") >= 2
-    assert "window.innerWidth -" in geometry
-    assert "window.innerHeight -" in geometry
+    # The rect is clamped into the viewport on both axes so the spotlight can
+    # never be drawn off-screen or with a negative extent.
+    assert "viewportWidth = window.innerWidth" in geometry
+    assert "viewportHeight = window.innerHeight" in geometry
+    assert "viewportWidth - left" in geometry
+    assert "viewportHeight - top" in geometry
     assert "visualViewport" in js
 
 

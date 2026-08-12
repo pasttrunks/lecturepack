@@ -745,16 +745,27 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
    parent says pointer-events:none.  The tour therefore uses one static,
    pointer-transparent scrim plus separate fixed geometry for the border and
    arrow.  Only the compact instruction card can receive input. */
-#guided-tour-overlay{position:fixed;inset:0;z-index:170;pointer-events:none;background:rgba(8,10,14,.65)}
-#guided-tour-overlay{background:transparent}
+/* AD-20: the scrim stays four STATIC rects -- no spread shadow, no geometry
+   transitions, no will-change. Those were confirmed causes of flicker and lag
+   on a clean-install Windows machine and must not come back. The rects tile the
+   viewport (see positionTourSpotlight); they must never overlap, or the shared
+   corners paint twice and show as a seam.
+   Layers: scrim 200 < lifted target 210 < ring 220 < arrow 230 < card 240,
+   above the model tooltip (180) and below the drag ghost (300). */
+#guided-tour-overlay{position:fixed;inset:0;z-index:200;pointer-events:none;background:transparent}
 .tour-dim-region{position:fixed;z-index:0;background:rgba(8,10,14,.65);pointer-events:none}
 #tour-dim-top,#tour-dim-bottom{left:0;width:100%;height:0}
 #tour-dim-left,#tour-dim-right{top:0;height:100%;width:0}
 #tour-spotlight-box{position:fixed;left:0;top:0;width:0;height:0;border:2px solid var(--orange);border-radius:12px;pointer-events:none;background:transparent}
-#tour-spotlight-box{z-index:1;box-shadow:0 0 0 1px var(--orange),0 0 22px rgba(255,122,0,.58)}
+#tour-spotlight-box{z-index:220;box-shadow:0 0 0 1px var(--orange),0 0 22px rgba(255,122,0,.58)}
 #tour-arrow{position:fixed;width:13px;height:13px;border-right:3px solid var(--orange);border-bottom:3px solid var(--orange);transform:rotate(45deg);pointer-events:none}
-#tour-arrow{z-index:1;box-shadow:0 0 10px rgba(255,122,0,.52)}
-#guided-tour-card{position:fixed;right:24px;bottom:24px;z-index:2;width:min(360px,calc(100vw - 32px));box-sizing:border-box;background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);padding:18px;pointer-events:auto}
+#tour-arrow{z-index:230;box-shadow:0 0 10px rgba(255,122,0,.52)}
+/* Anchored beside the target by positionTourCard(), never pinned to a corner:
+   a fixed bottom-right card covers the very control it is describing. Static
+   placement, no transition -- see AD-20 above. */
+#guided-tour-card{position:fixed;left:var(--tour-card-x,auto);top:var(--tour-card-y,auto);z-index:240;width:min(360px,calc(100vw - 32px));box-sizing:border-box;background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);padding:18px;pointer-events:auto}
+/* Before JS has measured, and on narrow windows: safe corner, no flash at 0,0. */
+#guided-tour-card:not([data-anchored]){left:auto;right:24px;top:auto;bottom:24px}
 #tour-step-label{font:600 10px 'JetBrains Mono';letter-spacing:.14em;color:var(--orange-ink);text-transform:uppercase;margin-bottom:7px}
 #tour-title{font:700 19px 'Space Grotesk';letter-spacing:-.02em;margin:0 0 7px}
 #tour-copy{font-size:13px;line-height:1.52;color:var(--muted);margin:0 0 14px}
@@ -770,8 +781,10 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 #glowing-demo-card:hover{box-shadow:var(--shadow-hard),0 0 22px rgba(255,122,0,.28)}
 #glowing-demo-card[data-demo-state="running"]{border-color:var(--blue);box-shadow:var(--shadow-hard),0 0 22px rgba(137,180,250,.24)}
 #glowing-demo-card[data-demo-state="error"]{border-color:var(--red)}
-#glowing-demo-card.lp-demo-tour-active,#dropzone.lp-demo-tour-active{position:relative;z-index:171}
-#glowing-demo-card.lp-demo-tour-lifted{position:fixed!important;z-index:1!important;pointer-events:auto!important}
+/* Lifted target sits above the scrim (200) but below the ring (220), so the
+   ring always draws over the target's own border. */
+#glowing-demo-card.lp-demo-tour-active,#dropzone.lp-demo-tour-active{position:relative;z-index:210}
+#glowing-demo-card.lp-demo-tour-lifted{position:fixed!important;z-index:210!important;pointer-events:auto!important}
 @keyframes lpdemoprompt{0%,100%{box-shadow:var(--shadow-hard),0 0 25px rgba(255,122,0,.6)}50%{box-shadow:var(--shadow-hard),0 0 32px rgba(255,122,0,.68)}}
 #glowing-demo-card.lp-demo-tour-active{border-color:var(--orange);box-shadow:var(--shadow-hard),0 0 25px rgba(255,122,0,.6);animation:lpdemoprompt 1.6s var(--motion-ease) infinite}
 #dropzone.lp-demo-drop-hover{border-color:var(--orange)!important;box-shadow:var(--shadow-hard),0 0 22px rgba(255,122,0,.32)!important}
@@ -796,7 +809,7 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 @media (max-width:1080px){#downloads-indicator-label{display:none}}
 .lp-model-value{display:block;min-width:0;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}
 .lp-model-tooltip{position:fixed;z-index:180;max-width:min(360px,calc(100vw - 32px));padding:6px 8px;border:2px solid var(--border);border-radius:7px;background:var(--panel);box-shadow:var(--shadow-hard-sm);color:var(--ink);font:600 12px/1.4 'JetBrains Mono';pointer-events:none;white-space:normal;overflow-wrap:anywhere}
-@media (max-width:640px){#guided-tour-card{left:16px;right:16px;bottom:16px;width:auto}#tour-prompt-actions,#tour-step-actions{flex-wrap:wrap}#tour-step-actions span{display:none}main,.lp-main{min-width:0;overflow-y:auto}.lp-row,.lp-actions{flex-direction:column;align-items:stretch}}
+@media (max-width:640px){#guided-tour-card{left:16px!important;right:16px!important;top:auto!important;bottom:16px!important;width:auto}#tour-prompt-actions,#tour-step-actions{flex-wrap:wrap}#tour-step-actions span{display:none}main,.lp-main{min-width:0;overflow-y:auto}.lp-row,.lp-actions{flex-direction:column;align-items:stretch}}
 
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{

@@ -4860,7 +4860,10 @@
     import: { screen: 'home', target: '#dropzone', title: 'Add the demo video', copy: 'Drag the Polar Bears demo into this lecture area, or click the tile to use it.', next: 'Add demo to continue' },
     processing: { screen: 'process', target: '#pipeline-stages', title: 'Watch real processing', copy: 'This is the live local pipeline. It advances only as each step actually completes.', next: 'Processing safely…' },
     review: { screen: 'review', target: '#demo-review-actions', title: 'Make one review choice', copy: 'Use Keep or Reject on the existing review controls to continue.', next: 'Make a review choice' },
-    study: { screen: 'study', target: '#demo-study-actions', title: 'Ask about the lecture', copy: 'The study workspace is ready. Try the chat box, then continue when you are ready.', next: 'Next' },
+    // Targets the Study V2 overview actions. The old '#demo-study-actions' chat
+    // row lives inside '#study-legacy[hidden]', so the spotlight collapsed and
+    // the step rendered with no dim, no ring and no arrow at all.
+    study: { screen: 'study', target: '#demo-study-actions-v2', title: 'Your study workspace', copy: 'Concepts, flashcards and a quiz, generated locally from this lecture. Continue when you are ready.', next: 'Next' },
     exports: { screen: 'exports', target: '#btn-export-all', title: 'See export options', copy: 'Exporting unlocks for your own processed lecture. This temporary demo only shows where those options live.', next: 'Finish' }
   };
   function tourSeen() {
@@ -5227,6 +5230,44 @@
     setTourDimRect('tour-dim-right', 0, 0, 0, 0);
     setTourDimRect('tour-dim-bottom', 0, 0, 0, 0);
     setTourDimRect('tour-dim-left', 0, 0, 0, 0);
+    var card = $('guided-tour-card');
+    if (card) card.removeAttribute('data-anchored');
+  }
+  // Anchor the coach card beside the target: below -> above -> right -> left,
+  // first side it fits with a 16px gutter. A card pinned to a corner sits on
+  // top of the very control it is describing (DEMO-IMPORT, DEMO-EXPORTS).
+  // Static placement only -- AD-20 keeps animated tour geometry out of the
+  // compositor, so this writes final positions and never transitions.
+  function positionTourCard(r, pad) {
+    var card = $('guided-tour-card');
+    if (!card || !r) return;
+    var g = 16, cw = card.offsetWidth, ch = card.offsetHeight;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var box = {l: r.left - pad, t: r.top - pad, r: r.right + pad, b: r.bottom + pad};
+    var clamp = function (v, max) { return Math.max(g, Math.min(v, max - g)); };
+    var cx = clamp(r.left + r.width / 2 - cw / 2, vw - cw);
+    var cy = clamp(r.top + r.height / 2 - ch / 2, vh - ch);
+    var spots = [
+      {x: cx, y: box.b + g, fits: box.b + g + ch + g <= vh},
+      {x: cx, y: box.t - g - ch, fits: box.t - g - ch >= g},
+      {x: box.r + g, y: cy, fits: box.r + g + cw + g <= vw},
+      {x: box.l - g - cw, y: cy, fits: box.l - g - cw >= g}
+    ];
+    // Nothing fits only when the target nearly fills the window; then some
+    // overlap is unavoidable, so dock against the side with the most room
+    // rather than defaulting to a corner that buries the target.
+    var pick = spots.filter(function (s) { return s.fits; })[0];
+    if (!pick) {
+      pick = [
+        {x: cx, y: clamp(vh - ch, vh - ch), room: vh - box.b},
+        {x: cx, y: g, room: box.t},
+        {x: clamp(vw - cw, vw - cw), y: cy, room: vw - box.r},
+        {x: g, y: cy, room: box.l}
+      ].sort(function (a, b) { return b.room - a.room; })[0];
+    }
+    card.style.setProperty('--tour-card-x', Math.round(pick.x) + 'px');
+    card.style.setProperty('--tour-card-y', Math.round(pick.y) + 'px');
+    card.setAttribute('data-anchored', '');
   }
   function scheduleTourGeometry() {
     if (tourGeometryFrame !== null) return;
@@ -5266,10 +5307,16 @@
     box.style.top = top + 'px';
     box.style.width = width + 'px';
     box.style.height = height + 'px';
+    // The four regions must TILE the viewport, never overlap: top and bottom
+    // own the full width, so left and right own only the target's height band.
+    // 'right' previously spanned the full height, double-painting the two
+    // right-hand corners (.65 over .65 = .878) while the left corners stayed
+    // at .65 -- the visible vertical seam at left+width of every target.
     setTourDimRect('tour-dim-top', 0, 0, viewportWidth, top);
-    setTourDimRect('tour-dim-right', left + width, 0, window.innerWidth - left - width, viewportHeight);
+    setTourDimRect('tour-dim-right', left + width, top, viewportWidth - left - width, height);
     setTourDimRect('tour-dim-bottom', 0, top + height, viewportWidth, bottomHeight);
     setTourDimRect('tour-dim-left', 0, top, left, height);
+    positionTourCard(r, pad);
     arrow.hidden = false;
     arrow.style.left = Math.round(Math.max(8, r.left + Math.min(Math.max(r.width, 0) - 18, 24))) + 'px';
     arrow.style.top = Math.max(8, Math.round(r.top - 19)) + 'px';

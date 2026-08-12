@@ -246,10 +246,16 @@ def test_spotlight_hides_when_target_missing() -> None:
     spot = block(app, "function positionTourSpotlight()", "function renderGuidedTour()")
     assert "target.closest('[hidden]')" in spot
     assert "demoFlowPhase() === 'finished'" in spot
-    # Minimum fallback box for visible-but-zero-height targets is preserved.
-    assert "minW = 120, minH = 40" in spot
-    assert "Math.max(minW, r.width)" in spot
-    assert "Math.max(minH, r.height)" in spot
+    # A zero-size target COLLAPSES; it does not get a minimum fallback box.
+    # The old minW/minH fallback drew a 120x40 glow at the viewport corner
+    # around empty space, and on '#glowing-demo-card' (zero-size inside the
+    # hidden '#home-demo') it also meant the card never fired animationend, so
+    # the callback that starts the tour never ran at all.
+    assert "minW" not in spot, "the minimum fallback box must stay removed"
+    assert "before.width === 0 && before.height === 0" in spot
+    # Collapsing must clear the scrim too, or the app stays dimmed while the
+    # tour points at nothing.
+    assert spot.count("clearTourDim();") >= 2
 
 
 def test_tour_advances_when_student_reaches_next_screen() -> None:
