@@ -38,7 +38,7 @@ re-debug the same thing from scratch.
 
 *(newest first)*
 
-### BUG-41 — guided-demo overlay: the four dim regions OVERLAPPED, showing a hard seam   🟡 FIXED (not yet verified on the real target)
+### BUG-41 — guided-demo overlay: the four dim regions OVERLAPPED, showing a hard seam   ✅ FIXED (verified in the packaged app)
 - **Area:** `app/ui/app.js::positionTourSpotlight`, `app/ui/app.css` (3.8a guided tour).
 - **Found:** 2026-08-12, from user screenshots of the packaged guided demo.
 - **Symptom:** a hard vertical edge down the window on every tour step, and the
@@ -66,7 +66,11 @@ re-debug the same thing from scratch.
   (structure) and `test_dim_regions_tile_exactly_for_real_target_geometry`, which
   executes the real rect arithmetic under Node and asserts no two regions overlap
   and `dim area + hole area == viewport area` for four viewport/target cases.
-- **Not yet verified:** on the packaged build. Verified by executed arithmetic only.
+- **Verified (2026-08-12) in the packaged Electron renderer over CDP**, UI swapped into a
+  copy of the `guided-demo-fix-20260811` candidate: at 1920x1009 the four regions tile
+  the viewport EXACTLY -- 1,926,960 dim + 10,320 hole = 1,937,280 = vw*vh -- with **zero
+  pairwise overlaps**, and the dim computes to a single `rgba(8,10,14,0.65)` rather than
+  the doubled ~.88. Packaged acceptance is byte-identical to the baseline candidate.
 - **Lesson:** "four regions around a hole" is a tiling problem. Assert the tiling
   (area covered exactly once), not the presence of four elements — the old test
   checked that all four ids existed, which the buggy code satisfied.
@@ -96,7 +100,7 @@ re-debug the same thing from scratch.
   by someone whose machine is fast enough not to notice.
 - **Files:** `app/ui/app.css`, `docs/DECISIONS.md`, `tests/test_flashing_reliability.py`.
 
-### BUG-43 — DEMO·STUDY step targeted markup Study V2 had superseded   🟡 FIXED (not yet verified on the real target)
+### BUG-43 — DEMO·STUDY step targeted markup Study V2 had superseded   🟠 PARTIAL / needs verification
 - **Area:** `app/ui/app.js::TOUR_PHASES.study`, `app/ui/index.html`.
 - **Found:** 2026-08-12, from user screenshots.
 - **Symptom:** the Study step rendered with **no dim, no ring and no arrow** —
@@ -116,13 +120,20 @@ re-debug the same thing from scratch.
   parses the markup and walks the real open-element stack for all five steps.
   Screen-level containers (`[data-screen]`) are exempt — every screen is `hidden`
   at rest and unhidden by the `setScreen()` the step itself declares.
-- **Not yet verified:** on the packaged build.
+- **Verified (2026-08-12), partially:** `#demo-study-actions-v2` is present in the packaged
+  renderer and `#study-legacy` is confirmed `hidden` there, which is the root cause.
+- **BLOCKER on full verification:** the end-to-end guided demo cannot be driven on this
+  machine. A fresh profile lands on the first-run Runtime Setup gate, which is green-only
+  by design (bypass buttons were deliberately removed) and cannot go green without the
+  Whisper model and ffprobe, which are absent here. Packaged acceptance confirms it:
+  `transcript_generated` FAIL on BOTH the fixed and the baseline candidate. Anyone with a
+  complete runtime should replay the tour and confirm the Study step now lights up.
 - **Lesson:** when a workspace is replaced (V2), every *external* reference into
   the old markup — tours, deep links, tests — is a silent dangling pointer. The
   legacy nodes still exist, so nothing throws.
 - **Files:** `app/ui/app.js`, `app/ui/index.html`, `tests/test_guided_tour.py`.
 
-### BUG-44 — the coach card covered the control it was describing   🟡 FIXED (not yet verified on the real target)
+### BUG-44 — the coach card covered the control it was describing   🟠 PARTIAL / needs verification
 - **Area:** `app/ui/app.css#guided-tour-card`, `app/ui/app.js::positionTourCard`.
 - **Found:** 2026-08-12, from user screenshots (DEMO·IMPORT, DEMO·EXPORTS).
 - **Root cause:** the card was pinned `right:24px;bottom:24px` regardless of where
@@ -134,10 +145,13 @@ re-debug the same thing from scratch.
 - **Tests:** `test_tour_card_is_anchored_beside_the_target_and_never_covers_it`
   runs the real function under Node against five viewport/target cases and asserts
   the card is on-screen, adjacent, and does not intersect the spotlight rect.
-- **Not yet verified:** on the packaged build.
+- **Verified (2026-08-12), mechanism only:** in the packaged renderer `--tour-card-x/y`
+  drive the card's computed `left`/`top`, and the card does not intersect the hole.
+  The live placement decision across all five steps is NOT verified -- see the blocker
+  on BUG-43.
 - **Files:** `app/ui/app.js`, `app/ui/app.css`, `tests/test_polish_ui.py`.
 
-### BUG-45 — tour layer sat BELOW the model tooltip   🟡 FIXED (not yet verified on the real target)
+### BUG-45 — tour layer sat BELOW the model tooltip   ✅ FIXED (verified in the packaged app)
 - **Area:** `app/ui/app.css`.
 - **Found:** 2026-08-12, during the BUG-41 review.
 - **Root cause:** `#guided-tour-overlay` was `z-index:170` while `.lp-model-tooltip`
@@ -148,7 +162,8 @@ re-debug the same thing from scratch.
   < card 240 — above the tooltip (180) and below the drag ghost (300).
 - **Tests:** `test_css_spotlight_is_pointer_transparent_and_uses_a_static_scrim`
   now parses the z-indexes and asserts both the internal order and the clearances.
-- **Not yet verified:** on the packaged build.
+- **Verified (2026-08-12):** computed z-indexes in the packaged renderer are scrim 200,
+  ring 220, arrow 230, card 240 -- above the model tooltip (180), below the drag ghost (300).
 - **Files:** `app/ui/app.css`, `tests/test_guided_tour.py`.
 
 ### BUG-33..BUG-40 — the guided-demo hardening pass (all 🟠 PARTIAL / needs verification)
