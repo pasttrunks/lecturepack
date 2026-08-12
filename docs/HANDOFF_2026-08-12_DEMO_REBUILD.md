@@ -223,13 +223,41 @@ baselining while another agent is active.
 
 ## 7. Known issues / residual risks
 
-- **OPEN QUESTION — is AI Study actually working?** The owner reported it
-  sitting at 0% for two minutes. `7cda948` explains why it *looked* dead, but
-  not necessarily why it was slow. Facts established: stage strings are
-  unchanged by codex's NVIDIA work; `_emit(..., 5)` fires *before* any network
-  call, so 0–1% means still queued rather than a slow gateway; and
-  `ai_gateway.py` has a **175-second timeout**, which matches the reported
-  ~2-minute wait. A live run was in flight at session end — **rerun it.**
+- **OPEN — the Study checklist renders before Study has started, and looks
+  dead. `7cda948` does NOT fully cover this.** The live run captured one frame
+  before its page closed, and it is decisive:
+
+  ```
+  [0s] screen=process  panelHidden=false  pct=0%
+       detail="Preparing your Study system"  running=[]
+       footer="Detecting slides · 29%"
+  ```
+
+  Two facts follow. First, **the Study panel is visible while the LECTURE is
+  still processing** (slide detection at 29%) — Study has not been queued yet.
+  Second, `detail` is the renderer's *fallback* string, so `metadata.stage` was
+  **empty**, not `"Queued for Study AI"`.
+
+  That is a gap in the fix shipped this session. The guard is
+  `if (active < 0 && stage)`, which only rescues an *unrecognised* stage; an
+  **empty** stage still renders all seven rows idle at 0%. So the reported
+  "stuck at 0% for two minutes" is most likely the checklist appearing before
+  any Study work exists, not a slow gateway.
+
+  This also corrects an earlier conclusion in this session: 0% does **not** mean
+  "queued", it means "not started, because the lecture is not finished".
+
+  **Fix direction (not yet built):** while `study_status` is preparing but no
+  stage has arrived, do not render a Study checklist implying Study work is
+  underway. Either defer the panel until the lecture completes, or show an
+  explicit "Waiting for lecture processing to finish" row. Then re-check the
+  gateway question separately — `ai_gateway.py` still has a **175-second
+  timeout**, which also matches a ~2-minute wait, so a slow gateway has NOT been
+  ruled out; it simply is not what this frame shows.
+
+  **Rerun `watch_study.mjs` to capture the full sequence** — this run ended
+  early with "Target page, context or browser has been closed" after one
+  sample.
 - **The slide viewer is unfixed** — see §8. Measured defect: the rail is 250px
   and the grid asks for `minmax(min(100%,128px),1fr)`, so
   `grid-template-columns` resolves to a **single 246px column**. "Grid" has
