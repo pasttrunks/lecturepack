@@ -954,3 +954,20 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   .lp-tab.study-mode-tab:not(:disabled):hover,
   .lp-tab.study-mode-tab:not(:disabled):active{transition:none;transform:none}
 }
+
+/* --- footer waiting state -------------------------------------------------
+   "Review ready" is not a stage in progress: the pipeline stopped and the next
+   move is the student's. A solid partial orange fill is this app's idiom for
+   WORK HAPPENING, so the parked state keeps the TRUE percentage and changes
+   the material instead -- a static hatch over the earned fill. Colour follows
+   the existing .lp-proc-waiting convention so "parked, your move" reads the
+   same everywhere. Static only: no animation, no will-change, no filters
+   (AD-20). */
+#status-bar{background-color:var(--orange)}
+#status-footer[data-status="waiting"] #status-bar{
+  background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.38) 0 3px,transparent 3px 6px)}
+#status-footer[data-status="waiting"] #status-dot{background:var(--secondary-border)}
+#status-footer[data-status="waiting"] #status-label{color:var(--secondary-text)}
+#status-footer[data-status="waiting"] #status-pct{color:var(--ink)}
+[data-theme="dark"] #status-footer[data-status="waiting"] #status-bar{
+  background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.34) 0 3px,transparent 3px 6px)}

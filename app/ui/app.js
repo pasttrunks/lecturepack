@@ -852,9 +852,42 @@
     if (/^(inspect|inspecting|probe|probing)/.test(normalized)) return 'Inspecting video';
     if (/extract( audio|ing audio)?/.test(normalized)) return 'Extracting audio';
     if (/^align|aligning/.test(normalized)) return 'Aligning notes';
-    if (/review ready|preparing review/.test(normalized)) return 'Preparing review';
+    if (/preparing review/.test(normalized)) return 'Preparing review';
+    if (/review[ _-]?ready/.test(normalized)) return 'Review ready';
     if (/^prepare|preparing/.test(normalized)) return 'Preparing';
     return raw.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+  }
+
+  /* A stage the pipeline FINISHED and handed back to the student. The app is
+     NOT working, so the footer must stop implying that it is: a partly-filled
+     solid orange bar is this app's idiom for work in progress, and the demo
+     parks at review_ready/86% permanently (auto_export:false), which is what
+     made the footer read "Preparing review 86%" through Review, Study AND
+     Exports. The backend stage alone cannot say WHICH handoff is pending, so
+     it resolves from app state. Works for a real job too: a job is "decided"
+     once every slide carries an accepted/rejected state. */
+  function reviewDecisionTaken() {
+    var demo = guidedDemoFlow.snapshot();
+    if (demo.phase === 'study' || demo.phase === 'exports' || demo.reviewDecisionMade) return true;
+    var slides = (LP.data && LP.data.slides) || [];
+    if (!slides.length) return false;
+    return slides.every(function (sl) {
+      return sl.state === 'accepted' || sl.state === 'rejected';
+    });
+  }
+  function waitingHandoff(stage) {
+    var n = normalizedProcessingText(String(stage == null ? '' : stage));
+    if (!/review[ _-]?ready|awaiting[ _-]?review/.test(n)) return null;
+    if (reviewDecisionTaken()) {
+      return { label: 'Ready to export', detail: 'Study pack not exported yet' };
+    }
+    var undecided = ((LP.data && LP.data.slides) || []).filter(function (sl) {
+      return sl.state !== 'accepted' && sl.state !== 'rejected';
+    }).length;
+    return { label: 'Review ready',
+             detail: undecided
+               ? undecided + (undecided === 1 ? ' slide' : ' slides') + ' to keep or reject'
+               : 'Waiting for your review' };
   }
 
   /* Backend and IPC failures must never reach the student raw (N-2):
@@ -2159,9 +2192,18 @@
      var key = JSON.stringify(s);
      if (key === lastStatusRenderKey) return;
      lastStatusRenderKey = key;
-      if (s.label !== undefined) $('status-label').textContent = friendlyProcessingLabel(s.label) || 'Idle';
+      var hold = s.label !== undefined ? waitingHandoff(s.label) : null;
+      var footer = $('status-footer');
+      if (footer) footer.dataset.status = hold ? 'waiting' : '';
+      if (s.label !== undefined) {
+        $('status-label').textContent = hold ? hold.label : (friendlyProcessingLabel(s.label) || 'Idle');
+      }
+      // The real percentage, always -- the bar changes MATERIAL when parked,
+      // it never lies about magnitude.
       if (s.pct !== undefined) setFill('status-bar', s.pct);
-      if (s.detail !== undefined) $('status-pct').textContent = friendlyProcessingLabel(s.detail) || s.detail;
+      if (s.detail !== undefined) {
+        $('status-pct').textContent = hold ? hold.detail : (friendlyProcessingLabel(s.detail) || s.detail);
+      }
       if (s.right !== undefined) $('status-right').textContent = friendlyProcessingLabel(s.right) || s.right;
       if (s.job !== undefined && LP.state.jobId) {
         var jobName = friendlyJobName(s.job);
@@ -4593,6 +4635,10 @@
     ['overview', 'flashcards', 'quiz', 'ask'].forEach(function (m) {
       $('study-mode-' + m).hidden = mode !== m;
     });
+    // A mode switch relays out the whole workspace. Without this the spotlight
+    // keeps the rect of the panel that WAS there -- which is how the Study step
+    // ended up as a stale band lying across the flashcard content.
+    if (guidedTour.snapshot().active) scheduleTourGeometry();
     if (mode === 'flashcards') renderStudyFlashcards();
     if (mode === 'quiz') renderStudyQuiz();
     if (mode === 'ask') renderStudyAsk();
@@ -4856,14 +4902,35 @@
   var DEMO_DRAG_MIME = 'application/x-lecturepack-demo';
   var INTERNAL_JOB_DRAG_MIME = 'application/x-lecturepack-job-ids';
   var internalJobDragIds = [];
+  /* Each step may declare:
+       screen    -- the screen setScreen() must be on
+       prepare   -- a precondition run BEFORE the target is measured. A step is
+                    only allowed to target something it can guarantee visible;
+                    Study V2 persists its last mode, so without this the Study
+                    step measured a hidden '#study-mode-overview' and produced a
+                    full-width stripe instead of a box.
+       target    -- selector, or an ARRAY whose bounding union becomes the hole.
+                    The scrim is four rects tiling around ONE hole, so a union
+                    must stay a single rectangle -- disjoint holes are not
+                    expressible and must not be attempted.
+       keepClear -- selectors the coach card must not cover, on top of the hole
+                    itself. "Fits on screen" is not the same as "does not cover
+                    what the user needs to see".
+       reveals   -- hidden containers this step's own preconditions guarantee
+                    are shown by the time it runs. '#home-demo' is hidden only
+                    when the demo is unavailable, in which case the tour cannot
+                    start at all. Declaring it keeps the "no target inside a
+                    hidden ancestor" check honest instead of blanket-exempting
+                    every conditional container (BUG-34 was a zero-size card
+                    inside this very element). */
   var TOUR_PHASES = {
-    import: { screen: 'home', target: '#dropzone', title: 'Add the demo video', copy: 'Drag the Polar Bears demo into this lecture area, or click the tile to use it.', next: 'Add demo to continue' },
+    import: { screen: 'home', target: ['#dropzone', '#glowing-demo-card'], reveals: ['#home-demo'], title: 'Add the demo video', copy: 'Drag the Polar Bears demo into this lecture area, or click the tile to use it.', next: 'Add demo to continue' },
     processing: { screen: 'process', target: '#pipeline-stages', title: 'Watch real processing', copy: 'This is the live local pipeline. It advances only as each step actually completes.', next: 'Processing safely…' },
-    review: { screen: 'review', target: '#demo-review-actions', title: 'Make one review choice', copy: 'Use Keep or Reject on the existing review controls to continue.', next: 'Make a review choice' },
+    review: { screen: 'review', target: '#demo-review-actions', keepClear: ['#slide-frame', '#slide-list'], title: 'Make one review choice', copy: 'Use Keep or Reject on the existing review controls to continue.', next: 'Make a review choice' },
     // Targets the Study V2 overview actions. The old '#demo-study-actions' chat
     // row lives inside '#study-legacy[hidden]', so the spotlight collapsed and
     // the step rendered with no dim, no ring and no arrow at all.
-    study: { screen: 'study', target: '#demo-study-actions-v2', title: 'Your study workspace', copy: 'Concepts, flashcards and a quiz, generated locally from this lecture. Continue when you are ready.', next: 'Next' },
+    study: { screen: 'study', target: '#demo-study-actions-v2', prepare: function () { setStudyV2Mode('overview'); }, title: 'Your study workspace', copy: 'Concepts, flashcards and a quiz, generated locally from this lecture. Continue when you are ready.', next: 'Next' },
     exports: { screen: 'exports', target: '#btn-export-all', title: 'See export options', copy: 'Exporting unlocks for your own processed lecture. This temporary demo only shows where those options live.', next: 'Finish' }
   };
   function tourSeen() {
@@ -5107,9 +5174,12 @@
       status.textContent = stageLabel(d.stage) + ' · ' + Math.round(d.progress) + '%';
       action.textContent = d.status === 'starting' ? 'Starting…' : d.status === 'cancelling' ? 'Stopping…' : 'End demo'; return;
     }
-    if (d.status === 'ended') { status.textContent = 'Demo cleaned up.'; action.textContent = 'Use demo video'; return; }
-    status.textContent = 'Move this demo video into the lecture drop area, or click to use it.';
-    action.textContent = 'Use demo video';
+    var idleAction = (guidedTour.snapshot().active || tourSeen()) ? 'Use demo video' : 'Start guided tour';
+    if (d.status === 'ended') { status.textContent = 'Demo cleaned up.'; action.textContent = idleAction; return; }
+    status.textContent = (guidedTour.snapshot().active || tourSeen())
+      ? 'Move this demo video into the lecture drop area, or click to use it.'
+      : 'A real 10-second lecture, processed locally, with a short guided walkthrough.';
+    action.textContent = idleAction;
     refreshControlStates();
   }
   function demoFlowPhase() { return guidedDemoFlow.snapshot().phase; }
@@ -5215,7 +5285,33 @@
   var tourGeometryFrame = null;
   function currentTourTarget() {
     var phase = currentTourPhase();
-    return phase && document.querySelector(phase.target);
+    if (!phase) return null;
+    if (typeof phase.target === 'string') return document.querySelector(phase.target);
+    // Union step: return the first present element as the focus anchor; the
+    // measured rect is the bounding union of all of them (see tourTargetRect).
+    for (var i = 0; i < phase.target.length; i++) {
+      var el = document.querySelector(phase.target[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+  // The rect the spotlight lights. For a union step this is the bounding box of
+  // every present element, so a single hole covers the whole affordance instead
+  // of lighting one and leaving its twin ringed but dimmed.
+  function tourTargetRect(target) {
+    var phase = currentTourPhase();
+    var r = target.getBoundingClientRect();
+    if (!phase || typeof phase.target === 'string') return r;
+    var l = r.left, t = r.top, rt = r.right, b = r.bottom;
+    phase.target.forEach(function (sel) {
+      var el = document.querySelector(sel);
+      if (!el || el.closest('[hidden]')) return;
+      var o = el.getBoundingClientRect();
+      if (!o.width && !o.height) return;
+      l = Math.min(l, o.left); t = Math.min(t, o.top);
+      rt = Math.max(rt, o.right); b = Math.max(b, o.bottom);
+    });
+    return {left: l, top: t, right: rt, bottom: b, width: rt - l, height: b - t};
   }
   function setTourDimRect(id, left, top, width, height) {
     var el = $(id);
@@ -5253,6 +5349,23 @@
       {x: box.r + g, y: cy, fits: box.r + g + cw + g <= vw},
       {x: box.l - g - cw, y: cy, fits: box.l - g - cw >= g}
     ];
+    // A placement that merely fits can still bury what the step is asking the
+    // user to look at -- on Review the card sat over the slide being judged.
+    // Steps declare those regions; a spot that hits one is not a candidate.
+    var phaseNow = currentTourPhase();
+    var keepClear = ((phaseNow && phaseNow.keepClear) || []).map(function (sel) {
+      var el = document.querySelector(sel);
+      if (!el || el.closest('[hidden]')) return null;
+      var k = el.getBoundingClientRect();
+      return (k.width && k.height) ? k : null;
+    }).filter(Boolean);
+    spots.forEach(function (sp) {
+      if (!sp.fits) return;
+      sp.fits = !keepClear.some(function (k) {
+        return !(sp.x >= k.right || sp.x + cw <= k.left ||
+                 sp.y >= k.bottom || sp.y + ch <= k.top);
+      });
+    });
     // Nothing fits only when the target nearly fills the window; then some
     // overlap is unavoidable, so dock against the side with the most room
     // rather than defaulting to a corner that buries the target.
@@ -5279,6 +5392,12 @@
   function positionTourSpotlight() {
     var state = guidedTour.snapshot(), box = $('tour-spotlight-box'), arrow = $('tour-arrow');
     if (!state.active || !box || !arrow) return;
+    var phaseNow = currentTourPhase();
+    if (phaseNow && typeof phaseNow.prepare === 'function') {
+      // Must run before measurement: a step may need to switch a persisted
+      // sub-mode to make its own target visible.
+      try { phaseNow.prepare(); } catch (e) {}
+    }
     var target = currentTourTarget();
     // N-8: never leave a glow around empty space. A target that is unmounted,
     // inside a hidden screen, or absent after navigation collapses the
@@ -5286,7 +5405,7 @@
     if (!target || !target.isConnected || target.closest('[hidden]') || demoFlowPhase() === 'finished') {
       box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; clearTourDim(); return;
     }
-    var before = target.getBoundingClientRect();
+    var before = tourTargetRect(target);
     if (before.width === 0 && before.height === 0) {
       // Mounted but currently unmeasurable (its screen is still painting):
       // hide rather than point at (0,0), and re-check shortly.
@@ -5297,7 +5416,7 @@
     if (before.top < 0 || before.left < 0 || before.bottom > window.innerHeight || before.right > window.innerWidth) {
       target.scrollIntoView({block: 'nearest', inline: 'nearest'});
     }
-    var r = target.getBoundingClientRect(), pad = 7, viewportWidth = window.innerWidth, viewportHeight = window.innerHeight;
+    var r = tourTargetRect(target), pad = 7, viewportWidth = window.innerWidth, viewportHeight = window.innerHeight;
     var left = Math.max(0, Math.min(Math.round(r.left - pad), viewportWidth));
     var top = Math.max(0, Math.min(Math.round(r.top - pad), viewportHeight));
     var width = Math.max(0, Math.min(Math.round(r.width + pad * 2), viewportWidth - left));
@@ -5592,7 +5711,20 @@
     var demoCard = $('glowing-demo-card');
     demoCard.addEventListener('click', function () {
       if (demoCard.disabled) return;
+      // The tile is the most prominent demo affordance on Home, so it must do
+      // the thing users expect of it: START THE GUIDED TOUR. It used to import
+      // the video silently and leave the tour unstarted, which made the tour
+      // reachable only from the much less discoverable 'Try the demo lecture'
+      // button inside the empty-state panel. Mirrors #btn-load-jobs exactly.
       if (guidedDemo.snapshot().active) { startGuidedDemo(); return; }
+      // First run: the tile starts the tour. Once the tour has been seen, the
+      // same tile goes back to being a plain "give me the demo video" import,
+      // which is a real returning-user need (a throwaway job to test a setting)
+      // -- so one actuator covers both without a second competing button.
+      if (!guidedTour.snapshot().active && !tourSeen()) { startGuidedTour(true); return; }
+      if (guidedTour.snapshot().active && demoFlowPhase() !== 'import') {
+        guidedDemoFlow.beginAttempt(); renderGuidedTour(); return;
+      }
       flyDemoTileToDropzone(startGuidedDemo);
     });
     demoCard.addEventListener('dragstart', function (e) {

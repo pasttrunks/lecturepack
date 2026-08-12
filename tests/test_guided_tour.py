@@ -474,10 +474,13 @@ def test_every_tour_target_exists_and_is_not_inside_a_hidden_ancestor():
     html = HTML.read_text(encoding="utf-8")
 
     phases = js.split("var TOUR_PHASES = {", 1)[1].split("\n  };", 1)[0]
-    steps = dict(re.findall(r"screen: '(\w+)', target: '#([A-Za-z0-9_-]+)'", phases))
-    steps = {target: screen for screen, target in steps.items()}
+    steps = {}
+    for screen, raw in re.findall(r"screen: '(\w+)', target: (\[[^\]]*\]|'#[A-Za-z0-9_-]+')", phases):
+        for sel in re.findall(r"'#([A-Za-z0-9_-]+)'", raw):
+            steps[sel] = screen
     targets = list(steps)
-    assert len(targets) == 5, f"expected 5 tour targets, found {targets}"
+    assert len(targets) == 6, (
+        f"expected 6 targets across 5 steps (import is a union of two), found {targets}")
 
     # Track the real open-element stack; counting <div> substrings misreads
     # void elements and comments.
@@ -512,8 +515,13 @@ def test_every_tour_target_exists_and_is_not_inside_a_hidden_ancestor():
 
     Ancestry().feed(html)
 
+    # Containers a step explicitly guarantees revealed before it runs.
+    revealed = set(re.findall(r"reveals: \[([^\]]*)\]", phases))
+    revealed = {sel for group in revealed for sel in re.findall(r"'#([A-Za-z0-9_-]+)'", group)}
+
     for target in targets:
         assert target in found, f"tour target #{target} is not in the markup"
+        found[target] = [c for c in found[target] if c not in revealed]
         assert not found[target], (
             f"tour target #{target} is inside hidden container(s) "
             f"{found[target]}; the spotlight will collapse and the step will "
@@ -531,7 +539,10 @@ def test_tour_geometry_is_rAF_coalesced_revealed_remeasured_and_clamped():
     assert "requestAnimationFrame" in js
     assert "tourGeometryFrame !== null" in js
     assert "scrollIntoView({block: 'nearest', inline: 'nearest'})" in js
-    assert geometry.count("getBoundingClientRect()") >= 2
+    # Measurement goes through tourTargetRect(), which returns the bounding
+    # union for multi-element steps and the plain rect otherwise.
+    assert geometry.count("tourTargetRect(target)") >= 2
+    assert "function tourTargetRect(" in js
     # The rect is clamped into the viewport on both axes so the spotlight can
     # never be drawn off-screen or with a negative extent.
     assert "viewportWidth = window.innerWidth" in geometry

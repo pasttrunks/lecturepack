@@ -248,6 +248,9 @@ def _run_card_placement(cases: str) -> list:
       removeAttribute: function (k) { delete this.attrs[k]; }};
     var $ = function (id) { return id === 'guided-tour-card' ? __card : null; };
     var window = {innerWidth: 0, innerHeight: 0};
+    // The keep-clear lookup is exercised separately; here we isolate placement.
+    var currentTourPhase = function () { return null; };
+    var document = {querySelector: function () { return null; }};
     """
     program = harness + fn + f"""
     var out = [];
