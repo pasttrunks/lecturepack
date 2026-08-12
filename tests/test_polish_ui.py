@@ -329,6 +329,27 @@ def test_tour_card_is_anchored_beside_the_target_and_never_covers_it() -> None:
             assert docked, f"{name}: card should dock to the '{best}' edge"
 
 
+def test_stacked_review_column_has_a_definite_height() -> None:
+    """Below 1220px the slide list collapsed to zero height.
+
+    '#slide-list' is `flex:1` with a 0 basis inside '.lp-review-col-slides'.
+    Against an auto-height container that resolves to ZERO, so the stacked
+    layout rendered the Keep/Reject row with no thumbnails above it -- the
+    student was asked to keep or reject slides they could not see. `max-height`
+    does not make a height definite; `height` does. Measured in the packaged
+    app: listH 0 -> 134 at 1200x720, 1100x680, 1000x640 and 900x600.
+    """
+    block = CSS.split("@media (max-width:1220px)", 1)[1].split(chr(10) + "}", 1)[0]
+    assert ".lp-review-col-slides{height:230px}" in block.replace(" ", ""), (
+        "the stacked slides column needs a definite height, not max-height"
+    )
+    assert ".lp-review-col-slides{max-height" not in block.replace(" ", "")
+
+    # The decision controls need clearance from the footer: the guided tour's
+    # spotlight ring carries a 22px glow that otherwise bleeds over it.
+    assert "#demo-review-actions{margin-bottom:" in CSS.replace(" ", "")
+
+
 def test_existing_lecture_drag_queues_ids_without_reimporting() -> None:
     assert 'data-existing-job-drag="true"' in JS
     assert "application/x-lecturepack-job-ids" in JS

@@ -343,7 +343,12 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   .lp-review-row > .lp-review-col{
     width:auto !important;min-width:0 !important;flex:none !important}
   /* give each stacked panel a workable height instead of collapsing to nothing */
-  .lp-review-row > .lp-review-col-slides{max-height:230px}
+  /* A DEFINITE height, not max-height. '#slide-list' is flex:1 with basis 0
+     inside this column; against an auto-height container that resolves to
+     ZERO, so the stacked layout showed the Keep/Reject row with no thumbnails
+     above it at all -- nothing to review. max-height does not make a height
+     definite; height does. */
+  .lp-review-row > .lp-review-col-slides{height:230px}
   .lp-review-row > .lp-review-col-main{min-height:340px}
   .lp-review-row > .lp-review-col-transcript{min-height:300px}
 }
@@ -983,3 +988,10 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   width:min(300px,calc(100vw - 40px));padding:14px 15px}
 #guided-tour-card[data-present="tip"] #tour-title{font-size:16px;margin-bottom:5px}
 #guided-tour-card[data-present="tip"] #tour-copy{font-size:12px;margin-bottom:11px}
+
+/* The Review decision controls sit at the very bottom of the slides column,
+   directly above the footer. 18px of clearance is enough for the buttons but
+   not for the guided tour's spotlight ring, whose 22px glow then bleeds over
+   the footer and reads as if the buttons were clipped by it. Give the row its
+   own breathing room rather than moving the footer. */
+#demo-review-actions{margin-bottom:10px}
