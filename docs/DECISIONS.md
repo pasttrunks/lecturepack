@@ -2,6 +2,154 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-52: Clean-machine acceptance uses a persisted job and always unwinds its install
+
+**Date:** 2026-08-12
+
+**Status:** Implemented and installer/portable-accepted
+
+**Context:** The clean-machine validator installed the exact 2.0.1 artifact and
+then imported its test media with `bundled_demo=true`. That flag correctly
+creates a temporary guided-demo session. Automatic export completes the demo
+and removes its job, so the validator's later transcript request addressed a
+job that was intentionally gone. The resulting assertion failure also exposed
+that an early validator exit could leave its disposable per-user installation,
+uninstall record, and Send To shortcut behind.
+
+**Decision:** Keep lifecycle ownership explicit between release gates. The
+packaged stable gate owns the guided-demo contract, including automatic final
+cleanup. Clean-machine acceptance imports the installed media as a normal job
+because it must inspect persisted transcript and export state after completion.
+The acceptance entry point wraps every run in a `finally` cleanup that invokes
+the exact test installation's uninstaller; the normal success path uses the
+same checked helper.
+
+**Alternatives considered:**
+
+- Disable guided-demo cleanup during validation: rejected because it would
+  prove behavior users never receive and weaken the cleanup contract.
+- Race transcript inspection before automatic cleanup: rejected because the
+  result would depend on scheduling and would not validate normal persistence.
+- Leave failed installs for manual diagnosis: rejected because release tests
+  must not pollute the user's registry, Send To menu, or installed programs.
+
+**Rationale:** A validator should test the intended lifecycle rather than rely
+on stale implementation timing, and failure evidence must not alter the host
+machine after the run ends.
+
+**Acceptance record:** The exact installer subsequently passed packaged
+self-test, a real normal lecture, Study data, all 13 exports, host launch and
+restore, clean sidecar exit, zero orphan processes, and uninstall exit 0. The
+install directory, uninstall registry entry, and Send To shortcut were absent
+afterward. A disposable extraction of the exact portable ZIP also passed all
+nine fault-injection scenarios with zero remaining processes. A separate run
+then forced an immediate active-job completion timeout: it exited nonzero as
+intended, killed the exact spawned sidecar tree, uninstalled, and again left no
+process, install directory, uninstall record, or Send To shortcut.
+
+## AD-51: Release visual evidence must prove unobscured minimum-width layouts
+
+**Date:** 2026-08-12
+
+**Status:** Implemented and packaged-accepted
+
+**Context:** The stable packaged gate exercised the real Electron host and
+captured screenshots, but its programmatic canonical import left the real batch
+setup dialog open. The functional assertions passed while that dialog obscured
+Review and Study in several screenshots. Once the dialog was closed, a new
+geometry probe found a separate product defect at the supported 640x480 window
+minimum: Review's timeline header was 544 pixels wide inside a 400-pixel main
+pane. The application's intentional `overflow-x:hidden` made the legend and job
+switcher unreachable without producing a page scrollbar.
+
+**Decision:** Treat unobscured screenshots and renderer geometry as one release
+contract:
+
+- The packaged harness closes the import dialog through its real visible Close
+  control before starting the explicit auto-export job, and records a failed
+  check if an unexpected modal remains over Process, Review, Transcript, or
+  Study.
+- The gate resizes the real BrowserWindow to 640x480, 820x600, and 1024x720.
+  At each size it visits Home, Review, and Study; captures a screenshot; and
+  rejects document, header, main, active-screen, or footer horizontal overflow,
+  clipped header controls, clipped screen controls, and unexpected dialogs.
+- Review's timeline header has named layout hooks. At 700 pixels and below its
+  metadata and legend wrap, its spacer is removed, and the shared lecture
+  switcher receives a full final row with an ellipsized name.
+- The Windows package contains the repository MIT `LICENSE` as an explicit
+  release resource and release hardening tests require it.
+
+**Alternatives considered:**
+
+- Rely on screenshots alone: rejected because clipped content can sit outside
+  the capture and an opaque modal can still look like a valid intentional UI.
+- Rely on `scrollWidth` alone: rejected because an overlay can obscure an
+  otherwise perfect layout and still produce equal client/scroll widths.
+- Raise Electron's minimum width: rejected because 640x480 is already a
+  supported product contract and the header, Home, and Study work at that size.
+- Hide the Review legend or lecture switcher: rejected because both retain
+  useful state/navigation value and fit when the header is allowed to wrap.
+
+**Rationale:** Release evidence now measures what the student can actually see
+and reach, not merely whether background operations completed. The minimum
+window remains supported without silently clipping controls, while larger
+layouts are unchanged.
+
+**Acceptance record:** The rebuilt 2.0.1 packaged candidate passed all 9 layout
+cases with exact main/active scroll equality, including 400/400 pixels for
+Review at 640x480. The full stable gate passed with 21 screenshots and no
+failures. The resulting unsigned artifacts are recorded in the current release
+handoff; signing remains an external credential gate.
+
+## AD-50: Asynchronous Study work uses per-job cancellation epochs
+
+**Date:** 2026-08-12
+
+**Status:** Implemented and packaged-accepted
+
+**Context:** Guided-demo cleanup could delete its temporary job while the
+background Study worker was still awaiting a provider. A late callback then
+persisted `study-content-v2.json` and recreated the deleted job directory. The
+same lifecycle risk applied to normal deletion, bulk deletion, reset, partial
+regeneration, and interactive Ask/Teach/grade work. Deleting the current files
+was therefore not a final state.
+
+**Decision:** The sidecar owns a monotonically increasing Study epoch for each
+job. Starting work captures the current epoch; demo cleanup, single/bulk
+deletion, and reset advance it. Full generation and partial regeneration check
+the cancellation predicate before provider work, after provider work, and
+before persistence. Interactive Study requests are tracked by job so their late
+completion can be discarded too. `AIStudyService` treats cancellation as a
+terminal non-error and does not persist a provider failure after the job has
+been cancelled.
+
+If a cancelled callback still creates a late directory, cleanup may remove only
+the exact safe `<data>/jobs/<job-id>` path and only when it is manifest-less. A
+directory containing a valid job manifest is never purged by this tombstone
+path.
+
+**Alternatives considered:**
+
+- Join every worker before deleting: rejected because provider/network calls
+  can outlive a UI action and would make deletion or reset block for minutes.
+- Use one global cancellation flag: rejected because deleting one lecture must
+  not cancel or invalidate Study work for another lecture.
+- Ignore late completion only in the renderer: rejected because the stale
+  worker would still recreate durable files and reappear after restart.
+- Delete any matching directory after a delay: rejected because a recreated
+  valid job with the same id must not be destroyed.
+
+**Rationale:** Epochs make deletion final without blocking the UI or depending
+on provider cancellation support. The persistence service and sidecar agree on
+the same cancellation boundary, and the manifest guard confines cleanup to the
+specific late-write tombstone case.
+
+**Acceptance record:** Regression tests force a delayed Study write after demo
+cleanup and a delayed provider failure after cancellation; neither can
+resurrect or mutate the deleted job. The stable packaged gate also waits until a
+normal Smart Study reaches ready before asserting that guided-demo cleanup is
+still final, well beyond the original resurrection window.
+
 ## AD-47: Put full-schema benchmarked NVIDIA routes first and cool down unhealthy routes
 
 **Date:** 2026-08-12
@@ -85,6 +233,19 @@ Normal success responses exposed no route/model identifier. The post-deploy
 health check reported 8/8 configured tasks, the existing real-provider pytest
 passed, the remote schema remained payload-free, and an exact-key scan of all
 776 tracked files found zero matches.
+
+**Release re-audit (2026-08-12):** Wrangler 4.122.0 confirmed production still
+runs version `d9e2dbcb-369b-4a4e-a895-e8ff75ea4fc5` at 100 percent. Its deployed
+bindings contain the exact seven-task NVIDIA-first list, the two documented
+model ids, and `NVIDIA_API_KEY` only as opaque `secret_text`. D1 has no pending
+migrations and `/v1/health` reports all 8 required tasks configured. Aggregate
+payload-free production telemetry for the audited window showed NVIDIA text at
+43/43 successes (about 5.0 seconds average, including long-form material),
+NVIDIA vision at 1/1 (about 4.1 seconds), native Workers AI at 20/21 (about
+19.7 seconds), and OpenRouter at 7/26 (about 16.3 seconds). NVIDIA was also the
+fastest healthy route per interactive task. The local Worker source passed all
+21 tests, syntax checks, and a Wrangler dry-run bundle with the same bindings.
+No production deployment was changed during this re-audit.
 
 ## AD-38: Study commands and bootstrap restore are scoped to the viewed lecture
 

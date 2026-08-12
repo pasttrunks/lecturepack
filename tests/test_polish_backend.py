@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import threading
 from types import SimpleNamespace
 
 from lecturepack.infrastructure.config_manager import ConfigManager
@@ -124,6 +125,103 @@ def test_demo_reconciliation_removes_marked_demo_only(tmp_path):
     assert (data_root / "jobs" / real_id).exists()
     assert not (data_root / "demo-inputs").exists()
     assert not (data_root / "demo-session.json").exists()
+
+
+def test_cancelled_study_worker_cannot_recreate_deleted_demo_job(tmp_path):
+    """A late provider response must not resurrect a cleaned demo folder."""
+    from lecturepack.services import ai_gateway, ai_study_service, study_v2
+
+    module = _sidecar_module()
+    data_root = tmp_path / "data"
+    source = tmp_path / "demo.mp4"
+    source.write_bytes(b"demo")
+    job = Job(str(data_root), video_path=str(source))
+    job.manifest.update({
+        "is_demo": True,
+        "bundled_demo": True,
+        "demo_session_id": "demo-cancel-race",
+    })
+    job.save()
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def late_prepare(target_job, _client, *, progress=None, cancelled=None):
+        entered.set()
+        assert release.wait(5)
+        # Deliberately emulate a misbehaving/late persistence boundary. The
+        # sidecar's final race guard must still remove this manifest-less root.
+        content = study_v2.empty_content()
+        content["study_status"] = study_v2.STUDY_READY
+        study_v2.save_content(target_job, content)
+        return content
+
+    deleted = []
+
+    def delete_job(root, job_id):
+        target = Path(root) / "jobs" / job_id
+        if not target.is_dir():
+            return {"ok": False, "id": job_id, "error": "missing"}
+        deleted.append({
+            "job_id": job_id,
+            "had_manifest": (target / "manifest.json").is_file(),
+        })
+        shutil.rmtree(target)
+        return {"ok": True, "id": job_id}
+
+    sidecar = module.Sidecar.__new__(module.Sidecar)
+    sidecar._shutting_down = False
+    sidecar.data_dir = data_root
+    sidecar.study_v2 = study_v2
+    sidecar.ai_gateway = ai_gateway
+    sidecar.ai_study_service = SimpleNamespace(
+        StudyContentError=ai_study_service.StudyContentError,
+        prepare_ai_study=late_prepare,
+    )
+    sidecar.electron_backend = SimpleNamespace(delete_job=delete_job)
+    sidecar._study_workers_lock = threading.Lock()
+    sidecar._study_workers = {}
+    sidecar._ai_interaction_workers = {}
+    sidecar._ai_interaction_jobs = {}
+    sidecar._study_job_epochs = {}
+    sidecar._pending_study_refresh = {}
+    sidecar._study_basic_opt_out = set()
+    sidecar._ai_gateway_client = object()
+    sidecar._emit = lambda _payload: None
+
+    assert sidecar._start_ai_study(job) is True
+    assert entered.wait(5)
+    worker = sidecar._study_workers[job.job_id]
+    sidecar._cancel_study_jobs([job.job_id])
+    shutil.rmtree(job.paths["root"])
+    release.set()
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert not Path(job.paths["root"]).exists()
+    assert deleted == [{"job_id": job.job_id, "had_manifest": False}]
+
+
+def test_chained_partial_refresh_rejects_a_cancelled_epoch(tmp_path):
+    """A queued follow-up may not adopt the post-delete epoch as new work."""
+    module = _sidecar_module()
+    job_id = "study-epoch-job"
+    sidecar = module.Sidecar.__new__(module.Sidecar)
+    sidecar._shutting_down = False
+    sidecar._study_workers_lock = threading.Lock()
+    sidecar._study_workers = {}
+    sidecar._study_job_epochs = {job_id: 2}
+    sidecar._pending_study_refresh = {}
+
+    started = sidecar._start_partial_study_refresh(
+        SimpleNamespace(job_id=job_id),
+        ["segment-1"],
+        expected_epoch=1,
+    )
+
+    assert started is False
+    assert sidecar._study_workers == {}
+    assert sidecar._pending_study_refresh == {}
 
 
 def test_queue_existing_jobs_is_ordered_and_idempotent(tmp_path):

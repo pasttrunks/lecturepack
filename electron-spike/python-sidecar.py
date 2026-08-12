@@ -132,6 +132,11 @@ class Sidecar:
         self._study_workers_lock = threading.Lock()
         self._study_workers: dict[str, threading.Thread] = {}
         self._ai_interaction_workers: dict[str, threading.Thread] = {}
+        self._ai_interaction_jobs: dict[str, str] = {}
+        # Every asynchronous Study task captures the current per-job epoch.
+        # Deleting/resetting a job advances it, so an in-flight gateway call
+        # can finish harmlessly without persisting into a removed job folder.
+        self._study_job_epochs: dict[str, int] = {}
         self._pending_study_refresh: dict[str, dict[str, set[str]]] = {}
         self._study_basic_opt_out: set[str] = set()
         self._ai_gateway_client = None
@@ -1601,6 +1606,10 @@ class Sidecar:
         if not _SAFE_JOB_ID.fullmatch(job_id):
             return {"ok": False, "error": "guided demo session has an invalid job id"}
 
+        # Study generation is intentionally independent of the media
+        # pipeline. Invalidate it before deleting the temporary job so a slow
+        # gateway response cannot recreate the demo directory afterward.
+        self._cancel_study_jobs([job_id])
         self._cleaning_demo = True
         try:
             if self.current_job is not None and self.current_job.job_id == job_id:
@@ -1666,6 +1675,7 @@ class Sidecar:
 
     def _reset_lecturepack(self, request_id: str | None, command: str) -> None:
         """Stop workers, clear known data-root state, and report failures."""
+        self._cancel_all_study_work()
         with self._download_lock:
             for event in self._download_cancel.values():
                 event.set()
@@ -2087,6 +2097,7 @@ class Sidecar:
     # ------------------------------------------------------------------ #
     def _delete_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         job_id = str(payload.get("job_id") or "")
+        self._cancel_study_jobs([job_id])
         result = self.electron_backend.delete_job(str(self.data_dir), job_id)
         self._emit({"event": "job_deleted", **result})
         if result.get("ok"):
@@ -2104,6 +2115,8 @@ class Sidecar:
                 ids = json.loads(ids)
             except json.JSONDecodeError:
                 ids = []
+        ids = [str(value) for value in (ids or [])]
+        self._cancel_study_jobs(ids)
         result = self.electron_backend.delete_jobs(str(self.data_dir), ids)
         self._emit({"event": "job_deleted", **result})
         if result.get("ok"):
@@ -2796,6 +2809,56 @@ class Sidecar:
             clean["error"] = str(clean.get("error") or "Study AI needs attention.")[:500]
         self._emit({"event": "study_generation", "job": job_id, **clean})
 
+    def _study_epoch_is_current(self, job_id: str, epoch: int) -> bool:
+        with self._study_workers_lock:
+            return int(self._study_job_epochs.get(str(job_id or ""), 0)) == int(epoch)
+
+    def _cancel_study_jobs(self, job_ids: list[str]) -> None:
+        """Invalidate asynchronous Study work without blocking the UI thread."""
+        safe_ids = {
+            str(job_id) for job_id in (job_ids or [])
+            if _SAFE_JOB_ID.fullmatch(str(job_id or ""))
+        }
+        if not safe_ids:
+            return
+        with self._study_workers_lock:
+            for job_id in safe_ids:
+                self._study_job_epochs[job_id] = int(
+                    self._study_job_epochs.get(job_id, 0)) + 1
+                self._pending_study_refresh.pop(job_id, None)
+                self._study_basic_opt_out.discard(job_id)
+
+    def _cancel_all_study_work(self) -> None:
+        with self._study_workers_lock:
+            job_ids = set(self._study_workers)
+            job_ids.update(self._ai_interaction_jobs.values())
+        self._cancel_study_jobs(sorted(job_ids))
+
+    def _purge_cancelled_study_output(self, job_id: str) -> None:
+        """Remove only a manifest-less directory recreated by cancelled Study.
+
+        The normal delete/reset path owns the real job (and its manifest). A
+        late Study write can create only Study JSON files. Requiring the
+        manifest to be absent prevents this final race guard from ever
+        deleting a valid lecture when a requested delete itself failed.
+        """
+        if not _SAFE_JOB_ID.fullmatch(str(job_id or "")):
+            return
+        target = self.data_dir / "jobs" / str(job_id)
+        if not target.is_dir() or (target / "manifest.json").is_file():
+            return
+        jobs_root = (self.data_dir / "jobs").resolve(strict=False)
+        resolved = target.resolve(strict=False)
+        if resolved.parent != jobs_root:
+            return
+        try:
+            self.electron_backend.delete_job(str(self.data_dir), str(job_id))
+        except Exception:
+            # This is a last-ditch race guard. The next startup reconciliation
+            # and normal reset remain available if Windows temporarily locks
+            # the tiny, manifest-less directory.
+            pass
+
     def _study_worker_running(self, job_id: str) -> bool:
         with self._study_workers_lock:
             worker = self._study_workers.get(str(job_id or ""))
@@ -2816,6 +2879,7 @@ class Sidecar:
                 return False
             if force:
                 self._study_basic_opt_out.discard(job_id)
+            epoch = int(self._study_job_epochs.get(job_id, 0))
             self.study_v2.update_generation_state(
                 job, stage="Queued for Study AI", progress_percent=1,
                 last_successful_stage="Local lecture processing")
@@ -2825,12 +2889,16 @@ class Sidecar:
                     def progress(payload: dict[str, Any]) -> None:
                         with self._study_workers_lock:
                             opted_out = job_id in self._study_basic_opt_out
-                        if not opted_out:
+                            current = int(self._study_job_epochs.get(job_id, 0)) == epoch
+                        if current and not opted_out:
                             self._emit_study_generation(payload)
 
                     def cancelled() -> bool:
                         with self._study_workers_lock:
-                            return job_id in self._study_basic_opt_out
+                            return (
+                                job_id in self._study_basic_opt_out
+                                or int(self._study_job_epochs.get(job_id, 0)) != epoch
+                            )
 
                     self.ai_study_service.prepare_ai_study(
                         job, self._gateway_client(), progress=progress,
@@ -2840,23 +2908,24 @@ class Sidecar:
                     # The service already persisted a safe, retryable failure.
                     pass
                 except Exception:  # noqa: BLE001 - background boundary
-                    self.study_v2.mark_generation_failed(
-                        job,
-                        code="unexpected_generation_error",
-                        message="Study AI could not finish. Retry, or use Basic Study.",
-                        diagnostics={"last_successful_stage": "Local lecture processing"},
-                    )
-                    self._emit_study_generation({
-                        "job_id": job_id,
-                        "status": self.study_v2.STUDY_FAILED,
-                        "stage": "Study AI needs attention",
-                        "progress_percent": 0,
-                        "error": "Study AI could not finish. Retry, or use Basic Study.",
-                    })
+                    if self._study_epoch_is_current(job_id, epoch):
+                        self.study_v2.mark_generation_failed(
+                            job,
+                            code="unexpected_generation_error",
+                            message="Study AI could not finish. Retry, or use Basic Study.",
+                            diagnostics={"last_successful_stage": "Local lecture processing"},
+                        )
+                        self._emit_study_generation({
+                            "job_id": job_id,
+                            "status": self.study_v2.STUDY_FAILED,
+                            "stage": "Study AI needs attention",
+                            "progress_percent": 0,
+                            "error": "Study AI could not finish. Retry, or use Basic Study.",
+                        })
                 finally:
                     with self._study_workers_lock:
                         opted_out = job_id in self._study_basic_opt_out
-                    if opted_out:
+                    if opted_out and self._study_epoch_is_current(job_id, epoch):
                         self.study_v2.use_basic_study(job)
                         self._emit_study_generation({
                             "job_id": job_id,
@@ -2868,11 +2937,15 @@ class Sidecar:
                     with self._study_workers_lock:
                         self._study_workers.pop(job_id, None)
                         pending = self._pending_study_refresh.pop(job_id, {})
-                    if pending and not self._shutting_down:
+                        current = int(self._study_job_epochs.get(job_id, 0)) == epoch
+                    if not current:
+                        self._purge_cancelled_study_output(job_id)
+                    elif pending and not self._shutting_down:
                         self._start_partial_study_refresh(
                             job,
                             list(pending.get("segments", set())),
                             concept_ids=list(pending.get("concepts", set())),
+                            expected_epoch=epoch,
                         )
 
             thread = threading.Thread(
@@ -2889,7 +2962,8 @@ class Sidecar:
 
     def _start_partial_study_refresh(self, job: Any,
                                      changed_segment_ids: list[str], *,
-                                     concept_ids: list[str] | None = None) -> bool:
+                                     concept_ids: list[str] | None = None,
+                                     expected_epoch: int | None = None) -> bool:
         """Refresh only concepts connected to edited lecture evidence."""
         if self._shutting_down or job is None:
             return False
@@ -2899,6 +2973,9 @@ class Sidecar:
         if not segments and not concepts:
             return False
         with self._study_workers_lock:
+            current_epoch = int(self._study_job_epochs.get(job_id, 0))
+            if expected_epoch is not None and current_epoch != int(expected_epoch):
+                return False
             existing = self._study_workers.get(job_id)
             if existing and existing.is_alive():
                 pending = self._pending_study_refresh.setdefault(
@@ -2906,42 +2983,60 @@ class Sidecar:
                 pending["segments"].update(segments)
                 pending["concepts"].update(concepts)
                 return True
+            epoch = current_epoch
 
             def worker() -> None:
                 try:
+                    def progress(payload: dict[str, Any]) -> None:
+                        if self._study_epoch_is_current(job_id, epoch):
+                            self._emit_study_generation(payload)
+
+                    def cancelled() -> bool:
+                        with self._study_workers_lock:
+                            return (
+                                job_id in self._study_basic_opt_out
+                                or int(self._study_job_epochs.get(job_id, 0)) != epoch
+                            )
+
                     self.ai_study_service.regenerate_affected(
                         job,
                         self._gateway_client(),
                         sorted(segments),
                         concept_ids=sorted(concepts) or None,
-                        progress=self._emit_study_generation,
+                        progress=progress,
+                        cancelled=cancelled,
                     )
                 except (self.ai_gateway.GatewayError,
                         self.ai_study_service.StudyContentError):
                     pass
                 except Exception:  # noqa: BLE001 - background boundary
-                    self._emit_study_generation({
-                        "job_id": job_id,
-                        "status": self.study_v2.load_content(job).get("study_status"),
-                        "stage": "Concept refresh needs attention",
-                        "progress_percent": 0,
-                        "refresh_status": "failed",
-                        "error": "The edited Study items could not be refreshed.",
-                    })
+                    if self._study_epoch_is_current(job_id, epoch):
+                        self._emit_study_generation({
+                            "job_id": job_id,
+                            "status": self.study_v2.load_content(job).get("study_status"),
+                            "stage": "Concept refresh needs attention",
+                            "progress_percent": 0,
+                            "refresh_status": "failed",
+                            "error": "The edited Study items could not be refreshed.",
+                        })
                 finally:
                     with self._study_workers_lock:
                         opted_out = job_id in self._study_basic_opt_out
-                    if opted_out:
+                    if opted_out and self._study_epoch_is_current(job_id, epoch):
                         self.study_v2.use_basic_study(job)
                     pending: dict[str, set[str]] = {}
                     with self._study_workers_lock:
                         self._study_workers.pop(job_id, None)
                         pending = self._pending_study_refresh.pop(job_id, {})
-                    if pending and not self._shutting_down:
+                        current = int(self._study_job_epochs.get(job_id, 0)) == epoch
+                    if not current:
+                        self._purge_cancelled_study_output(job_id)
+                    elif pending and not self._shutting_down:
                         self._start_partial_study_refresh(
                             job,
                             list(pending.get("segments", set())),
                             concept_ids=list(pending.get("concepts", set())),
+                            expected_epoch=epoch,
                         )
 
             thread = threading.Thread(
@@ -2950,7 +3045,7 @@ class Sidecar:
             thread.start()
         return True
 
-    def _start_ai_interaction(self, key: str, target: Any) -> bool:
+    def _start_ai_interaction(self, key: str, target: Any, *, job_id: str = "") -> bool:
         """Run an Ask/Teach/grade interaction off the Qt command loop."""
         if self._shutting_down:
             return False
@@ -2958,6 +3053,7 @@ class Sidecar:
             existing = self._ai_interaction_workers.get(key)
             if existing and existing.is_alive():
                 return False
+            epoch = int(self._study_job_epochs.get(job_id, 0))
 
             def worker() -> None:
                 try:
@@ -2965,10 +3061,15 @@ class Sidecar:
                 finally:
                     with self._study_workers_lock:
                         self._ai_interaction_workers.pop(key, None)
+                        self._ai_interaction_jobs.pop(key, None)
+                        current = int(self._study_job_epochs.get(job_id, 0)) == epoch
+                    if job_id and not current:
+                        self._purge_cancelled_study_output(job_id)
 
             thread = threading.Thread(
                 target=worker, daemon=True, name=f"lp-study-interaction-{key[:24]}")
             self._ai_interaction_workers[key] = thread
+            self._ai_interaction_jobs[key] = job_id
             thread.start()
         return True
 
@@ -3048,7 +3149,7 @@ class Sidecar:
                             "label": "Study AI needs attention", "state": "error"})
 
         key = f"ask:{job.job_id}:{request_id or time.monotonic_ns()}"
-        started = self._start_ai_interaction(key, interaction)
+        started = self._start_ai_interaction(key, interaction, job_id=job.job_id)
         self._respond(request_id, command, ok=started, job_id=job.job_id,
                       started=started)
 
@@ -3547,7 +3648,7 @@ class Sidecar:
                 })
 
         key = f"grade:{job.job_id}:{request_id or time.monotonic_ns()}"
-        started = self._start_ai_interaction(key, interaction)
+        started = self._start_ai_interaction(key, interaction, job_id=job.job_id)
         self._respond(request_id, command, ok=started, job_id=job.job_id,
                       started=started, question_id=question_id)
 
@@ -3614,7 +3715,7 @@ class Sidecar:
                 })
 
         key = f"teach:{job.job_id}:{concept_id}"
-        started = self._start_ai_interaction(key, interaction)
+        started = self._start_ai_interaction(key, interaction, job_id=job.job_id)
         self._respond(request_id, command, ok=started, job_id=job.job_id,
                       started=started, concept_id=concept_id)
 

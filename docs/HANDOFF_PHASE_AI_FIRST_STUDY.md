@@ -3,7 +3,15 @@
 **Date:** 2026-08-12
 **Branch:** `codex/ai-first-study`
 **Starting HEAD:** `3dc4febd67aee42c16a276b95a4d8e15ca655c67`
-**Release status:** READY FOR USER TEST (gateway deployed and live packaged acceptance passed)
+**Release status:** CODE/CONTENT ACCEPTANCE GREEN; PUBLIC WINDOWS RELEASE BLOCKED ONLY ON AUTHENTICODE CREDENTIALS
+
+> **Superseding hardening record:** The counts, artifacts, open items, and
+> release boundary in this original implementation handoff are historical.
+> See `docs/HANDOFF_PHASE_RELEASE_HARDENING.md` for the final rebuilt candidate:
+> 1,514 passed / 2 skipped / 0 failed, all 27 live-AI checks passed, all 9
+> compact layout cases passed, stable packaged acceptance passed, and fresh
+> installer/portable hashes. No usable code-signing certificate exists in the
+> current Windows certificate stores, so the validated artifacts are unsigned.
 
 ## Authorized phase and goal
 

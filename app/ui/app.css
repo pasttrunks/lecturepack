@@ -379,6 +379,19 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 }
 @media (max-width:700px){
   header .lp-breadcrumb{display:none !important}
+  /* Review's timeline header contains its title, counts, a three-item legend,
+     and the shared lecture switcher.  At the supported 640px window minimum
+     the main pane is only 400px beside the sidebar; the old one-line flex row
+     silently overflowed by 144px into main's clipped x-axis.  Wrap the
+     metadata/legend and reserve a full final row for the switcher so every
+     control remains visible without a horizontal scrollbar. */
+  .lp-review-timeline{padding:12px !important}
+  .lp-review-timeline-head{flex-wrap:wrap;gap:8px 10px !important;min-width:0}
+  .lp-review-timeline-head>*{min-width:0}
+  .lp-review-timeline-spacer{display:none}
+  .lp-review-timeline-head .lp-jsw{
+    width:100%;margin-left:0 !important;justify-content:flex-end;overflow:hidden}
+  .lp-review-timeline-head .lp-jsw-name{max-width:calc(100% - 66px)}
 }
 
 /* ============ MOTION SYSTEM v2 -- MECHANICAL (2026-07-27) ================

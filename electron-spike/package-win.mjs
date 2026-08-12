@@ -12,6 +12,7 @@ const uiDir = path.join(repoRoot, 'app', 'ui');
 const packagedSidecar = path.join(buildRoot, 'dist-sidecar', 'LecturePackSidecar');
 const demoAssets = path.join(spikeRoot, 'assets');
 const icon = path.join(repoRoot, 'app', 'packaging', 'lecturepack.ico');
+const license = path.join(repoRoot, 'LICENSE');
 const outputDir = path.join(buildRoot, 'dist');
 const productionAsarFiles = new Set([
   'package.json',
@@ -22,7 +23,7 @@ const productionAsarFiles = new Set([
   'updater.js'
 ]);
 
-for (const required of [uiDir, packagedSidecar, demoAssets, icon]) {
+for (const required of [uiDir, packagedSidecar, demoAssets, icon, license]) {
   if (!pathExists(required)) throw new Error(`Required Electron package input is missing: ${required}`);
 }
 
@@ -81,7 +82,7 @@ const output = await packager({
   },
   // Keep the disposable acceptance demo outside app.asar so the documented
   // packaged gate can pass it to the sidecar as resources/assets/demo-lecture.mp4.
-  extraResource: [uiDir, packagedSidecar, demoAssets, icon]
+  extraResource: [uiDir, packagedSidecar, demoAssets, icon, license]
 });
 
 // LecturePack's production UI is English-only. Electron Packager copies every

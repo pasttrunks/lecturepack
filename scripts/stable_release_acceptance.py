@@ -24,7 +24,15 @@ import time
 from typing import Any, Callable
 
 from electron_packaged_acceptance import detect_orphans, snapshot_processes
-from packaged_visual_acceptance import CDP, WM_CLOSE, _cdp_target, _post_close, _wait_for_window, user32
+from packaged_visual_acceptance import (
+    CDP,
+    WM_CLOSE,
+    _cdp_target,
+    _resize,
+    _wait_for_window,
+    _window_rect,
+    user32,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -162,6 +170,23 @@ class PackagedApp:
             time.sleep(0.25)
         else:
             raise TimeoutError("timed out waiting for packaged startup_complete")
+        # Exercise the real first-run acknowledgement instead of driving the
+        # app invisibly behind its modal.  A restored profile already has the
+        # overlay hidden, while the startup-failure scenario below must keep
+        # its actionable terminal screen visible.
+        if not expect_startup_failure:
+            setup_ready = self.evaluate(
+                "(() => { const o=document.getElementById('runtime-setup-overlay'); "
+                "const b=document.getElementById('btn-runtime-done'); "
+                "return !!(o&&!o.hidden&&b&&!b.disabled); })()"
+            )
+            if setup_ready:
+                self.click("#btn-runtime-done")
+                self.wait_js(
+                    "document.getElementById('runtime-setup-overlay').hidden",
+                    "runtime setup acknowledgement",
+                    timeout=20,
+                )
 
     def evaluate(self, expression: str) -> Any:
         if self.cdp is None:
@@ -214,19 +239,70 @@ class PackagedApp:
         if destination.stat().st_size < 1000:
             raise RuntimeError(f"empty screenshot: {destination}")
 
+    def visible_blocking_dialogs(self) -> list[str]:
+        """Return visible modal/dialog element ids for screenshot hygiene."""
+        return self.evaluate(
+            "Array.from(document.querySelectorAll('[role=dialog],.lp-scrim'))"
+            ".filter(el=>!el.hidden&&getComputedStyle(el).display!=='none'&&"
+            "el.getBoundingClientRect().width>0&&el.getBoundingClientRect().height>0)"
+            ".map(el=>el.id||el.getAttribute('aria-label')||el.className||el.tagName)"
+        ) or []
+
+    def resize(self, width: int, height: int) -> dict[str, Any]:
+        """Resize the real native window and return renderer dimensions."""
+        observed = _resize(self.hwnd, width, height)
+        time.sleep(0.75)
+        renderer = self.evaluate(
+            "({innerWidth:window.innerWidth,innerHeight:window.innerHeight,"
+            "devicePixelRatio:window.devicePixelRatio})"
+        )
+        return {"requested": [width, height], "observed": list(observed), "renderer": renderer}
+
+    def layout_metrics(self) -> dict[str, Any]:
+        """Collect horizontal clipping signals from the currently visible screen."""
+        return self.evaluate(
+            "(() => {"
+            "const shown=el=>{if(!el||el.hidden)return false;const s=getComputedStyle(el),r=el.getBoundingClientRect();"
+            "return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0};"
+            "const rect=el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}};"
+            "const header=document.querySelector('header.lp-chrome'),main=document.querySelector('main.lp-main'),"
+            "footer=document.getElementById('status-footer'),active=document.querySelector('[data-screen]:not([hidden])');"
+            "const headerIds=['btn-global-search','downloads-indicator','btn-focus','btn-theme','btn-export-top'];"
+            "const controls=headerIds.map(id=>document.getElementById(id)).filter(shown);"
+            "const clippedHeader=controls.filter(el=>{const r=el.getBoundingClientRect();return r.left<-1||r.right>window.innerWidth+1||r.width<30}).map(el=>el.id);"
+            "const mr=main.getBoundingClientRect();"
+            "const clippedScreen=active?Array.from(active.querySelectorAll('button,a,input,textarea,select,[role=button]')).filter(shown).filter(el=>{const r=el.getBoundingClientRect();return r.left<mr.left-2||r.right>mr.right+2}).map(el=>el.id||el.textContent.trim().slice(0,50)).slice(0,25):[];"
+            "return {viewport:{width:window.innerWidth,height:window.innerHeight},screen:window.LP&&LP.state?LP.state.screen:'',"
+            "document:{clientWidth:document.documentElement.clientWidth,scrollWidth:document.documentElement.scrollWidth},"
+            "header:{clientWidth:header.clientWidth,scrollWidth:header.scrollWidth,rect:rect(header)},"
+            "main:{clientWidth:main.clientWidth,scrollWidth:main.scrollWidth,rect:rect(main)},"
+            "active:active?{clientWidth:active.clientWidth,scrollWidth:active.scrollWidth,rect:rect(active)}:null,"
+            "footer:footer?{clientWidth:footer.clientWidth,scrollWidth:footer.scrollWidth,rect:rect(footer)}:null,"
+            "clippedHeader:clippedHeader,clippedScreen:clippedScreen,dialogs:Array.from(document.querySelectorAll('[role=dialog],.lp-scrim')).filter(shown).map(el=>el.id||el.tagName)};"
+            "})()"
+        )
+
     def close(self, allow_hidden: bool = False) -> list[dict[str, Any]]:
         if self.cdp is not None:
             self.cdp.close()
             self.cdp = None
         if self.proc is not None and self.proc.poll() is None:
-            _post_close(self.hwnd, self.proc, timeout=5 if allow_hidden else 20)
-        if self.proc is not None and self.proc.poll() is None and not allow_hidden:
-            subprocess.run(
-                ["taskkill.exe", "/PID", str(self.proc.pid), "/T", "/F"],
-                check=False,
-                capture_output=True,
-            )
-            self.proc.wait(timeout=15)
+            if user32.IsWindow(self.hwnd):
+                user32.PostMessageW(self.hwnd, WM_CLOSE, 0, 0)
+            try:
+                self.proc.wait(timeout=5 if allow_hidden else 20)
+            except subprocess.TimeoutExpired:
+                if not allow_hidden:
+                    # A failure may occur while close-to-tray is active. In
+                    # that case WM_CLOSE correctly hides the app, so the test
+                    # harness must terminate its entire disposable tree—not
+                    # just Electron's parent and leave FFmpeg/Whisper behind.
+                    subprocess.run(
+                        ["taskkill.exe", "/PID", str(self.proc.pid), "/T", "/F"],
+                        check=False,
+                        capture_output=True,
+                    )
+                    self.proc.wait(timeout=15)
         time.sleep(1)
         return detect_orphans(self.before, snapshot_processes())
 
@@ -294,14 +370,105 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         app.screenshot(home)
         result["screenshots"].append(str(home))
 
-        started = app.evaluate("window.lpBridge.startDemoJob()")
-        job_id = str((started or {}).get("job_id") or "")
-        check("canonical_demo_started", bool(job_id), started)
+        # The rebuilt guided demo deliberately stops at Review Ready so the
+        # student can keep/reject slides before exporting.  Prove that parked
+        # handoff (including the automatic route to Review) and its cleanup
+        # first; then import the same canonical bytes as a normal lecture for
+        # the complete auto-export release workflow below.  Waiting for the
+        # guided job to become ``done`` is an obsolete contract: with
+        # auto_export=False it is supposed to remain reviewable.
+        # Use the actual five-chapter screen and CTA.  Calling startDemoJob()
+        # directly would bypass guidedDemo.starting(), so the identity-scoped
+        # reducer would (correctly) reject later demo events and never route
+        # Process -> Review.
+        existing_job_ids = app.evaluate("LP.data.jobs.map(j=>j&&j.id).filter(Boolean)") or []
+        app.click("#glowing-demo-card")
+        app.wait_js("LP.state.screen === 'demo'", "guided demo screen", timeout=15)
+        for _chapter in range(4):
+            app.click("#btn-demo-next")
+        app.wait_js(
+            "!document.querySelector('[data-screen=demo] [data-ch=\"5\"]').hidden",
+            "guided demo final chapter",
+            timeout=15,
+        )
+        app.click("#btn-demo-run")
+        guided_identity = app.wait_js(
+            "(() => { const before=" + json.dumps(existing_job_ids) + "; "
+            "const j=LP.data.jobs.find(x=>x&&x.id&&!before.includes(x.id)); "
+            "return j?{id:j.id,status:j.status,stage:j.stage}:null; })()",
+            "guided demo job",
+            timeout=45,
+        )
+        guided_job_id = str((guided_identity or {}).get("id") or "")
+        check("guided_demo_started", bool(guided_job_id), guided_identity)
+        guided_ready = app.wait_js(
+            f"(() => {{ const j=LP.data.jobs.find(x=>x&&x.id==={json.dumps(guided_job_id)}); "
+            "const footer=((document.getElementById('status-state')||{}).textContent||'').trim().toLowerCase(); "
+            "return j && LP.state.screen==='review' && (LP.data.slides||[]).length>0 && "
+            "(footer==='review ready'||footer==='ready to export') ? "
+            "{status:j.status,stage:j.stage,pct:j.pct,screen:LP.state.screen,"
+            "footer_state:(document.getElementById('status-state')||{}).textContent||'',"
+            "footer_detail:(document.getElementById('status-detail')||{}).textContent||'',"
+            "slides:(LP.data.slides||[]).length} : null; })()",
+            "guided demo Review Ready handoff",
+            timeout=300,
+        )
+        app.wait_js("LP.state.screen === 'review'", "guided demo Review screen", timeout=15)
+        guided_ready["screen"] = app.evaluate("LP.state.screen")
+        guided_ready["footer_state"] = app.evaluate(
+            "(document.getElementById('status-state')||{}).textContent||''"
+        )
+        check(
+            "guided_demo_review_ready",
+            guided_ready.get("screen") == "review"
+            and guided_ready.get("slides", 0) > 0
+            and str(guided_ready.get("footer_state") or "").strip().lower()
+            in {"review ready", "ready to export"},
+            guided_ready,
+        )
+        guided_shot = screenshots / "01b-guided-review-ready.png"
+        app.screenshot(guided_shot)
+        result["screenshots"].append(str(guided_shot))
+        app.screen("home")
+        app.click("#glowing-demo-card")
+        app.wait_js(
+            f"!LP.data.jobs.some(j=>j&&j.id==={json.dumps(guided_job_id)})",
+            "guided demo cleanup",
+            timeout=45,
+        )
+        check("guided_demo_cleanup", True, {"job_id": guided_job_id})
+
+        imported = app.request("import_paths", {"paths": [str(demo)]})
+        imported_jobs = (imported or {}).get("jobs") or []
+        job_id = str((imported_jobs[0] if imported_jobs else {}).get("id") or "")
+        # import_paths intentionally emits the same batch-setup UI event used
+        # by a folder/drop import.  This harness starts the canonical job with
+        # an explicit auto_export contract below, so close that real modal via
+        # its user-facing control before continuing.  Leaving it open made the
+        # old screenshots look "green" while obscuring Review and Study.
+        app.wait_js(
+            "!document.getElementById('batch-overlay').hidden",
+            "canonical import setup dialog",
+            timeout=15,
+        )
+        app.click("#batch-close")
+        app.wait_js(
+            "document.getElementById('batch-overlay').hidden",
+            "canonical import setup dialog close",
+            timeout=15,
+        )
+        started = app.request(
+            "start_job",
+            {"job_id": job_id, "mode": "study", "preset": "balanced", "auto_export": True},
+        ) if job_id else None
+        check("canonical_demo_started", bool(job_id) and bool(started)
+              and started.get("ok") is not False, {"import": imported, "start": started})
         app.wait_js(
             f"LP.data.jobs.some(j => j && j.id === {json.dumps(job_id)} && (j.status === 'running' || j.status === 'processing'))",
             "demo processing",
             timeout=45,
         )
+        check("canonical_import_dialog_closed", not app.visible_blocking_dialogs(), app.visible_blocking_dialogs())
         app.screen("process")
         processing = screenshots / "02-process-live-progress.png"
         app.screenshot(processing)
@@ -323,18 +490,38 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         pages = [
             ("review", "03-review.png"),
             ("transcript", "04-transcript.png"),
-            ("study", "05-study-overview.png"),
         ]
         for screen, file_name in pages:
             app.screen(screen)
+            check(f"{screen}_unobscured", not app.visible_blocking_dialogs(), app.visible_blocking_dialogs())
             shot = screenshots / file_name
             app.screenshot(shot)
             result["screenshots"].append(str(shot))
 
         transcript = app.request("get_transcript", {"job_id": job_id})
         slides = app.request("get_slides", {"job_id": job_id})
-        study = app.request("study_v2_status", {"job_id": job_id})
-        content = (study or {}).get("content") or {}
+        # Media completion and Study AI completion are intentionally
+        # independent. Wait on the real Study status/content contract before
+        # capturing or interacting with Study instead of racing its worker.
+        content = app.wait_js(
+            "window.lecturePackElectron.request('study_v2_status',{job_id:"
+            + json.dumps(job_id)
+            + "}).then(r=>{const c=(r||{}).content||{};return "
+            "c.study_status==='ready'&&(c.concepts||[]).length>0&&"
+            "(c.flashcards||[]).length>0&&(c.quiz||[]).length>0?c:null;})",
+            "Study AI readiness",
+            timeout=240,
+        )
+        app.screen("study")
+        check("study_unobscured", not app.visible_blocking_dialogs(), app.visible_blocking_dialogs())
+        study_shot = screenshots / "05-study-overview.png"
+        app.screenshot(study_shot)
+        result["screenshots"].append(str(study_shot))
+        check(
+            "guided_demo_cleanup_stayed_final",
+            not (data / "jobs" / guided_job_id).exists(),
+            {"job_id": guided_job_id, "checked_after_study_ai_ready": True},
+        )
         check("slides_transcript_study", bool((slides or {}).get("slides")) and bool((transcript or {}).get("transcript"))
               and bool(content.get("concepts")), {
                   "slides": len((slides or {}).get("slides") or []),
@@ -363,11 +550,59 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
         app.click("[data-study-mode='overview']")
         app.click("#btn-study-quick")
-        app.wait_js("document.querySelector('#study-flashcards-root').innerText.includes('Quick Study')", "Quick Study", timeout=15)
+        app.wait_js(
+            "!document.querySelector('#study-mode-quick').hidden&&"
+            "document.querySelector('#study-quick-root').innerText.includes('Quick Study')",
+            "Quick Study",
+            timeout=15,
+        )
         quick = screenshots / "08-quick-study.png"
         app.screenshot(quick)
         result["screenshots"].append(str(quick))
         check("quick_study", True)
+
+        # Exercise the actual BrowserWindow minimum plus two common compact
+        # desktop sizes.  The renderer intentionally hides horizontal
+        # overflow, so a screenshot alone can miss unreachable controls; pair
+        # each image with DOM geometry and scroll-width checks.
+        original_rect = _window_rect(app.hwnd)
+        original_size = [original_rect[2] - original_rect[0], original_rect[3] - original_rect[1]]
+        responsive: list[dict[str, Any]] = []
+        for width, height in ((640, 480), (820, 600), (1024, 720)):
+            size_result = app.resize(width, height)
+            for screen in ("home", "review", "study"):
+                app.screen(screen)
+                time.sleep(0.25)
+                metrics = app.layout_metrics()
+                horizontal_ok = all(
+                    not block or int(block.get("scrollWidth") or 0) <= int(block.get("clientWidth") or 0) + 2
+                    for block in (
+                        metrics.get("document"),
+                        metrics.get("header"),
+                        metrics.get("main"),
+                        metrics.get("active"),
+                        metrics.get("footer"),
+                    )
+                )
+                item_ok = (
+                    horizontal_ok
+                    and not metrics.get("clippedHeader")
+                    and not metrics.get("clippedScreen")
+                    and not metrics.get("dialogs")
+                )
+                shot = screenshots / f"08-responsive-{width}x{height}-{screen}.png"
+                app.screenshot(shot)
+                result["screenshots"].append(str(shot))
+                responsive.append({
+                    "requested": [width, height],
+                    "screen": screen,
+                    "ok": item_ok,
+                    "size": size_result,
+                    "metrics": metrics,
+                    "screenshot": str(shot),
+                })
+        app.resize(*original_size)
+        check("responsive_window_matrix", all(item["ok"] for item in responsive), responsive)
 
         exports = data / "jobs" / job_id / "exports"
         exported = sorted(path.name for path in exports.rglob("*") if path.is_file()) if exports.is_dir() else []
@@ -440,7 +675,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             check("power_save_blocker_active", any(r.get("event") == "power_save_acquired" for r in read_records(logs)), started_long)
             eta_detail = app.wait_js(
                 f"(() => {{ const j=LP.data.jobs.find(x=>x&&x.id==={json.dumps(secondary_job)}); "
-                "const el=document.getElementById('proc-strip-meta'); const label=el?el.textContent.trim():''; "
+                "const el=document.getElementById('status-detail'); const label=el?el.textContent.trim():''; "
                 "return j && Number(j.pct)>0 && /min left/i.test(label) ? "
                 "{pct:j.pct,eta_label:label,stage:j.stage} : null; })()",
                 "live progress and ETA on long workload",
@@ -488,7 +723,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 + json.dumps(download_id)
                 + " && (r.downloads||[]).some(d=>d.id==="
                 + json.dumps(download_id)
-                + " && (d.status==='waiting'||d.status==='downloading')))",
+                + " && (d.status==='waiting'||d.status==='running'||"
+                + "d.legacy_status==='waiting'||d.legacy_status==='downloading')))",
                 "active download before interruption",
                 timeout=45,
             )

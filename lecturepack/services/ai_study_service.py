@@ -821,6 +821,11 @@ def prepare_ai_study(job, client: GatewayClient, *,
             })
         return final
     except GatewayError as exc:
+        # A job may be deleted/reset while a provider request is in flight.
+        # Cancellation is not a generation failure and must never recreate
+        # the removed job merely to persist failure diagnostics.
+        if cancelled and cancelled():
+            return study_v2.load_content(job)
         diagnostics = dict(exc.diagnostics)
         diagnostics["last_successful_stage"] = last_successful
         study_v2.mark_generation_failed(
@@ -835,6 +840,8 @@ def prepare_ai_study(job, client: GatewayClient, *,
             })
         raise
     except StudyContentError as exc:
+        if cancelled and cancelled():
+            return study_v2.load_content(job)
         diagnostics = sanitize_diagnostics({
             **latest_diagnostics,
             "error_category": exc.code,
@@ -1095,12 +1102,17 @@ def _partial_state(job, callback: ProgressCallback | None, *, status: str,
         })
 
 
-def _basic_partial_refresh(job, changed_segment_ids: list[str]) -> dict[str, Any]:
+def _basic_partial_refresh(job, changed_segment_ids: list[str], *,
+                           cancelled: CancelCallback | None = None) -> dict[str, Any]:
     old = study_v2.load_content(job)
+    if cancelled and cancelled():
+        return old
     affected = set(affected_concept_ids(job, changed_segment_ids))
     if not affected:
         return old
     fresh = study_v2.generate_deterministic_content(job)
+    if cancelled and cancelled():
+        return study_v2.load_content(job)
     changed = {str(value) for value in changed_segment_ids}
     fresh_ids = {
         str(concept.get("id") or "") for concept in fresh.get("concepts", [])
@@ -1136,6 +1148,8 @@ def _basic_partial_refresh(job, changed_segment_ids: list[str]) -> dict[str, Any
         "status": "ready", "completed": len(affected), "total": len(affected),
         "updated_at": study_v2._now_iso(),
     }
+    if cancelled and cancelled():
+        return study_v2.load_content(job)
     study_v2.preserve_mastery_for_replacement(job, old, merged)
     study_v2.save_content(job, merged)
     return study_v2.load_content(job)
@@ -1209,16 +1223,22 @@ def _regenerate_one(job, client: GatewayClient, content: dict[str, Any],
 def regenerate_affected(job, client: GatewayClient,
                         changed_segment_ids: list[str], *,
                         progress: ProgressCallback | None = None,
-                        concept_ids: list[str] | None = None) -> dict[str, Any]:
+                        concept_ids: list[str] | None = None,
+                        cancelled: CancelCallback | None = None) -> dict[str, Any]:
     """Refresh only concepts whose citations overlap edited transcript rows."""
     content = study_v2.load_content(job)
+    if cancelled and cancelled():
+        return content
     targets = list(concept_ids or affected_concept_ids(job, changed_segment_ids))
     targets = [value for index, value in enumerate(targets)
                if value and value not in targets[:index]]
     if not targets:
         return content
     if content.get("study_status") == study_v2.STUDY_BASIC:
-        result = _basic_partial_refresh(job, changed_segment_ids)
+        result = _basic_partial_refresh(
+            job, changed_segment_ids, cancelled=cancelled)
+        if cancelled and cancelled():
+            return study_v2.load_content(job)
         if progress:
             progress({
                 "job_id": getattr(job, "job_id", ""),
@@ -1229,12 +1249,18 @@ def regenerate_affected(job, client: GatewayClient,
             })
         return result
     latest_diagnostics: dict[str, Any] = {}
+    if cancelled and cancelled():
+        return study_v2.load_content(job)
     _partial_state(job, progress, status="preparing", completed=0, total=len(targets))
     try:
         merged = content
         for index, concept_id in enumerate(targets):
+            if cancelled and cancelled():
+                return study_v2.load_content(job)
             merged, latest_diagnostics = _regenerate_one(
                 job, client, merged, str(concept_id))
+            if cancelled and cancelled():
+                return study_v2.load_content(job)
             _partial_state(
                 job, progress, status="preparing",
                 completed=index + 1, total=len(targets))
@@ -1242,12 +1268,18 @@ def regenerate_affected(job, client: GatewayClient,
             "status": "ready", "completed": len(targets), "total": len(targets),
             "updated_at": study_v2._now_iso(),
         }
+        if cancelled and cancelled():
+            return study_v2.load_content(job)
         result = study_v2.replace_ai_content(
             job, merged,
             diagnostics={**latest_diagnostics, "last_successful_stage": "Partial concept regeneration"})
+        if cancelled and cancelled():
+            return study_v2.load_content(job)
         _partial_state(job, progress, status="ready", completed=len(targets), total=len(targets))
         return result
     except (GatewayError, StudyContentError) as exc:
+        if cancelled and cancelled():
+            return study_v2.load_content(job)
         _record_interaction_error(job, "regenerate_concept", exc)
         _partial_state(
             job, progress, status="failed", completed=0,

@@ -9,6 +9,15 @@ which covers the *earlier* session on `sol/polish-integration` (the spotlight-to
 bug hunt). That work is now superseded **in behaviour** by AD-48 below, but its
 handoff is still the record of why.
 
+> **Final integration update (Codex, 2026-08-12):** This branch/build record is
+> historical. All open implementation and verification items described below
+> were integrated and resolved on `codex/ai-first-study`. The exact rebuilt
+> release candidate, full 1,515-test result, unobscured 21-screenshot packaged
+> gate, 9-case compact-window matrix, live NVIDIA Study gate, hashes, and the
+> sole remaining Authenticode credential boundary are recorded in
+> `docs/HANDOFF_PHASE_RELEASE_HARDENING.md`. Do not release the stale scratch
+> build named in this handoff.
+
 ---
 
 ## 1. What this project is

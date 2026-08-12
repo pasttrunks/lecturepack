@@ -220,6 +220,20 @@ def test_narrow_breakpoint_trims_padding():
     assert "@media (max-width:820px)" in CSS
 
 
+def test_minimum_width_review_timeline_wraps_without_clipping():
+    """The 640px Electron minimum leaves a 400px main pane beside the sidebar."""
+    for cls in ("lp-review-timeline", "lp-review-timeline-head",
+                "lp-review-timeline-spacer", "lp-review-legend"):
+        assert cls in HTML, f"{cls} missing from Review timeline markup"
+    compact = re.search(r"@media \(max-width:700px\)\{(.*?)\n\}", CSS, re.S)
+    assert compact, "minimum-width Review breakpoint missing"
+    block = compact.group(1).replace(" ", "")
+    assert ".lp-review-timeline-head{flex-wrap:wrap" in block
+    assert ".lp-review-timeline-spacer{display:none}" in block
+    assert "width:100%;margin-left:0!important" in block
+    assert "overflow:hidden" in block
+
+
 # ----------------------------------------------------------- motion system
 
 def test_motion_tokens_defined():

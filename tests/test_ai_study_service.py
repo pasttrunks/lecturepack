@@ -338,6 +338,27 @@ def test_failed_routes_can_use_basic_then_retry_to_ready(lecture):
     assert retried["study_status"] == study_v2.STUDY_READY
 
 
+def test_provider_failure_after_job_cancellation_is_not_persisted(lecture):
+    cancelled = {"value": False}
+
+    class LateFailureClient:
+        def request(self, task, payload, request_id=None):
+            cancelled["value"] = True
+            raise GatewayError(
+                "provider_timeout", "The cancelled request finished late.",
+                status=504,
+                diagnostics={"request_id": request_id, "task_type": task},
+            )
+
+    result = ai_study_service.prepare_ai_study(
+        lecture, LateFailureClient(),
+        cancelled=lambda: cancelled["value"],
+    )
+
+    assert result["study_status"] == study_v2.STUDY_PREPARING
+    assert result["generation_metadata"].get("last_error") is None
+
+
 def test_existing_and_manual_mastery_survive_ai_replacement(lecture):
     old = study_v2.generate_deterministic_content(lecture)
     old["concepts"][0]["id"] = "old-id"

@@ -258,14 +258,14 @@
       <!-- ===== REVIEW ===== -->
       <section data-screen="review" hidden style="display:flex;flex-direction:column;height:100%;padding:18px 20px;gap:14px">
         <!-- TIMELINE SPINE -->
-        <div style="flex:none;background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:13px 18px">
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:11px">
+        <div class="lp-review-timeline" style="flex:none;background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:13px 18px">
+          <div class="lp-review-timeline-head" style="display:flex;align-items:center;gap:12px;margin-bottom:11px">
             <span style="font:500 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--blue)">Lecture timeline</span>
             <span id="timeline-meta" style="font:500 11px 'JetBrains Mono';color:var(--muted)">14 slides · 06:12</span>
-            <div style="flex:1"></div>
-            <span style="display:flex;align-items:center;gap:6px;font:500 11px 'JetBrains Mono';color:var(--muted)"><span style="width:9px;height:9px;border-radius:2px;background:var(--blue)"></span>accepted</span>
-            <span style="display:flex;align-items:center;gap:6px;font:500 11px 'JetBrains Mono';color:var(--muted)"><span style="width:9px;height:9px;border-radius:2px;background:var(--red)"></span>rejected</span>
-            <span style="display:flex;align-items:center;gap:6px;font:500 11px 'JetBrains Mono';color:var(--muted)"><span style="width:9px;height:9px;border-radius:2px;background:var(--orange)"></span>viewing</span>
+            <div class="lp-review-timeline-spacer" style="flex:1"></div>
+            <span class="lp-review-legend" style="display:flex;align-items:center;gap:6px;font:500 11px 'JetBrains Mono';color:var(--muted)"><span style="width:9px;height:9px;border-radius:2px;background:var(--blue)"></span>accepted</span>
+            <span class="lp-review-legend" style="display:flex;align-items:center;gap:6px;font:500 11px 'JetBrains Mono';color:var(--muted)"><span style="width:9px;height:9px;border-radius:2px;background:var(--red)"></span>rejected</span>
+            <span class="lp-review-legend" style="display:flex;align-items:center;gap:6px;font:500 11px 'JetBrains Mono';color:var(--muted)"><span style="width:9px;height:9px;border-radius:2px;background:var(--orange)"></span>viewing</span>
             <div class="lp-jsw" data-jsw="review" style="margin-left:10px"></div>
           </div>
           <div id="timeline-strip" style="position:relative;height:26px;cursor:crosshair">
