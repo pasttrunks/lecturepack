@@ -119,9 +119,14 @@ def test_demo_does_not_run_the_pipeline_and_hands_off_explicitly() -> None:
 def test_demo_styling_obeys_AD_20() -> None:
     """No compositor-expensive effects: confirmed flicker on clean-install Windows."""
     block = CSS.split("--- guided demo (self-contained screen)", 1)[1]
+    block = block.split("/* ---", 1)[0]          # stop at the next CSS section
+    rules = chr(10).join(                        # and ignore comment prose
+        line for line in block.splitlines()
+        if not line.lstrip().startswith(("/*", "*", "//")) and "*/" not in line
+    )
     for banned in ("will-change", "filter:blur", "backdrop-filter", "100vmax", "9999px"):
-        assert banned not in block, f"AD-20: {banned} must not appear in demo styling"
-    assert "animation:" not in block, "AD-20: no animation on the demo surface"
+        assert banned not in rules, f"AD-20: {banned} must not appear in demo styling"
+    assert "animation:" not in rules, "AD-20: no animation on the demo surface"
 
 
 def test_quiz_does_not_reveal_its_answer_before_the_student_answers() -> None:

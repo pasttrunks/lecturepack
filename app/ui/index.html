@@ -798,12 +798,25 @@
   </div>
 
   <!-- ===== STATUS BAR ===== -->
-  <footer id="status-footer" class="lp-chrome" style="display:flex;align-items:center;gap:15px;padding:0 18px;height:34px;flex:none;background:var(--panel);border-top:2px solid var(--border);position:relative;z-index:5">
-    <span id="status-chip" style="display:flex;align-items:center;gap:7px;font:600 11px 'JetBrains Mono';text-transform:uppercase;color:var(--muted)"><span id="status-dot" style="width:7px;height:7px;border-radius:50%;background:var(--muted)"></span><span id="status-label">Idle</span></span>
-    <div style="width:200px;height:7px;border-radius:5px;overflow:hidden;background:var(--sunk)"><div id="status-bar" class="lp-fill" style="width:100%;height:100%;transform:scaleX(0)"></div></div>
-    <span id="status-pct" style="font:500 11px 'JetBrains Mono';color:var(--muted)"></span>
-    <div style="flex:1"></div>
-    <span id="status-right" style="font:500 11px 'JetBrains Mono';color:var(--muted)">whisper.cpp · CPU AVX2 · ggml-base.en.bin</span>
+  <footer id="status-footer" class="lp-chrome" data-status="idle">
+    <span id="status-chip"><span id="status-dot"></span><span id="status-state">Idle</span></span>
+
+    <!-- The ONLY interactive element in the footer. #proc-strip used to be a
+         second full-width bar stacked above this one showing the same job at a
+         different width; its identity and open-action live here now, so global
+         chrome is 34px instead of 68px. A full-width button was rejected: its
+         accessible name would sweep in the engine string, and the focus ring
+         would be a full-width rectangle around global chrome. -->
+    <button id="status-job" type="button" hidden>
+      <span id="status-job-name">Processing</span>
+      <span id="status-queued" hidden></span>
+      <span class="lp-status-track"><span id="status-bar" class="lp-fill"></span></span>
+      <span id="status-detail"></span>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+
+    <div class="lp-status-gap"></div>
+    <span id="status-right">whisper.cpp · CPU AVX2 · ggml-base.en.bin</span>
   </footer>
 
   <!-- focus exit pill -->
@@ -889,15 +902,6 @@
   </div>
 
   <!-- ===== GLOBAL PROCESSING STRIP ===== -->
-  <button id="proc-strip" type="button" hidden aria-label="Open the active processing job" style="position:fixed;left:0;right:0;bottom:34px;z-index:40;width:100%;display:flex;align-items:center;gap:12px;padding:8px 18px;background:var(--panel);color:var(--ink);border:0;border-top:2px solid var(--border);box-shadow:0 -6px 20px rgba(0,0,0,.18);cursor:pointer;text-align:left">
-    <span style="width:9px;height:9px;flex:none;border-radius:50%;background:var(--orange);animation:lpblink 1s infinite"></span>
-    <span id="proc-strip-name" style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">Processing</span>
-    <div style="flex:1;height:7px;border-radius:5px;overflow:hidden;background:var(--sunk);max-width:340px"><div id="proc-strip-bar" class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(0)"></div></div>
-    <span id="proc-strip-meta" style="font:500 11px 'JetBrains Mono';color:var(--muted);white-space:nowrap">Transcribing audio · 63%</span>
-    <span id="proc-strip-waiting" style="font:500 11px 'JetBrains Mono';color:var(--muted);white-space:nowrap"></span>
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2.2"><path d="m9 18 6-6-6-6"/></svg>
-  </button>
-
   <!-- Background URL downloads stay available without becoming a main screen. -->
   <section id="downloads-panel" class="lp-download-popover" hidden aria-label="Downloads" style="width:390px;max-width:calc(100vw - 36px);max-height:430px;display:flex;flex-direction:column;background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);overflow:hidden">
     <div style="display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1.5px solid var(--line)"><strong style="font:700 11px 'JetBrains Mono';letter-spacing:.12em">DOWNLOADS</strong><span style="flex:1"></span><button id="downloads-clear" type="button" class="lp-hit" style="background:transparent;border:0;color:var(--muted);font:600 11px 'Space Grotesk';cursor:pointer">Clear completed</button><button id="downloads-close" type="button" class="lp-hit" aria-label="Collapse downloads" style="background:transparent;border:0;color:var(--ink);font-size:18px;cursor:pointer">×</button></div>

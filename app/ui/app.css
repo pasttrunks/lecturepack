@@ -262,7 +262,7 @@ main [data-screen]:not([hidden]){
    the text around them as digits swap. Tabular figures keep every digit the
    same advance width. Applied to the live/numeric surfaces only -- not to
    body copy, where proportional figures read better. */
-.lp-num,#status-label,.lp-badge,[id$="-pct"],[id$="-count"],[id$="-time"]{
+.lp-num,#status-detail,.lp-badge,[id$="-pct"],[id$="-count"],[id$="-time"]{
   font-variant-numeric:tabular-nums}
 
 /* Headings balance across lines instead of leaving one orphaned word; body
@@ -370,11 +370,12 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 @media (max-width:1080px){
   #btn-global-search .lp-global-search-label{display:none}
   #btn-global-search{padding-left:9px !important;padding-right:9px !important}
-  #proc-strip-name{max-width:160px !important}
+  #status-job-name{max-width:160px !important}
 }
 @media (max-width:760px){
-  #proc-strip-waiting{display:none}
-  #proc-strip-name{max-width:110px !important}
+  #status-queued{display:none}
+  #status-job-name{max-width:110px !important}
+  #status-detail{display:none}
 }
 @media (max-width:700px){
   header .lp-breadcrumb{display:none !important}
@@ -1045,8 +1046,8 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 #status-footer[data-status="waiting"] #status-bar{
   background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.38) 0 3px,transparent 3px 6px)}
 #status-footer[data-status="waiting"] #status-dot{background:var(--secondary-border)}
-#status-footer[data-status="waiting"] #status-label{color:var(--secondary-text)}
-#status-footer[data-status="waiting"] #status-pct{color:var(--ink)}
+#status-footer[data-status="waiting"] #status-state{color:var(--secondary-text)}
+#status-footer[data-status="waiting"] #status-detail{color:var(--ink)}
 [data-theme="dark"] #status-footer[data-status="waiting"] #status-bar{
   background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.34) 0 3px,transparent 3px 6px)}
 
@@ -1165,3 +1166,48 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   .lp-demo-grid,.lp-demo-study{grid-template-columns:1fr}
   .lp-demo-h{font-size:21px}
 }
+
+/* --- consolidated status bar ----------------------------------------------
+   ONE bar. #proc-strip is gone: it was a second full-width bar pinned directly
+   above this footer, showing the same job, the same stage text and a second
+   progress fill at a different width -- 68px of stacked chrome that read as
+   broken. Its identity and open-action are the single button here.
+
+   Fixed 34px in every state on purpose: a variable-height fixed footer reflows
+   the main scroll area, and this bar changes state constantly while processing.
+   Static only -- no transitions, no will-change, no filters (AD-20). */
+#status-footer{display:flex;align-items:center;gap:12px;height:34px;flex:none;
+  padding:0 18px;background:var(--panel);border-top:2px solid var(--border);
+  position:relative;z-index:5}
+.lp-status-gap{flex:1}
+#status-chip{display:flex;align-items:center;gap:7px;flex:none;
+  font:600 11px 'JetBrains Mono';text-transform:uppercase;color:var(--muted)}
+#status-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+
+/* The only interactive element in the footer, so its accessible name is exactly
+   "Open <job>" rather than the engine string a full-width button would sweep
+   in. Focus ring is inset -- an outset ring would overflow 34px of chrome. */
+#status-job{display:flex;align-items:center;gap:10px;height:24px;
+  max-width:min(62%,760px);padding:0 8px;border:none;border-radius:7px;
+  background:transparent;color:var(--ink);font:inherit;cursor:pointer;text-align:left}
+#status-job:hover{background:var(--panel2)}
+#status-job:active{background:var(--sunk)}
+#status-job:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+#status-job-name{font:700 12px 'Space Grotesk';white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;max-width:240px}
+#status-queued{flex:none;font:600 10px 'JetBrains Mono';padding:2px 6px;border-radius:5px;
+  background:var(--panel2);color:var(--muted)}
+.lp-status-track{flex:none;width:150px;height:7px;border-radius:5px;overflow:hidden;
+  background:var(--sunk)}
+#status-bar{display:block;width:100%;height:100%;background-color:var(--orange);
+  transform:scaleX(0);transform-origin:left center}
+#status-detail{font:500 11px 'JetBrains Mono';color:var(--muted);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+#status-job svg{flex:none;color:var(--muted)}
+#status-right{flex:none;font:500 11px 'JetBrains Mono';color:var(--muted)}
+
+#status-footer[data-status="processing"] #status-dot{background:var(--orange)}
+#status-footer[data-status="processing"] #status-state{color:var(--orange-ink)}
+#status-footer[data-status="failed"] #status-dot{background:var(--red)}
+#status-footer[data-status="failed"] #status-state{color:var(--red)}
+#status-footer[data-status="failed"] #status-bar{background-color:var(--red)}

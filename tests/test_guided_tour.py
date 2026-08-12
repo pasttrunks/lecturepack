@@ -568,6 +568,7 @@ def test_dense_screens_use_the_tip_presentation():
     assert "step.present === 'tip'" in place, "tip steps must skip anchoring"
     # AD-20 still applies to the new rules.
     tip = css.split('#guided-tour-card[data-present="tip"]', 1)[1]
+    tip = tip.split("/* ---", 1)[0]              # stop at the next CSS section
     assert "transition:" not in tip and "will-change" not in tip
 
 

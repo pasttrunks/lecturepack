@@ -569,7 +569,7 @@
     else if (restored) {
       // A live (queued/running/paused) job: clear the previous job's terminal
       // readouts; real pipeline events take over from here.
-      var liveLabel = $('status-label'); if (liveLabel) liveLabel.textContent = 'Idle';
+      var liveLabel = $('status-state'); if (liveLabel) liveLabel.textContent = 'Idle';
       setFill('status-bar', 0);
       setStatusDotText($('side-job-status'), restored.status === 'running' ? 'Processing' : 'Queued', 'var(--orange)', restored.status === 'running');
     }
@@ -2206,13 +2206,13 @@
       var footer = $('status-footer');
       if (footer) footer.dataset.status = hold ? 'waiting' : '';
       if (s.label !== undefined) {
-        $('status-label').textContent = hold ? hold.label : (friendlyProcessingLabel(s.label) || 'Idle');
+        $('status-state').textContent = hold ? hold.label : (friendlyProcessingLabel(s.label) || 'Idle');
       }
       // The real percentage, always -- the bar changes MATERIAL when parked,
       // it never lies about magnitude.
       if (s.pct !== undefined) setFill('status-bar', s.pct);
       if (s.detail !== undefined) {
-        $('status-pct').textContent = hold ? hold.detail : (friendlyProcessingLabel(s.detail) || s.detail);
+        $('status-detail').textContent = hold ? hold.detail : (friendlyProcessingLabel(s.detail) || s.detail);
       }
       if (s.right !== undefined) $('status-right').textContent = friendlyProcessingLabel(s.right) || s.right;
       if (s.job !== undefined && LP.state.jobId) {
@@ -2262,7 +2262,7 @@
       stages are actually active; afterwards the stage text reads Ready. */
    function settleTerminalStatus(kind) {
      var hasJob = !!LP.state.jobId;
-     var label = $('status-label'), pct = $('status-pct'), right = $('status-right');
+     var label = $('status-state'), pct = $('status-detail'), right = $('status-right');
      if (pct) pct.textContent = '';
      if (right) right.textContent = 'Ready';
      if (kind === 'complete') {
@@ -4015,8 +4015,8 @@
       var el = $(id);
       if (el) el.textContent = '';
     });
-    $('status-label').textContent = 'Idle';
-    $('status-pct').textContent = '';
+    $('status-state').textContent = 'Idle';
+    $('status-detail').textContent = '';
     setFill('status-bar', 0);
     renderSidePoster('');
     var w = $('storage-widget');
@@ -7560,8 +7560,8 @@
       });
     }
 
-    // Processing strip: click selects the active job and opens Process.
-    var procStrip = $('proc-strip');
+    // Footer job button: click selects the active job and opens Process.
+    var procStrip = $('status-job');
     if (procStrip) procStrip.addEventListener('click', function () {
       if (LP.state.activeJobId) selectJob(LP.state.activeJobId, { screen: 'process' });
       else {
@@ -8187,9 +8187,9 @@
           // when no job is actively processing.
           pendingProcessingStatus = {};
           lastStatusRenderKey = null;
-          var statusLabel = $('status-label');
+          var statusLabel = $('status-state');
           if (statusLabel) statusLabel.textContent = 'Idle';
-          var statusPct = $('status-pct');
+          var statusPct = $('status-detail');
           if (statusPct) statusPct.textContent = '';
           setFill('status-bar', 0);
           renderSlideDetectionPreset();
@@ -8768,27 +8768,39 @@
     if (!state || !state.seconds || state.lastPct < 8) return '';
     return '~' + Math.max(1, Math.round(state.seconds / 60)) + ' min left';
   }
+  /* Formerly #proc-strip, a second full-width bar stacked above the footer
+     showing the SAME job at a different width, with the same stage text the
+     footer already had. It is now the footer's single job button: one bar,
+     34px of chrome instead of 68px, and the stage name appears exactly once. */
   function renderProcessingStrip() {
-    var strip = $('proc-strip');
-    if (!strip) return;
+    var job = $('status-job');
+    if (!job) return;
     var running = LP.data.jobs.filter(function (j) { return j && j.status === 'running'; })[0];
     if (!running) {
-      strip.hidden = true;
+      job.hidden = true;
       renderProcessWorkload();
       return;
     }
-    strip.hidden = false;
-    $('proc-strip-name').textContent = running.name || 'Processing';
+    job.hidden = false;
+    var name = running.name || 'Processing';
+    $('status-job-name').textContent = name;
+    // Announce the ACTION, not the raw progress readout.
+    job.setAttribute('aria-label', 'Open ' + name);
     var pct = running.pct || 0;
-    setFill('proc-strip-bar', pct);
+    setFill('status-bar', pct);
     var stage = running.stage || '';
     var parts = [friendlyProcessingLabel(stage || 'Processing')];
     if (pct > 0) parts.push(pct + '%');
     var eta = etaLabel(running);
     if (eta) parts.push(eta);
-    $('proc-strip-meta').textContent = parts.join(' · ');
+    $('status-detail').textContent = parts.join(' · ');
     var waiting = (LP.data.queue && LP.data.queue.queue) ? LP.data.queue.queue.length : 0;
-    $('proc-strip-waiting').textContent = waiting > 0 ? (waiting + ' queued') : '';
+    var queued = $('status-queued');
+    queued.textContent = waiting > 0 ? ('+' + waiting + ' queued') : '';
+    queued.hidden = waiting <= 0;
+    var footer = $('status-footer');
+    if (footer && footer.dataset.status !== 'waiting') footer.dataset.status = 'processing';
+    $('status-state').textContent = 'Processing';
     renderProcessWorkload();
   }
 

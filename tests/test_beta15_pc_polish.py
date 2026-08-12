@@ -99,7 +99,10 @@ def test_idle_status_never_says_transcribing_without_active_job() -> None:
     app = read(APP)
     # The friendly label only maps a raw backend stage to "Transcribing audio";
     # the terminal-status path above clears it. The idle default is "Idle".
-    assert "status-label\">Idle" in read(HTML)
+    # #status-label became #status-state when the two bottom bars were merged:
+    # it carries the STATE WORD only now, and #status-detail owns the stage
+    # text. Both bars used to print the stage, which is what made them clash.
+    assert "status-state\">Idle" in read(HTML)
     assert "friendlyProcessingLabel(s.label) || 'Idle'" in app
 
 
