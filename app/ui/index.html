@@ -717,6 +717,83 @@
         </div>
       </section>
 
+      <!-- Guided demo. A SELF-CONTAINED screen: it measures nothing in the live
+           UI, mutates nothing outside itself, and shows pre-baked real output of
+           the bundled Polar Bears lecture. See docs/DECISIONS.md AD-47. -->
+      <section data-screen="demo" hidden aria-label="LecturePack demo" style="padding:0">
+        <div class="lp-demo-shell">
+          <header class="lp-demo-bar">
+            <span class="lp-demo-brand">LecturePack demo</span>
+            <span class="lp-demo-src" id="demo-src-name">Polar Bears · 00:10</span>
+            <button id="btn-demo-skip" class="lp-hit lp-press-sm lp-demo-skip" type="button">Skip demo</button>
+          </header>
+
+          <div class="lp-demo-body">
+            <article class="lp-demo-ch" data-ch="1">
+              <span class="lp-demo-eyebrow">What it does</span>
+              <h2 class="lp-demo-h">A lecture recording goes in. A study pack comes out.</h2>
+              <p class="lp-demo-p">LecturePack watches a recording, pulls out every slide, transcribes what was said, and lines them up so the words sit with the slide they belong to. Lecture processing runs on your machine — no upload of your video, no account.</p>
+              <figure class="lp-demo-stage">
+                <img id="demo-hero" class="lp-demo-hero" alt="Frame from the demo lecture">
+                <figcaption class="lp-demo-cap" id="demo-hero-cap">polar_bears.mp4 · 00:10</figcaption>
+              </figure>
+            </article>
+
+            <article class="lp-demo-ch" data-ch="2" hidden>
+              <span class="lp-demo-eyebrow">Slides</span>
+              <h2 class="lp-demo-h">It finds the slides for you.</h2>
+              <p class="lp-demo-p">No scrubbing for timestamps. LecturePack compares frames and keeps the moments where the slide actually changes. It proposes — you confirm. Keep or reject each one in Review, and rejected slides never reach your export.</p>
+              <div id="demo-slides" class="lp-demo-grid"></div>
+            </article>
+
+            <article class="lp-demo-ch" data-ch="3" hidden>
+              <span class="lp-demo-eyebrow">Transcript</span>
+              <h2 class="lp-demo-h">Every word, tied to the slide it belongs to.</h2>
+              <p class="lp-demo-p">Whisper transcribes the audio locally, then each line is matched to whichever slide was on screen when it was said. Click a line to jump to that slide. Fix a mis-heard word and the fix follows into every export.</p>
+              <div id="demo-transcript" class="lp-demo-lines"></div>
+            </article>
+
+            <article class="lp-demo-ch" data-ch="4" hidden>
+              <span class="lp-demo-eyebrow">Study</span>
+              <h2 class="lp-demo-h">Then it turns that into something you can revise from.</h2>
+              <p class="lp-demo-p">The slides and transcript become key concepts, flashcards and a quiz — built from this lecture, not from the internet. Everything below was generated from the ten seconds you just watched.</p>
+              <div class="lp-demo-study">
+                <button id="demo-card" class="lp-hit lp-demo-flash" type="button" aria-live="polite">
+                  <span class="lp-demo-flash-tag" id="demo-card-tag">Question</span>
+                  <span class="lp-demo-flash-face" id="demo-card-face"></span>
+                  <span class="lp-demo-flash-hint">Click to flip</span>
+                </button>
+                <div class="lp-demo-quiz">
+                  <span class="lp-demo-flash-tag">Quiz</span>
+                  <p class="lp-demo-q" id="demo-quiz-q"></p>
+                  <ul class="lp-demo-opts" id="demo-quiz-opts"></ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="lp-demo-ch" data-ch="5" hidden>
+              <span class="lp-demo-eyebrow">Export</span>
+              <h2 class="lp-demo-h">Take the whole pack with you.</h2>
+              <p class="lp-demo-p">Export a PDF of the slides, a self-contained HTML study pack, or plain transcript formats. Files land in a folder you choose.</p>
+              <div class="lp-demo-chips">
+                <span class="lp-demo-chip">Slides PDF</span><span class="lp-demo-chip">HTML pack</span>
+                <span class="lp-demo-chip">TXT · SRT · VTT</span><span class="lp-demo-chip">Markdown</span>
+              </div>
+              <div class="lp-demo-cta">
+                <button id="btn-demo-run" class="lp-hit lp-press lp-demo-primary" type="button">Process this lecture for real</button>
+                <button id="btn-demo-own" class="lp-hit lp-press-sm lp-demo-ghost" type="button">Import my own lecture</button>
+              </div>
+            </article>
+          </div>
+
+          <footer class="lp-demo-nav">
+            <button id="btn-demo-back" class="lp-hit lp-press-sm lp-demo-ghost" type="button">Back</button>
+            <div class="lp-demo-dots" id="demo-dots" aria-hidden="true"></div>
+            <button id="btn-demo-next" class="lp-hit lp-press lp-demo-primary" type="button">See what it found</button>
+          </footer>
+        </div>
+      </section>
+
     </main>
   </div>
 
@@ -950,6 +1027,7 @@
   </div>
 
 </div>
+<script src="../assets/demo/demo.data.js"></script>
 <script src="bridge.js"></script>
 <script src="app.js"></script>
 </body>

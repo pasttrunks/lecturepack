@@ -5585,11 +5585,11 @@
       status.textContent = stageLabel(d.stage) + ' · ' + Math.round(d.progress) + '%';
       action.textContent = d.status === 'starting' ? 'Starting…' : d.status === 'cancelling' ? 'Stopping…' : 'End demo'; return;
     }
-    var idleAction = (guidedTour.snapshot().active || tourSeen()) ? 'Use demo video' : 'Start guided tour';
+    var idleAction = demoCompleted() ? 'Use demo video' : 'Take the 60-second tour';
     if (d.status === 'ended') { status.textContent = 'Demo cleaned up.'; action.textContent = idleAction; return; }
-    status.textContent = (guidedTour.snapshot().active || tourSeen())
-      ? 'Move this demo video into the lecture drop area, or click to use it.'
-      : 'A real 10-second lecture, processed locally, with a short guided walkthrough.';
+    status.textContent = demoCompleted()
+      ? 'Process this real 10-second lecture again, or drag it into the drop area.'
+      : 'See what LecturePack does, using a real 10-second lecture. No processing yet.';
     action.textContent = idleAction;
     refreshControlStates();
   }
@@ -6149,15 +6149,12 @@
       // reachable only from the much less discoverable 'Try the demo lecture'
       // button inside the empty-state panel. Mirrors #btn-load-jobs exactly.
       if (guidedDemo.snapshot().active) { startGuidedDemo(); return; }
-      // First run: the tile starts the tour. Once the tour has been seen, the
-      // same tile goes back to being a plain "give me the demo video" import,
-      // which is a real returning-user need (a throwaway job to test a setting)
-      // -- so one actuator covers both without a second competing button.
-      if (!guidedTour.snapshot().active && !tourSeen()) { startGuidedTour(true); return; }
-      if (guidedTour.snapshot().active && demoFlowPhase() !== 'import') {
-        guidedDemoFlow.beginAttempt(); renderGuidedTour(); return;
-      }
-      flyDemoTileToDropzone(startGuidedDemo);
+      // The tile opens the self-contained demo SCREEN. It used to open a
+      // spotlight overlay that measured the live UI; that coupling is what
+      // made the demo fragile, so it is gone (AD-47). Returning users who
+      // already completed the walkthrough get the plain import instead.
+      if (!demoCompleted()) { openDemo(1); return; }
+      runDemoForReal();
     });
     demoCard.addEventListener('dragstart', function (e) {
       if (demoCard.disabled) { e.preventDefault(); return; }
@@ -7010,9 +7007,7 @@
     $('btn-load-jobs').addEventListener('click', function () {
       if (!demoAdmissionAvailable) { toast('The demo will be available once setup finishes.'); return; }
       if (guidedDemo.snapshot().active) { startGuidedDemo(); return; }
-      if (!guidedTour.snapshot().active) { startGuidedTour(true); return; }
-      if (demoFlowPhase() !== 'import') { guidedDemoFlow.beginAttempt(); renderGuidedTour(); return; }
-      flyDemoTileToDropzone(startGuidedDemo);
+      openDemo(demoState().chapter || 1);
     });
 
     // Home grid: per-card menu buttons (delete / set group) take priority,
@@ -9116,6 +9111,161 @@
 
   /* ======================= boot ======================= */
 
+  /* ===================== guided demo (self-contained) =====================
+     A screen, not an overlay. It measures nothing in the live UI, mutates
+     nothing outside its own section, and shows PRE-BAKED REAL output of the
+     bundled Polar Bears lecture (app/assets/demo/demo.json + slide PNGs).
+
+     Why baked rather than processed live: the demo is the first impression and
+     must work every time. Running the pipeline needs ffprobe and a Whisper
+     model, takes tens of seconds, and can fail -- and when it fails it reads as
+     the PRODUCT failing. The real pipeline now runs AFTER the walkthrough, from
+     an explicit "Process this lecture for real" button, once the student knows
+     what the stages mean. See docs/DECISIONS.md AD-47. */
+  var DEMO_KEY = 'lecturepack.demo.v2';
+  var DEMO_CHAPTERS = 5;
+  var DEMO_NEXT = ['See what it found', 'And the words', 'Now study it', 'Take it with you', ''];
+  var demoChapter = 1, demoData = null;
+
+  function demoState() {
+    try { return JSON.parse(browserStorage().getItem(DEMO_KEY)) || {}; } catch (e) { return {}; }
+  }
+  function demoSave(patch) {
+    var next = demoState(), k;
+    for (k in patch) if (Object.prototype.hasOwnProperty.call(patch, k)) next[k] = patch[k];
+    try { browserStorage().setItem(DEMO_KEY, JSON.stringify(next)); } catch (e) {}
+  }
+  function demoCompleted() { return demoState().completed === true; }
+
+  function demoFallback(host, message) {
+    if (host) host.innerHTML = '<div class="lp-demo-fallback">' + esc(message) + '</div>';
+  }
+
+  function renderDemoChapter(n) {
+    demoChapter = Math.max(1, Math.min(DEMO_CHAPTERS, n));
+    var all = document.querySelectorAll('[data-screen="demo"] .lp-demo-ch'), i;
+    for (i = 0; i < all.length; i++) {
+      all[i].hidden = parseInt(all[i].getAttribute('data-ch'), 10) !== demoChapter;
+    }
+    $('btn-demo-back').hidden = demoChapter === 1;
+    $('btn-demo-next').hidden = demoChapter === DEMO_CHAPTERS;
+    $('btn-demo-next').textContent = DEMO_NEXT[demoChapter - 1];
+    var dots = '', k;
+    for (k = 1; k <= DEMO_CHAPTERS; k++) {
+      dots += '<span data-on="' + (k <= demoChapter ? 'true' : 'false') + '"></span>';
+    }
+    $('demo-dots').innerHTML = dots;
+    demoSave({ seen: true, chapter: demoChapter });
+  }
+
+  function paintDemo() {
+    if (!demoData) {
+      // Degraded, never blank: the copy is the payload and the artifact only
+      // illustrates it, so every chapter still teaches and both CTAs still work.
+      demoFallback($('demo-slides'), 'Slide previews unavailable - LecturePack still detects them from your lecture.');
+      demoFallback($('demo-transcript'), 'Transcript preview unavailable.');
+      demoFallback(document.querySelector('.lp-demo-study'), 'Study preview unavailable.');
+      return;
+    }
+    var src = demoData.source || {};
+    if (src.name) {
+      $('demo-src-name').textContent = src.name + ' · ' + (src.duration || '');
+      $('demo-hero-cap').textContent = src.name + ' · ' + (src.duration || '') +
+        (src.resolution ? ' · ' + src.resolution : '');
+    }
+    $('demo-slides').innerHTML = (demoData.slides || []).map(function (s) {
+      return '<figure class="lp-demo-slide">' +
+        '<img src="../assets/demo/' + encodeURIComponent(s.img) + '" alt="' + esc(s.title || '') + '">' +
+        '<figcaption><span>' + esc(s.t || '') + '</span>' +
+        '<span class="lp-demo-flag">kept</span></figcaption></figure>';
+    }).join('');
+    $('demo-transcript').innerHTML = (demoData.lines || []).map(function (l) {
+      return '<div class="lp-demo-line" data-active="' + (l.active ? 'true' : 'false') + '">' +
+        '<time>' + esc(l.t || '') + '</time><span>' + esc(l.text || '') + '</span></div>';
+    }).join('');
+    var card = demoData.card || {}, quiz = demoData.quiz || {};
+    $('demo-card-tag').textContent = 'Question';
+    $('demo-card-face').textContent = card.q || '';
+    $('demo-quiz-q').textContent = quiz.q || '';
+    // The answer is NOT revealed up front -- a pre-highlighted correct option
+    // spoils the question and makes the quiz look decorative rather than real.
+    $('demo-quiz-opts').innerHTML = (quiz.options || []).map(function (o, i) {
+      return '<li><button type="button" class="lp-demo-opt" data-i="' + i + '">' +
+        esc(o) + '</button></li>';
+    }).join('');
+  }
+
+  function openDemo(startAt) {
+    setScreen('demo');
+    var hero = $('demo-hero');
+    if (hero && !hero.getAttribute('src')) {
+      hero.onerror = function () { hero.style.display = 'none'; };
+      hero.setAttribute('src', '../assets/demo/hero.png');
+    }
+    // Data arrives as a plain global from ../assets/demo/demo.data.js. The
+    // renderer runs over file://, where fetch() of a sibling file is blocked
+    // by web security -- an earlier fetch() version silently degraded to the
+    // fallback on EVERY launch, including the packaged app.
+    if (!demoData) demoData = window.LP_DEMO_DATA || null;
+    paintDemo();
+    renderDemoChapter(startAt || 1);
+  }
+
+  function closeDemo(screen) {
+    demoSave({ seen: true, completed: true, chapter: demoChapter });
+    renderDemoCard();
+    setScreen(screen || 'home');
+  }
+
+  /* The real pipeline, on purpose, AFTER the walkthrough. Mirrors
+     startGuidedDemo()'s bridge path with no guided-tour coupling at all. */
+  function runDemoForReal() {
+    if (!demoAdmissionAvailable) { toast('The demo lecture will be available once setup finishes.'); return; }
+    if (!lpBridge.connected()) { toast('Processing needs the LecturePack desktop app.'); return; }
+    var current = guidedDemo.snapshot();
+    if (current.status === 'starting' || current.active) { closeDemo('process'); return; }
+    closeDemo('process');
+    setOnb(null);
+    var attempt = guidedDemo.starting().attempt;
+    renderDemoCard();
+    lpBridge.startDemoJob().then(function (value) {
+      if (!guidedDemo.isCurrentAttempt(attempt)) return;
+      var result = parseBridgeResult(value);
+      guidedDemo.started(result, attempt);
+      renderDemoCard();
+      if (!result || result.ok !== true) toast((result && result.error) || 'Could not start the demo lecture.');
+    }, function (error) {
+      if (!guidedDemo.isCurrentAttempt(attempt)) return;
+      var message = error && error.message ? error.message : 'Could not start the demo lecture.';
+      guidedDemo.started({ ok: false, error: message }, attempt);
+      renderDemoCard();
+      toast(message);
+    });
+  }
+
+  function bindDemoScreen() {
+    $('btn-demo-next').addEventListener('click', function () { renderDemoChapter(demoChapter + 1); });
+    $('btn-demo-back').addEventListener('click', function () { renderDemoChapter(demoChapter - 1); });
+    $('btn-demo-skip').addEventListener('click', function () { closeDemo('home'); });
+    $('btn-demo-own').addEventListener('click', function () { closeDemo('home'); beginBrowseImport(); });
+    $('btn-demo-run').addEventListener('click', runDemoForReal);
+    $('demo-quiz-opts').addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('.lp-demo-opt') : null;
+      if (!btn || !demoData || !demoData.quiz) return;
+      var chosen = parseInt(btn.getAttribute('data-i'), 10);
+      var answer = demoData.quiz.answer;
+      Array.prototype.forEach.call($('demo-quiz-opts').querySelectorAll('.lp-demo-opt'), function (b, i) {
+        b.setAttribute('data-state', i === answer ? 'correct' : (i === chosen ? 'wrong' : 'idle'));
+      });
+    });
+    $('demo-card').addEventListener('click', function () {
+      if (!demoData || !demoData.card) return;
+      var showingQuestion = $('demo-card-tag').textContent === 'Question';
+      $('demo-card-tag').textContent = showingQuestion ? 'Answer' : 'Question';
+      $('demo-card-face').textContent = showingQuestion ? demoData.card.a : demoData.card.q;
+    });
+  }
+
   function boot() {
     // BUG-15: gating only `LP.data.jobs` behind ?preview=1 was not enough. The
     // pipeline/slides/reviewSegments/transcript/study literals are ALSO
@@ -9170,6 +9320,7 @@
     wireModelTooltip();
     wireBridge();
     bindStudyV2Events();
+    bindDemoScreen();
     renderStudyV2Overview();
     window.addEventListener('resize', function () { LP.motion.indicator(); });
   }

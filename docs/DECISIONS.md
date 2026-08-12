@@ -1965,3 +1965,64 @@ intentionally non-blocking and does not affect Study requests.
   `https://developers.cloudflare.com/workers/runtime-apis/web-crypto/`,
   `https://developers.cloudflare.com/d1/worker-api/d1-database/`, and
   `https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/`
+
+---
+
+## AD-47: The guided demo is a self-contained screen with pre-baked real output
+
+**Date:** 2026-08-12
+**Status:** Implemented
+
+**Context:** The guided demo was a spotlight overlay that pointed at the live
+application UI. Eight distinct bugs were found and fixed in it across a full
+session — overlapping scrim rectangles, a step targeting markup Study V2 had
+superseded, a full-width flex row measured as if it were a control, a step
+precondition running inside the per-frame measure path (which reverted the
+user's clicks within a frame and made buttons look dead), a coach card covering
+its own subject, the prominent entry button not starting the tour at all — and
+the result was still not usable. The premise was the defect, not the execution.
+
+A tour that measures the live UI at runtime is a second renderer for the app's
+layout. It must independently know where everything is, which mode it is in and
+what is about to move. Every one of those eight bugs was that coupling failing,
+and the class is unbounded: any layout change anywhere can break it silently,
+as Study V2 did. "Must work 100% of the time" and "measures the live UI at
+runtime" are incompatible requirements.
+
+**Decision:** The demo is its own screen (`data-screen="demo"`), registered like
+Home or Review. It measures nothing, mutates nothing outside its own section,
+and has no scrim, spotlight, anchoring or z-index band. Five chapters swap with
+`[hidden]`.
+
+It shows **pre-baked real output** of the bundled Polar Bears lecture, shipped
+as `app/assets/demo/demo.data.js` plus real slide PNGs extracted at the
+timestamps the detector actually selected. It is real output, simply not
+recomputed.
+
+The real pipeline runs **after** the walkthrough, from an explicit "Process this
+lecture for real" button.
+
+**Alternatives considered:**
+
+- Keep fixing the spotlight tour: rejected. Eight fixes did not converge, and
+  each only removed one instance of an unbounded class.
+- Have the demo run the pipeline live: rejected. It needs ffprobe and a Whisper
+  model, takes tens of seconds and can fail — and a failure there reads as the
+  *product* failing, on a first impression. Constraint 5 was its own answer.
+- Ship the data as `demo.json` loaded with `fetch()`: rejected after testing.
+  The renderer is loaded via Electron's `loadFile`, i.e. `file://` with web
+  security on, where `fetch()` of a sibling file is blocked. This version
+  silently degraded to the fallback on *every* launch, packaged included. A
+  `<script>` tag has no such restriction.
+- A union hole spanning several disjoint elements: rejected earlier; four-rect
+  tiling expresses exactly one rectangle. Moot now — there is no hole.
+
+**Rationale:** The number of ways the demo can break drops from unbounded to
+one — a missing bundled asset — and that one has a designed fallback per
+chapter. It also removes the pipeline, the network and the AI gateway from the
+first-run path entirely, so the demo works offline and before any provider is
+configured.
+
+**Consequence:** the demo no longer teaches where the Review controls are. That
+is deliberate: the value proposition is what the app produces, not where its
+buttons live, and chrome is learned in seconds by using it.

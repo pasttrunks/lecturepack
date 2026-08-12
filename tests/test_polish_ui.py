@@ -103,9 +103,13 @@ def test_guided_demo_waits_for_import_action_and_handles_hidden_card() -> None:
     assert "guidedDemoFlow.beginAttempt();" in start
     assert "renderGuidedTour();\n      return;" in start
 
+    # Both Home entry points now open the self-contained demo SCREEN. The
+    # spotlight tour they used to open measured the live UI at runtime, which
+    # is the coupling every demo bug came from (AD-47).
     load_jobs = function_block(JS, "$('btn-load-jobs').addEventListener", "var ONB_ACTIVE_STYLE")
-    assert "startGuidedTour(true); return;" in load_jobs
-    assert "flyDemoTileToDropzone(startGuidedDemo)" in load_jobs
+    assert "openDemo(" in load_jobs
+    assert "startGuidedTour(true)" not in load_jobs
+    assert "flyDemoTileToDropzone" not in load_jobs
 
     drop = function_block(JS, "function useDroppedDemo()", "/* ======================= Smart Study")
     assert "startGuidedTour(true)" in drop
