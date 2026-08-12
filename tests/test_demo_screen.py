@@ -135,3 +135,35 @@ def test_quiz_does_not_reveal_its_answer_before_the_student_answers() -> None:
     render = render[:render.index("}).join('');")]
     assert "data-correct" not in render, "the correct option must not be marked at render time"
     assert 'data-state="correct"' in CSS
+
+
+def test_study_prep_covers_every_stage_the_backend_emits() -> None:
+    """Regression: an unmatched stage rendered the whole checklist idle.
+
+    The sidecar emits "Queued for Study AI" BEFORE the worker starts. It was
+    missing from the renderer's stage table, so nothing matched, every row drew
+    as pending, and a run that had genuinely started looked frozen at 0%.
+
+    Both halves are asserted: the stage table covers what the backend emits,
+    and an UNKNOWN stage still renders as work in progress rather than blanking
+    the list -- a new backend stage must never make a working run look broken.
+    """
+    sidecar = (ROOT / "electron-spike" / "python-sidecar.py").read_text(encoding="utf-8")
+    service = (ROOT / "lecturepack" / "services" / "ai_study_service.py").read_text(encoding="utf-8")
+    emitted = set(re.findall(r'_emit\(job, progress, "([^"]+)"', service))
+    emitted |= set(re.findall(r'stage="([^"]+)", progress_percent=', sidecar))
+    assert emitted, "found no emitted stage names to check against"
+
+    table = JS[JS.index("var STUDY_PREP_STAGES"):]
+    table = table[:table.index("];")]
+    patterns = [re.compile(p, re.I) for p in re.findall(r"match: /([^/]+)/i", table)]
+    for stage in sorted(emitted):
+        assert any(p.search(stage) for p in patterns), (
+            f"backend emits {stage!r} but no renderer stage matches it"
+        )
+
+    fn = JS[JS.index("function renderStudyPrepStages"):]
+    fn = fn[:fn.index(chr(10) + "  function ")]
+    assert "if (active < 0 && stage)" in fn, (
+        "an unrecognised stage must still render as running"
+    )

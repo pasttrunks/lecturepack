@@ -4199,6 +4199,10 @@
      Static only, per AD-20: the only things that move are TEXT and step-wise
      fill widths. No keyframes, no transitions, no will-change. */
   var STUDY_PREP_STAGES = [
+    /* The sidecar emits this BEFORE the worker starts. It was missing from
+       this list, so during the queued phase nothing matched and every row
+       rendered idle -- which reads exactly like "stuck at 0%". */
+    {match: /queued for study ai/i,             label: 'Queued for Study AI',         note: 'Waiting for a slot'},
     {match: /preparing lecture evidence/i,      label: 'Gathering your lecture',      note: 'Collecting transcript and slide text'},
     {match: /understanding the lecture/i,       label: 'Reading the transcript',      note: 'The longest step on a long lecture'},
     {match: /connecting lecture sections/i,     label: 'Connecting the sections',     note: 'Linking related ideas across the lecture'},
@@ -4251,7 +4255,7 @@
     }
     studyPrepLastStage = stage;
 
-    host.innerHTML = STUDY_PREP_STAGES.map(function (s, i) {
+    var rows = STUDY_PREP_STAGES.map(function (s, i) {
       var state = active < 0 ? 'idle'
         : i < active ? 'complete'
         : i === active ? 'running' : 'idle';
@@ -4260,7 +4264,17 @@
         '<span class="lp-prep-marker"></span>' +
         '<span class="lp-prep-text"><span class="lp-prep-label">' + esc(s.label) + '</span>' +
         '<span class="lp-prep-note">' + esc(s.note) + '</span></span></div>';
-    }).join('');
+    });
+    // A stage name we do not recognise must still show as work in progress.
+    // Rendering every row idle is indistinguishable from a hang, and a new
+    // backend stage should never make a working run look broken.
+    if (active < 0 && stage) {
+      rows.unshift('<div class="lp-prep-stage" data-state="running">' +
+        '<span class="lp-prep-marker"></span>' +
+        '<span class="lp-prep-text"><span class="lp-prep-label">' + esc(stage) + '</span>' +
+        '<span class="lp-prep-note">Working</span></span></div>');
+    }
+    host.innerHTML = rows.join('');
     host.hidden = false;
 
     if (meta) {
