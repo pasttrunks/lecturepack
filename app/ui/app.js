@@ -5409,13 +5409,19 @@
     if (!demoAdmissionAvailable) return;
     if (!lpBridge.connected()) { toast('Guided demo needs the LecturePack desktop app.'); return; }
     if (!guidedTour.snapshot().active) {
-      Promise.resolve(startGuidedTour(true)).then(function (started) { if (started) startGuidedDemo(); });
+      // Opening the tour is not consent to start its job. Keep this fallback
+      // at the import gate even if an older caller reaches it directly.
+      startGuidedTour(true);
       return;
     }
     // A retry after clean-up (or a failed start) is a new demo, not a
     // continuation of whatever action-led screen the prior run last reached.
     // Do not reset the current run: active attempts returned above.
-    if (demoFlowPhase() !== 'import') guidedDemoFlow.beginAttempt();
+    if (demoFlowPhase() !== 'import') {
+      guidedDemoFlow.beginAttempt();
+      renderGuidedTour();
+      return;
+    }
     guidedDemoFlow.imported(); guidedDemoFlow.running();
     demoCleanupRequested = false;
     demoCleanupConfirmed = false;
@@ -5471,6 +5477,22 @@
       renderDemoCard();
     });
   }
+  function dismissGuidedDemoAfterCleanup() {
+    if (!guidedTour.snapshot().active) return false;
+    // The backend has removed the temporary job. End the renderer tour at the
+    // same boundary so its spotlight can never remain attached to an empty
+    // Process/Review workspace while the cleanup event is still settling.
+    guidedTour.exit();
+    guidedDemoFlow.exit();
+    markTourSeen('skipped');
+    demoHomeDismissed = true;
+    renderDemoHomeAvailability();
+    renderGuidedTour();
+    renderDemoCard();
+    renderSlideDetectionPreset();
+    setScreen('home');
+    return true;
+  }
   function receiveDemoEvent(value) {
     var event = parseBridgeResult(value);
     if (!event) return;
@@ -5481,7 +5503,13 @@
     if (!before.operationId && before.status === 'starting' && event.status === 'started') guidedDemo.started({ ok: true, operation_id: event.operation_id, session_id: event.session_id }, before.attempt);
     var handled = guidedDemo.event(event);
     if (!handled.accepted) return;
-    if (event.status === 'cleaned') { demoCleanupConfirmed = true; demoCleanupRequested = true; }
+    if (event.status === 'cleaned' || event.status === 'failed') {
+      if (event.status === 'cleaned') demoCleanupConfirmed = true;
+      // The sidecar owns terminal demo cleanup for both success and failure;
+      // prevent a later tour-exit path from targeting the removed job again.
+      demoCleanupRequested = true;
+      dismissGuidedDemoAfterCleanup();
+    }
     var eventStage = String(event.stage || '').toLowerCase().replace(/[\s-]+/g, '_');
     if (eventStage === 'review_ready') {
       // A late or duplicate review-ready signal must not yank the student back
@@ -5510,7 +5538,9 @@
     $('btn-tour-open-pack').addEventListener('click', function () { finishGuidedTour('pack'); });
     $('btn-tour-import-own').addEventListener('click', function () { finishGuidedTour('import'); });
     $('btn-replay-tour').addEventListener('click', function () {
-      Promise.resolve(startGuidedTour(true)).then(function (started) { if (started) startGuidedDemo(); });
+      // Replay deliberately stops at the import gate. The student must choose
+      // the bundled video (or drag it onto the dropzone) before any job starts.
+      startGuidedTour(true);
     });
     var demoCard = $('glowing-demo-card');
     demoCard.addEventListener('click', function () {
@@ -5553,9 +5583,17 @@
   }
   function flyDemoTileToDropzone(done) {
     var card = $('glowing-demo-card'), target = $('dropzone');
-    if (!card || !target) { done(); return; }
+    if (typeof done !== 'function') done = function () {};
+    var cardHidden = card && (card.hidden || (card.closest && card.closest('[hidden]')));
+    var targetHidden = target && (target.hidden || (target.closest && target.closest('[hidden]')));
+    if (!card || !target || !card.isConnected || !target.isConnected || cardHidden || targetHidden) {
+      // A hidden guided-demo card has no animation box, so animationend will
+      // never fire. This is the fallback for empty-state and replay entry.
+      done(); return;
+    }
     if (LP.motion && LP.motion.reduced && LP.motion.reduced()) { done(); return; }
     var from = card.getBoundingClientRect(), to = target.getBoundingClientRect();
+    if (!from.width || !from.height || !to.width || !to.height) { done(); return; }
     card.style.setProperty('--demo-fly-x', Math.round(to.left - from.left) + 'px');
     card.style.setProperty('--demo-fly-y', Math.round(to.top - from.top) + 'px');
     function finish() {
@@ -5574,9 +5612,20 @@
   function clearDemoDropState() { var dz = $('dropzone'); if (dz) dz.classList.remove('lp-demo-drop-hover'); }
   function useDroppedDemo() {
     if (!demoAdmissionAvailable) return;
-    if (!guidedTour.snapshot().active) startGuidedTour(true);
-    if (demoFlowPhase() === 'idle') guidedDemoFlow.start();
-    guidedDemoFlow.imported(); renderGuidedTour(); startGuidedDemo();
+    if (!guidedTour.snapshot().active) {
+      // External Explorer drops can arrive before the replay command has
+      // completed. Resume the drop action only after the import gate exists.
+      Promise.resolve(startGuidedTour(true)).then(function (started) {
+        if (started) useDroppedDemo();
+      });
+      return;
+    }
+    if (demoFlowPhase() !== 'import') {
+      guidedDemoFlow.beginAttempt();
+      renderGuidedTour();
+      return;
+    }
+    startGuidedDemo();
   }
 
   /* ======================= Smart Study ======================= */
@@ -6350,6 +6399,8 @@
     $('btn-load-jobs').addEventListener('click', function () {
       if (!demoAdmissionAvailable) { toast('The demo will be available once setup finishes.'); return; }
       if (guidedDemo.snapshot().active) { startGuidedDemo(); return; }
+      if (!guidedTour.snapshot().active) { startGuidedTour(true); return; }
+      if (demoFlowPhase() !== 'import') { guidedDemoFlow.beginAttempt(); renderGuidedTour(); return; }
       flyDemoTileToDropzone(startGuidedDemo);
     });
 
@@ -7238,8 +7289,11 @@
       LP.data.jobs = jobs;
       var viewedJobRemoved = !!(LP.state.jobId && !_jobById(LP.state.jobId));
       if (viewedJobRemoved) {
+        var demoTourActive = guidedTour.snapshot().active &&
+          (guidedDemo.snapshot().active || demoCleanupRequested || demoCleanupConfirmed);
         setActiveJob('', '');
-        if (!guidedTour.snapshot().active) setScreen('home');
+        if (demoTourActive) dismissGuidedDemoAfterCleanup();
+        else if (!guidedTour.snapshot().active) setScreen('home');
       }
       // Forget selections whose job is gone, else the count lies.
       if (LP.state.selecting) {

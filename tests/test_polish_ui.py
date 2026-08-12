@@ -88,11 +88,49 @@ def test_guided_tour_uses_authoritative_eligibility_and_cleans_demo() -> None:
     assert "endGuidedDemo('tour_complete')" in JS
     replay = function_block(JS, "$('btn-replay-tour').addEventListener", "var demoCard")
     assert "startGuidedTour(true)" in replay
-    assert "startGuidedDemo()" in replay
+    assert "startGuidedDemo()" not in replay
     assert "set_guided_tour_state" in JS
     assert "markTourSeen('skipped')" in JS
     assert "markTourSeen('completed')" in JS
     assert "replay_guided_tour" in JS
+
+
+def test_guided_demo_waits_for_import_action_and_handles_hidden_card() -> None:
+    start = function_block(JS, "function startGuidedDemo()", "function endGuidedDemo")
+    assert "Opening the tour is not consent" in start
+    assert "startGuidedTour(true);" in start
+    assert "guidedDemoFlow.beginAttempt();" in start
+    assert "renderGuidedTour();\n      return;" in start
+
+    load_jobs = function_block(JS, "$('btn-load-jobs').addEventListener", "var ONB_ACTIVE_STYLE")
+    assert "startGuidedTour(true); return;" in load_jobs
+    assert "flyDemoTileToDropzone(startGuidedDemo)" in load_jobs
+
+    drop = function_block(JS, "function useDroppedDemo()", "/* ======================= Smart Study")
+    assert "startGuidedTour(true)" in drop
+    assert "if (started) useDroppedDemo();" in drop
+    assert "guidedDemoFlow.imported()" not in drop
+
+    fly = function_block(JS, "function flyDemoTileToDropzone(done)", "function hasDemoDrag")
+    assert "closest('[hidden]')" in fly
+    assert "!from.width || !from.height || !to.width || !to.height" in fly
+    assert "animationend" in fly
+
+
+def test_guided_demo_cleanup_dismisses_stale_tour_overlay() -> None:
+    cleanup = function_block(JS, "function dismissGuidedDemoAfterCleanup()", "function receiveDemoEvent")
+    assert "guidedTour.exit()" in cleanup
+    assert "guidedDemoFlow.exit()" in cleanup
+    assert "setScreen('home')" in cleanup
+
+    receive = function_block(JS, "function receiveDemoEvent(value)", "function isTourFormInput")
+    assert "event.status === 'cleaned'" in receive
+    assert "event.status === 'cleaned' || event.status === 'failed'" in receive
+    assert "dismissGuidedDemoAfterCleanup();" in receive
+
+    jobs = function_block(JS, "lpBridge.on('jobs_changed'", "lpBridge.on('active_job'")
+    assert "demoTourActive" in jobs
+    assert "dismissGuidedDemoAfterCleanup()" in jobs
 
 
 def test_spotlight_is_a_stable_four_region_hole() -> None:
