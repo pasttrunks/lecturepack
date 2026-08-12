@@ -113,6 +113,7 @@ function diagnosticRoute(route) {
 
 function hasIndependentFallback(routes) {
   const failureDomains = new Set(routes.map((route) => {
+    if (route.failureDomain) return String(route.failureDomain).toLowerCase();
     try { return new URL(route.endpoint).hostname.toLowerCase(); } catch (_) { return ''; }
   }).filter(Boolean));
   return routes.length >= 2 && failureDomains.size >= 2;

@@ -5,6 +5,7 @@ import { issueInstallationToken, verifyInstallationToken } from '../src/auth.js'
 import { createGateway } from '../src/index.js';
 import { callProvider, ProviderError, resolveRoutes } from '../src/providers.js';
 import { countRecentUsage } from '../src/storage.js';
+import { schemaForTask } from '../src/tasks.js';
 
 const INSTALLATION_ID = '123e4567-e89b-42d3-a456-426614174000';
 const TOKEN_SECRET = 'test-token-secret-with-at-least-thirty-two-characters';
@@ -36,13 +37,24 @@ function baseEnv() {
     TOKEN_SIGNING_SECRET: TOKEN_SECRET,
     NETWORK_HASH_SECRET: NETWORK_SECRET,
     OPENROUTER_API_KEY: 'openrouter-secret',
-    NVIDIA_API_KEY: 'nvidia-secret',
     OPENROUTER_PRIMARY_MODEL: 'server/primary',
-    NVIDIA_PRIMARY_MODEL: 'server/secondary',
+    WORKERS_AI_PRIMARY_MODEL: 'workers/secondary',
+    WORKERS_AI_INTERACTIVE_MODEL: 'workers/interactive',
+    WORKERS_AI_VISION_MODEL: 'workers/vision',
     OPENROUTER_FALLBACK_MODEL: 'server/fallback',
     OPENROUTER_VISION_MODEL: 'server/vision-primary',
-    NVIDIA_VISION_MODEL: 'server/vision-secondary',
     OPENROUTER_VISION_FALLBACK_MODEL: 'server/vision-fallback',
+    AI: {
+      async run() {
+        return {
+          response: JSON.stringify({
+            answer: 'Workers AI answer', concept_ids: ['c1'],
+            lecture_sources: [], web_sources: [], provenance: 'lecture',
+          }),
+          usage: { prompt_tokens: 10, completion_tokens: 7 },
+        };
+      },
+    },
     MIN_APP_VERSION: '2.0.1',
     DAILY_INSTALL_LIMIT: '250',
   };
@@ -68,7 +80,39 @@ test('installation tokens reject tampering and expiration', async () => {
 test('route order and models come only from server environment', () => {
   const routes = resolveRoutes(baseEnv(), 'ask');
   assert.deepEqual(routes.map((route) => route.id), ['ask-primary', 'ask-secondary', 'ask-tertiary']);
-  assert.deepEqual(routes.map((route) => route.model), ['server/primary', 'server/secondary', 'server/fallback']);
+  assert.deepEqual(routes.map((route) => route.model), ['server/primary', 'workers/interactive', 'server/fallback']);
+  assert.deepEqual(routes.map((route) => route.failureDomain), [
+    'openrouter.ai', 'workers-ai.cloudflare.com', 'openrouter.ai',
+  ]);
+});
+
+test('long-form tasks can put the independent Workers AI route first', () => {
+  const env = baseEnv();
+  env.WORKERS_AI_FIRST_TASKS = 'study_material_generation,regenerate_concept';
+  const routes = resolveRoutes(env, 'study_material_generation');
+  assert.deepEqual(routes.map((route) => route.provider), [
+    'workers_ai', 'openrouter', 'openrouter',
+  ]);
+  assert.deepEqual(routes.map((route) => route.id), [
+    'study_material_generation-primary',
+    'study_material_generation-secondary',
+    'study_material_generation-tertiary',
+  ]);
+});
+
+test('identical same-provider fallback routes are removed', () => {
+  const env = baseEnv();
+  env.OPENROUTER_FALLBACK_MODEL = env.OPENROUTER_PRIMARY_MODEL;
+  const routes = resolveRoutes(env, 'lecture_analysis');
+  assert.deepEqual(routes.map((route) => route.provider), ['openrouter', 'workers_ai']);
+});
+
+test('study material schema requires useful minimum content', () => {
+  const properties = schemaForTask('study_material_generation').properties;
+  assert.equal(properties.study_guide.minItems, 2);
+  assert.equal(properties.flashcards.minItems, 2);
+  assert.equal(properties.quiz.minItems, 3);
+  assert.equal(properties.teach_me_foundations.minItems, 1);
 });
 
 test('a task is rejected unless the server configures a fallback route', async () => {
@@ -78,8 +122,7 @@ test('a task is rejected unless the server configures a fallback route', async (
     now: () => 1700000000000,
   });
   const env = baseEnv();
-  delete env.NVIDIA_API_KEY;
-  delete env.NVIDIA_PRIMARY_MODEL;
+  delete env.AI;
   delete env.OPENROUTER_FALLBACK_MODEL;
   const response = await gateway(
     await authorizedRequest('ask', { prompt: 'What matters?', retrieved_context: {} }),
@@ -173,8 +216,19 @@ test('gateway falls back across server routes and stores metadata only', async (
       usage: { prompt_tokens: 12, completion_tokens: 8 },
     });
   };
+  const env = baseEnv();
+  let workersAiBody;
+  env.AI = {
+    async run(_model, body) {
+      workersAiBody = body;
+      return {
+        response: JSON.stringify({ answer: 'Grounded answer', concept_ids: ['c1'], lecture_sources: [], web_sources: [], provenance: 'lecture' }),
+        usage: { prompt_tokens: 12, completion_tokens: 8 },
+      };
+    },
+  };
   const gateway = createGateway({ storage: store, fetchImpl, now: () => 1700000000000, randomUUID: () => `event-${store.calls.length}` });
-  const response = await gateway(await authorizedRequest('ask', { prompt: 'What matters?', retrieved_context: { concepts: [] } }), baseEnv(), { waitUntil() {} });
+  const response = await gateway(await authorizedRequest('ask', { prompt: 'What matters?', retrieved_context: { concepts: [] } }), env, { waitUntil() {} });
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.equal(body.result.answer, 'Grounded answer');
@@ -183,7 +237,8 @@ test('gateway falls back across server routes and stores metadata only', async (
   assert.equal(JSON.stringify(body).includes('server/primary'), false);
   assert.equal(JSON.stringify(body).includes('server/secondary'), false);
   assert.equal(outbound[0].model, 'server/primary');
-  assert.equal(outbound[1].model, 'server/secondary');
+  assert.equal(outbound.length, 1);
+  assert.equal(workersAiBody.response_format.type, 'json_schema');
   const usage = store.calls.filter(([name]) => name === 'recordUsage').map(([, value]) => value);
   assert.equal(usage.length, 2);
   assert.deepEqual(usage.map((event) => event.attemptNumber), [1, 2]);
@@ -191,6 +246,8 @@ test('gateway falls back across server routes and stores metadata only', async (
   assert.equal(usage[0].model, 'server/primary');
   assert.equal(usage[0].result, 'failure');
   assert.equal(usage[0].failureCode, 'provider_unavailable');
+  assert.equal(usage[1].provider, 'workers_ai');
+  assert.equal(usage[1].model, 'workers/interactive');
   assert.equal(usage[1].inputTokens, 12);
   assert.equal(usage[1].outputTokens, 8);
   assert.equal(usage[1].result, 'success');
@@ -203,23 +260,23 @@ test('provider 4xx rejection advances to the independent fallback route', async 
   const fetchImpl = async () => {
     attempts += 1;
     if (attempts === 1) return responseJson({ error: { message: 'model retired' } }, 400);
-    return responseJson({
-      choices: [{ message: { content: JSON.stringify({
-        answer: 'Fallback answer', concept_ids: ['c1'],
-        lecture_sources: [], web_sources: [], provenance: 'lecture',
-      }) } }],
-    });
+    throw new Error('external tertiary must not be called after Workers AI succeeds');
   };
+  const env = baseEnv();
+  env.AI = { async run() { return { response: JSON.stringify({
+    answer: 'Fallback answer', concept_ids: ['c1'],
+    lecture_sources: [], web_sources: [], provenance: 'lecture',
+  }) }; } };
   const gateway = createGateway({ storage: fakeStorage(), fetchImpl, now: () => 1700000000000 });
   const response = await gateway(
     await authorizedRequest('ask', { prompt: 'What matters?', retrieved_context: {} }),
-    baseEnv(),
+    env,
     { waitUntil() {} },
   );
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.equal(body.result.answer, 'Fallback answer');
-  assert.equal(attempts, 2);
+  assert.equal(attempts, 1);
   assert.deepEqual(body.diagnostics.provider_codes, ['provider_rejected']);
 });
 
@@ -227,19 +284,16 @@ test('malformed provider shape is rejected before the next route succeeds', asyn
   let attempts = 0;
   const fetchImpl = async () => {
     attempts += 1;
-    const result = attempts === 1
-      ? { answer: 'missing required grounding fields' }
-      : { answer: 'Grounded answer', concept_ids: ['c1'], lecture_sources: [], web_sources: [], provenance: 'lecture' };
-    return responseJson({ choices: [{ message: { content: JSON.stringify(result) } }] });
+    return responseJson({ choices: [{ message: { content: JSON.stringify({ answer: 'missing required grounding fields' }) } }] });
   };
   const gateway = createGateway({ storage: fakeStorage(), fetchImpl, now: () => 1700000000000 });
   const response = await gateway(await authorizedRequest('ask', { prompt: 'What matters?', retrieved_context: {} }), baseEnv(), { waitUntil() {} });
   const body = await response.json();
   assert.equal(response.status, 200);
-  assert.equal(body.result.answer, 'Grounded answer');
+  assert.equal(body.result.answer, 'Workers AI answer');
   assert.deepEqual(body.diagnostics.attempted_routes, []);
   assert.equal(body.diagnostics.retry_count, 1);
-  assert.equal(attempts, 2);
+  assert.equal(attempts, 1);
 });
 
 test('web enrichment uses bounded search and only official provider URL citations', async () => {
@@ -287,8 +341,10 @@ test('provider response bodies are bounded', async () => {
 
 test('all provider failures return safe diagnostics without provider secrets', async () => {
   const fetchImpl = async () => responseJson({ error: { message: 'upstream included secret' } }, 503);
+  const env = baseEnv();
+  env.AI = { async run() { throw new Error('Workers AI unavailable'); } };
   const gateway = createGateway({ storage: fakeStorage(), fetchImpl, now: () => 1700000000000 });
-  const response = await gateway(await authorizedRequest('ask', { prompt: 'hello', retrieved_context: {} }), baseEnv(), { waitUntil() {} });
+  const response = await gateway(await authorizedRequest('ask', { prompt: 'hello', retrieved_context: {} }), env, { waitUntil() {} });
   const text = await response.text();
   const body = JSON.parse(text);
   assert.equal(response.status, 503);
@@ -296,10 +352,9 @@ test('all provider failures return safe diagnostics without provider secrets', a
   assert.deepEqual(body.diagnostics.provider_codes, [
     'provider_unavailable', 'provider_unavailable', 'provider_unavailable',
   ]);
-  assert.deepEqual(body.diagnostics.provider_status, [503, 503, 503]);
+  assert.deepEqual(body.diagnostics.provider_status, [503, 502, 503]);
   assert.equal(body.diagnostics.retry_count, 2);
   assert.equal(text.includes('openrouter-secret'), false);
-  assert.equal(text.includes('nvidia-secret'), false);
   assert.equal(text.includes('upstream included secret'), false);
 });
 
@@ -313,8 +368,7 @@ test('health is configured only when every task has an independent fallback', as
   assert.equal(healthyBody.configured_tasks, healthyBody.required_tasks);
 
   const incomplete = { ...complete };
-  delete incomplete.NVIDIA_API_KEY;
-  delete incomplete.NVIDIA_PRIMARY_MODEL;
+  delete incomplete.AI;
   const unhealthy = await gateway(
     new Request('https://gateway.test/v1/health'), incomplete, { waitUntil() {} });
   const unhealthyBody = await unhealthy.json();

@@ -17,47 +17,73 @@ function taskEnvName(task) {
 function defaultRoutes(env, task) {
   const suffix = taskEnvName(task);
   const vision = task === 'vision_slide';
+  const interactive = ['ask', 'teach_me', 'grade_short_answer'].includes(task);
+  const timeoutMs = interactive ? 30000 : 80000;
+  const workersFirst = new Set(
+    String(env.WORKERS_AI_FIRST_TASKS || '')
+      .split(',').map((value) => value.trim()).filter(Boolean),
+  ).has(task);
   const openRouterPrimary = vision
     ? (env.OPENROUTER_VISION_MODEL || '')
     : (env[`OPENROUTER_${suffix}_MODEL`] || env.OPENROUTER_PRIMARY_MODEL || '');
-  const nvidiaPrimary = vision
-    ? (env.NVIDIA_VISION_MODEL || '')
-    : (env[`NVIDIA_${suffix}_MODEL`] || env.NVIDIA_PRIMARY_MODEL || '');
+  const workersAiModel = vision
+    ? (env.WORKERS_AI_VISION_MODEL || '')
+    : (env[`WORKERS_AI_${suffix}_MODEL`]
+      || (interactive ? env.WORKERS_AI_INTERACTIVE_MODEL : env.WORKERS_AI_PRIMARY_MODEL)
+      || '');
   const openRouterFallback = vision
     ? (env.OPENROUTER_VISION_FALLBACK_MODEL || '')
     : (env[`OPENROUTER_${suffix}_FALLBACK_MODEL`] || env.OPENROUTER_FALLBACK_MODEL || '');
-  return [
+  const routes = [
     {
-      id: `${task}-primary`, provider: 'openrouter',
+      provider: 'openrouter',
       endpoint: 'https://openrouter.ai/api/v1/chat/completions', secret_env: 'OPENROUTER_API_KEY',
-      model: openRouterPrimary, structured_outputs: true,
+      model: openRouterPrimary, structured_outputs: true, timeout_ms: timeoutMs,
     },
     {
-      id: `${task}-secondary`, provider: 'nvidia',
-      endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions', secret_env: 'NVIDIA_API_KEY',
-      model: nvidiaPrimary, structured_outputs: false,
+      provider: 'workers_ai',
+      model: workersAiModel, structured_outputs: true, timeout_ms: timeoutMs,
     },
     {
-      id: `${task}-tertiary`, provider: 'openrouter',
+      provider: 'openrouter',
       endpoint: 'https://openrouter.ai/api/v1/chat/completions', secret_env: 'OPENROUTER_API_KEY',
-      model: openRouterFallback, structured_outputs: true,
+      model: openRouterFallback, structured_outputs: true, timeout_ms: timeoutMs,
     },
   ];
+  const ordered = workersFirst ? [routes[1], routes[0], routes[2]] : routes;
+  return ordered.map((route, index) => ({
+    ...route,
+    id: `${task}-${['primary', 'secondary', 'tertiary'][index]}`,
+  }));
 }
 
 function safeRoute(route, index, task, env) {
   if (!route || typeof route !== 'object') return null;
   const provider = String(route.provider || '').toLowerCase();
-  if (!['openrouter', 'nvidia', 'openai_compatible'].includes(provider)) return null;
+  if (!['openrouter', 'nvidia', 'openai_compatible', 'workers_ai'].includes(provider)) return null;
+  const model = String(route.model || (route.model_env && env[String(route.model_env)]) || '').trim();
+  if (provider === 'workers_ai') {
+    if (!model || !env.AI || typeof env.AI.run !== 'function') return null;
+    return {
+      id: String(route.id || `${task}-route-${index + 1}`).replace(/[^A-Za-z0-9_.:-]/g, '-').slice(0, 96),
+      provider,
+      endpoint: '',
+      failureDomain: 'workers-ai.cloudflare.com',
+      secretEnv: '',
+      model,
+      structuredOutputs: route.structured_outputs !== false,
+      timeoutMs: Math.max(10000, Math.min(180000, Number(route.timeout_ms) || 90000)),
+    };
+  }
   const endpoint = String(route.endpoint || '').trim();
   if (!endpoint.startsWith('https://')) return null;
   const secretEnv = String(route.secret_env || '').trim();
-  const model = String(route.model || (route.model_env && env[String(route.model_env)]) || '').trim();
   if (!secretEnv || !model || !env[secretEnv]) return null;
   return {
     id: String(route.id || `${task}-route-${index + 1}`).replace(/[^A-Za-z0-9_.:-]/g, '-').slice(0, 96),
     provider,
     endpoint,
+    failureDomain: new URL(endpoint).hostname.toLowerCase(),
     secretEnv,
     model,
     structuredOutputs: route.structured_outputs === true,
@@ -76,7 +102,16 @@ export function resolveRoutes(env, task) {
     }
   }
   const raw = configured || defaultRoutes(env, task);
-  return raw.slice(0, 3).map((route, index) => safeRoute(route, index, task, env)).filter(Boolean);
+  const seen = new Set();
+  return raw.slice(0, 3)
+    .map((route, index) => safeRoute(route, index, task, env))
+    .filter(Boolean)
+    .filter((route) => {
+      const key = `${route.provider}|${route.failureDomain}|${route.model}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 function responseFormat(task) {
@@ -90,6 +125,11 @@ function responseFormat(task) {
       schema,
     },
   };
+}
+
+function workersAiResponseFormat(task) {
+  const schema = schemaForTask(task);
+  return schema ? { type: 'json_schema', json_schema: schema } : null;
 }
 
 function stripJsonFence(value) {
@@ -166,7 +206,69 @@ async function readBoundedResponseText(response, maximumBytes) {
   return text + decoder.decode();
 }
 
+function normalizedProviderResult(payload, task) {
+  const message = payload && payload.choices && payload.choices[0] && payload.choices[0].message;
+  const value = message ? message.content : payload && payload.response;
+  const raw = messageText(value);
+  let result;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    result = value;
+  } else {
+    try {
+      result = JSON.parse(stripJsonFence(raw));
+    } catch (_) {
+      throw new ProviderError('provider_invalid_json', 'The AI route returned an invalid structured response.', 502, true);
+    }
+  }
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    throw new ProviderError('provider_invalid_shape', 'The AI route returned an invalid response shape.', 502, true);
+  }
+  mergeWebCitations(task, result, extractCitations(message));
+  try {
+    validateTaskResult(task, result);
+  } catch (_) {
+    throw new ProviderError('provider_invalid_shape', 'The AI route returned an invalid response shape.', 502, true);
+  }
+  return { result, raw };
+}
+
+async function callWorkersAi(env, route, task, input) {
+  const body = {
+    messages: buildMessages(task, input),
+    stream: false,
+    temperature: task === 'grade_short_answer' ? 0 : 0.2,
+    max_tokens: maxOutputTokens(task),
+  };
+  if (route.structuredOutputs) body.response_format = workersAiResponseFormat(task);
+  const started = Date.now();
+  let timer;
+  try {
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new ProviderError(
+        'provider_timeout', 'The AI route timed out.', 502, true,
+      )), route.timeoutMs);
+    });
+    const payload = await Promise.race([env.AI.run(route.model, body), timeout]);
+    const normalized = normalizedProviderResult(payload, task);
+    return {
+      result: normalized.result,
+      latencyMs: Math.max(0, Date.now() - started),
+      outputChars: normalized.raw.length,
+      usage: payload && payload.usage && typeof payload.usage === 'object' ? {
+        prompt_tokens: Number(payload.usage.prompt_tokens) || 0,
+        completion_tokens: Number(payload.usage.completion_tokens) || 0,
+      } : { prompt_tokens: 0, completion_tokens: 0 },
+    };
+  } catch (error) {
+    if (error instanceof ProviderError) throw error;
+    throw new ProviderError('provider_unavailable', 'The AI route did not complete the request.', 502, true);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function callProvider(fetchImpl, env, route, task, input) {
+  if (route.provider === 'workers_ai') return callWorkersAi(env, route, task, input);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), route.timeoutMs);
   const body = {
@@ -232,27 +334,11 @@ export async function callProvider(fetchImpl, env, route, task, input) {
     // fallback providers.
     throw new ProviderError(code, 'The AI route did not complete the request.', response.status, true);
   }
-  const message = payload && payload.choices && payload.choices[0] && payload.choices[0].message;
-  const raw = messageText(message && message.content);
-  let result;
-  try {
-    result = JSON.parse(stripJsonFence(raw));
-  } catch (_) {
-    throw new ProviderError('provider_invalid_json', 'The AI route returned an invalid structured response.', 502, true);
-  }
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    throw new ProviderError('provider_invalid_shape', 'The AI route returned an invalid response shape.', 502, true);
-  }
-  mergeWebCitations(task, result, extractCitations(message));
-  try {
-    validateTaskResult(task, result);
-  } catch (_) {
-    throw new ProviderError('provider_invalid_shape', 'The AI route returned an invalid response shape.', 502, true);
-  }
+  const normalized = normalizedProviderResult(payload, task);
   return {
-    result,
+    result: normalized.result,
     latencyMs: Math.max(0, Date.now() - started),
-    outputChars: raw.length,
+    outputChars: normalized.raw.length,
     usage: payload && payload.usage && typeof payload.usage === 'object' ? {
       prompt_tokens: Number(payload.usage.prompt_tokens) || 0,
       completion_tokens: Number(payload.usage.completion_tokens) || 0,

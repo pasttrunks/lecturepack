@@ -6,13 +6,12 @@ workers_dev = true
 [ai]
 binding = "AI"
 
-# Copy this file to wrangler.toml, create the D1 database, and replace the
-# placeholder. OPENROUTER_API_KEY, TOKEN_SIGNING_SECRET, and
-# NETWORK_HASH_SECRET must be Wrangler secrets, never plaintext vars.
+# Production D1 binding. OPENROUTER_API_KEY, TOKEN_SIGNING_SECRET, and
+# NETWORK_HASH_SECRET are Worker secrets, never plaintext vars.
 [[d1_databases]]
 binding = "DB"
-database_name = "lecturepack-ai-gateway"
-database_id = "replace-with-production-d1-id"
+database_name = "lecturepack-study-prod"
+database_id = "0ddaa845-8302-48d9-8fec-7d601f8be82c"
 migrations_dir = "migrations"
 
 # Fast, permissive edge protection. Durable per-install/day enforcement is
@@ -43,11 +42,10 @@ ALERT_FROM_EMAIL = ""
 ALERT_COOLDOWN_SECONDS = "3600"
 TELEMETRY_RETENTION_DAYS = "30"
 
-# Models and route order are intentionally server-controlled. OpenRouter's
-# capability-filtered free router is paired with native Workers AI so each
-# task has independent failure domains. Long-form generation puts Workers AI
-# first; interactive tasks keep OpenRouter first. Duplicate identical routes
-# are removed by the Worker.
+# Models and route order are intentionally server-controlled. OpenRouter and
+# native Workers AI provide independent failure domains. Long-form tasks put
+# Workers AI first; other tasks put OpenRouter first. Duplicate identical
+# routes are removed by the Worker.
 OPENROUTER_PRIMARY_MODEL = "openrouter/free"
 OPENROUTER_ASK_MODEL = "openrouter/free"
 OPENROUTER_TEACH_ME_MODEL = "openrouter/free"

@@ -14,15 +14,15 @@ images.
 
 1. Copy `wrangler.toml.example` to `wrangler.toml` and configure the D1 binding.
 2. Apply `migrations/0001_init.sql` to the D1 database.
-3. Configure 2-3 routes for every task across at least two independent
-   provider endpoint hosts. Models and route ordering remain server-side.
-   `AI_ROUTE_CONFIG` can supply per-task route arrays; the gateway fails closed
-   if a task has no independent fallback.
-4. Add secrets with Wrangler: `TOKEN_SIGNING_SECRET`, `NETWORK_HASH_SECRET`,
-   `OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, and optionally `RESEND_API_KEY`.
-5. Configure a verified `ALERT_FROM_EMAIL`; alerts go to
-   `discordsammy2@gmail.com` by default and contain no lecture content.
-6. Run `npm test`, then deploy with the installed Wrangler CLI.
+3. Bind Workers AI and configure 2-3 routes for every task across OpenRouter
+   and native Workers AI. Models and route ordering remain server-side;
+   `AI_ROUTE_CONFIG` can still supply explicit per-task route arrays. The
+   gateway fails closed if a task has no independent fallback.
+4. Add `TOKEN_SIGNING_SECRET`, `NETWORK_HASH_SECRET`, and
+   `OPENROUTER_API_KEY` with `wrangler secret put`. Optional Resend alerts also
+   require `RESEND_API_KEY` and a verified `ALERT_FROM_EMAIL`.
+5. Run `npm test`, use `wrangler deploy --dry-run` to validate bindings, then
+   deploy with Wrangler.
 
 `GET /v1/health` reports `configured: true` only when D1/auth secrets exist and
 all eight task types have an independent fallback. It never returns route
@@ -33,12 +33,12 @@ including failed tasks; fallback attempts do not consume additional daily
 units. D1 retains only bounded operational metadata and is sampled for cleanup
 using `TELEMETRY_RETENTION_DAYS`.
 
-The desktop endpoint is configured with `LECTUREPACK_AI_GATEWAY_URL`. Production
-packages should set it to the deployed HTTPS Worker URL. Plain HTTP is accepted
-only for loopback integration tests.
+The production desktop default is
+`https://lecturepack-ai-gateway.discordsammy2.workers.dev`. The
+`LECTUREPACK_AI_GATEWAY_URL` override remains available for controlled tests.
+Plain HTTP is accepted only for loopback integration tests.
 
-Provider contracts were checked against the official OpenRouter structured
-outputs and web-search tool documentation, NVIDIA's OpenAI-compatible NIM
-inference reference, Cloudflare Workers Web Crypto/D1/rate-limit binding
-documentation, and Resend's send-email API before implementation. Direct links
-are recorded in `docs/DECISIONS.md` (AD-46).
+Provider contracts were checked against the official OpenRouter free-router,
+structured-output, and web-search documentation plus Cloudflare Workers AI,
+Web Crypto, D1, and rate-limit binding documentation. Direct links and the
+production acceptance record are in `docs/DECISIONS.md` (AD-46).

@@ -63,7 +63,7 @@ const factItem = object({
 const schemas = {
   lecture_analysis: object({
     lecture_summary: { type: 'string' },
-    concepts: { type: 'array', items: concept },
+    concepts: { type: 'array', items: concept, minItems: 1, maxItems: 24 },
     relationships: { type: 'array', items: object({ from_concept_id: { type: 'string' }, to_concept_id: { type: 'string' }, relationship: { type: 'string' } }) },
     key_terms: { type: 'array', items: factItem },
     people: { type: 'array', items: factItem },
@@ -74,13 +74,13 @@ const schemas = {
   }),
   study_material_generation: object({
     lecture_summary: { type: 'string' },
-    concepts: { type: 'array', items: concept },
+    concepts: { type: 'array', items: concept, minItems: 1, maxItems: 24 },
     key_terms: { type: 'array', items: factItem },
     people: { type: 'array', items: factItem },
     dates: { type: 'array', items: factItem },
-    study_guide: { type: 'array', items: object({ heading: { type: 'string' }, body: { type: 'string' }, ...groundedFields }) },
-    flashcards: { type: 'array', items: object({ id: { type: 'string' }, front: { type: 'string' }, back: { type: 'string' }, difficulty: { type: 'string' }, ...groundedFields }) },
-    quiz: { type: 'array', items: object({
+    study_guide: { type: 'array', minItems: 2, maxItems: 24, items: object({ heading: { type: 'string' }, body: { type: 'string' }, ...groundedFields }) },
+    flashcards: { type: 'array', minItems: 2, maxItems: 40, items: object({ id: { type: 'string' }, front: { type: 'string' }, back: { type: 'string' }, difficulty: { type: 'string' }, ...groundedFields }) },
+    quiz: { type: 'array', minItems: 3, maxItems: 40, items: object({
       id: { type: 'string' }, question: { type: 'string' },
       qtype: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer'] },
       options: stringArray, correct_index: { type: 'integer' }, accepted_answers: stringArray,
@@ -88,7 +88,7 @@ const schemas = {
     }) },
     misconceptions: { type: 'array', items: factItem },
     quick_study_material: object({ five_minute: stringArray, ten_minute: stringArray, twenty_minute: stringArray, full: stringArray }),
-    teach_me_foundations: { type: 'array', items: object({ concept_id: { type: 'string' }, explanation: { type: 'string' }, analogy: { type: 'string' }, check_question: { type: 'string' }, rubric: { type: 'string' }, ...groundedFields }) },
+    teach_me_foundations: { type: 'array', minItems: 1, maxItems: 24, items: object({ concept_id: { type: 'string' }, explanation: { type: 'string' }, analogy: { type: 'string' }, check_question: { type: 'string' }, rubric: { type: 'string' }, ...groundedFields }) },
   }),
   ask: object({ answer: { type: 'string' }, ...groundedFields }),
   teach_me: object({ explanation: { type: 'string' }, analogy: { type: 'string' }, check_question: { type: 'string' }, rubric: { type: 'string' }, ...groundedFields }),
@@ -112,7 +112,7 @@ const schemas = {
 
 const taskInstructions = {
   lecture_analysis: 'Create the canonical lecture understanding: summary, important concepts and relationships, key terms, people, dates, likely misconceptions, and only a few justified web/vision requests. Cite only source IDs present in the bundle.',
-  study_material_generation: 'Using the canonical analysis and evidence supplied, generate one coherent study system: guide, concepts, terms, people/dates, flashcards, mixed quiz types, misconceptions, deterministic quick-study concept selections, and Teach Me foundations. Keep every claim grounded and label provenance.',
+  study_material_generation: 'Using the canonical analysis and evidence supplied, generate one coherent study system: at least two guide sections, at least two flashcards, and a quiz containing at least one multiple-choice, one true/false, and one short-answer item, plus concepts, terms, people/dates, misconceptions, deterministic quick-study concept selections, and Teach Me foundations. Keep every claim grounded and label provenance.',
   ask: 'Answer the student from the compact retrieved lecture context. Prefer lecture evidence, say plainly when the evidence is insufficient, and keep source IDs exact.',
   teach_me: 'Teach one concept with a concise explanation, a useful analogy, and one understanding check plus a grading rubric. Ground the teaching in the supplied lecture evidence.',
   grade_short_answer: 'Grade meaning, not exact wording. Return a 0-1 score, a boolean result, specific feedback, and an ideal answer grounded in the provided rubric and evidence.',
@@ -143,7 +143,10 @@ function matchesSchema(schema, value) {
     ));
   }
   if (schema.type === 'array') {
-    return Array.isArray(value) && value.every((item) => matchesSchema(schema.items, item));
+    return Array.isArray(value)
+      && (schema.minItems == null || value.length >= schema.minItems)
+      && (schema.maxItems == null || value.length <= schema.maxItems)
+      && value.every((item) => matchesSchema(schema.items, item));
   }
   if (schema.type === 'string') return typeof value === 'string';
   if (schema.type === 'boolean') return typeof value === 'boolean';
@@ -164,6 +167,12 @@ export function validateTaskResult(task, result) {
   const schema = schemaForTask(task);
   if (!schema || !matchesSchema(schema, result)) {
     throw new Error('provider result does not match the Study task schema');
+  }
+  if (task === 'study_material_generation') {
+    const quizTypes = new Set(result.quiz.map((item) => item.qtype));
+    if (!['multiple_choice', 'true_false', 'short_answer'].every((value) => quizTypes.has(value))) {
+      throw new Error('provider result does not contain all required Study quiz types');
+    }
   }
   return result;
 }

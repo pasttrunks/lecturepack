@@ -72,7 +72,8 @@ def test_failure_state_exposes_retry_safe_diagnostics_and_basic_study():
 
 def test_provider_and_model_routing_exist_only_in_gateway_code():
     assert "OPENROUTER_API_KEY" in PROVIDERS
-    assert "NVIDIA_API_KEY" in PROVIDERS
+    assert "workers_ai" in PROVIDERS
+    assert "env.AI.run" in PROVIDERS
     assert "resolveRoutes" in PROVIDERS
     desktop_sources = "\n".join([
         (ROOT / "lecturepack" / "services" / "ai_gateway.py").read_text(encoding="utf-8"),
@@ -80,7 +81,7 @@ def test_provider_and_model_routing_exist_only_in_gateway_code():
         UI[UI.index("<!-- ===== STUDY ===== -->"):UI.index("<!-- Legacy study content")],
     ])
     assert "OPENROUTER_API_KEY" not in desktop_sources
-    assert "NVIDIA_API_KEY" not in desktop_sources
+    assert "WORKERS_AI_PRIMARY_MODEL" not in desktop_sources
     assert '"model":' not in _method("_ask_ai", "_generate_quiz")
 
 

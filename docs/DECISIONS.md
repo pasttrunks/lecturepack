@@ -1797,7 +1797,7 @@ existing progress treatment makes the short local validation wait legible.
 
 **Date:** 2026-08-12
 
-**Status:** Implemented locally; deployment and real-provider acceptance pending
+**Status:** Implemented, deployed, and live-accepted
 
 **Context:** Production Study needs higher-quality lecture analysis, grounded
 materials, Ask, Teach Me, and semantic short-answer grading without exposing
@@ -1843,17 +1843,39 @@ keeping secrets, model changes, retries, limits, and provider failover outside
 the desktop release. Explicit Basic mode makes failure honest and recoverable,
 and the metadata-only server boundary minimizes retained lecture data.
 
+**Production deployment record (2026-08-12):** The Worker is deployed at
+`https://lecturepack-ai-gateway.discordsammy2.workers.dev` with D1 database
+`lecturepack-study-prod` (`0ddaa845-8302-48d9-8fec-7d601f8be82c`). OpenRouter's
+`openrouter/free` capability router is paired with the native Workers AI
+binding. Workers AI uses `@cf/openai/gpt-oss-20b` for text and
+`@cf/google/gemma-4-26b-a4b-it` for selected slide vision. Long-form material
+generation puts Workers AI first; other tasks keep OpenRouter first. Identical
+same-provider routes are de-duplicated, and bounded route deadlines fit inside
+the desktop's 175-second request deadline.
+
+The live packaged Polar Bears gate passed canonical analysis, selected vision,
+bounded optional web context, material generation, Ask, Teach Me, semantic
+grading, explicit Basic Study, anonymous registration, packaged-default URL,
+clean exit, and no-orphan checks. A controlled invalid OpenRouter route also
+proved that Workers AI succeeds as an independent fallback. The remote D1
+schema was inspected after these calls and contains identifiers, counts,
+latency, route/model, status, and token/character totals only—no lecture text,
+prompt, completion, or image columns. Native/Resend email delivery remains
+disabled because this account has no managed sender domain; alert failure is
+intentionally non-blocking and does not affect Study requests.
+
 **Official provider/platform contracts checked 2026-08-12:**
 
 - OpenRouter structured outputs:
   `https://openrouter.ai/docs/guides/features/structured-outputs`
+- OpenRouter free router:
+  `https://openrouter.ai/docs/guides/routing/routers/free-router`
 - OpenRouter web-search server tool:
   `https://openrouter.ai/docs/guides/features/server-tools/web-search`
-- NVIDIA NIM OpenAI-compatible inference reference:
-  `https://docs.api.nvidia.com/nim/reference/openai-gpt-oss-120b-infer`
+- Cloudflare Workers AI bindings and JSON mode:
+  `https://developers.cloudflare.com/workers-ai/configuration/bindings/` and
+  `https://developers.cloudflare.com/workers-ai/features/json-mode/`
 - Cloudflare Workers Web Crypto, D1 Worker API, and rate-limit bindings:
   `https://developers.cloudflare.com/workers/runtime-apis/web-crypto/`,
   `https://developers.cloudflare.com/d1/worker-api/d1-database/`, and
   `https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/`
-- Resend send-email API:
-  `https://resend.com/docs/api-reference/emails/send-email`

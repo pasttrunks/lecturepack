@@ -23,7 +23,7 @@ import uuid
 from lecturepack.infrastructure.file_manager import FileManager
 
 
-DEFAULT_GATEWAY_URL = "https://study-api.lecturepack.app"
+DEFAULT_GATEWAY_URL = "https://lecturepack-ai-gateway.discordsammy2.workers.dev"
 INSTALLATION_FILENAME = "ai-installation-v1.json"
 INSTALLATION_SCHEMA_VERSION = 1
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
@@ -169,7 +169,7 @@ class GatewayClient:
     def __init__(self, data_dir: str | os.PathLike[str], *,
                  gateway_url: str | None = None,
                  app_version: str | None = None,
-                 timeout_seconds: float = 100.0,
+                 timeout_seconds: float = 175.0,
                  opener: Any | None = None):
         configured = gateway_url or os.environ.get(
             "LECTUREPACK_AI_GATEWAY_URL", DEFAULT_GATEWAY_URL)

@@ -175,7 +175,7 @@ def start_gateway(state: GatewayState) -> tuple[ThreadingHTTPServer, str]:
                 state.requests.append({"task": task, "input_chars": len(json.dumps(task_input)), "has_image": "image_data_url" in task_input})
                 if state.fail:
                     status = 503
-                    response = {"ok": False, "error": {"code": "ai_routes_failed", "message": "Study AI could not complete this request.", "retryable": True}, "diagnostics": {"request_id": body.get("request_id"), "task": task, "attempted_routes": [f"{task}-primary@openrouter:fixture/primary", f"{task}-secondary@nvidia:fixture/secondary"], "provider_codes": ["provider_unavailable", "provider_unavailable"], "provider_status": [503, 503], "retry_count": 1}}
+                    response = {"ok": False, "error": {"code": "ai_routes_failed", "message": "Study AI could not complete this request.", "retryable": True}, "diagnostics": {"request_id": body.get("request_id"), "task": task, "attempted_routes": [f"{task}-primary@openrouter:fixture/primary", f"{task}-secondary@workers_ai:fixture/secondary"], "provider_codes": ["provider_unavailable", "provider_unavailable"], "provider_status": [503, 502], "retry_count": 1}}
                 else:
                     status = 200
                     response = {"ok": True, "request_id": body.get("request_id"), "task": task, "result": state.result(task, task_input), "diagnostics": {"request_id": body.get("request_id"), "task": task, "attempted_routes": [], "provider_codes": [], "provider_status": [], "retry_count": 0, "timestamp": datetime.now(timezone.utc).isoformat()}}
@@ -286,7 +286,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             diagnostics.get("error_category") == "ai_routes_failed"
             and diagnostics.get("retry_count") == 1
             and any("@openrouter:" in route for route in diagnostics.get("attempted_routes", []))
-            and any("@nvidia:" in route for route in diagnostics.get("attempted_routes", []))
+            and any("@workers_ai:" in route for route in diagnostics.get("attempted_routes", []))
             and "authorization" not in diagnostic_text
             and "transcript" not in diagnostic_text
             and "raw_response" not in diagnostic_text
