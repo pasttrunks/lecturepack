@@ -6,8 +6,9 @@ workers_dev = true
 [ai]
 binding = "AI"
 
-# Production D1 binding. OPENROUTER_API_KEY, TOKEN_SIGNING_SECRET, and
-# NETWORK_HASH_SECRET are Worker secrets, never plaintext vars.
+# Production D1 binding. NVIDIA_API_KEY, OPENROUTER_API_KEY,
+# TOKEN_SIGNING_SECRET, and NETWORK_HASH_SECRET are Worker secrets, never
+# plaintext vars.
 [[d1_databases]]
 binding = "DB"
 database_name = "lecturepack-study-prod"
@@ -41,11 +42,19 @@ OWNER_ALERT_EMAIL = "discordsammy2@gmail.com"
 ALERT_FROM_EMAIL = ""
 ALERT_COOLDOWN_SECONDS = "3600"
 TELEMETRY_RETENTION_DAYS = "30"
+ROUTE_FAILURE_THRESHOLD = "2"
+ROUTE_FAILURE_COOLDOWN_SECONDS = "300"
 
-# Models and route order are intentionally server-controlled. OpenRouter and
-# native Workers AI provide independent failure domains. Long-form tasks put
-# Workers AI first; other tasks put OpenRouter first. Duplicate identical
-# routes are removed by the Worker.
+# Models and route order are intentionally server-controlled. Benchmarks on
+# the production Study schemas select NVIDIA-hosted Llama 3.1 8B for text and
+# Nemotron Nano 12B v2 VL for vision. Native Workers AI and OpenRouter remain
+# independent fallbacks. OpenRouter stays first only for web_enrichment, which
+# depends on its bounded search annotations. Duplicate identical routes are
+# removed by the Worker.
+NVIDIA_PRIMARY_MODEL = "meta/llama-3.1-8b-instruct"
+NVIDIA_INTERACTIVE_MODEL = "meta/llama-3.1-8b-instruct"
+NVIDIA_VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl"
+NVIDIA_FIRST_TASKS = "lecture_analysis,study_material_generation,ask,teach_me,grade_short_answer,regenerate_concept,vision_slide"
 OPENROUTER_PRIMARY_MODEL = "openrouter/free"
 OPENROUTER_ASK_MODEL = "openrouter/free"
 OPENROUTER_TEACH_ME_MODEL = "openrouter/free"
@@ -56,4 +65,4 @@ OPENROUTER_VISION_FALLBACK_MODEL = "openrouter/free"
 WORKERS_AI_PRIMARY_MODEL = "@cf/openai/gpt-oss-20b"
 WORKERS_AI_INTERACTIVE_MODEL = "@cf/openai/gpt-oss-20b"
 WORKERS_AI_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it"
-WORKERS_AI_FIRST_TASKS = "study_material_generation,regenerate_concept"
+WORKERS_AI_FIRST_TASKS = ""

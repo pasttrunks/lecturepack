@@ -3,8 +3,10 @@ import test from 'node:test';
 
 import { issueInstallationToken, verifyInstallationToken } from '../src/auth.js';
 import { createGateway } from '../src/index.js';
-import { callProvider, ProviderError, resolveRoutes } from '../src/providers.js';
-import { countRecentUsage } from '../src/storage.js';
+import {
+  callProvider, prioritizeHealthyRoutes, ProviderError, resolveRoutes,
+} from '../src/providers.js';
+import { countRecentUsage, getProviderHealth } from '../src/storage.js';
 import { schemaForTask } from '../src/tasks.js';
 
 const INSTALLATION_ID = '123e4567-e89b-42d3-a456-426614174000';
@@ -27,6 +29,7 @@ function fakeStorage() {
     async recordLimitEvent(_env, value) { calls.push(['recordLimitEvent', value]); },
     async countRecentLimits() { return 0; },
     async recordProviderHealth(_env, ...args) { calls.push(['recordProviderHealth', ...args]); },
+    async getProviderHealth() { return []; },
     async claimAlertWindow() { return false; },
     async cleanupTelemetry() {},
   };
@@ -79,7 +82,9 @@ test('installation tokens reject tampering and expiration', async () => {
 
 test('route order and models come only from server environment', () => {
   const routes = resolveRoutes(baseEnv(), 'ask');
-  assert.deepEqual(routes.map((route) => route.id), ['ask-primary', 'ask-secondary', 'ask-tertiary']);
+  assert.deepEqual(routes.map((route) => route.id), [
+    'ask-openrouter', 'ask-workers-ai', 'ask-openrouter-fallback',
+  ]);
   assert.deepEqual(routes.map((route) => route.model), ['server/primary', 'workers/interactive', 'server/fallback']);
   assert.deepEqual(routes.map((route) => route.failureDomain), [
     'openrouter.ai', 'workers-ai.cloudflare.com', 'openrouter.ai',
@@ -94,10 +99,66 @@ test('long-form tasks can put the independent Workers AI route first', () => {
     'workers_ai', 'openrouter', 'openrouter',
   ]);
   assert.deepEqual(routes.map((route) => route.id), [
-    'study_material_generation-primary',
-    'study_material_generation-secondary',
-    'study_material_generation-tertiary',
+    'study_material_generation-workers-ai',
+    'study_material_generation-openrouter',
+    'study_material_generation-openrouter-fallback',
   ]);
+});
+
+test('NVIDIA is fastest-first for configured text and vision tasks', () => {
+  const env = baseEnv();
+  env.NVIDIA_API_KEY = 'nvidia-secret';
+  env.NVIDIA_PRIMARY_MODEL = 'meta/llama-3.1-8b-instruct';
+  env.NVIDIA_INTERACTIVE_MODEL = 'meta/llama-3.1-8b-instruct';
+  env.NVIDIA_VISION_MODEL = 'nvidia/nemotron-nano-12b-v2-vl';
+  env.NVIDIA_FIRST_TASKS = 'lecture_analysis,study_material_generation,ask,teach_me,grade_short_answer,regenerate_concept,vision_slide';
+
+  const askRoutes = resolveRoutes(env, 'ask');
+  assert.deepEqual(askRoutes.map((route) => route.provider), [
+    'nvidia', 'workers_ai', 'openrouter',
+  ]);
+  assert.deepEqual(askRoutes.map((route) => route.model), [
+    'meta/llama-3.1-8b-instruct', 'workers/interactive', 'server/primary',
+  ]);
+  assert.deepEqual(askRoutes.map((route) => route.failureDomain), [
+    'integrate.api.nvidia.com', 'workers-ai.cloudflare.com', 'openrouter.ai',
+  ]);
+  assert.deepEqual(askRoutes.map((route) => route.slot), [
+    'primary', 'secondary', 'tertiary',
+  ]);
+
+  const visionRoutes = resolveRoutes(env, 'vision_slide');
+  assert.equal(visionRoutes[0].provider, 'nvidia');
+  assert.equal(visionRoutes[0].model, 'nvidia/nemotron-nano-12b-v2-vl');
+
+  const webRoutes = resolveRoutes(env, 'web_enrichment');
+  assert.deepEqual(webRoutes.map((route) => route.provider), [
+    'openrouter', 'nvidia', 'workers_ai',
+  ]);
+
+  const longRoutes = resolveRoutes(env, 'study_material_generation');
+  assert.ok(longRoutes.reduce((total, route) => total + route.timeoutMs, 0) <= 160000);
+});
+
+test('routes cooling down after repeated failures move behind healthy fallbacks', () => {
+  const routes = [
+    { id: 'ask-nvidia' },
+    { id: 'ask-workers-ai' },
+    { id: 'ask-openrouter' },
+  ];
+  const now = 1700000000000;
+  const health = [{
+    route_id: 'ask-nvidia', consecutive_failures: 2,
+    last_failure_at: now - 1000, last_success_at: now - 10000,
+  }];
+  assert.deepEqual(
+    prioritizeHealthyRoutes(routes, health, now).map((route) => route.id),
+    ['ask-workers-ai', 'ask-openrouter', 'ask-nvidia'],
+  );
+  assert.deepEqual(
+    prioritizeHealthyRoutes(routes, health, now + 301000).map((route) => route.id),
+    ['ask-nvidia', 'ask-workers-ai', 'ask-openrouter'],
+  );
 });
 
 test('identical same-provider fallback routes are removed', () => {
@@ -105,6 +166,39 @@ test('identical same-provider fallback routes are removed', () => {
   env.OPENROUTER_FALLBACK_MODEL = env.OPENROUTER_PRIMARY_MODEL;
   const routes = resolveRoutes(env, 'lecture_analysis');
   assert.deepEqual(routes.map((route) => route.provider), ['openrouter', 'workers_ai']);
+});
+
+test('NVIDIA calls use the Worker secret and strict Study response schema', async () => {
+  const env = {
+    NVIDIA_API_KEY: 'nvidia-secret',
+    NVIDIA_INTERACTIVE_MODEL: 'meta/llama-3.1-8b-instruct',
+    NVIDIA_FIRST_TASKS: 'ask',
+  };
+  const route = resolveRoutes(env, 'ask')[0];
+  let outboundUrl = '';
+  let outboundHeaders;
+  let outboundBody;
+  const fetchImpl = async (url, options) => {
+    outboundUrl = url;
+    outboundHeaders = options.headers;
+    outboundBody = JSON.parse(options.body);
+    return responseJson({
+      choices: [{ message: { content: JSON.stringify({
+        answer: 'Large paws help polar bears swim.', concept_ids: ['c1'],
+        lecture_sources: [], web_sources: [], provenance: 'lecture',
+      }) } }],
+      usage: { prompt_tokens: 12, completion_tokens: 8 },
+    });
+  };
+  const response = await callProvider(fetchImpl, env, route, 'ask', {
+    prompt: 'What helps polar bears swim?', retrieved_context: {},
+  });
+  assert.equal(response.result.answer, 'Large paws help polar bears swim.');
+  assert.equal(outboundUrl, 'https://integrate.api.nvidia.com/v1/chat/completions');
+  assert.equal(outboundHeaders.Authorization, 'Bearer nvidia-secret');
+  assert.equal(outboundBody.model, 'meta/llama-3.1-8b-instruct');
+  assert.equal(outboundBody.response_format.type, 'json_schema');
+  assert.equal(outboundBody.response_format.json_schema.strict, true);
 });
 
 test('study material schema requires useful minimum content', () => {
@@ -179,6 +273,30 @@ test('daily usage counts first attempts whether they succeed or fail', async () 
   assert.match(sql, /attempt_number = 1/);
   assert.doesNotMatch(sql, /success = 1/);
   assert.deepEqual(bound, [INSTALLATION_ID, 1699913600000]);
+});
+
+test('provider health lookup is bounded to configured route identifiers', async () => {
+  let sql = '';
+  let bound = [];
+  const rows = [{ route_id: 'ask-nvidia', consecutive_failures: 2 }];
+  const env = {
+    DB: {
+      prepare(value) {
+        sql = value;
+        return {
+          bind(...values) {
+            bound = values;
+            return { async all() { return { results: rows }; } };
+          },
+        };
+      },
+    },
+  };
+  assert.deepEqual(await getProviderHealth(env, [
+    'ask-nvidia', 'ask-workers-ai', 'ask-openrouter', 'ignored-fourth',
+  ]), rows);
+  assert.match(sql, /route_id IN \(\?, \?, \?\)/);
+  assert.deepEqual(bound, ['ask-nvidia', 'ask-workers-ai', 'ask-openrouter']);
 });
 
 test('registration returns an anonymous installation token', async () => {

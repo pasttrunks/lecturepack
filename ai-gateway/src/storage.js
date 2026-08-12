@@ -68,6 +68,20 @@ export async function recordProviderHealth(env, routeId, success, code, now) {
   ).bind(routeId, code, now, code, now).run();
 }
 
+export async function getProviderHealth(env, routeIds) {
+  const ids = Array.from(new Set(
+    (Array.isArray(routeIds) ? routeIds : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  )).slice(0, 3);
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(', ');
+  const response = await db(env).prepare(
+    `SELECT route_id, consecutive_failures, last_failure_at, last_success_at FROM provider_health WHERE route_id IN (${placeholders})`,
+  ).bind(...ids).all();
+  return Array.isArray(response && response.results) ? response.results : [];
+}
+
 export async function claimAlertWindow(env, alertKey, now, cooldownSeconds) {
   const existing = await db(env).prepare(
     'SELECT last_sent_at FROM alert_state WHERE alert_key = ?',
@@ -96,6 +110,7 @@ export const storage = {
   recordLimitEvent,
   countRecentLimits,
   recordProviderHealth,
+  getProviderHealth,
   claimAlertWindow,
   cleanupTelemetry,
 };

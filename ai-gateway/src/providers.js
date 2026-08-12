@@ -1,5 +1,7 @@
 import { buildMessages, maxOutputTokens, schemaForTask, validateTaskResult } from './tasks.js';
 
+const ROUTE_SLOTS = Object.freeze(['primary', 'secondary', 'tertiary']);
+
 export class ProviderError extends Error {
   constructor(code, message, status = 502, retryable = true) {
     super(message);
@@ -14,15 +16,35 @@ function taskEnvName(task) {
   return String(task || '').replace(/[^A-Za-z0-9]/g, '_').toUpperCase();
 }
 
+function configuredTasks(value) {
+  return new Set(
+    String(value || '')
+      .split(',').map((item) => item.trim()).filter(Boolean),
+  );
+}
+
+function routeTimeouts(task) {
+  if (task === 'vision_slide') {
+    return { nvidia: 25000, workers_ai: 30000, openrouter: 25000 };
+  }
+  if (task === 'web_enrichment') {
+    return { nvidia: 12000, workers_ai: 15000, openrouter: 20000 };
+  }
+  if (['ask', 'teach_me', 'grade_short_answer'].includes(task)) {
+    return { nvidia: 12000, workers_ai: 25000, openrouter: 20000 };
+  }
+  // The three-route worst case is 160 seconds, leaving room inside the
+  // desktop client's 175-second request deadline for gateway/D1 overhead.
+  return { nvidia: 50000, workers_ai: 65000, openrouter: 45000 };
+}
+
 function defaultRoutes(env, task) {
   const suffix = taskEnvName(task);
   const vision = task === 'vision_slide';
   const interactive = ['ask', 'teach_me', 'grade_short_answer'].includes(task);
-  const timeoutMs = interactive ? 30000 : 80000;
-  const workersFirst = new Set(
-    String(env.WORKERS_AI_FIRST_TASKS || '')
-      .split(',').map((value) => value.trim()).filter(Boolean),
-  ).has(task);
+  const timeouts = routeTimeouts(task);
+  const nvidiaFirst = configuredTasks(env.NVIDIA_FIRST_TASKS).has(task);
+  const workersFirst = configuredTasks(env.WORKERS_AI_FIRST_TASKS).has(task);
   const openRouterPrimary = vision
     ? (env.OPENROUTER_VISION_MODEL || '')
     : (env[`OPENROUTER_${suffix}_MODEL`] || env.OPENROUTER_PRIMARY_MODEL || '');
@@ -31,30 +53,67 @@ function defaultRoutes(env, task) {
     : (env[`WORKERS_AI_${suffix}_MODEL`]
       || (interactive ? env.WORKERS_AI_INTERACTIVE_MODEL : env.WORKERS_AI_PRIMARY_MODEL)
       || '');
+  const nvidiaModel = vision
+    ? (env.NVIDIA_VISION_MODEL || '')
+    : (env[`NVIDIA_${suffix}_MODEL`]
+      || (interactive ? env.NVIDIA_INTERACTIVE_MODEL : env.NVIDIA_PRIMARY_MODEL)
+      || '');
   const openRouterFallback = vision
     ? (env.OPENROUTER_VISION_FALLBACK_MODEL || '')
     : (env[`OPENROUTER_${suffix}_FALLBACK_MODEL`] || env.OPENROUTER_FALLBACK_MODEL || '');
-  const routes = [
-    {
-      provider: 'openrouter',
-      endpoint: 'https://openrouter.ai/api/v1/chat/completions', secret_env: 'OPENROUTER_API_KEY',
-      model: openRouterPrimary, structured_outputs: true, timeout_ms: timeoutMs,
-    },
-    {
-      provider: 'workers_ai',
-      model: workersAiModel, structured_outputs: true, timeout_ms: timeoutMs,
-    },
-    {
-      provider: 'openrouter',
-      endpoint: 'https://openrouter.ai/api/v1/chat/completions', secret_env: 'OPENROUTER_API_KEY',
-      model: openRouterFallback, structured_outputs: true, timeout_ms: timeoutMs,
-    },
-  ];
-  const ordered = workersFirst ? [routes[1], routes[0], routes[2]] : routes;
-  return ordered.map((route, index) => ({
-    ...route,
-    id: `${task}-${['primary', 'secondary', 'tertiary'][index]}`,
-  }));
+  const openRouterRoute = {
+    id: `${task}-openrouter`,
+    provider: 'openrouter',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions', secret_env: 'OPENROUTER_API_KEY',
+    model: openRouterPrimary, structured_outputs: true, timeout_ms: timeouts.openrouter,
+  };
+  const nvidiaRoute = {
+    id: `${task}-nvidia`,
+    provider: 'nvidia',
+    endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions', secret_env: 'NVIDIA_API_KEY',
+    model: nvidiaModel, structured_outputs: true, timeout_ms: timeouts.nvidia,
+  };
+  const workersAiRoute = {
+    id: `${task}-workers-ai`,
+    provider: 'workers_ai',
+    model: workersAiModel, structured_outputs: true, timeout_ms: timeouts.workers_ai,
+  };
+  const openRouterFallbackRoute = {
+    id: `${task}-openrouter-fallback`,
+    provider: 'openrouter',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions', secret_env: 'OPENROUTER_API_KEY',
+    model: openRouterFallback, structured_outputs: true, timeout_ms: timeouts.openrouter,
+  };
+  if (nvidiaFirst) {
+    return [nvidiaRoute, workersAiRoute, openRouterRoute, openRouterFallbackRoute];
+  }
+  if (workersFirst) {
+    return [workersAiRoute, nvidiaRoute, openRouterRoute, openRouterFallbackRoute];
+  }
+  // OpenRouter remains first by default because web_enrichment depends on its
+  // bounded server-side search annotations. Other production tasks opt into
+  // the measured NVIDIA-first route explicitly through NVIDIA_FIRST_TASKS.
+  return [openRouterRoute, nvidiaRoute, workersAiRoute, openRouterFallbackRoute];
+}
+
+export function prioritizeHealthyRoutes(routes, healthRows, now = Date.now(), options = {}) {
+  const threshold = Math.max(1, Number(options.failureThreshold) || 2);
+  const cooldownMs = Math.max(1000, Number(options.cooldownMs) || 300000);
+  const health = new Map((Array.isArray(healthRows) ? healthRows : []).map((row) => [
+    String(row && row.route_id || ''), row || {},
+  ]));
+  return routes.map((route, index) => {
+    const row = health.get(route.id) || {};
+    const failures = Math.max(0, Number(row.consecutive_failures) || 0);
+    const lastFailure = Math.max(0, Number(row.last_failure_at) || 0);
+    const lastSuccess = Math.max(0, Number(row.last_success_at) || 0);
+    const coolingDown = failures >= threshold
+      && lastFailure > now - cooldownMs
+      && lastFailure >= lastSuccess;
+    return { route, index, coolingDown };
+  }).sort((left, right) => (
+    Number(left.coolingDown) - Number(right.coolingDown) || left.index - right.index
+  )).map(({ route }) => route);
 }
 
 function safeRoute(route, index, task, env) {
@@ -103,7 +162,7 @@ export function resolveRoutes(env, task) {
   }
   const raw = configured || defaultRoutes(env, task);
   const seen = new Set();
-  return raw.slice(0, 3)
+  return raw
     .map((route, index) => safeRoute(route, index, task, env))
     .filter(Boolean)
     .filter((route) => {
@@ -111,7 +170,9 @@ export function resolveRoutes(env, task) {
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    });
+    })
+    .slice(0, 3)
+    .map((route, index) => ({ ...route, slot: ROUTE_SLOTS[index] }));
 }
 
 function responseFormat(task) {

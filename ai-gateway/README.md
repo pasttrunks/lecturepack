@@ -14,11 +14,11 @@ images.
 
 1. Copy `wrangler.toml.example` to `wrangler.toml` and configure the D1 binding.
 2. Apply `migrations/0001_init.sql` to the D1 database.
-3. Bind Workers AI and configure 2-3 routes for every task across OpenRouter
-   and native Workers AI. Models and route ordering remain server-side;
-   `AI_ROUTE_CONFIG` can still supply explicit per-task route arrays. The
-   gateway fails closed if a task has no independent fallback.
-4. Add `TOKEN_SIGNING_SECRET`, `NETWORK_HASH_SECRET`, and
+3. Bind Workers AI and configure 2-3 routes for every task across NVIDIA,
+   native Workers AI, and OpenRouter. Models and route ordering remain
+   server-side; `AI_ROUTE_CONFIG` can still supply explicit per-task route
+   arrays. The gateway fails closed if a task has no independent fallback.
+4. Add `TOKEN_SIGNING_SECRET`, `NETWORK_HASH_SECRET`, `NVIDIA_API_KEY`, and
    `OPENROUTER_API_KEY` with `wrangler secret put`. Optional Resend alerts also
    require `RESEND_API_KEY` and a verified `ALERT_FROM_EMAIL`.
 5. Run `npm test`, use `wrangler deploy --dry-run` to validate bindings, then
@@ -33,12 +33,20 @@ including failed tasks; fallback attempts do not consume additional daily
 units. D1 retains only bounded operational metadata and is sampled for cleanup
 using `TELEMETRY_RETENTION_DAYS`.
 
+Production text and vision routes are fastest-first based on complete
+LecturePack schema benchmarks, not a token-only microbenchmark. Two consecutive
+route failures open a five-minute metadata-only cooldown, moving that route
+behind healthy independent fallbacks without removing it from the chain.
+OpenRouter remains first for `web_enrichment` because its bounded search
+annotations are the citation authority for that task.
+
 The production desktop default is
 `https://lecturepack-ai-gateway.discordsammy2.workers.dev`. The
 `LECTUREPACK_AI_GATEWAY_URL` override remains available for controlled tests.
 Plain HTTP is accepted only for loopback integration tests.
 
-Provider contracts were checked against the official OpenRouter free-router,
-structured-output, and web-search documentation plus Cloudflare Workers AI,
+Provider contracts were checked against the official NVIDIA NIM chat,
+structured-generation, and model documentation; OpenRouter free-router,
+structured-output, and web-search documentation; plus Cloudflare Workers AI,
 Web Crypto, D1, and rate-limit binding documentation. Direct links and the
-production acceptance record are in `docs/DECISIONS.md` (AD-46).
+production acceptance records are in `docs/DECISIONS.md` (AD-46 and AD-47).

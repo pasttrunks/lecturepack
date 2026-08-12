@@ -2,6 +2,90 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-47: Put full-schema benchmarked NVIDIA routes first and cool down unhealthy routes
+
+**Date:** 2026-08-12
+
+**Status:** Implemented, deployed, and live-accepted
+
+**Context:** The deployed AI-first Study gateway used OpenRouter first for most
+interactive tasks and native Workers AI first for long-form generation. Its
+payload-free D1 records showed frequent OpenRouter deadline failures and mean
+successful Workers AI latency around 4-7 seconds for interactive work,
+51 seconds for lecture analysis, and 28 seconds for material generation. The
+owner supplied an NVIDIA API key through the Windows user environment and asked
+for Study to use the fastest available AI. A tiny Ask response alone was not
+enough evidence because LecturePack requires large, strict JSON schemas for its
+two build passes and a real selected-slide image contract.
+
+**Decision:** Keep all provider selection server-side and add NVIDIA's hosted
+NIM endpoint as a third independent failure domain. Use
+`meta/llama-3.1-8b-instruct` for text and
+`nvidia/nemotron-nano-12b-v2-vl` for selected-slide vision. NVIDIA is first for
+analysis, material generation, Ask, Teach Me, grading, concept regeneration,
+and vision; native Workers AI and OpenRouter follow on independent hosts.
+OpenRouter remains first for `web_enrichment` because its bounded URL
+annotations are the only configured web-citation authority.
+
+The selection is based on live, schema-valid Polar Bears tests. NVIDIA-hosted
+Llama 3.1 8B completed Ask in about 0.7 seconds, lecture analysis in about
+7 seconds, and the full minimum Study system in about 22 seconds. The selected
+vision model completed the real bundled-slide schema in about 6.7 seconds.
+Every result passed the existing gateway validator, including two guide
+sections, two flashcards, all three quiz types, Teach Me content, and grounding
+fields. Faster-looking catalog entries that returned 400/404, malformed JSON,
+or exceeded the bounded full-schema timeout were rejected.
+
+Route IDs are provider-stable rather than position-based. Two consecutive
+failures within five minutes place a route behind healthy fallbacks while
+retaining it as the last recovery attempt. This circuit state uses the existing
+payload-free `provider_health` table. Per-provider route deadlines cap the
+three-route long-form worst case at 160 seconds, leaving room inside the
+desktop client's 175-second deadline.
+
+**Alternatives considered:**
+
+- Racing multiple providers and accepting the first response: rejected because
+  it sends the same lecture evidence to multiple providers, increases cost,
+  and conflicts with the payload-minimizing boundary.
+- Selecting from a one-line latency probe: rejected because several models
+  were fast on Ask but slow or invalid on the full Study schemas.
+- Using Nemotron 3.5 Lightning or Nemotron Nano 9B for all text work: rejected
+  because the measured full analysis/material paths were substantially slower,
+  including one 120-second timeout.
+- Changing models through the renderer or NVIDIA website at request time:
+  rejected because provider/model input remains forbidden in the desktop and
+  the saved key already had the required hosted-model access.
+
+**Rationale:** A measured sequential fastest-first chain materially reduces
+normal Study latency while preserving strict validation, three independent
+hosts, honest fallback behavior, and the existing privacy boundary. A short
+metadata-only cooldown prevents a repeatedly failing primary from adding the
+same timeout to every student request.
+
+**Official NVIDIA contracts checked 2026-08-12:**
+
+- NVIDIA NIM LLM API (`POST /v1/chat/completions`):
+  `https://docs.api.nvidia.com/nim/reference/llm-apis`
+- NVIDIA structured generation:
+  `https://docs.nvidia.com/nim/large-language-models/1.15.0/structured-generation.html`
+- NVIDIA-hosted Llama 3.1 8B:
+  `https://build.nvidia.com/meta/llama-3_1-8b-instruct?nim=hosted&section=deploy`
+- NVIDIA Nemotron Nano 12B v2 VL:
+  `https://build.nvidia.com/nvidia/nemotron-nano-12b-v2-vl`
+
+**Production deployment record (2026-08-12):** Worker version
+`d9e2dbcb-369b-4a4e-a895-e8ff75ea4fc5` is deployed at the existing production
+origin. The NVIDIA key is stored only as the `NVIDIA_API_KEY` Worker secret.
+All seven NVIDIA-first tasks passed through the public gateway on attempt one:
+analysis 3.5 seconds, complete materials 15.6 seconds, Ask 0.6 seconds,
+Teach Me 1.3 seconds, grading 0.9 seconds, concept regeneration 1.5 seconds,
+and selected-slide vision 4.1 seconds (provider latency rounded from D1).
+Normal success responses exposed no route/model identifier. The post-deploy
+health check reported 8/8 configured tasks, the existing real-provider pytest
+passed, the remote schema remained payload-free, and an exact-key scan of all
+776 tracked files found zero matches.
+
 ## AD-38: Study commands and bootstrap restore are scoped to the viewed lecture
 
 **Date:** 2026-08-09
@@ -1843,7 +1927,7 @@ keeping secrets, model changes, retries, limits, and provider failover outside
 the desktop release. Explicit Basic mode makes failure honest and recoverable,
 and the metadata-only server boundary minimizes retained lecture data.
 
-**Production deployment record (2026-08-12):** The Worker is deployed at
+**Initial production deployment record (2026-08-12):** The Worker is deployed at
 `https://lecturepack-ai-gateway.discordsammy2.workers.dev` with D1 database
 `lecturepack-study-prod` (`0ddaa845-8302-48d9-8fec-7d601f8be82c`). OpenRouter's
 `openrouter/free` capability router is paired with the native Workers AI
@@ -1851,7 +1935,9 @@ binding. Workers AI uses `@cf/openai/gpt-oss-20b` for text and
 `@cf/google/gemma-4-26b-a4b-it` for selected slide vision. Long-form material
 generation puts Workers AI first; other tasks keep OpenRouter first. Identical
 same-provider routes are de-duplicated, and bounded route deadlines fit inside
-the desktop's 175-second request deadline.
+the desktop's 175-second request deadline. AD-47 supersedes this initial
+route/model snapshot while preserving the same gateway, D1, and privacy
+boundary.
 
 The live packaged Polar Bears gate passed canonical analysis, selected vision,
 bounded optional web context, material generation, Ask, Teach Me, semantic

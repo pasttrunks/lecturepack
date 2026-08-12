@@ -74,7 +74,7 @@ The package health report also records existing optional YouTube degradation bec
 - Worker: `https://lecturepack-ai-gateway.discordsammy2.workers.dev`
 - D1: `lecturepack-study-prod` (`0ddaa845-8302-48d9-8fec-7d601f8be82c`), migration current.
 - Secrets: independent generated signing/network-hash secrets plus a newly validated OpenRouter production key, all stored only as Worker secrets.
-- Routes: OpenRouter `openrouter/free` plus native Workers AI; long-form generation uses Workers AI first, while interactive tasks use OpenRouter first and fail over independently.
+- Routes: NVIDIA-hosted `meta/llama-3.1-8b-instruct` is first for text tasks and `nvidia/nemotron-nano-12b-v2-vl` is first for selected-slide vision. Native Workers AI and OpenRouter remain independent fallbacks. OpenRouter remains first for bounded web enrichment because its annotations are the configured URL-citation authority.
 - Health: configured for all eight required tasks.
 - Packaged candidate: `C:\LecturePackScratch\builds\ai-study-production-20260812-r2\dist\LecturePack-win32-x64`.
 - Deterministic packaged report: `C:\LecturePackScratch\results\ai-study-production-r2-deterministic-20260812\ai-study-packaged-acceptance.json` (passed).
@@ -82,6 +82,34 @@ The package health report also records existing optional YouTube degradation bec
 - Live quality: three concepts, two guide sections, two flashcards, and three mixed quiz items; Ask, Teach Me, live grading, and Basic Study all passed.
 - Privacy: the remote D1 schema contains operational metadata only and no transcript, prompt, completion, or image column.
 - Owner email: disabled without a verified sender domain; alert delivery remains optional and non-blocking.
+
+## NVIDIA fastest-first deployment follow-up
+
+- Final Worker version: `d9e2dbcb-369b-4a4e-a895-e8ff75ea4fc5`.
+- `NVIDIA_API_KEY` was read from the Windows user environment and uploaded
+  directly as an encrypted Worker secret. It was not printed, written to disk,
+  added to Wrangler vars, or placed in desktop artifacts.
+- Full-schema model selection rejected catalog-only or microbenchmark winners.
+  NVIDIA-hosted Llama 3.1 8B passed Ask, canonical analysis, and complete Study
+  material generation; Nemotron Nano 12B v2 VL passed the real bundled Polar
+  Bears slide contract.
+- Public-gateway attempt-one provider latency recorded in D1: analysis 3,466 ms;
+  complete materials 15,596 ms; Ask 563 ms; Teach Me 1,313 ms; short-answer
+  grading 850 ms; concept regeneration 1,498 ms; vision 4,115 ms.
+- All seven calls returned `retry_count: 0`, normal success responses hid route
+  and model identifiers, and the complete material result contained four
+  concepts, two guide sections, two flashcards, all three quiz types, and two
+  Teach Me foundations.
+- Two consecutive failures place a route behind healthy fallbacks for five
+  minutes using the existing payload-free `provider_health` table. The route
+  remains available as a final recovery attempt.
+- Gateway validation: `npm test` â€” **21 passed**; focused Python plus live
+  provider: **35 passed**; final post-deploy real-provider smoke: **1 passed**.
+- Production health: **8/8 tasks configured**. Remote D1 schema still contains
+  operational metadata only. Exact NVIDIA-key scan: **0 matches across 776
+  tracked files**.
+- Chrome/NVIDIA console changes were not required: the saved key already had
+  hosted access to both selected models.
 
 The two external signed-onedir tests still require a verified fixture through
 `LECTUREPACK_ONEDIR_FIXTURE`; this is unrelated to the deployed Study gateway

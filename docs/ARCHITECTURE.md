@@ -497,6 +497,12 @@ auto-downloaded. Backend is CPU-only in this build.
   sidecar never accept provider or model input from a student. Every task
   fails closed unless 2-3 configured routes span at least two independent
   endpoint hosts; provider-side 4xx/5xx responses advance to the next route.
+- Production text and selected-slide vision use full-schema benchmarked
+  NVIDIA endpoints first, followed by native Workers AI and OpenRouter on
+  independent hosts. OpenRouter remains first for bounded web enrichment
+  because its URL annotations are the citation authority. Two consecutive
+  failures place a route behind healthy fallbacks for a five-minute cooldown;
+  this decision reads and writes operational health metadata only.
 - D1 stores installation/rate-limit/request metadata only. The gateway does
   not persist transcripts, prompts, completions, accepted slide images, or
   original video content.

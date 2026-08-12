@@ -1,5 +1,7 @@
 import { hashIdentifier, issueInstallationToken, validInstallationId, verifyInstallationToken } from './auth.js';
-import { callProvider, ProviderError, resolveRoutes } from './providers.js';
+import {
+  callProvider, prioritizeHealthyRoutes, ProviderError, resolveRoutes,
+} from './providers.js';
 import { storage as defaultStorage } from './storage.js';
 import { isTaskType, TASK_TYPES, validateTaskInput } from './tasks.js';
 
@@ -267,6 +269,18 @@ export function createGateway(options = {}) {
         requestId,
         { task, attempted_routes: configuredRoutes, app_version: appVersion },
       ), 503, cors);
+    }
+    if (typeof storage.getProviderHealth === 'function') {
+      try {
+        const health = await storage.getProviderHealth(env, routes.map((route) => route.id));
+        routes = prioritizeHealthyRoutes(routes, health, now, {
+          failureThreshold: numberSetting(env.ROUTE_FAILURE_THRESHOLD, 2, 1, 10),
+          cooldownMs: numberSetting(env.ROUTE_FAILURE_COOLDOWN_SECONDS, 300, 30, 3600) * 1000,
+        });
+      } catch (_) {
+        // Provider-health metadata must never make the Study request fail.
+        // The measured server-controlled route order remains the safe default.
+      }
     }
     const attempted = [];
     const codes = [];
