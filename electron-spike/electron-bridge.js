@@ -219,6 +219,7 @@
     var event = item.event;
     if (!event || event === 'response') return;
     var payload = eventPayload(event, item);
+    var clearDemoSession = false;
     // D-2: translate the normal pipeline lifecycle into demo_event signals so
     // the guided tour can advance without a separate fake demo pipeline.
     if (demoSession) {
@@ -241,14 +242,22 @@
         }
       } else if (event === 'job_completed') {
         demoEvent({ status: 'cleaned', stage: 'exports' });
+        clearDemoSession = true;
       } else if (event === 'job_failed') {
         demoEvent({ status: 'failed', error: String(payload.error || 'Guided demo failed.') });
+        clearDemoSession = true;
       } else if (event === 'job_cancelled') {
         demoEvent({ status: 'cleaned', stage: 'ended' });
+        clearDemoSession = true;
       } else if (event === 'demo_session' && String(payload.session_id || '') === String(demoSession.sessionId)) {
         demoEvent({ status: 'cleaned', stage: 'ended', reason: String(payload.reason || '') });
+        clearDemoSession = true;
       }
     }
+    // Preserve the active identity while emitting the terminal demo_event,
+    // then retire it before any later normal event can be mistaken for a
+    // continuation of the completed demo.
+    if (clearDemoSession) demoSession = null;
     // Legacy unscoped ai_token remains a text signal. Scoped Study Ask tokens
     // keep their job envelope so the renderer can reject a stale lecture.
     fire(event, event === 'ai_token' && typeof payload === 'string' ? payload : json(payload));
@@ -638,6 +647,9 @@
         return self.call('start_processing', {
           mode: 'study',
           preset: 'balanced',
+          // Guided tour must stop at Review Ready so the user can make the
+          // promised review choice before the normal export cleanup runs.
+          auto_export: false,
           job_id: result.job_id
         }).then(function (started) {
           var startedResult = parse(started);

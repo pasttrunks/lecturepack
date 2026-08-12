@@ -72,6 +72,7 @@ context.window.lpBridge.on('demo_event', (json) => events.push(JSON.parse(json))
   if (calls[0].command !== 'import_video') throw new Error(`demo did not use import_video: ${calls[0].command}`);
   if (calls[0].payload.bundled_demo !== true) throw new Error(`demo did not set bundled_demo: ${JSON.stringify(calls[0].payload)}`);
   if (calls[1].command !== 'start_job') throw new Error(`demo did not start processing: ${calls[1].command}`);
+  if (calls[1].payload.auto_export !== false) throw new Error(`guided demo must stop at Review Ready: ${JSON.stringify(calls[1].payload)}`);
   if (!value || value.ok !== true) throw new Error(`demo result was not structured: ${JSON.stringify(value)}`);
   if (!value.operation_id || !value.session_id) throw new Error(`demo result missing operation_id/session_id: ${JSON.stringify(value)}`);
   if (events.length !== 1 || events[0].status !== 'started' || !events[0].operation_id || !events[0].session_id) {
@@ -91,6 +92,13 @@ context.window.lpBridge.on('demo_event', (json) => events.push(JSON.parse(json))
   }
   if (!done || done.status !== 'cleaned') {
     throw new Error(`exports demo_event was not emitted: ${JSON.stringify(events)}`);
+  }
+  const eventCountAfterCompletion = events.length;
+  context._message({ event: 'pipeline_changed', stages: [
+    { label: 'Review Ready', state: 'done' }
+  ] });
+  if (events.length !== eventCountAfterCompletion) {
+    throw new Error(`late pipeline event revived the completed demo: ${JSON.stringify(events)}`);
   }
 })().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
 """)
