@@ -971,3 +971,15 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 #status-footer[data-status="waiting"] #status-pct{color:var(--ink)}
 [data-theme="dark"] #status-footer[data-status="waiting"] #status-bar{
   background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.34) 0 3px,transparent 3px 6px)}
+
+/* --- tour: tip presentation ----------------------------------------------
+   Review is three dense columns: Keep/Reject bottom-left, thumbnails above it,
+   slide preview to the right. A 360px card has nowhere to go that does not
+   cover the slide being judged, so on those steps it narrows and docks to the
+   top-right -- diagonally opposite the controls, clear of both. Static only
+   (AD-20): no transition, no will-change, no filters. */
+#guided-tour-card[data-present="tip"]{
+  left:auto!important;right:20px!important;top:20px!important;bottom:auto!important;
+  width:min(300px,calc(100vw - 40px));padding:14px 15px}
+#guided-tour-card[data-present="tip"] #tour-title{font-size:16px;margin-bottom:5px}
+#guided-tour-card[data-present="tip"] #tour-copy{font-size:12px;margin-bottom:11px}

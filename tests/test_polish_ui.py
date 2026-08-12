@@ -242,14 +242,14 @@ def _run_card_placement(cases: str) -> list:
         JS, "function positionTourCard", "\n  function "
     )
     harness = """
-    var __card = {offsetWidth: 360, offsetHeight: 132, style: {props: {},
+    var __card = {offsetWidth: 360, offsetHeight: 132, dataset: {}, style: {props: {},
       setProperty: function (k, v) { this.props[k] = v; }},
       attrs: {}, setAttribute: function (k, v) { this.attrs[k] = v; },
       removeAttribute: function (k) { delete this.attrs[k]; }};
     var $ = function (id) { return id === 'guided-tour-card' ? __card : null; };
     var window = {innerWidth: 0, innerHeight: 0};
     // The keep-clear lookup is exercised separately; here we isolate placement.
-    var currentTourPhase = function () { return null; };
+    var currentTourPhase = function () { return {}; };   // default 'card' presentation
     var document = {querySelector: function () { return null; }};
     """
     program = harness + fn + f"""

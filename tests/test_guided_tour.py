@@ -529,6 +529,48 @@ def test_every_tour_target_exists_and_is_not_inside_a_hidden_ancestor():
         )
 
 
+def test_step_precondition_runs_on_entry_not_on_every_measurement():
+    """Regression: prepare() inside the measure path pinned the sub-mode.
+
+    positionTourSpotlight re-runs on every rAF, resize and scroll. Calling a
+    step's prepare() there meant Study's `setStudyV2Mode('overview')` fired
+    continuously: selecting Quick Study or Continue studying switched the mode,
+    which rescheduled geometry, which forced the mode straight back. The
+    buttons appeared dead until the tour was exited.
+
+    Collapsing must NOT re-arm it either -- collapsing is exactly what happens
+    when the student leaves the overview, so re-arming recreates the loop.
+    """
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "function applyTourStepPrecondition()" in js
+    assert "if (phase === lastPreparedTourPhase) return;" in js
+
+    geometry = js[js.index("function positionTourSpotlight"):
+                  js.index("function renderGuidedTour")]
+    assert "applyTourStepPrecondition();" in geometry
+    assert ".prepare()" not in geometry, "prepare() must not be called in the measure path"
+
+    clear = js[js.index("function clearTourDim()"):]
+    clear = clear[:clear.index("function ")]
+    assert "lastPreparedTourPhase = null" not in clear, "collapsing must not re-arm prepare()"
+
+
+def test_dense_screens_use_the_tip_presentation():
+    """Review cannot fit a 360px card beside its controls; it docks instead."""
+    js = APP_JS.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    phases = js.split("var TOUR_PHASES = {", 1)[1].split(chr(10) + "  };", 1)[0]
+    review = [ln for ln in phases.splitlines() if ln.strip().startswith("review:")][0]
+    assert "present: 'tip'" in review
+    assert '#guided-tour-card[data-present="tip"]' in css
+    place = js[js.index("function positionTourCard"):]
+    place = place[:place.index(chr(10) + "  function ")]
+    assert "step.present === 'tip'" in place, "tip steps must skip anchoring"
+    # AD-20 still applies to the new rules.
+    tip = css.split('#guided-tour-card[data-present="tip"]', 1)[1]
+    assert "transition:" not in tip and "will-change" not in tip
+
+
 def test_tour_geometry_is_rAF_coalesced_revealed_remeasured_and_clamped():
     """VIS-05: resize/scroll/DPI changes update the real CSS spotlight once per frame."""
     js = APP_JS.read_text(encoding="utf-8")

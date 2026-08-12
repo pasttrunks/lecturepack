@@ -4916,6 +4916,12 @@
        keepClear -- selectors the coach card must not cover, on top of the hole
                     itself. "Fits on screen" is not the same as "does not cover
                     what the user needs to see".
+       present   -- 'card' (default) or 'tip'. A 360px card cannot sit beside a
+                    control in Review's three-column layout -- spotlight bottom
+                    left, thumbnails above, slide preview right -- so EVERY
+                    placement buries something the student needs. In tip mode
+                    the card narrows and docks to a corner well clear of the
+                    subject instead of trying to hug it.
        reveals   -- hidden containers this step's own preconditions guarantee
                     are shown by the time it runs. '#home-demo' is hidden only
                     when the demo is unavailable, in which case the tour cannot
@@ -4926,7 +4932,7 @@
   var TOUR_PHASES = {
     import: { screen: 'home', target: ['#dropzone', '#glowing-demo-card'], reveals: ['#home-demo'], title: 'Add the demo video', copy: 'Drag the Polar Bears demo into this lecture area, or click the tile to use it.', next: 'Add demo to continue' },
     processing: { screen: 'process', target: '#pipeline-stages', title: 'Watch real processing', copy: 'This is the live local pipeline. It advances only as each step actually completes.', next: 'Processing safely…' },
-    review: { screen: 'review', target: '#demo-review-actions', keepClear: ['#slide-frame', '#slide-list'], title: 'Make one review choice', copy: 'Use Keep or Reject on the existing review controls to continue.', next: 'Make a review choice' },
+    review: { screen: 'review', target: '#demo-review-actions', keepClear: ['#slide-frame', '#slide-list'], present: 'tip', title: 'Make one review choice', copy: 'Use Keep or Reject on the existing review controls to continue.', next: 'Make a review choice' },
     // Targets the Study V2 overview actions. The old '#demo-study-actions' chat
     // row lives inside '#study-legacy[hidden]', so the spotlight collapsed and
     // the step rendered with no dim, no ring and no arrow at all.
@@ -5337,6 +5343,13 @@
   function positionTourCard(r, pad) {
     var card = $('guided-tour-card');
     if (!card || !r) return;
+    var step = currentTourPhase();
+    card.dataset.present = (step && step.present) || 'card';
+    if (step && step.present === 'tip') {
+      // Docked by CSS, away from the spotlight. Anchoring is what fails here.
+      card.removeAttribute('data-anchored');
+      return;
+    }
     var g = 16, cw = card.offsetWidth, ch = card.offsetHeight;
     var vw = window.innerWidth, vh = window.innerHeight;
     var box = {l: r.left - pad, t: r.top - pad, r: r.right + pad, b: r.bottom + pad};
@@ -5382,6 +5395,19 @@
     card.style.setProperty('--tour-card-y', Math.round(pick.y) + 'px');
     card.setAttribute('data-anchored', '');
   }
+  var lastPreparedTourPhase = null;
+  function applyTourStepPrecondition() {
+    var phase = demoFlowPhase(), step = TOUR_PHASES[phase];
+    if (phase === lastPreparedTourPhase) return;
+    lastPreparedTourPhase = phase;
+    if (step && typeof step.prepare === 'function') {
+      try { step.prepare(); } catch (e) {}
+    }
+  }
+  /* Deliberately NOT reset on collapse. Collapsing is exactly what happens when
+     the student leaves Study's overview to try Quick Study, and re-arming here
+     would force them straight back -- the loop this replaced. Re-entry always
+     changes phase (idle -> import on replay), so phase identity is enough. */
   function scheduleTourGeometry() {
     if (tourGeometryFrame !== null) return;
     tourGeometryFrame = requestAnimationFrame(function () {
@@ -5392,12 +5418,13 @@
   function positionTourSpotlight() {
     var state = guidedTour.snapshot(), box = $('tour-spotlight-box'), arrow = $('tour-arrow');
     if (!state.active || !box || !arrow) return;
-    var phaseNow = currentTourPhase();
-    if (phaseNow && typeof phaseNow.prepare === 'function') {
-      // Must run before measurement: a step may need to switch a persisted
-      // sub-mode to make its own target visible.
-      try { phaseNow.prepare(); } catch (e) {}
-    }
+    // prepare() runs ONCE on step entry, never per measurement. positionTour-
+    // Spotlight re-runs on every rAF, resize and scroll, so calling prepare
+    // here unconditionally pinned the sub-mode: selecting Quick Study or
+    // Continue studying switched Study V2's mode, which rescheduled geometry,
+    // which forced the mode straight back to overview. The buttons looked dead
+    // until the tour was exited.
+    applyTourStepPrecondition();
     var target = currentTourTarget();
     // N-8: never leave a glow around empty space. A target that is unmounted,
     // inside a hidden screen, or absent after navigation collapses the
