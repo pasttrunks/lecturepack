@@ -1211,3 +1211,41 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 #status-footer[data-status="failed"] #status-dot{background:var(--red)}
 #status-footer[data-status="failed"] #status-state{color:var(--red)}
 #status-footer[data-status="failed"] #status-bar{background-color:var(--red)}
+
+/* --- AI Study preparation stages -------------------------------------------
+   The backend already emits seven named stages with real percentages; the old
+   panel showed one in a small title and discarded the rest, so a healthy run
+   read as frozen. Nothing below is invented reassurance -- every value comes
+   from the backend or the wall clock.
+   Static only (AD-20): the only moving things are text and step-wise widths.
+   No keyframes, no transitions, no will-change, no filters. */
+.lp-prep-meta{display:flex;align-items:baseline;gap:12px;margin-top:9px}
+#study-prep-pct{font:700 12px 'JetBrains Mono';color:var(--ink)}
+#study-prep-elapsed{font:500 11px 'JetBrains Mono';color:var(--muted)}
+
+.lp-prep-stages{display:flex;flex-direction:column;gap:9px;margin-top:16px}
+.lp-prep-stage{display:flex;align-items:flex-start;gap:10px}
+.lp-prep-marker{flex:none;width:13px;height:13px;margin-top:2px;border-radius:50%;
+  border:2px solid var(--line);background:var(--panel);box-sizing:border-box}
+.lp-prep-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.lp-prep-label{font:600 13px 'Space Grotesk';color:var(--ink)}
+.lp-prep-note{font:500 10px 'JetBrains Mono';color:var(--muted)}
+
+.lp-prep-stage[data-state="idle"]{opacity:.45}
+.lp-prep-stage[data-state="running"] .lp-prep-label{font-weight:700;color:var(--orange-ink)}
+.lp-prep-stage[data-state="running"] .lp-prep-marker{border-color:var(--orange);
+  background:var(--orange-soft)}
+.lp-prep-stage[data-state="complete"] .lp-prep-marker{border-color:var(--green);
+  background:var(--green)}
+.lp-prep-stage[data-state="complete"] .lp-prep-label{color:var(--muted)}
+
+/* The one stage that leaves the machine gets the secondary (cyan) treatment.
+   Making it visually distinct is the point: it is the difference between "this
+   app does web lookups" and "this app is doing one right now". */
+.lp-prep-stage[data-net="true"] .lp-prep-label{color:var(--secondary-text)}
+.lp-prep-stage[data-net="true"][data-state="running"] .lp-prep-marker{
+  border-color:var(--secondary-border);background:var(--secondary-surface)}
+.lp-prep-stage[data-net="true"] .lp-prep-note{color:var(--secondary-text)}
+
+.lp-prep-inputs{margin-top:15px;padding-top:12px;border-top:1.5px solid var(--line);
+  font:500 11px 'JetBrains Mono';color:var(--muted)}

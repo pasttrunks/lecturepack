@@ -4188,6 +4188,107 @@
     });
   }
 
+  /* ---- AI Study preparation: surface the stages the backend already sends ----
+     ai_study_service.py emits seven named stages with real percentages. The
+     old panel put the current stage in a small title, showed one bar, and
+     discarded the rest -- so a run that was working fine read as frozen. This
+     renders the whole sequence, marking each stage complete as the run passes
+     it, plus an elapsed clock. Nothing here is invented reassurance: every
+     value shown comes from the backend or from the wall clock.
+
+     Static only, per AD-20: the only things that move are TEXT and step-wise
+     fill widths. No keyframes, no transitions, no will-change. */
+  var STUDY_PREP_STAGES = [
+    {match: /preparing lecture evidence/i,      label: 'Gathering your lecture',      note: 'Collecting transcript and slide text'},
+    {match: /understanding the lecture/i,       label: 'Reading the transcript',      note: 'The longest step on a long lecture'},
+    {match: /connecting lecture sections/i,     label: 'Connecting the sections',     note: 'Linking related ideas across the lecture'},
+    {match: /reading selected lecture slides/i, label: 'Reading your slides',         note: 'Looking at the slides that carry the most meaning'},
+    {match: /checking optional public context/i,label: 'Checking public sources',     note: 'Optional', net: true},
+    {match: /building the study system/i,       label: 'Building your study material',note: 'Study guide, flashcards and quiz'},
+    {match: /validating sources and saving/i,   label: 'Checking sources and saving', note: 'Making sure every claim traces to your lecture'}
+  ];
+  var studyPrepStartedAt = 0, studyPrepTimer = null, studyPrepLastStage = '';
+
+  function studyPrepIndex(stage) {
+    var text = String(stage || '');
+    for (var i = 0; i < STUDY_PREP_STAGES.length; i++) {
+      if (STUDY_PREP_STAGES[i].match.test(text)) return i;
+    }
+    return -1;
+  }
+
+  function formatElapsed(ms) {
+    var total = Math.max(0, Math.round(ms / 1000));
+    var mins = Math.floor(total / 60), secs = total % 60;
+    return mins + ':' + (secs < 10 ? '0' : '') + secs + ' elapsed';
+  }
+
+  function renderStudyPrepElapsed() {
+    var el = $('study-prep-elapsed');
+    if (!el || !studyPrepStartedAt) return;
+    el.textContent = formatElapsed(Date.now() - studyPrepStartedAt);
+  }
+
+  function stopStudyPrepClock() {
+    if (studyPrepTimer) { clearInterval(studyPrepTimer); studyPrepTimer = null; }
+    studyPrepStartedAt = 0;
+    studyPrepLastStage = '';
+  }
+
+  function renderStudyPrepStages(metadata) {
+    var host = $('study-prep-stages'), meta = $('study-prep-meta'), inputs = $('study-prep-inputs');
+    if (!host) return;
+    var stage = metadata.stage || '';
+    var pct = Math.max(0, Math.min(99, Number(metadata.progress_percent) || 0));
+    var active = studyPrepIndex(stage);
+
+    // The clock starts with the panel, not with each stage: it measures how
+    // long the STUDENT has been waiting, which is the number they care about.
+    if (!studyPrepStartedAt) {
+      studyPrepStartedAt = Date.now();
+      if (studyPrepTimer) clearInterval(studyPrepTimer);
+      studyPrepTimer = setInterval(renderStudyPrepElapsed, 1000);
+    }
+    studyPrepLastStage = stage;
+
+    host.innerHTML = STUDY_PREP_STAGES.map(function (s, i) {
+      var state = active < 0 ? 'idle'
+        : i < active ? 'complete'
+        : i === active ? 'running' : 'idle';
+      return '<div class="lp-prep-stage" data-state="' + state + '"' +
+        (s.net ? ' data-net="true"' : '') + '>' +
+        '<span class="lp-prep-marker"></span>' +
+        '<span class="lp-prep-text"><span class="lp-prep-label">' + esc(s.label) + '</span>' +
+        '<span class="lp-prep-note">' + esc(s.note) + '</span></span></div>';
+    }).join('');
+    host.hidden = false;
+
+    if (meta) {
+      meta.hidden = false;
+      $('study-prep-pct').textContent = pct + '%';
+      renderStudyPrepElapsed();
+    }
+    // What it is actually working from -- the question a privacy-minded
+    // student is really asking while they wait.
+    if (inputs) {
+      var slides = (LP.data.slides || []).length;
+      var segments = (LP.data.transcript || []).length;
+      var parts = [];
+      if (slides) parts.push(slides + (slides === 1 ? ' slide' : ' slides'));
+      if (segments) parts.push(segments + ' transcript segment' + (segments === 1 ? '' : 's'));
+      inputs.textContent = parts.length ? 'Working from ' + parts.join(' · ') : '';
+      inputs.hidden = !parts.length;
+    }
+  }
+
+  function hideStudyPrepStages() {
+    stopStudyPrepClock();
+    ['study-prep-stages', 'study-prep-meta', 'study-prep-inputs'].forEach(function (id) {
+      var el = $(id);
+      if (el) el.hidden = true;
+    });
+  }
+
   function renderStudyGenerationState() {
     var panel = $('study-generation-panel');
     if (!panel) return;
@@ -4207,15 +4308,20 @@
     var readyBadge = $('study-ready-status-badge');
     panel.dataset.studyStatus = status;
     panel.hidden = status === 'ready';
+    if (status === 'ready') hideStudyPrepStages();
     badge.textContent = status === 'failed' ? 'Needs attention' : status === 'basic' ? 'Basic' : 'Preparing';
     if (status === 'preparing') {
-      title.textContent = metadata.stage || 'Preparing your Study system';
-      detail.textContent = 'LecturePack is understanding the lecture and building grounded study material.';
+      // The stage name is the headline now -- it is the thing that actually
+      // changes, and burying it in a subtitle is what made this look frozen.
+      title.textContent = 'Building your study material';
+      detail.textContent = metadata.stage || 'Preparing your Study system';
       progressWrap.hidden = false;
       progressBar.style.transform = 'scaleX(' + (Math.max(0, Math.min(99, Number(metadata.progress_percent) || 0)) / 100) + ')';
+      renderStudyPrepStages(metadata);
       actions.hidden = true;
     } else if (status === 'failed') {
       var lastError = metadata.last_error || {};
+      hideStudyPrepStages();
       title.textContent = 'Study AI needs attention';
       detail.textContent = studyV2.loadError || lastError.message || 'Study AI could not finish. Retry, or continue with Basic Study.';
       progressWrap.hidden = true;
@@ -4224,6 +4330,7 @@
       copy.hidden = false;
       basic.hidden = false;
     } else if (status === 'basic') {
+      hideStudyPrepStages();
       title.textContent = 'Basic Study is active';
       detail.textContent = 'This lecture is using deterministic study material. Your sources and mastery still work.';
       progressWrap.hidden = true;

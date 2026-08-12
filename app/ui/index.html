@@ -367,6 +367,17 @@
           <div id="study-generation-progress-wrap" class="study-generation-progress">
             <div id="study-generation-progress-bar" class="study-generation-progress-bar"></div>
           </div>
+          <!-- The backend already emits seven named stages with real
+               percentages; the old panel showed one of them in a small title
+               and threw the rest away, which is why a working run read as
+               frozen. The elapsed clock is the cheapest honest anti-"stuck"
+               device: always moving, pure text, no animation (AD-20). -->
+          <div id="study-prep-meta" class="lp-prep-meta" hidden>
+            <span id="study-prep-pct">0%</span>
+            <span id="study-prep-elapsed"></span>
+          </div>
+          <div id="study-prep-stages" class="lp-prep-stages" hidden></div>
+          <div id="study-prep-inputs" class="lp-prep-inputs" hidden></div>
           <div id="study-generation-actions" class="study-generation-actions" hidden>
             <button id="btn-study-ai-retry" class="lp-hit lp-press">Retry</button>
             <button id="btn-study-copy-diagnostics" class="lp-hit">Copy diagnostics</button>
