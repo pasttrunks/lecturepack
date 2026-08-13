@@ -372,7 +372,14 @@ def _grounding(raw: dict[str, Any], segments: list, slides: list,
         raw.get("lecture_sources", raw.get("sources")), segments, slides)
     web = _validated_web_sources(
         raw.get("web_sources"), allowed_urls=allowed_web_urls)
-    if not lecture:
+    # Inheriting the concept's citations when the model returned none is right
+    # for material the lecture DID cover -- but not when the model has just told
+    # us the answer came from its own knowledge. Borrowing them there produced
+    # answers like "not mentioned in the provided lecture context" stamped with
+    # three "From lecture · Slide" chips: a citation for a claim no lecture
+    # source supports. Honour the declaration instead.
+    declared = str(raw.get("provenance") or "").lower()
+    if not lecture and declared != "extra_context":
         lecture = list(inherited.get("lecture_sources") or inherited.get("sources") or [])
     if not web:
         web = list(inherited.get("web_sources") or [])

@@ -4934,14 +4934,27 @@
     feed.scrollTop = feed.scrollHeight;
   }
 
-  function appendStudyAskSources(sources) {
-    if (!studyV2.askAnswer || !Array.isArray(sources) || !sources.length) return;
+  function appendStudyAskSources(sources, provenance) {
+    if (!studyV2.askAnswer || !Array.isArray(sources)) return;
+    // Ask may answer a question about the lecture's subject that the lecture
+    // itself never covers (a date, who someone was). That answer honestly has
+    // no lecture source, so it arrives with an empty list. Say where it came
+    // from rather than rendering nothing -- and never borrow a lecture chip.
+    var beyond = !sources.length && String(provenance || '') === 'extra_context';
+    if (!sources.length && !beyond) return;
     var feed = $('study-ask-feed');
     var answers = feed && feed.querySelectorAll('.study-ask-answer');
     var answer = answers && answers.length ? answers[answers.length - 1] : null;
     if (!answer) return;
     var wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-top:9px';
+    if (beyond) {
+      var note = document.createElement('span');
+      note.className = 'study-source-beyond';
+      note.textContent = 'Beyond this lecture · general knowledge';
+      note.title = 'This lecture does not cover it, so this answer is not cited to a slide or transcript line.';
+      wrap.appendChild(note);
+    }
     sources.forEach(function (source) {
       if (source && (source.kind === 'web' || source.url)) {
         var link = document.createElement('a');
@@ -7841,7 +7854,8 @@
     lpBridge.on('ai_sources', function (json) {
       var payload = parseBridgePayload(json, null);
       if (payload && payload.job && payload.job !== LP.state.jobId) return;
-      appendStudyAskSources(payload && payload.sources ? payload.sources : []);
+      appendStudyAskSources(payload && payload.sources ? payload.sources : [],
+        payload ? payload.provenance : '');
     });
     lpBridge.on('study_generation', function (json) {
       var payload = parseBridgePayload(json, null);

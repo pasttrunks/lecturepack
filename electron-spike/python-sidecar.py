@@ -3157,6 +3157,10 @@ class Sidecar:
                 self._emit({
                     "event": "ai_sources", "job": job.job_id,
                     "sources": lecture_sources + web_sources,
+                    # An answer the lecture does not cover carries no lecture
+                    # sources by design. Pass the declaration through so the UI
+                    # can say where it came from instead of showing nothing.
+                    "provenance": str(result.get("provenance") or ""),
                 })
                 self._emit({"event": "ai_done", "job": job.job_id})
                 self._emit({"event": "ai_status", "job": job.job_id,

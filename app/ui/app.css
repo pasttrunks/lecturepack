@@ -1024,6 +1024,12 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 .study-provenance-badge[data-provenance="lecture"]{color:var(--blue-ink);background:var(--blue-soft);border-color:var(--blue)}
 .study-provenance-badge[data-provenance="web"]{color:var(--green);background:var(--green-soft);border-color:var(--green)}
 .study-web-source{font:600 11px 'JetBrains Mono';color:var(--green);text-decoration:none;border-bottom:1px solid currentColor}
+/* Deliberately NOT blue/green: a background answer must not read as a lecture
+   or web citation at a glance. Muted and dashed says "real answer, no source
+   in your lecture" without dressing itself up as evidence. */
+.study-source-beyond{
+  font:600 11px 'JetBrains Mono';border:1.5px dashed var(--border);border-radius:6px;
+  padding:3px 8px;color:var(--muted);background:var(--panel)}
 .study-guide-section{background:var(--sunk);border:1.5px solid var(--line);border-radius:10px;padding:14px 16px}
 .study-guide-section h3{font-size:14px;margin:0 0 7px}
 .study-guide-section p{font-size:13px;line-height:1.55;color:var(--secondary-text);margin:0}
