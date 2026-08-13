@@ -1811,23 +1811,29 @@
       list.innerHTML = '<div style="font:500 12px \'JetBrains Mono\';color:var(--muted);padding:12px 2px">No jobs waiting.</div>';
       return;
     }
+    // The queue was one full-width row per job, so five queued lectures filled
+    // the viewport in a straight line. It is now the same auto-filling grid the
+    // library uses. A wrapping grid only keeps its order if the order is
+    // written down, so the position moves onto the thumbnail as a badge and
+    // reading order stays row-major.
     list.innerHTML = q.map(function (row, i) {
       var job = _jobById(row.id) || { id: row.id, preset: 'balanced', product_mode: 'study_pack' };
-      var qbtn = function (act, label, disabled) {
-        return '<button class="lp-hit" data-queueact="' + act + '" data-queueid="' + esc(row.id) + '"' +
-          (disabled ? ' disabled style="opacity:.4;' : ' style="') +
-          'font:600 11px \'Space Grotesk\';border-radius:7px;padding:6px 10px;cursor:pointer;background:var(--panel);border:1.5px solid var(--border);color:var(--ink)">' + label + '</button>';
+      var qbtn = function (act, glyph, label, disabled) {
+        return '<button class="lp-hit' + (act === 'remove' ? ' q-rm' : '') + '" data-queueact="' + act +
+          '" data-queueid="' + esc(row.id) + '" title="' + esc(label) + '" aria-label="' + esc(label) + '"' +
+          (disabled ? ' disabled' : '') + '>' + glyph + '</button>';
       };
-      return '<div class="lp-anim-in" style="display:flex;align-items:center;gap:12px;background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px">' +
-        '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted);min-width:22px">' + (i + 1) + '</span>' +
-        '<div style="width:96px;height:54px;flex:none;background:var(--sunk);border:1.5px solid var(--line);border-radius:8px;position:relative;overflow:hidden">' + posterHtml(job) + '</div>' +
-        '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13.5px;margin-bottom:2px">' + esc(_jobName(row.id)) + '</div>' +
-        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(_optionsLabel(job)) + ' · Queued</div></div>' +
-        '<div style="display:flex;gap:6px">' +
-          qbtn('up', 'Move up', i === 0) +
-          qbtn('down', 'Move down', i === q.length - 1) +
-          qbtn('remove', 'Remove', false) +
-        '</div></div>';
+      return '<div class="q-card">' +
+        '<div class="q-thumb">' + posterHtml(job) +
+        '<span class="q-pos" aria-hidden="true">' + (i + 1) + '</span></div>' +
+        '<div class="q-body">' +
+        '<div class="q-title">' + esc(_jobName(row.id)) + '</div>' +
+        '<div class="q-meta">' + esc(_optionsLabel(job)) + ' · Queued</div>' +
+        '<div class="q-actions">' +
+          qbtn('up', '&#8593;', 'Move up', i === 0) +
+          qbtn('down', '&#8595;', 'Move down', i === q.length - 1) +
+          qbtn('remove', '&#10005;', 'Remove from queue', false) +
+        '</div></div></div>';
     }).join('');
   }
   function renderScheduled() {
@@ -1860,7 +1866,7 @@
       var selectBar = $('jobs-selectbar');
       if (selectBar) selectBar.hidden = true;
     }
-    g.style.display = 'flex'; g.style.flexDirection = 'column'; g.style.gap = '26px';
+    g.style.display = 'flex'; g.style.flexDirection = 'column'; g.style.gap = '16px';
     g.style.gridTemplateColumns = 'none';
     var groups = {}, order = [];
     LP.data.jobs.forEach(function (j) {
@@ -1869,13 +1875,17 @@
       groups[k].push(j);
     });
     order.sort(function (a, b) { return String(a).localeCompare(String(b)); });
-    var single = order.length <= 1;
+    // Every group is a bordered container with a persistent header. The old
+    // build suppressed the header whenever there was only one group, which is
+    // the common case -- so grouping was invisible exactly when a student was
+    // first learning that lectures HAVE groups. The card grid auto-fills
+    // instead of being pinned to three columns at every window width.
     g.innerHTML = order.map(function (k) {
-      var cards = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px">' +
-        groups[k].map(_jobCardHtml).join('') + '</div>';
-      var header = single ? '' :
-        '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px"><span style="font:700 14px \'Space Grotesk\'">' + esc(k) + '</span><span style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + groups[k].length + '</span></div>';
-      return '<div>' + header + cards + '</div>';
+      return '<section class="lib-group" aria-label="' + esc(k) + '">' +
+        '<div class="lib-group-head"><span class="lib-group-code">' + esc(k) + '</span>' +
+        '<span class="lib-group-count">' + groups[k].length +
+        (groups[k].length === 1 ? ' lecture' : ' lectures') + '</span></div>' +
+        '<div class="lib-grid">' + groups[k].map(_jobCardHtml).join('') + '</div></section>';
     }).join('');
     $('jobs-count').textContent = LP.data.jobs.length;
     renderContinueCard();

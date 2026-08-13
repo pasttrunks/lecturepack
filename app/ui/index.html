@@ -122,7 +122,9 @@
 
         <div id="home-queue" hidden style="margin-bottom:26px">
           <div style="display:flex;align-items:baseline;gap:11px;margin-bottom:14px"><h2 style="font:500 12px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;margin:0;color:var(--ink)">Processing queue</h2><span id="queue-count" style="font:500 12px 'JetBrains Mono';color:var(--muted)"></span></div>
-          <div id="queue-list" style="display:flex;flex-direction:column;gap:8px"></div>
+          <!-- Auto-filling grid, not one row per job: see .lib-grid in app.css.
+               The inline flex column here used to override the stylesheet. -->
+          <div id="queue-list" class="lib-grid" style="padding:0"></div>
         </div>
         <div id="home-scheduled" hidden style="margin-bottom:26px">
           <div style="display:flex;align-items:baseline;gap:11px;margin-bottom:14px"><h2 style="font:500 12px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;margin:0;color:var(--ink)">Scheduled</h2></div>

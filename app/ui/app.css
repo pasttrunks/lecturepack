@@ -775,6 +775,84 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 .lp-drag-ghost{position:fixed;left:-10000px;top:-10000px;z-index:300;padding:9px 12px;border:2px solid var(--orange);border-radius:9px;background:var(--panel);color:var(--ink);box-shadow:var(--shadow-hi);font:700 12px 'Space Grotesk';white-space:nowrap}
 .lp-card.lp-dragging{opacity:.58;cursor:grabbing}
 #process-queue-target.lp-existing-drop-hover,[data-nav="process"].lp-existing-drop-hover{outline:3px solid var(--orange);outline-offset:-6px;background:var(--orange-soft)}
+/* --- Home library: group containers + adaptive density ---------------------
+   Two complaints, one layout. Recent lectures were a hard-coded
+   `repeat(3,1fr)` regardless of window width, and the queue was one full-width
+   row per job, so a handful of lectures filled the screen "in a straight line".
+   Grouping was invisible because the group header was suppressed entirely
+   whenever there was only one group, leaving a bare run of cards.
+
+   A group is now a BOX, not a heading above a run: a 2px border, a filled
+   header bar, and a body ground (--panel2) beneath --panel cards. Two groups
+   always have both a border and a colour change between them. The queue is the
+   same container with an orange header, so it reads as part of one library.
+
+   AD-20 safe: no transition, animation, will-change or filter anywhere here. */
+.lib-group{border:2px solid var(--border);border-radius:10px;background:var(--panel2);overflow:hidden}
+.lib-group + .lib-group{margin-top:16px}
+.lib-group-head{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:10px;
+  padding:9px 12px;background:var(--sunk);border-bottom:2px solid var(--border)}
+/* The course code is ALWAYS rendered, including the single-group case the old
+   build hid -- that is what made grouping invisible in the common case. */
+.lib-group-code{font:700 11px 'JetBrains Mono';letter-spacing:.08em;padding:3px 7px;
+  border:1.5px solid var(--border);border-radius:6px;background:var(--panel);color:var(--ink)}
+.lib-group-count{font:500 11px 'JetBrains Mono';color:var(--muted);margin-left:auto;flex:none}
+.lib-group[data-kind="queue"] .lib-group-head{background:var(--orange-soft);border-bottom-color:var(--orange)}
+.lib-group[data-kind="queue"] .lib-group-code{border-color:var(--orange);color:var(--orange-ink)}
+/* One adaptive rule for 640 -> 1920, no named modes. 200px is the floor at
+   which a 16:9 thumbnail still tells you what the lecture is; tracks stretch
+   past it via 1fr, so wide windows get MORE cards rather than bigger ones.
+   min(100%,...) is what prevents horizontal overflow at 640px.
+
+   Deliberately a fixed length, not a vw expression. A viewport-relative floor
+   was tried and measured backwards: this grid sits in a container capped near
+   1048px, so at 1920 the vw term inflated the minimum to 260px and produced
+   THREE columns, while a 1280 window produced four. Card size must follow the
+   container it is in, and 1fr already does that. Measured in Chromium, window
+   width -> container -> columns x card width:
+     1920/1600 -> 1048 -> 4 x 247    1280 -> 964 -> 4 x 226
+     1024      ->  708 -> 3 x 220     640 -> 388 -> 1 x 368
+   The container is capped near 1048px by the page shell, so 1920 and 1600 land
+   in the same place; widening that cap is the next lever if more columns are
+   wanted. */
+.lib-grid{--card:200px;display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--card)),1fr));
+  grid-auto-rows:max-content;gap:12px;padding:12px;align-content:start}
+/* Queue card: same track sizing as the library, so a card is the same size
+   wherever it appears. Order stays legible in a wrapping grid because the
+   position is written on the thumbnail; reading order is row-major. */
+.q-card{position:relative;min-width:0;display:flex;flex-direction:column;box-sizing:border-box;
+  border:2px solid var(--line);border-radius:8px;background:var(--panel);overflow:hidden}
+.q-thumb{position:relative;width:100%;aspect-ratio:16/9;flex:0 0 auto;overflow:hidden;
+  background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center}
+.q-thumb img{width:100%;height:100%;object-fit:contain;display:block}
+.q-pos{position:absolute;left:5px;top:5px;min-width:22px;height:22px;display:grid;place-items:center;
+  padding:0 5px;box-sizing:border-box;font:700 11px 'JetBrains Mono';border:1.5px solid var(--border);
+  /* --on-signal, not a hardcoded ink: the dark theme redefines it, so a
+     literal #1C1A16 would go illegible on the orange badge there. */
+  border-radius:6px;background:var(--orange);color:var(--on-signal)}
+.q-body{display:flex;flex-direction:column;gap:6px;padding:8px 9px 9px;flex:1 1 auto;min-width:0}
+.q-title{font:600 13px 'Space Grotesk';line-height:1.3;color:var(--ink);margin:0;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;min-height:2.6em}
+.q-meta{font:500 10px 'JetBrains Mono';color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Explicit reorder controls stay beside drag -- drag is never the only path --
+   and are disabled at the ends rather than hidden, so they never shift. */
+.q-actions{display:flex;align-items:center;gap:4px;margin-top:auto;padding-top:2px}
+.q-actions button{min-width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;
+  padding:0 7px;box-sizing:border-box;font:600 11px 'Space Grotesk';line-height:1;
+  border:1.5px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);cursor:pointer}
+.q-actions button:hover:not([disabled]){background:var(--sunk);border-color:var(--border)}
+/* Blue, matching the app-wide focus convention. Orange is a signal colour and
+   must not double as a focus ring, or focus and "queued" read the same. */
+.q-actions button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.q-actions button[disabled]{color:var(--muted);background:var(--panel2);cursor:default}
+.q-actions .q-rm{margin-left:auto}
+.q-actions .q-rm:hover{background:var(--red-soft);border-color:var(--red);color:var(--red)}
+@media (max-width:860px){
+  .lib-grid{gap:10px;padding:10px}
+  .lib-group-name{display:none}
+}
+
 .lp-slide-rail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}
 #btn-all-slides{font:600 10px 'JetBrains Mono';padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;background:var(--panel);color:var(--ink);cursor:pointer;white-space:nowrap}
 /* --- slide rail card -------------------------------------------------------
