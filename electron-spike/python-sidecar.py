@@ -1113,11 +1113,29 @@ class Sidecar:
             dst = root / "poster.webp"
             if dst.is_file():
                 return
+            # Seek in before grabbing the frame. Taking frame ZERO produced a
+            # solid black thumbnail for most real lectures, because recordings
+            # and downloaded videos almost always fade in from black or open on
+            # a title card -- four of five cards in a reported queue were black
+            # rectangles. The poster was being generated correctly; it was just
+            # a picture of nothing.
+            #
+            # 10% in (clamped to 2-30s) lands in real content on both a 90
+            # second clip and a two hour lecture, and the `thumbnail` filter
+            # then picks the most representative frame of the batch that
+            # follows, so a fade or a cut-to-black at that exact instant does
+            # not win either.
+            duration = 0.0
+            try:
+                duration = float((getattr(job, "source", None) or {}).get("duration", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                duration = 0.0
+            offset = min(30.0, max(2.0, duration * 0.10)) if duration > 0 else 3.0
             process = QProcess()
             process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
             process.start(ffmpeg, [
-                "-y", "-i", str(source), "-frames:v", "1",
-                "-vf", "scale=320:-2", "-f", "webp", str(dst),
+                "-y", "-ss", f"{offset:.2f}", "-i", str(source), "-frames:v", "1",
+                "-vf", "thumbnail,scale=320:-2", "-f", "webp", str(dst),
             ])
             if not process.waitForFinished(30000):
                 process.kill()

@@ -57,27 +57,44 @@ def test_the_renderer_corrects_its_optimistic_toast_on_failure():
 
 # ------------------------------------------------------------- pack richness
 
-def test_the_generator_is_asked_for_a_pack_sized_to_the_lecture():
-    instruction = TASKS_JS.split("  study_material_generation: '", 1)[1]
-    instruction = instruction.split("',\n", 1)[0]
-    lowered = instruction.lower()
-    # A per-concept target, not a floor of two.
-    assert "per concept" in lowered
-    assert "bare minimum" in lowered
-    # Padding is worse than a short pack -- both must be stated.
-    assert "never pad" in lowered
-    assert "return fewer" in lowered
-    # And it must not be allowed to blow the token ceiling into invalid JSON.
-    assert "truncated" in lowered
+def test_the_generation_ceiling_stays_inside_the_route_time_budget():
+    """A regression guard, written after this broke Study AI in production.
 
+    Asking for ~3 flashcards and 2 quiz questions per concept at a 16000-token
+    ceiling made generation exceed the 50s NVIDIA budget: provider_timeout on
+    the primary route, then provider_invalid_shape from a truncated object on
+    both fallbacks, and study_material_generation failed with HTTP 503.
 
-def test_the_output_ceiling_leaves_room_for_the_larger_pack():
+    routeTimeouts() is a fixed budget, not a soft limit -- 50 + 65 + 45 is a
+    160s three-route worst case inside the desktop client's 175s deadline, so
+    there is no headroom to absorb a bigger generation and the timeouts cannot
+    be raised to make room. Asking for more content in the same call is the
+    wrong shape of fix. Raising this number requires re-deriving that budget.
+    """
     ceiling = re.search(
         r"if \(task === 'study_material_generation'\) return (\d+);", TASKS_JS)
     assert ceiling is not None
-    assert int(ceiling.group(1)) >= 16000, (
-        "a 20-card / 16-question pack does not fit the old 12k ceiling"
+    assert int(ceiling.group(1)) <= 12000, (
+        "raising the generation ceiling alone times the primary route out"
     )
+
+    budget = TASKS_JS  # the comment must survive as the reason, not just the value
+    assert "provider_timeout" in budget and "routeTimeouts" in budget, (
+        "keep the why next to the number, or it gets raised again"
+    )
+
+
+def test_the_generator_prefers_a_short_pack_to_truncated_json():
+    instruction = TASKS_JS.split("  study_material_generation: '", 1)[1]
+    instruction = instruction.split("',\n", 1)[0]
+    lowered = instruction.lower()
+    assert "return fewer items" in lowered
+    assert "truncated" in lowered
+    # It must NOT be pushed toward volume again without the budget work.
+    for pushy in ("per concept", "bare minimum", "roughly 20"):
+        assert pushy not in lowered, (
+            f"'{pushy}' pushes generation past the 50s route budget"
+        )
 
 
 def test_difficulty_is_spread_so_the_filter_has_something_to_filter():

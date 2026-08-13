@@ -8354,14 +8354,24 @@
   })();
 
   function importDroppedFiles(files) {
-    if (!files || !files.length || importingFile) return;
+    if (importingFile) return;
+    // A drop that carries NO file at all used to return in silence, so the
+    // window simply swallowed it and the feature read as completely broken.
+    // Windows delivers nothing when the drag starts from a virtual shell view
+    // -- Explorer's Home/Recent list, "Gallery", or a cloud placeholder that is
+    // not downloaded -- because those entries have no real path to hand over.
+    // Say so, and name the way out.
+    if (!files || !files.length) {
+      toast('That drop did not include a file. Dragging from Explorer’s Home or Recent list often sends nothing — open the real folder, or use Browse for video.');
+      return;
+    }
     var paths = [];
     for (var i = 0; i < files.length; i++) {
       var path = lpBridge.pathForFile ? lpBridge.pathForFile(files[i]) : '';
       if (path) paths.push(path);
     }
     if (!paths.length) {
-      toast('LecturePack could not access those files. Try Browse for video.');
+      toast('LecturePack could not read a path for those files. If they came from Explorer’s Home or Recent list, open the real folder instead, or use Browse for video.');
       return;
     }
     if (!lpBridge.connected()) {
