@@ -84,7 +84,8 @@ def test_demo_uses_authoritative_eligibility_and_self_contained_screen() -> None
     assert "openDemo(1)" in replay
     assert "runDemoForReal" not in replay
     empty_action = function_block(JS, "$('btn-load-jobs').addEventListener", "var ONB_ACTIVE_STYLE")
-    assert "openDemo(demoState().chapter || 1)" in empty_action
+    assert "var savedDemo = demoState()" in empty_action
+    assert "savedDemo.completed === true ? 1 : (savedDemo.chapter || 1)" in empty_action
     assert "runDemoForReal" not in empty_action
 
 

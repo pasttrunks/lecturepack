@@ -169,7 +169,11 @@ def test_packaged_source_has_no_personal_developer_paths():
     assert "const engine =" not in package_script
     assert "const sidecar =" not in package_script
     assert "const license = path.join(repoRoot, 'LICENSE');" in package_script
+    assert "const guidedDemoAssets = path.join(repoRoot, 'app', 'assets', 'demo');" in package_script
     assert "extraResource: [uiDir, packagedSidecar, demoAssets, icon, license]" in package_script
+    assert "afterCopyExtraResources: [async ({ buildPath }) =>" in package_script
+    assert "path.join(buildPath, 'resources', 'assets', 'demo')" in package_script
+    assert "path.basename(source) !== 'demo_lecture.mp4'" in package_script
     assert "const productionAsarFiles = new Set([" in package_script
     assert "return !productionAsarFiles.has(relative);" in package_script
 
@@ -191,6 +195,21 @@ def test_stable_release_gate_covers_new_guided_handoff_and_normal_auto_export():
 
     assert 'self.click("#btn-runtime-done")' in gate
     assert 'app.click("#glowing-demo-card")' in gate
+    assert '"guided_demo_prebaked_content"' in gate
+    assert "hero.naturalWidth>0" in gate
+    assert "fallback.length===0" in gate
+    assert 'for screen in ("demo", "home", "review", "study")' in gate
+    assert 'app.click("#btn-replay-tour")' in gate
+    assert 'app.evaluate("openDemo(4)")' not in gate
+    assert "criticalOutOfView" in gate
+    assert "'glowing-demo-card':'btn-load-jobs'" in gate
+    assert "homeNeedsDemoAction" in gate
+    assert "const jobsEmpty=" in gate
+    assert 'app.resize(1024, 720)' in gate
+    assert '"first_run_demo_action_visible"' in gate
+    assert '"completed_tour_demo_action_visible"' in gate
+    assert '"guided_demo_footer_settled"' in gate
+    assert "settled footer after guided demo cleanup" in gate
     assert 'app.click("#btn-demo-run")' in gate
     assert "guided_demo_review_ready" in gate
     assert 'LP.state.screen === \'review\'' in gate
@@ -206,6 +225,17 @@ def test_stable_release_gate_covers_new_guided_handoff_and_normal_auto_export():
     assert '["taskkill.exe", "/PID", str(self.proc.pid), "/T", "/F"]' in gate
     assert "d.status==='running'" in gate
     assert "d.legacy_status==='downloading'" in gate
+
+
+def test_release_builder_requires_every_guided_demo_runtime_asset():
+    build = (ROOT / "scripts" / "build_electron_release.py").read_text(encoding="utf-8")
+    for relative in (
+        '"resources" / "assets" / "demo" / "demo.data.js"',
+        '"resources" / "assets" / "demo" / "hero.png"',
+        '"resources" / "assets" / "demo" / "slide_01.png"',
+        '"resources" / "assets" / "demo" / "slide_02.png"',
+    ):
+        assert relative in build
 
 
 def test_paste_link_remains_visible_and_disabled_when_yt_dlp_is_unavailable():

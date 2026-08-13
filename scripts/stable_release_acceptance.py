@@ -272,13 +272,22 @@ class PackagedApp:
             "const clippedHeader=controls.filter(el=>{const r=el.getBoundingClientRect();return r.left<-1||r.right>window.innerWidth+1||r.width<30}).map(el=>el.id);"
             "const mr=main.getBoundingClientRect();"
             "const clippedScreen=active?Array.from(active.querySelectorAll('button,a,input,textarea,select,[role=button]')).filter(shown).filter(el=>{const r=el.getBoundingClientRect();return r.left<mr.left-2||r.right>mr.right+2}).map(el=>el.id||el.textContent.trim().slice(0,50)).slice(0,25):[];"
+            "const screen=window.LP&&LP.state?LP.state.screen:'';"
+            "const homeDemo=document.getElementById('home-demo'),homeEmpty=document.getElementById('home-empty'),"
+            "demoCard=document.getElementById('glowing-demo-card');"
+            "const jobsEmpty=!(window.LP&&LP.data&&(LP.data.jobs||[]).length);"
+            "const homeNeedsDemoAction=screen==='home'&&jobsEmpty&&(shown(homeDemo)||shown(homeEmpty));"
+            "const criticalIds=homeNeedsDemoAction&&window.innerWidth>=1000&&window.innerHeight>=650?"
+            "[shown(demoCard)?'glowing-demo-card':'btn-load-jobs']:[];"
+            "const visibleBottom=footer?footer.getBoundingClientRect().top:window.innerHeight;"
+            "const criticalOutOfView=criticalIds.map(id=>document.getElementById(id)).filter(el=>{if(!shown(el))return true;const r=el.getBoundingClientRect();return r.top<mr.top-2||r.bottom>visibleBottom+2}).map(el=>el&&el.id||'missing');"
             "return {viewport:{width:window.innerWidth,height:window.innerHeight},screen:window.LP&&LP.state?LP.state.screen:'',"
             "document:{clientWidth:document.documentElement.clientWidth,scrollWidth:document.documentElement.scrollWidth},"
             "header:{clientWidth:header.clientWidth,scrollWidth:header.scrollWidth,rect:rect(header)},"
             "main:{clientWidth:main.clientWidth,scrollWidth:main.scrollWidth,rect:rect(main)},"
             "active:active?{clientWidth:active.clientWidth,scrollWidth:active.scrollWidth,rect:rect(active)}:null,"
             "footer:footer?{clientWidth:footer.clientWidth,scrollWidth:footer.scrollWidth,rect:rect(footer)}:null,"
-            "clippedHeader:clippedHeader,clippedScreen:clippedScreen,dialogs:Array.from(document.querySelectorAll('[role=dialog],.lp-scrim')).filter(shown).map(el=>el.id||el.tagName)};"
+            "clippedHeader:clippedHeader,clippedScreen:clippedScreen,criticalIds:criticalIds,criticalOutOfView:criticalOutOfView,dialogs:Array.from(document.querySelectorAll('[role=dialog],.lp-scrim')).filter(shown).map(el=>el.id||el.tagName)};"
             "})()"
         )
 
@@ -369,6 +378,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         home = screenshots / "01-home.png"
         app.screenshot(home)
         result["screenshots"].append(str(home))
+        first_run_rect = _window_rect(app.hwnd)
+        first_run_size = [first_run_rect[2] - first_run_rect[0], first_run_rect[3] - first_run_rect[1]]
+        app.resize(1024, 720)
+        first_run_layout = app.layout_metrics()
+        first_run_shot = screenshots / "01a-first-run-1024x720.png"
+        app.screenshot(first_run_shot)
+        result["screenshots"].append(str(first_run_shot))
+        app.resize(*first_run_size)
+        check(
+            "first_run_demo_action_visible",
+            bool(first_run_layout.get("criticalIds"))
+            and not first_run_layout.get("criticalOutOfView"),
+            first_run_layout,
+        )
 
         # The rebuilt guided demo deliberately stops at Review Ready so the
         # student can keep/reject slides before exporting.  Prove that parked
@@ -384,6 +407,24 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         existing_job_ids = app.evaluate("LP.data.jobs.map(j=>j&&j.id).filter(Boolean)") or []
         app.click("#glowing-demo-card")
         app.wait_js("LP.state.screen === 'demo'", "guided demo screen", timeout=15)
+        prebaked_demo = app.wait_js(
+            "(() => { const d=window.LP_DEMO_DATA, hero=document.getElementById('demo-hero'),"
+            "slides=Array.from(document.querySelectorAll('#demo-slides img'))," "lines=document.querySelectorAll('#demo-transcript .lp-demo-line'),"
+            "opts=document.querySelectorAll('#demo-quiz-opts .lp-demo-opt'),"
+            "fallback=document.querySelectorAll('[data-screen=demo] .lp-demo-fallback');"
+            "const ok=d&&d.source&&Array.isArray(d.slides)&&d.slides.length>=2&&"
+            "Array.isArray(d.lines)&&d.lines.length>=2&&d.card&&d.card.q&&d.quiz&&d.quiz.q&&"
+            "Array.isArray(d.quiz.options)&&d.quiz.options.length>=2&&fallback.length===0&&"
+            "hero&&hero.complete&&hero.naturalWidth>0&&slides.length===d.slides.length&&"
+            "slides.every(img=>img.complete&&img.naturalWidth>0)&&lines.length===d.lines.length&&"
+            "opts.length===d.quiz.options.length&&"
+            "document.getElementById('demo-card-face').textContent.trim().length>0;"
+            "return ok?{source:d.source.name,slides:slides.length,lines:lines.length,"
+            "quiz_options:opts.length,hero_width:hero.naturalWidth,fallbacks:fallback.length}:null; })()",
+            "complete pre-baked guided demo",
+            timeout=15,
+        )
+        check("guided_demo_prebaked_content", True, prebaked_demo)
         for _chapter in range(4):
             app.click("#btn-demo-next")
         app.wait_js(
@@ -437,6 +478,31 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             timeout=45,
         )
         check("guided_demo_cleanup", True, {"job_id": guided_job_id})
+        guided_footer = app.wait_js(
+            "(() => { const state=(document.getElementById('status-state')||{}).textContent||'',"
+            "right=(document.getElementById('status-right')||{}).textContent||'',"
+            "job=document.getElementById('status-job');"
+            "return state.trim().toLowerCase()==='idle'&&job&&job.hidden&&"
+            "!/(processing|transcrib|detect|extract|prepar)/i.test(right)?"
+            "{state:state.trim(),right:right.trim(),job_hidden:job.hidden}:null; })()",
+            "settled footer after guided demo cleanup",
+            timeout=15,
+        )
+        check("guided_demo_footer_settled", True, guided_footer)
+        completed_empty_rect = _window_rect(app.hwnd)
+        completed_empty_size = [completed_empty_rect[2] - completed_empty_rect[0], completed_empty_rect[3] - completed_empty_rect[1]]
+        app.resize(1024, 720)
+        completed_empty_layout = app.layout_metrics()
+        completed_empty_shot = screenshots / "01c-completed-tour-empty-1024x720.png"
+        app.screenshot(completed_empty_shot)
+        result["screenshots"].append(str(completed_empty_shot))
+        app.resize(*completed_empty_size)
+        check(
+            "completed_tour_demo_action_visible",
+            bool(completed_empty_layout.get("criticalIds"))
+            and not completed_empty_layout.get("criticalOutOfView"),
+            completed_empty_layout,
+        )
 
         imported = app.request("import_paths", {"paths": [str(demo)]})
         imported_jobs = (imported or {}).get("jobs") or []
@@ -570,8 +636,24 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         responsive: list[dict[str, Any]] = []
         for width, height in ((640, 480), (820, 600), (1024, 720)):
             size_result = app.resize(width, height)
-            for screen in ("home", "review", "study"):
-                app.screen(screen)
+            for screen in ("demo", "home", "review", "study"):
+                if screen == "demo":
+                    # Enter through the shipped replay control.  Renderer
+                    # internals live inside an IIFE and are intentionally not
+                    # a CDP/global API; exercising the real Settings action
+                    # also verifies that a completed tour can be replayed.
+                    app.screen("settings")
+                    app.click("#btn-replay-tour")
+                    app.wait_js("LP.state.screen === 'demo'", "responsive demo screen", timeout=15)
+                    for _chapter in range(3):
+                        app.click("#btn-demo-next")
+                    app.wait_js(
+                        "!document.querySelector('[data-screen=demo] [data-ch=\"4\"]').hidden",
+                        "responsive demo Study chapter",
+                        timeout=15,
+                    )
+                else:
+                    app.screen(screen)
                 time.sleep(0.25)
                 metrics = app.layout_metrics()
                 horizontal_ok = all(
@@ -588,6 +670,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     horizontal_ok
                     and not metrics.get("clippedHeader")
                     and not metrics.get("clippedScreen")
+                    and not metrics.get("criticalOutOfView")
                     and not metrics.get("dialogs")
                 )
                 shot = screenshots / f"08-responsive-{width}x{height}-{screen}.png"

@@ -9,6 +9,7 @@ const buildRoot = process.env.LECTUREPACK_BUILD_ROOT
   ? path.resolve(process.env.LECTUREPACK_BUILD_ROOT)
   : spikeRoot;
 const uiDir = path.join(repoRoot, 'app', 'ui');
+const guidedDemoAssets = path.join(repoRoot, 'app', 'assets', 'demo');
 const packagedSidecar = path.join(buildRoot, 'dist-sidecar', 'LecturePackSidecar');
 const demoAssets = path.join(spikeRoot, 'assets');
 const icon = path.join(repoRoot, 'app', 'packaging', 'lecturepack.ico');
@@ -23,7 +24,7 @@ const productionAsarFiles = new Set([
   'updater.js'
 ]);
 
-for (const required of [uiDir, packagedSidecar, demoAssets, icon, license]) {
+for (const required of [uiDir, guidedDemoAssets, packagedSidecar, demoAssets, icon, license]) {
   if (!pathExists(required)) throw new Error(`Required Electron package input is missing: ${required}`);
 }
 
@@ -82,7 +83,21 @@ const output = await packager({
   },
   // Keep the disposable acceptance demo outside app.asar so the documented
   // packaged gate can pass it to the sidecar as resources/assets/demo-lecture.mp4.
-  extraResource: [uiDir, packagedSidecar, demoAssets, icon, license]
+  extraResource: [uiDir, packagedSidecar, demoAssets, icon, license],
+  afterCopyExtraResources: [async ({ buildPath }) => {
+    // index.html is copied to resources/ui and resolves its self-contained
+    // walkthrough from ../assets/demo/. Electron Packager flattens every
+    // extraResource to its basename, so adding app/assets/demo directly would
+    // incorrectly produce resources/demo/. Copy it to the exact renderer
+    // contract instead. The live processing video already ships once at
+    // resources/assets/demo-lecture.mp4 and is deliberately excluded here.
+    const destination = path.join(buildPath, 'resources', 'assets', 'demo');
+    await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+    await fs.promises.cp(guidedDemoAssets, destination, {
+      recursive: true,
+      filter: (source) => path.basename(source) !== 'demo_lecture.mp4'
+    });
+  }]
 });
 
 // LecturePack's production UI is English-only. Electron Packager copies every

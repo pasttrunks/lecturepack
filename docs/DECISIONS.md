@@ -2,6 +2,62 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-53: Guided-demo output and its recovery UI are exact packaged contracts
+
+**Date:** 2026-08-12
+
+**Status:** Implemented and packaged-accepted
+
+**Context:** The guided tour worked from source and its five navigation steps
+passed the packaged acceptance gate, but the Windows package contained only the
+demo video and thumbnail. The renderer loads the prebuilt tour from
+`resources/assets/demo`; its data module, hero, and slide images instead lived
+under `app/assets/demo` and were never copied there. Every chapter silently
+fell back to “preview unavailable,” yet the gate remained green because it
+only tested navigation. Subsequent visual inspection also found three recovery
+states that functional checks missed: the completed-tour fallback action could
+sit below a 1024x720 viewport, quiz correctness was conveyed only by color, and
+demo cleanup could leave `Idle` beside a stale `Detecting slides` footer label.
+
+**Decision:** Treat the guided-demo output as release payload, not optional
+decoration:
+
+- The Electron packager copies the curated data module, hero, slides,
+  thumbnail, and provenance file to the renderer's exact
+  `resources/assets/demo` path. The separately packaged canonical demo video
+  is excluded from that copy.
+- Release validation fails before artifact publication if any required guided
+  asset is absent. Packaged acceptance requires the real data object, decoded
+  hero/slides (`naturalWidth > 0`), transcript rows, flashcard copy, quiz
+  options, and zero degraded fallbacks.
+- The responsive gate enters the tour through Settings' shipped Replay action,
+  never through a private renderer function. It covers Demo, Home, Review, and
+  Study at all three supported compact sizes.
+- A zero-job demo action must be visible at 1024x720 both on first run and
+  after tour completion. The completed-tour empty card switches to a compact
+  horizontal layout at short desktop heights.
+- Demo quiz choices expose pressed/correctness state and a textual live result.
+  Returning to an empty workspace restores the last authoritative runtime
+  backend label, clearing any stale processing stage.
+
+**Alternatives considered:**
+
+- Move the source assets into `electron-spike/assets`: rejected because the
+  curated demo belongs to the app and that would duplicate its ownership.
+- Keep graceful fallback as sufficient release behavior: rejected because a
+  fallback is useful for corruption recovery but is not the promised demo.
+- Call renderer internals from CDP to simplify the responsive gate: rejected
+  because those functions intentionally live inside an IIFE and users cannot
+  invoke them.
+- Make the empty state shorter by dropping explanatory content: rejected; the
+  compact grid keeps the same information and moves the action into view.
+
+**Acceptance record:** A rebuilt packaged candidate passed its native runtime
+self-test and the expanded stable gate with zero failures, 26 screenshots,
+complete prebuilt content (two decoded slides, two transcript rows, four quiz
+options, and no fallback), both 1024x720 zero-job action states, all 12
+responsive screen/size cases, cleanup finality, and zero orphan processes.
+
 ## AD-52: Clean-machine acceptance uses a persisted job and always unwinds its install
 
 **Date:** 2026-08-12

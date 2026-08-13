@@ -79,6 +79,22 @@ def test_demo_data_is_script_loaded_not_fetched() -> None:
     assert 0 <= payload["quiz"]["answer"] < len(payload["quiz"]["options"])
 
 
+def test_demo_quiz_reports_correctness_without_relying_on_color() -> None:
+    module = _demo_module()
+    assert 'id="demo-quiz-feedback"' in HTML
+    assert 'role="status"' in HTML
+    assert 'aria-live="polite"' in HTML
+    assert 'aria-pressed="false"' in module
+    assert "b.setAttribute('aria-pressed'" in module
+    assert "Correct answer:" in module
+    assert '.lp-demo-quiz-feedback[data-state="correct"]' in CSS
+    assert '.lp-demo-quiz-feedback[data-state="wrong"]' in CSS
+
+
+def test_completed_empty_state_demo_restarts_from_chapter_one() -> None:
+    assert "savedDemo.completed === true ? 1" in JS
+
+
 def test_every_chapter_survives_missing_data() -> None:
     """A missing asset degrades one artifact; it never blanks the demo.
 
@@ -135,6 +151,25 @@ def test_quiz_does_not_reveal_its_answer_before_the_student_answers() -> None:
     render = render[:render.index("}).join('');")]
     assert "data-correct" not in render, "the correct option must not be marked at render time"
     assert 'data-state="correct"' in CSS
+
+
+def test_empty_state_puts_the_demo_action_before_explanatory_steps() -> None:
+    """The zero-setup first-run action must be visible in the opening viewport."""
+    empty = HTML.split('id="home-empty"', 1)[1].split("</section>", 1)[0]
+    assert empty.index('id="btn-load-jobs"') < empty.index(">Drop a video</div>")
+    assert 'class="lp-home-empty-card"' in empty
+    assert "@media (min-width:900px) and (max-height:760px)" in CSS
+    assert "#btn-load-jobs { grid-column:3;grid-row:1 / 3" in CSS
+
+
+def test_empty_workspace_restores_the_runtime_label_after_processing() -> None:
+    assert "var runtimeBackendLabel" in JS
+    reset = JS[JS.index("function resetJobChrome"):]
+    reset = reset[:reset.index(chr(10) + "  }")]
+    assert "$('status-right').textContent = runtimeBackendLabel" in reset
+    settings = JS[JS.index("lpBridge.on('settings_changed'"):]
+    settings = settings[:settings.index("lpBridge.on('ollama_models'")]
+    assert "runtimeBackendLabel = friendlyProcessingLabel(s.actual_backend)" in settings
 
 
 def test_study_prep_covers_every_stage_the_backend_emits() -> None:

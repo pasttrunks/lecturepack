@@ -169,16 +169,16 @@
         </section>
 
         <div id="home-empty" hidden>
-        <div style="display:flex;flex-direction:column;align-items:center;text-align:center;padding:46px 24px;border:2px dashed var(--line);border-radius:16px;background:var(--panel);box-shadow:var(--shadow-soft)">
-          <div style="width:66px;height:66px;background:var(--blue-soft);border:2px solid var(--border);border-radius:16px;display:flex;align-items:center;justify-content:center;margin-bottom:18px;box-shadow:var(--shadow-soft)"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--blue-ink)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg></div>
-          <div style="font-weight:700;font-size:20px;margin-bottom:6px">No lectures yet</div>
-          <p style="font-size:14px;color:var(--muted);max-width:370px;margin:0 0 20px;line-height:1.55">Drop your first recording above. LecturePack processes the lecture locally, then prepares a grounded study workspace.</p>
-          <div style="display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-bottom:22px">
+        <div class="lp-home-empty-card" style="display:flex;flex-direction:column;align-items:center;text-align:center;padding:46px 24px;border:2px dashed var(--line);border-radius:16px;background:var(--panel);box-shadow:var(--shadow-soft)">
+          <div class="lp-home-empty-icon" style="width:66px;height:66px;background:var(--blue-soft);border:2px solid var(--border);border-radius:16px;display:flex;align-items:center;justify-content:center;margin-bottom:18px;box-shadow:var(--shadow-soft)"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--blue-ink)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg></div>
+          <div class="lp-home-empty-title" style="font-weight:700;font-size:20px;margin-bottom:6px">No lectures yet</div>
+          <p class="lp-home-empty-copy" style="font-size:14px;color:var(--muted);max-width:370px;margin:0 0 20px;line-height:1.55">Drop your first recording above. LecturePack processes the lecture locally, then prepares a grounded study workspace.</p>
+          <button id="btn-load-jobs" class="lp-hit lp-press-sm" style="font:600 13px 'Space Grotesk';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:9px;padding:9px 16px;cursor:pointer;margin-bottom:22px">Try the demo lecture</button>
+          <div class="lp-home-empty-steps" style="display:flex;gap:18px;flex-wrap:wrap;justify-content:center">
             <div style="display:flex;align-items:center;gap:8px;font:500 12px 'JetBrains Mono';color:var(--muted)"><span style="width:22px;height:22px;border:2px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--orange-ink)">1</span>Drop a video</div>
             <div style="display:flex;align-items:center;gap:8px;font:500 12px 'JetBrains Mono';color:var(--muted)"><span style="width:22px;height:22px;border:2px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--orange-ink)">2</span>Review slides</div>
             <div style="display:flex;align-items:center;gap:8px;font:500 12px 'JetBrains Mono';color:var(--muted)"><span style="width:22px;height:22px;border:2px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--orange-ink)">3</span>Study &amp; export</div>
           </div>
-          <button id="btn-load-jobs" class="lp-hit lp-press-sm" style="font:600 13px 'Space Grotesk';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:9px;padding:9px 16px;cursor:pointer">Try the demo lecture</button>
         </div>
         </div>
       </section>
@@ -786,6 +786,7 @@
                   <span class="lp-demo-flash-tag">Quiz</span>
                   <p class="lp-demo-q" id="demo-quiz-q"></p>
                   <ul class="lp-demo-opts" id="demo-quiz-opts"></ul>
+                  <p id="demo-quiz-feedback" class="lp-demo-quiz-feedback" hidden role="status" aria-live="polite"></p>
                 </div>
               </div>
             </article>

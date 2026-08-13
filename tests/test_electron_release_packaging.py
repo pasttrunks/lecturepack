@@ -19,15 +19,32 @@ def load_builder():
     return module
 
 
+def make_candidate(root: Path, executable: bytes = b"portable executable fixture") -> Path:
+    """Create the complete minimum candidate required by the release contract."""
+    files = {
+        "LecturePack.exe": executable,
+        "resources/app.asar": b"asar fixture",
+        "resources/lecturepack.ico": b"icon fixture",
+        "resources/LecturePackSidecar/LecturePackSidecar.exe": b"sidecar fixture",
+        "resources/ui/index.html": b"<!doctype html>",
+        "resources/ui/app.js": b"void 0;",
+        "resources/assets/demo-lecture.mp4": b"demo video fixture",
+        "resources/assets/demo/demo.data.js": b"window.LP_DEMO_DATA = {};",
+        "resources/assets/demo/hero.png": b"hero fixture",
+        "resources/assets/demo/slide_01.png": b"slide one fixture",
+        "resources/assets/demo/slide_02.png": b"slide two fixture",
+        "resources/LICENSE": b"license fixture",
+    }
+    for relative, payload in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    return root
+
+
 def test_electron_release_zip_and_hashes(tmp_path):
     builder = load_builder()
-    candidate = tmp_path / "LecturePack-win32-x64"
-    (candidate / "resources").mkdir(parents=True)
-    (candidate / "resources" / "LecturePackSidecar").mkdir()
-    (candidate / "LecturePack.exe").write_bytes(b"portable executable fixture")
-    (candidate / "resources" / "app.asar").write_bytes(b"asar fixture")
-    (candidate / "resources" / "lecturepack.ico").write_bytes(b"icon fixture")
-    (candidate / "resources" / "LecturePackSidecar" / "LecturePackSidecar.exe").write_bytes(b"sidecar fixture")
+    candidate = make_candidate(tmp_path / "LecturePack-win32-x64")
 
     output = tmp_path / "release"
     portable = builder.make_portable_zip(candidate, output / "LecturePack-2.0.0-Portable.zip")
@@ -44,12 +61,7 @@ def test_electron_release_zip_and_hashes(tmp_path):
 
 def test_electron_release_zip_clamps_pre_1980_timestamps(tmp_path):
     builder = load_builder()
-    candidate = tmp_path / "LecturePack-win32-x64"
-    (candidate / "resources").mkdir(parents=True)
-    (candidate / "resources" / "LecturePackSidecar").mkdir()
-    (candidate / "LecturePack.exe").write_bytes(b"fixture")
-    (candidate / "resources" / "app.asar").write_bytes(b"asar")
-    (candidate / "resources" / "LecturePackSidecar" / "LecturePackSidecar.exe").write_bytes(b"sidecar")
+    candidate = make_candidate(tmp_path / "LecturePack-win32-x64", executable=b"fixture")
     os.utime(candidate / "LecturePack.exe", (0, 0))
 
     portable = builder.make_portable_zip(candidate, tmp_path / "portable.zip")

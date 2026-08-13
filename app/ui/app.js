@@ -1937,6 +1937,11 @@
    var pipelineRenderDirty = false, statusRenderDirty = false;
    var pendingProcessingStatus = {};
    var lastPipelineRenderKey = null, lastStatusRenderKey = null;
+   // Processing temporarily replaces the footer's backend identity with a
+   // stage label. Keep the last authoritative backend label so returning to
+   // a no-lecture state cannot pair "Idle" with stale work such as
+   // "Detecting slides".
+   var runtimeBackendLabel = (($('status-right') || {}).textContent || '').trim();
 
    function processingRaf(fn) {
      return (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(fn);
@@ -3973,6 +3978,7 @@
     });
     $('status-state').textContent = 'Idle';
     $('status-detail').textContent = '';
+    $('status-right').textContent = runtimeBackendLabel;
     setFill('status-bar', 0);
     renderSidePoster('');
     var w = $('storage-widget');
@@ -6518,7 +6524,11 @@
     $('btn-load-jobs').addEventListener('click', function () {
       if (!demoAdmissionAvailable) { toast('The demo will be available once setup finishes.'); return; }
       if (guidedDemo.snapshot().active) { setScreen('process'); return; }
-      openDemo(demoState().chapter || 1);
+      var savedDemo = demoState();
+      // An interrupted walkthrough resumes where the student left it. Once it
+      // has been completed, the explicitly named "Try the demo" action starts
+      // a fresh walkthrough instead of reopening on the final export page.
+      openDemo(savedDemo.completed === true ? 1 : (savedDemo.chapter || 1));
     });
 
     // Home grid: per-card menu buttons (delete / set group) take priority,
@@ -8052,7 +8062,10 @@
         var msel = $('ai-model-select');
         if (msel && msel.querySelector('option[value="' + s.ollama_model + '"]')) msel.value = s.ollama_model;
       }
-      if (s.actual_backend) $('status-right').textContent = friendlyProcessingLabel(s.actual_backend) || s.actual_backend;
+      if (s.actual_backend) {
+        runtimeBackendLabel = friendlyProcessingLabel(s.actual_backend) || s.actual_backend;
+        $('status-right').textContent = runtimeBackendLabel;
+      }
       if (s.export_dir) $('export-dir').textContent = s.export_dir;
       if (s.update_status) $('update-status').textContent = s.update_status;
     });
@@ -8706,9 +8719,15 @@
     // The answer is NOT revealed up front -- a pre-highlighted correct option
     // spoils the question and makes the quiz look decorative rather than real.
     $('demo-quiz-opts').innerHTML = (quiz.options || []).map(function (o, i) {
-      return '<li><button type="button" class="lp-demo-opt" data-i="' + i + '">' +
+      return '<li><button type="button" class="lp-demo-opt" data-i="' + i + '" aria-pressed="false">' +
         esc(o) + '</button></li>';
     }).join('');
+    var quizFeedback = $('demo-quiz-feedback');
+    if (quizFeedback) {
+      quizFeedback.hidden = true;
+      quizFeedback.textContent = '';
+      quizFeedback.removeAttribute('data-state');
+    }
   }
 
   function openDemo(startAt) {
@@ -8783,7 +8802,18 @@
       var answer = demoData.quiz.answer;
       Array.prototype.forEach.call($('demo-quiz-opts').querySelectorAll('.lp-demo-opt'), function (b, i) {
         b.setAttribute('data-state', i === answer ? 'correct' : (i === chosen ? 'wrong' : 'idle'));
+        b.setAttribute('aria-pressed', i === chosen ? 'true' : 'false');
+        var outcome = i === answer ? ', correct answer' : (i === chosen ? ', incorrect' : '');
+        b.setAttribute('aria-label', b.textContent.trim() + outcome);
       });
+      var feedback = $('demo-quiz-feedback');
+      if (feedback) {
+        var correct = chosen === answer;
+        feedback.hidden = false;
+        feedback.setAttribute('data-state', correct ? 'correct' : 'wrong');
+        feedback.textContent = correct ? 'Correct.' :
+          'Not quite. Correct answer: ' + String(demoData.quiz.options[answer] || '');
+      }
     });
     $('demo-card').addEventListener('click', function () {
       if (!demoData || !demoData.card) return;

@@ -194,7 +194,8 @@ def test_load_sample_jobs_is_now_try_the_demo_lecture() -> None:
     assert "Load sample jobs" not in html
     app = read(APP)
     load = block(app, "$('btn-load-jobs').addEventListener('click', function () {", "// Home grid:")
-    assert "openDemo(demoState().chapter || 1)" in load
+    assert "var savedDemo = demoState()" in load
+    assert "savedDemo.completed === true ? 1 : (savedDemo.chapter || 1)" in load
     assert "runDemoForReal" not in load
     assert "setJobsEmpty(false)" not in load
 
