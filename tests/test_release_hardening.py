@@ -198,6 +198,9 @@ def test_stable_release_gate_covers_new_guided_handoff_and_normal_auto_export():
     assert '"guided_demo_prebaked_content"' in gate
     assert "hero.naturalWidth>0" in gate
     assert "fallback.length===0" in gate
+    assert '"guided_demo_quiz_accessibility"' in gate
+    assert "textual and semantic guided-demo quiz result" in gate
+    assert "aria-pressed" in gate
     assert 'for screen in ("demo", "home", "review", "study")' in gate
     assert 'app.click("#btn-replay-tour")' in gate
     assert 'app.evaluate("openDemo(4)")' not in gate

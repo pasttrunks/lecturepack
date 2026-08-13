@@ -425,8 +425,29 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             timeout=15,
         )
         check("guided_demo_prebaked_content", True, prebaked_demo)
+        guided_quiz_accessibility = None
         for _chapter in range(4):
             app.click("#btn-demo-next")
+            if _chapter == 2:
+                wrong_option = app.evaluate(
+                    "(() => { const q=window.LP_DEMO_DATA&&LP_DEMO_DATA.quiz;"
+                    "if(!q||!Array.isArray(q.options))return -1;"
+                    "return q.options.findIndex((_,i)=>i!==Number(q.answer)); })()"
+                )
+                app.click(f"#demo-quiz-opts .lp-demo-opt[data-i='{int(wrong_option)}']")
+                guided_quiz_accessibility = app.wait_js(
+                    "(() => { const f=document.getElementById('demo-quiz-feedback'),"
+                    "opts=Array.from(document.querySelectorAll('#demo-quiz-opts .lp-demo-opt'));"
+                    "const pressed=opts.filter(o=>o.getAttribute('aria-pressed')==='true'),"
+                    "correct=opts.filter(o=>/correct answer/i.test(o.getAttribute('aria-label')||'')),"
+                    "wrong=opts.filter(o=>/incorrect/i.test(o.getAttribute('aria-label')||''));"
+                    "return f&&!f.hidden&&/Not quite\\. Correct answer:/i.test(f.textContent)&&"
+                    "pressed.length===1&&correct.length===1&&wrong.length===1?"
+                    "{feedback:f.textContent.trim(),pressed:pressed.length,correct:correct.length,wrong:wrong.length}:null; })()",
+                    "textual and semantic guided-demo quiz result",
+                    timeout=15,
+                )
+        check("guided_demo_quiz_accessibility", True, guided_quiz_accessibility)
         app.wait_js(
             "!document.querySelector('[data-screen=demo] [data-ch=\"5\"]').hidden",
             "guided demo final chapter",

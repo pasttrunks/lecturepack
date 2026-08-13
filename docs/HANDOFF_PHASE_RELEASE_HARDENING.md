@@ -28,6 +28,45 @@
 
 ## What changed
 
+### The packaged guided demo now contains its promised output
+
+The Windows package previously omitted `demo.data.js`, the hero, and both
+prebuilt slide images even though the source walkthrough used them. Packaged
+users therefore saw fallback copy in every content chapter while the old gate
+tested only navigation. The packager now copies the curated app-owned demo
+directory to the renderer's exact `resources\assets\demo` path (without
+duplicating the canonical video), and the release validator requires every
+file before publishing an artifact.
+
+The packaged gate now proves decoded hero/slide images, transcript rows,
+flashcard content, four quiz options, and zero fallback panels. It enters
+responsive demo cases through the real Settings replay control and covers
+Demo, Home, Review, and Study at 640x480, 820x600, and 1024x720: 12 cases.
+
+### First-run and demo completion states are release-safe
+
+The zero-job demo action is asserted at 1024x720 both before the first tour and
+after completing/cleaning it up. At short desktop heights, the completed-tour
+empty card uses a compact horizontal layout so `Try the demo lecture` remains
+in the opening viewport. Reopening a completed tour starts at chapter 1 while
+an interrupted tour still resumes its saved chapter.
+
+The demo quiz now exposes `aria-pressed`, per-choice correct/incorrect labels,
+and a textual live result instead of relying on red/green alone. Demo cleanup
+also restores the authoritative runtime label, so the footer cannot pair
+`Idle` with a stale `Detecting slides` stage.
+
+### NVIDIA-first production routing was stressed repeatedly
+
+Three clean packaged installations completed the full live Study flow against
+the shipped production HTTPS gateway in 38.3s, 41.3s, and 41.4s. Every run
+produced grounded Study material and exercised Ask, Teach Me, semantic grading,
+Basic fallback, clean shutdown, and orphan checks. Production D1 telemetry for
+the 15 resulting provider calls showed NVIDIA for every attempt and 15/15
+successes, with averages of 1.13s for Ask, 1.35s for grading, 1.59s for Teach
+Me, 4.38s for lecture analysis, and 12.32s for full material generation. No
+fallback provider was invoked.
+
 ### Study deletion is now final
 
 The sidecar now gives each job a Study cancellation epoch. Demo cleanup,
@@ -55,7 +94,8 @@ horizontal overflow in the document/header/main/screen/footer and clipped
 controls. This exposed a real 640x480 Review defect: its timeline header was
 544 pixels wide in a 400-pixel main pane. Review metadata and legend now wrap,
 and the lecture switcher receives a full compact row. The rebuilt candidate
-passes all 9 matrix cases with exact client/scroll equality.
+passes all 12 Demo/Home/Review/Study matrix cases with exact client/scroll
+equality.
 
 ### Release licensing
 
@@ -78,27 +118,27 @@ Built from the current source with:
 ```powershell
 .\.venv\Scripts\python.exe scripts\build_electron_release.py `
   --runtime-root . `
-  --output-dir C:\LecturePackScratch\builds\release-final-epochfix-20260812
+  --output-dir C:\LecturePackScratch\builds\release-final-guided-demo-c4a1efb-20260812
 ```
 
-The final build completed in 434 seconds and its embedded self-test passed FFmpeg,
+The final build completed in 539 seconds and its embedded self-test passed FFmpeg,
 ffprobe, Whisper runtime/smoke/model, Rust Study Core, yt-dlp, EJS, Deno, data
 directory, and controller admission.
 
 Artifacts:
 
 - Portable ZIP:
-  `C:\LecturePackScratch\builds\release-final-epochfix-20260812\LecturePack-2.0.1-Portable.zip`
+  `C:\LecturePackScratch\builds\release-final-guided-demo-c4a1efb-20260812\LecturePack-2.0.1-Portable.zip`
   - SHA-256:
-    `8f89fc99810e56ff1caee130e746340236ec7907266c571edf6ce49f87ce599a`
+    `52d957bb07392290c5ca9261f33c230005fcc987fe23dc5a2cbd0f8dc5dea472`
 - Installer:
-  `C:\LecturePackScratch\builds\release-final-epochfix-20260812\LecturePack-2.0.1-Setup.exe`
+  `C:\LecturePackScratch\builds\release-final-guided-demo-c4a1efb-20260812\LecturePack-2.0.1-Setup.exe`
   - SHA-256:
-    `6adbd9824676f9fe80f40c0d879bb33fb513d8ff9785b03a4ac31fc2bebd5bea`
+    `915e510b90aad11b8e766f73ccecc4d6311c15d04026cf4b6e7345f1e9ad0be2`
 - Hash manifest:
-  `C:\LecturePackScratch\builds\release-final-epochfix-20260812\LecturePack-2.0.1-SHA256SUMS.txt`
+  `C:\LecturePackScratch\builds\release-final-guided-demo-c4a1efb-20260812\LecturePack-2.0.1-SHA256SUMS.txt`
 - Release manifest:
-  `C:\LecturePackScratch\builds\release-final-epochfix-20260812\LecturePack-2.0.1-release-manifest.json`
+  `C:\LecturePackScratch\builds\release-final-guided-demo-c4a1efb-20260812\LecturePack-2.0.1-release-manifest.json`
 - Exact unpacked candidate:
   `C:\Users\marsh\Documents\LecturePack\electron-spike\dist\LecturePack-win32-x64`
 
@@ -110,27 +150,30 @@ With
 `LECTUREPACK_ONEDIR_FIXTURE=C:\LecturePackScratch\builds\release-hardening-final-8a65dd6\exact-final-onedir-fixture`:
 
 ```text
-1514 passed, 2 skipped, 1 warning in 354.26s
+1519 passed, 2 skipped, 1 warning in 386.04s
 ```
 
 There were zero failures. The skips are the explicitly opt-in real-provider
 test and one environment-specific package-pruning case. The warning is the
 intentional duplicate-ZIP corruption fixture.
 
-After the final validator cleanup guard was added, the complete changed-area
-set (`test_release_hardening`, `test_polish_backend`, `test_ai_study_service`,
-and `test_ui_tokens_motion_responsive`) also passed: `75 passed in 8.44s`.
+The final guided-demo/release focused set also passed: `66 passed`; the final
+quiz gate additions passed their 29-test focused set with warnings treated as
+errors for Python compilation.
 
 ### Packaged stable/visual gate
 
 Evidence:
-`C:\LecturePackScratch\results\release-final-epochfix-20260812\stable-acceptance-r7\stable-release-acceptance.json`
+`C:\LecturePackScratch\results\release-final-guided-demo-c4a1efb-20260812\stable-r2\stable-release-acceptance.json`
 
-Result: `PASS`, no failures, 21 screenshots. It proves:
+Result: `PASS`, 43 checks, no failures, 26 screenshots. It proves:
 
 - packaged startup and first-run runtime acknowledgement;
-- five-chapter guided demo, real processing handoff, Review Ready route, and
-  cleanup that remains final after normal Smart Study reaches ready;
+- decoded prebuilt hero and slide assets, transcript rows, flashcard and quiz
+  content, zero fallback panels, textual/semantic wrong-answer feedback;
+- five-chapter guided demo, real processing handoff, Review Ready route,
+  settled cleanup footer, and cleanup that remains final after normal Smart
+  Study reaches ready;
 - canonical import/progress/completion, slides, transcript, grounded Study,
   flashcards, correct quiz handling, and Quick Study;
 - exact 13-file export;
@@ -141,13 +184,16 @@ Result: `PASS`, no failures, 21 screenshots. It proves:
 - interrupted job/download recovery and download retry/cancel;
 - update-available and missing-sidecar actionable failure UI;
 - unobscured Review/Transcript/Study captures;
-- all 9 responsive cases at 640x480, 820x600, and 1024x720;
+- the demo action in view at 1024x720 both before first use and after a
+  completed tour with zero jobs;
+- all 12 Demo/Home/Review/Study responsive cases at 640x480, 820x600, and
+  1024x720;
 - clean shutdown and zero final orphan processes.
 
 ### Exact installer clean-machine gate
 
 Evidence:
-`C:\LecturePackScratch\results\release-final-epochfix-20260812\clean-install-r2\clean-machine-result.json`
+`C:\LecturePackScratch\results\release-final-guided-demo-c4a1efb-20260812\clean-install-r1\clean-machine-result.json`
 
 Result: `PASS`. The exact installer and installed application proved:
 
@@ -162,7 +208,7 @@ Result: `PASS`. The exact installer and installed application proved:
   entry, or Send To shortcut.
 
 Cleanup failure-path evidence:
-`C:\LecturePackScratch\results\release-final-epochfix-20260812\clean-install-forced-failure-r1`
+`C:\LecturePackScratch\results\release-final-guided-demo-c4a1efb-20260812\clean-install-forced-failure-r1`
 
 An additional run deliberately set the active-job completion timeout to zero.
 It reached the installed packaged sidecar, failed at the intended assertion
@@ -173,7 +219,7 @@ directory, registry entry, or Send To shortcut.
 ### Exact portable fault-injection gate
 
 Evidence:
-`C:\LecturePackScratch\results\release-final-epochfix-20260812\clean-negative-r1\negative-test-result.json`
+`C:\LecturePackScratch\results\release-final-guided-demo-c4a1efb-20260812\clean-negative-r1\negative-test-result.json`
 
 Result: `PASS`, all 9 scenarios, zero remaining processes. In a disposable
 extraction of the exact portable ZIP, missing FFmpeg, ffprobe, Whisper model,
@@ -186,9 +232,9 @@ under one second. Every temporarily held packaged file was restored.
 ### Live production AI gate
 
 Evidence:
-`C:\LecturePackScratch\results\release-final-epochfix-20260812\ai-live-r3\ai-study-live-packaged-acceptance.json`
+`C:\LecturePackScratch\results\release-final-guided-demo-c4a1efb-20260812\ai-live-r1\ai-study-live-packaged-acceptance.json`
 
-Result: all 27 checks passed in 38.3 seconds. The exact packaged sidecar proved
+Result: every check passed in 38.0 seconds. The exact packaged sidecar proved
 runtime health, local processing, production HTTPS gateway use, anonymous
 registration, opaque installation token, grounded summary/concepts/guide,
 flashcards, mixed quiz, valid citations, Teach foundations, manual mastery,
@@ -212,6 +258,10 @@ fallback, clean exit, and zero orphans.
 - Production audit window: NVIDIA text 43/43 successes (~5.0 s average),
   NVIDIA vision 1/1 (~4.1 s), Workers AI 20/21 (~19.7 s), OpenRouter 7/26
   (~16.3 s). NVIDIA remains the fastest healthy configured route.
+- Fresh post-hardening stress window: all 15 calls across three clean
+  installations used NVIDIA and succeeded. Mean latency was 1.13 s Ask,
+  1.35 s grading, 1.59 s Teach Me, 4.38 s lecture analysis, and 12.32 s full
+  study-material generation; no fallback route was invoked.
 - Gateway local checks: 21/21 tests, syntax checks, and Wrangler 4.122.0
   `deploy --dry-run` passed.
 
@@ -221,7 +271,8 @@ audit.
 
 ## Remaining external release gate
 
-Both `LecturePack.exe` and the installer currently report `NotSigned`.
+`LecturePack.exe`, `LecturePackSidecar.exe`, and the exact installer currently
+report `NotSigned`.
 `Cert:\CurrentUser\My` and `Cert:\LocalMachine\My` contain no code-signing
 certificate. There is also no signing-related environment variable or private
 key/certificate file in the repository. This cannot be repaired in source or
