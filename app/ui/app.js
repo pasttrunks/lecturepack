@@ -8706,7 +8706,17 @@
     // Only restore the screen when it is a workspace screen and no explicit
     // navigation overrides it (search result / Process for active job).
     if (pendingTranscriptJump && pendingTranscriptJump.jobId === jobId) return;
-    if (state.screen && state.screen !== 'home' && state.screen !== 'settings') {
+    // ...and only when the student is NOT already working in a lecture screen.
+    // Switching lecture from the header switcher passes no explicit screen, so
+    // this used to drop them wherever the INCOMING lecture was last left: ask a
+    // question in Study, change lecture, and you land in Review. Changing which
+    // lecture you are looking at should not change what you are looking at.
+    // Home and Settings are not workspace screens, so opening a lecture from
+    // there still resumes where that lecture left off.
+    var current = LP.state.screen;
+    var alreadyInWorkspace = current && current !== 'home' && current !== 'settings';
+    if (!alreadyInWorkspace
+        && state.screen && state.screen !== 'home' && state.screen !== 'settings') {
       setScreen(state.screen);
     }
     if (state.studyTab) setStudyTab(state.studyTab);
