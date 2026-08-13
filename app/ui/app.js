@@ -4009,6 +4009,7 @@
     // pack: no AI request, works offline, and takes effect instantly.
     quizDifficulty: 'all',
     quizLength: 'all',
+    flashDifficulty: 'all',
     quickSession: null,
     quickIndex: 0,
     quickCorrect: 0,
@@ -4059,6 +4060,7 @@
         quizGrades: studyV2.quizGrades,
         quizDifficulty: studyV2.quizDifficulty,
         quizLength: studyV2.quizLength,
+        flashDifficulty: studyV2.flashDifficulty,
         quickIndex: studyV2.quickIndex,
         quickCorrect: studyV2.quickCorrect,
         quickTotal: studyV2.quickTotal,
@@ -4094,6 +4096,7 @@
       studyV2.quizGrades = saved.quizGrades && typeof saved.quizGrades === 'object' ? saved.quizGrades : {};
       studyV2.quizDifficulty = QUIZ_DIFFICULTIES.indexOf(String(saved.quizDifficulty)) >= 0 ? String(saved.quizDifficulty) : 'all';
       studyV2.quizLength = QUIZ_LENGTHS.indexOf(String(saved.quizLength)) >= 0 ? String(saved.quizLength) : 'all';
+      studyV2.flashDifficulty = QUIZ_DIFFICULTIES.indexOf(String(saved.flashDifficulty)) >= 0 ? String(saved.flashDifficulty) : 'all';
       studyV2.quickIndex = Math.max(0, Number(saved.quickIndex) || 0);
       studyV2.quickCorrect = Math.max(0, Number(saved.quickCorrect) || 0);
       studyV2.quickTotal = Math.max(0, Number(saved.quickTotal) || 0);
@@ -4497,6 +4500,13 @@
 
   function studyV2FlashcardList() {
     var cards = (studyV2.content && studyV2.content.flashcards) || [];
+    // Difficulty is the student's standing preference, so it composes with the
+    // "missed cards" and "needs review" filters rather than replacing them.
+    if (studyV2.flashDifficulty && studyV2.flashDifficulty !== 'all') {
+      cards = cards.filter(function (card) {
+        return quizDifficultyOf(card) === studyV2.flashDifficulty;
+      });
+    }
     if (studyV2.flashFilterIds && studyV2.flashFilterIds.length) {
       return cards.filter(function (card) {
         return studyV2.flashFilterIds.indexOf(card.id) >= 0;
@@ -4515,10 +4525,15 @@
   function renderStudyFlashcards() {
     var cards = studyV2FlashcardList();
     var root = $('study-flashcards-root');
+    var hasAnyCard = ((studyV2.content && studyV2.content.flashcards) || []).length > 0;
     if (!cards.length) {
-      root.innerHTML = '<div class="study-empty-state" style="text-align:center;padding:56px 24px;color:var(--muted)">' +
-        '<div style="font:700 18px Space Grotesk;color:var(--ink);margin-bottom:8px">Nothing needs another look</div>' +
-        '<div style="font:500 13px JetBrains Mono;margin-bottom:18px">You have cleared the current weak areas.</div>' +
+      var filteredOut = hasAnyCard && studyV2.flashDifficulty !== 'all';
+      root.innerHTML = (hasAnyCard ? flashShapeControlsHtml() : '') +
+        '<div class="study-empty-state" style="text-align:center;padding:56px 24px;color:var(--muted)">' +
+        '<div style="font:700 18px Space Grotesk;color:var(--ink);margin-bottom:8px">' +
+        (filteredOut ? 'No cards at this difficulty' : 'Nothing needs another look') + '</div>' +
+        '<div style="font:500 13px JetBrains Mono;margin-bottom:18px">' +
+        (filteredOut ? 'Choose Any to see the whole deck.' : 'You have cleared the current weak areas.') + '</div>' +
         (studyV2.reviewOnly ? '<button id="btn-study-review-all" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:8px;padding:9px 15px;cursor:pointer;color:var(--ink)">Study all cards</button>' : '') +
         '</div>';
       var all = $('btn-study-review-all');
@@ -4526,22 +4541,26 @@
         studyV2.reviewOnly = false; studyV2.flashFilterIds = null; studyV2.flashIndex = 0;
         studyV2PersistView(); renderStudyFlashcards();
       });
+      bindQuizShapeControls(root);
       return;
     }
     var card = cards[studyV2.flashIndex];
     if (!card) {
       // Session complete
-      root.innerHTML = '<div style="text-align:center;padding:40px">' +
+      root.innerHTML = flashShapeControlsHtml() +
+        '<div style="text-align:center;padding:40px">' +
         '<div style="font-weight:700;font-size:20px;margin-bottom:8px">Cards reviewed</div>' +
         '<div style="font:500 13px JetBrains Mono;color:var(--muted);margin-bottom:20px">' + cards.length + ' cards · ' + studyV2.flashResults.got + ' got it · ' + studyV2.flashResults.missed + ' need review</div>' +
         (studyV2.flashResults.missed ? '<button id="btn-study-review-missed" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer">Review the ' + studyV2.flashResults.missed + ' I missed</button>' : '') +
         '<button id="btn-study-flash-restart" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;color:var(--ink);margin-left:8px">Start over</button></div>';
       bindStudyFlashcardSessionButtons();
+      bindQuizShapeControls(root);
       return;
     }
     var sources = studyItemSourcesHtml(card);
     var progress = 'Card ' + (studyV2.flashIndex + 1) + ' of ' + cards.length;
-    root.innerHTML = '<div class="study-focus-content" style="max-width:620px;margin:0 auto">' +
+    root.innerHTML = flashShapeControlsHtml() +
+      '<div class="study-focus-content" style="max-width:620px;margin:0 auto">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>' + progress + '</span><span>Space to reveal</span></div>' +
       '<div style="height:4px;border-radius:3px;background:var(--sunk);overflow:hidden;margin-bottom:22px"><div style="width:' + (((studyV2.flashIndex + 1) / cards.length) * 100) + '%;height:100%;background:var(--orange)"></div></div>' +
       '<div id="study-flash-card" class="lp-card study-focus-card" style="background:var(--panel);border:1.5px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);padding:40px 34px;min-height:220px;display:flex;flex-direction:column;justify-content:center;text-align:center">' +
@@ -4556,6 +4575,7 @@
         '<button id="btn-study-flash-got" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--green-fill);color:var(--on-signal);border:1.5px solid var(--green);border-radius:9px;padding:10px 18px;cursor:pointer">Got it</button></div>' : '') +
       '</div>';
     bindStudyFlashcardButtons();
+    bindQuizShapeControls(root);
   }
 
   function bindStudyFlashcardButtons() {
@@ -4714,6 +4734,16 @@
      there is something real to filter. Whatever the model wrote is normalised
      here -- an item with an unrecognised difficulty counts as medium rather
      than vanishing from every view. */
+  /* The grader returns a null score when its own verdict and number
+     contradicted each other (see ai_study_service.grade_short_answer). Showing
+     nothing beats showing "Keep working · 0%", which reads as a harsher grade
+     than the student actually got. */
+  function studyScoreSuffix(score) {
+    var value = Number(score);
+    if (score === null || score === undefined || !isFinite(value)) return '';
+    return ' · ' + Math.round(value * 100) + '%';
+  }
+
   function quizDifficultyOf(item) {
     var raw = String((item && item.difficulty) || '').trim().toLowerCase();
     return QUIZ_DIFFICULTIES.indexOf(raw) > 0 ? raw : 'medium';
@@ -4755,32 +4785,67 @@
     renderStudyQuiz();
   }
 
-  function quizShapeControlsHtml() {
-    var counts = quizDifficultyCounts();
-    var total = quizPool().length;
-    function group(label, key, options) {
-      return '<div class="lp-quiz-shape-group"><span class="lp-quiz-shape-label">' + label + '</span>' +
-        options.map(function (opt) {
-          var on = String(key === 'difficulty' ? studyV2.quizDifficulty : studyV2.quizLength) === String(opt.value);
-          return '<button class="lp-hit lp-quiz-shape-btn" data-shape="' + key + '" data-value="' + escText(String(opt.value)) + '"' +
+  /* One shaping row, shared by Quiz and Flashcards. `groups` is
+     [{label, key, selected, options:[{value,label,disabled,title}]}]. */
+  function studyShapeRowHtml(groups, countText) {
+    return '<div class="lp-study-shape">' + groups.map(function (g) {
+      return '<div class="lp-study-shape-group"><span class="lp-study-shape-label">' + escText(g.label) + '</span>' +
+        g.options.map(function (opt) {
+          var on = String(g.selected) === String(opt.value);
+          return '<button class="lp-hit lp-study-shape-btn" data-shape="' + escText(g.key) + '" data-value="' + escText(String(opt.value)) + '"' +
             ' aria-pressed="' + (on ? 'true' : 'false') + '"' + (opt.disabled ? ' disabled' : '') +
             (opt.title ? ' title="' + escText(opt.title) + '"' : '') + '>' + escText(opt.label) + '</button>';
         }).join('') + '</div>';
-    }
-    return '<div class="lp-quiz-shape">' +
-      group('Difficulty', 'difficulty', [
-        { value: 'all', label: 'Any' },
-        { value: 'easy', label: 'Easier', disabled: !counts.easy, title: counts.easy ? counts.easy + ' questions' : 'No easy questions in this pack' },
-        { value: 'medium', label: 'Medium', disabled: !counts.medium, title: counts.medium ? counts.medium + ' questions' : 'No medium questions in this pack' },
-        { value: 'hard', label: 'Harder', disabled: !counts.hard, title: counts.hard ? counts.hard + ' questions' : 'No hard questions in this pack' }
-      ]) +
-      group('Length', 'length', [
-        { value: '5', label: '5' },
-        { value: '10', label: '10' },
-        { value: '20', label: '20' },
-        { value: 'all', label: 'All' }
-      ]) +
-      '<span class="lp-quiz-shape-count">' + total + (total === 1 ? ' question' : ' questions') + '</span></div>';
+    }).join('') + '<span class="lp-study-shape-count">' + escText(countText) + '</span></div>';
+  }
+
+  function difficultyOptions(counts, noun) {
+    return [{ value: 'all', label: 'Any' }].concat(
+      [['easy', 'Easier'], ['medium', 'Medium'], ['hard', 'Harder']].map(function (pair) {
+        var n = counts[pair[0]];
+        return {
+          value: pair[0], label: pair[1], disabled: !n,
+          title: n ? n + ' ' + noun + (n === 1 ? '' : 's') : 'No ' + pair[0] + ' ' + noun + 's in this pack'
+        };
+      }));
+  }
+
+  function quizShapeControlsHtml() {
+    var total = quizPool().length;
+    return studyShapeRowHtml([
+      { label: 'Difficulty', key: 'difficulty', selected: studyV2.quizDifficulty,
+        options: difficultyOptions(quizDifficultyCounts(), 'question') },
+      { label: 'Length', key: 'length', selected: studyV2.quizLength, options: [
+        { value: '5', label: '5' }, { value: '10', label: '10' },
+        { value: '20', label: '20' }, { value: 'all', label: 'All' }] }
+    ], total + (total === 1 ? ' question' : ' questions'));
+  }
+
+  function flashDifficultyCounts() {
+    var counts = { all: 0, easy: 0, medium: 0, hard: 0 };
+    ((studyV2.content && studyV2.content.flashcards) || []).forEach(function (card) {
+      counts.all += 1;
+      counts[quizDifficultyOf(card)] += 1;
+    });
+    return counts;
+  }
+
+  function flashShapeControlsHtml() {
+    var total = studyV2FlashcardList().length;
+    return studyShapeRowHtml([
+      { label: 'Difficulty', key: 'flash-difficulty', selected: studyV2.flashDifficulty,
+        options: difficultyOptions(flashDifficultyCounts(), 'card') }
+    ], total + (total === 1 ? ' card' : ' cards'));
+  }
+
+  function setFlashDifficulty(value) {
+    if (studyV2.flashDifficulty === value) return;
+    studyV2.flashDifficulty = value;
+    // Same reasoning as the quiz: flashIndex points into the shaped deck.
+    studyV2.flashIndex = 0;
+    studyV2.flashResults = { got: 0, missed: 0, missedIds: [] };
+    studyV2PersistView();
+    renderStudyFlashcards();
   }
 
   function renderStudyQuiz() {
@@ -4844,9 +4909,10 @@
 
   function bindQuizShapeControls(root) {
     if (!root) return;
-    Array.prototype.forEach.call(root.querySelectorAll('.lp-quiz-shape-btn'), function (button) {
+    Array.prototype.forEach.call(root.querySelectorAll('.lp-study-shape-btn'), function (button) {
       button.addEventListener('click', function () {
-        setQuizShape(button.dataset.shape, button.dataset.value);
+        if (button.dataset.shape === 'flash-difficulty') setFlashDifficulty(button.dataset.value);
+        else setQuizShape(button.dataset.shape, button.dataset.value);
       });
     });
   }
@@ -4872,7 +4938,7 @@
     if (!fb || !result) return;
     var sourceHtml = studyItemSourcesHtml(result) || studyItemSourcesHtml(q);
     fb.innerHTML = '<div style="padding:14px 16px;background:var(--panel2);border-radius:9px">' +
-      '<div style="font-weight:700;color:' + (result.correct ? 'var(--green)' : 'var(--red)') + ';margin-bottom:6px">' + (result.correct ? 'Correct' : 'Keep working') + ' · ' + Math.round((Number(result.score) || 0) * 100) + '%</div>' +
+      '<div style="font-weight:700;color:' + (result.correct ? 'var(--green)' : 'var(--red)') + ';margin-bottom:6px">' + (result.correct ? 'Correct' : 'Keep working') + studyScoreSuffix(result.score) + '</div>' +
       '<div style="font-size:13px;line-height:1.55;color:var(--secondary-text)">' + escText(result.feedback || '') + '</div>' +
       (result.ideal_answer ? '<div style="font-size:13px;line-height:1.55;margin-top:9px"><strong>Strong answer:</strong> ' + escText(result.ideal_answer) + '</div>' : '') +
       (sourceHtml ? '<div class="study-provenance-row" style="margin-top:10px">' + sourceHtml + '</div>' : '') +
@@ -5002,7 +5068,7 @@
       '<div class="study-guide-section"><h3>Check your understanding</h3><p style="margin-bottom:10px">' + escText(result.check_question || '') + '</p>' +
       '<textarea id="study-teach-answer" class="study-short-answer" placeholder="Explain it in your own words"' + (grade ? ' disabled' : '') + '></textarea>' +
       '<button id="btn-study-teach-grade" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;margin-top:10px"' + (grade ? ' disabled' : '') + '>Check answer</button>' +
-      (grade ? '<div style="margin-top:13px;padding:12px 14px;background:var(--panel);border-radius:8px"><div style="font-weight:700;color:' + (grade.correct ? 'var(--green)' : 'var(--red)') + '">' + (grade.correct ? 'You have it' : 'Keep working') + ' · ' + Math.round((Number(grade.score) || 0) * 100) + '%</div><div style="font-size:13px;line-height:1.55;color:var(--secondary-text);margin-top:5px">' + escText(grade.feedback || '') + '</div></div>' : '') +
+      (grade ? '<div style="margin-top:13px;padding:12px 14px;background:var(--panel);border-radius:8px"><div style="font-weight:700;color:' + (grade.correct ? 'var(--green)' : 'var(--red)') + '">' + (grade.correct ? 'You have it' : 'Keep working') + studyScoreSuffix(grade.score) + '</div><div style="font-size:13px;line-height:1.55;color:var(--secondary-text);margin-top:5px">' + escText(grade.feedback || '') + '</div></div>' : '') +
       '</div></div>';
   }
 

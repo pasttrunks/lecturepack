@@ -1025,9 +1025,17 @@ def grade_short_answer(job, client: GatewayClient, *, question: str,
         score = max(0.0, min(1.0, float(result.get("score", 0.0))))
     except (TypeError, ValueError):
         score = 0.0
+    # The verdict and the score can disagree: a provider returned
+    # correct=false with score=1.0, which the UI rendered as the nonsense
+    # "Keep working · 100%" next to feedback explaining what was missing.
+    # The boolean is the explicit judgement and matched the feedback, so it
+    # stays authoritative -- but a number we cannot trust is not shown at all
+    # rather than adjusted to fit, which would be inventing a grade.
+    correct = bool(result.get("correct", score >= 0.7))
+    consistent = correct == (score >= 0.7)
     return {
-        "correct": bool(result.get("correct", score >= 0.7)),
-        "score": score,
+        "correct": correct,
+        "score": score if consistent else None,
         "feedback": _text(result.get("feedback"), 3000),
         "ideal_answer": _text(result.get("ideal_answer"), 3000),
         **_normalize_interactive_grounding(job, result, retrieved_ids),

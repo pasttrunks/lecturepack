@@ -147,16 +147,74 @@ def test_the_shape_row_survives_a_narrow_window_and_obeys_AD_20():
     # Match the shaping rules themselves rather than a line range: the section
     # has no trailing marker, and its own comment prose ("no transitions") and
     # the later reduced-motion overrides are not declarations of this row.
-    rules = "\n".join(re.findall(r"\.lp-quiz-shape[^{}]*\{[^}]*\}", APP_CSS))
-    assert ".lp-quiz-shape-btn" in rules, "the shaping rules were not found"
+    rules = "\n".join(re.findall(r"\.lp-study-shape[^{}]*\{[^}]*\}", APP_CSS))
+    assert ".lp-study-shape-btn" in rules, "the shaping rules were not found"
     assert "flex-wrap:wrap" in rules, "the row must wrap, not overflow, at 640px"
     for banned in ("transition", "animation", "will-change", "backdrop-filter"):
         assert banned not in rules, f"AD-20: {banned} must not appear here"
 
 
 def test_the_selected_shape_is_exposed_to_assistive_tech():
-    html = _fn("quizShapeControlsHtml")
+    html = _fn("studyShapeRowHtml")
     assert "aria-pressed=" in html
     # An unavailable difficulty is disabled with a reason, not silently inert.
     assert "disabled" in html
     assert "title=" in html
+
+
+# ------------------------------------------------------- flashcards / grading
+
+def test_flashcards_are_shapeable_too_and_compose_with_the_review_filters():
+    """Difficulty is a standing preference, so it must narrow the deck the
+    "missed cards" and "needs review" filters then work from -- not replace
+    them, which would silently drop the student out of a review session."""
+    fn = _fn("studyV2FlashcardList")
+    assert "studyV2.flashDifficulty" in fn
+    assert "quizDifficultyOf(card)" in fn
+    # The difficulty narrowing has to come first, then the existing filters.
+    assert fn.index("flashDifficulty") < fn.index("flashFilterIds")
+    assert "reviewOnly" in fn
+
+    reset = _fn("setFlashDifficulty")
+    assert "flashIndex = 0" in reset, "flashIndex points into the shaped deck"
+    assert "studyV2PersistView()" in reset
+
+
+def test_the_shaping_row_is_shared_rather_than_duplicated():
+    row = _fn("studyShapeRowHtml")
+    assert "lp-study-shape-btn" in row
+    for caller in ("quizShapeControlsHtml", "flashShapeControlsHtml"):
+        assert "studyShapeRowHtml(" in _fn(caller), (
+            f"{caller} should build on the shared row"
+        )
+
+
+def test_a_contradictory_grade_is_not_shown_as_a_percentage():
+    """A provider returned correct=false with score=1.0, which rendered as
+    "Keep working · 100%" beside feedback explaining what was missing.
+
+    The boolean is the explicit judgement and matched the feedback, so it stays
+    authoritative; the number is dropped rather than adjusted to fit, because
+    adjusting it would be inventing a grade the grader never gave.
+    """
+    from lecturepack.services import ai_study_service as svc
+
+    source = Path(svc.__file__).read_text(encoding="utf-8")
+    fn = source.split("def grade_short_answer(", 1)[1].split("\ndef ", 1)[0]
+    assert "consistent = correct == (score >= 0.7)" in fn
+    assert '"score": score if consistent else None' in fn
+
+    # And the renderer must omit it rather than print 0%.
+    suffix = _fn("studyScoreSuffix")
+    assert "return ''" in suffix
+    assert "isFinite" in suffix
+    assert "Math.round((Number(result.score) || 0) * 100)" not in APP_JS, (
+        "a null score would render as 0%, a harsher grade than was given"
+    )
+
+
+def test_the_grader_is_told_the_two_fields_must_agree():
+    instruction = TASKS_JS.split("  grade_short_answer: '", 1)[1]
+    instruction = instruction.split("',\n", 1)[0]
+    assert "score >= 0.7" in instruction
+    assert "contradiction" in instruction.lower()
