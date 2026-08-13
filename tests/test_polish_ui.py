@@ -128,11 +128,15 @@ def test_downloads_review_and_timeline_polish_hooks_are_present() -> None:
     assert "document.addEventListener('pointerdown'" in JS
     assert 'aria-expanded' in HTML
 
-    assert 'data-slide-density' in JS
+    # The Compact/Roomy density toggle is gone: the two modes differed by a
+    # 22px thumbnail and neither size was legible. A three-stop size control in
+    # the All slides overlay replaces it, and the rail auto-fits its columns.
+    # See tests/test_slide_viewer_layout.py.
+    assert 'data-slide-size' in JS
     assert ".lp-slide-card" in CSS
     assert 'id="btn-all-slides"' in HTML
     assert 'id="all-slides-overlay"' in HTML
-    assert "repeat(auto-fill,minmax(168px,1fr))" in CSS
+    assert "repeat(auto-fill," in CSS
     assert 'data-state="' in JS and 'data-selected="' in JS
     assert "s.state = 'accepted'; s.sel = true" in JS
     selected_rule = CSS.split('.lp-slide-check[data-checked="true"]', 1)[1].split("}", 1)[0]

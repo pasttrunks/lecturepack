@@ -777,29 +777,81 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 #process-queue-target.lp-existing-drop-hover,[data-nav="process"].lp-existing-drop-hover{outline:3px solid var(--orange);outline-offset:-6px;background:var(--orange-soft)}
 .lp-slide-rail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}
 #btn-all-slides{font:600 10px 'JetBrains Mono';padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;background:var(--panel);color:var(--ink);cursor:pointer;white-space:nowrap}
-.lp-slide-density{display:flex;align-items:center;gap:4px;margin-bottom:9px;font:500 9px 'JetBrains Mono';color:var(--muted)}
-.lp-slide-density>span{margin-right:auto;text-transform:uppercase;letter-spacing:.08em}
-.lp-slide-density button{font:600 9px 'JetBrains Mono';padding:4px 6px;border:1.5px solid transparent;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}
-.lp-slide-density button.active{border-color:var(--border);background:var(--panel);color:var(--ink)}
+/* --- slide rail card -------------------------------------------------------
+   Was a 60x38 (or "roomy" 82x52) thumbnail in a horizontal row. At that size a
+   lecture slide is an unreadable smear, and telling two bullet slides apart is
+   the entire job of this screen -- so the thumbnail now spans the full rail
+   width at a true 16:9, roughly four times the linear size, and object-fit is
+   `contain` so nothing is cropped away.
+
+   The rail auto-fits one or two columns instead of offering two named density
+   modes that differed by 22px and looked identical. AD-20 safe throughout: no
+   transition, animation, will-change or filter -- state is colour, border,
+   background and opacity only. */
 .lp-slide-card{min-width:0;overflow:hidden}
-.lp-slide-rail-card{width:100%;display:flex;align-items:center;gap:9px;padding:7px;text-align:left;background:var(--panel);color:var(--ink);border:1.5px solid var(--line);border-radius:10px;cursor:pointer}
-.lp-slide-rail-card .lp-slide-card-thumb{width:60px;height:38px;flex:none;overflow:hidden;background:var(--sunk);border:1.5px solid var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center}
-.lp-slide-rail-card .lp-slide-card-thumb img,.lp-all-slide-image img{width:100%;height:100%;object-fit:cover;display:block}
-.lp-slide-card-meta{min-width:0;max-width:100%;display:flex;flex-direction:column;gap:2px;overflow:hidden}
+.lp-slide-rail-card{width:100%;box-sizing:border-box;display:flex;flex-direction:column;
+  padding:0;text-align:left;background:var(--panel);color:var(--ink);
+  border:1.5px solid var(--line);border-radius:10px;cursor:pointer;
+  /* 212 rows with no virtualisation: skip layout and paint offscreen. The
+     placeholder must match the real card height or the scrollbar drifts --
+     thumb (tile width x 9/16) + 30px caption + borders. Measured in a real
+     browser: 91px at 1280 wide and 94px at 640, so one value covers both. */
+  position:relative;
+  content-visibility:auto;contain-intrinsic-size:auto 92px}
+/* The card became a COLUMN, so the selection box -- a sibling of the caption,
+   not a child -- was laid out as a third row and hung below it. Float it over
+   the thumbnail instead: top-LEFT, because the rejected corner flag owns the
+   top-right, and on the image it reads as the checkbox it is.
+   ID-scoped so it outranks the rejected-state rule below, which sets
+   position:relative to anchor its own cross glyph -- absolute is equally a
+   containing block, so that glyph still works. An equal-specificity selector
+   silently lost to it and the box dropped back into flow on rejected cards. */
+#slide-list .lp-slide-rail-card .lp-slide-check{position:absolute;top:6px;left:6px;
+  z-index:1;margin-left:0;width:18px;height:18px;background:var(--panel);
+  border-color:var(--border);box-shadow:0 0 0 1.5px var(--panel)}
+.lp-slide-rail-card .lp-slide-card-thumb{width:100%;aspect-ratio:16/9;flex:0 0 auto;
+  overflow:hidden;background:var(--sunk);border:none;border-bottom:1.5px solid var(--line);
+  border-radius:0;display:flex;align-items:center;justify-content:center}
+.lp-slide-rail-card .lp-slide-card-thumb img{width:100%;height:100%;object-fit:contain;display:block}
+.lp-all-slide-image img{width:100%;height:100%;object-fit:contain;display:block}
+.lp-slide-card-meta{min-width:0;max-width:100%;box-sizing:border-box;display:flex;
+  align-items:center;gap:6px;flex:0 0 22px;height:22px;padding:0 6px;overflow:hidden}
+/* At a scanning size the caption only has room for the timestamp. State is
+   already carried by the checkbox glyph, the border and (for a rejection) the
+   struck-through time and corner flag -- four cues, none of them colour-only --
+   so the status word and index are redundant here and are dropped. */
+.lp-slide-rail-card .lp-slide-card-status,
+.lp-slide-rail-card .lp-slide-card-idx{display:none}
+.lp-slide-rail-card .lp-slide-card-time{font-size:10px}
 .lp-slide-card-time,.lp-slide-card-status{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lp-slide-card-idx{margin-left:auto;flex:none;font:500 10px 'JetBrains Mono';color:var(--muted);opacity:.7}
 .lp-slide-card-time{font:700 11px 'JetBrains Mono'}
 .lp-slide-card-status{font:700 9px 'JetBrains Mono';text-transform:uppercase;color:var(--muted)}
 .lp-slide-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:auto;border:1.5px solid var(--line);border-radius:4px;color:var(--green);font:800 11px 'Space Grotesk';background:var(--panel)}
 .lp-slide-check[data-checked="true"]{border-color:var(--green)}
 .lp-slide-card[data-viewing="true"]{border-color:var(--orange);box-shadow:inset 4px 0 0 var(--orange)}
 .lp-slide-card[data-viewing="true"] .lp-slide-card-status{color:var(--orange-ink)}
-.lp-slide-card[data-state="rejected"]{border:2px solid var(--red);background:var(--red-soft)}
+.lp-slide-card[data-state="rejected"]{border:2px solid var(--red);background:var(--red-soft);position:relative}
 .lp-slide-card[data-state="rejected"] .lp-slide-card-status{color:var(--red)}
+/* Rejection is the state that changes the export, so it carries cues that
+   survive without colour: a struck-through timestamp, a dimmed thumbnail and a
+   corner flag. Dimming stays on the thumb WRAPPER only -- putting it on the
+   image too multiplies (.55 x .55 = .3) and you can no longer see what you
+   rejected, which is exactly what you need in order to undo it. */
+.lp-slide-rail-card[data-state="rejected"] .lp-slide-card-thumb{opacity:.55;border-bottom-color:var(--red)}
+.lp-slide-card[data-state="rejected"] .lp-slide-card-time{text-decoration:line-through;color:var(--red)}
+.lp-slide-card[data-state="rejected"]::after{content:"";position:absolute;top:0;right:0;
+  width:22px;height:22px;background:linear-gradient(225deg,var(--red) 0 50%,transparent 50%)}
 .lp-slide-card[data-state="rejected"] .lp-slide-check{border-color:var(--red);background:var(--red);position:relative}
 .lp-slide-card[data-state="rejected"] .lp-slide-check::before{content:'\00d7';color:var(--on-signal);font-size:13px}
-#slide-list[data-density="comfortable"] .lp-slide-rail-card{padding:9px;gap:11px}
-#slide-list[data-density="comfortable"] .lp-slide-card-thumb{width:82px;height:52px}
-#slide-list[data-density="comfortable"] .lp-slide-card-time{font-size:12px}
+/* One adaptive layout, no named density modes. The rail is for SCANNING -- the
+   big slide frame beside it is where you actually judge a frame -- so the cards
+   are sized to fit several at once rather than to fill the rail. 112px keeps a
+   16:9 thumbnail comfortably readable at roughly three times the old 60x38
+   area, while showing about ten slides at a time instead of three. */
+#slide-list{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:4px;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));
+  gap:8px;align-content:start;grid-auto-rows:max-content}
 
 #all-slides-overlay{position:fixed;inset:0;z-index:72;background:var(--bg);padding:18px;box-sizing:border-box}
 #all-slides-overlay[hidden]{display:none}
@@ -809,9 +861,25 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 .lp-all-slides-head p{margin:0;font:500 11px 'JetBrains Mono';color:var(--muted)}
 .lp-all-slides-kicker{font:600 9px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--orange-ink)}
 #btn-all-slides-close{font:700 12px 'Space Grotesk';padding:8px 13px;border:2px solid var(--border);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}
-.lp-all-slides-grid{flex:1;min-height:0;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));align-content:start;gap:13px;padding:18px}
+#slide-size{display:flex;align-items:center;gap:6px;margin-left:auto}
+#slide-size .lbl{font:500 10px 'JetBrains Mono';letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
+#slide-size button{width:30px;height:26px;font:700 11px 'Space Grotesk';border:1.5px solid var(--line);
+  border-radius:6px;background:var(--panel);color:var(--muted);cursor:pointer}
+#slide-size button[aria-pressed="true"]{border-color:var(--border);background:var(--sunk);color:var(--ink)}
+#slide-size button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+/* min(100%, var(--tile)) so a large tile never forces horizontal overflow in a
+   narrow window -- it degrades to one full-width column instead. */
+.lp-all-slides-grid{--tile:260px;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--tile)),1fr));
+  align-content:start;grid-auto-rows:max-content;gap:14px;padding:18px}
+.lp-all-slides-grid[data-size="s"]{--tile:168px;gap:10px}
+.lp-all-slides-grid[data-size="m"]{--tile:260px;gap:14px}
+.lp-all-slides-grid[data-size="l"]{--tile:380px;gap:18px}
+/* At S the caption has no room for the state word; the check glyph carries it. */
+.lp-all-slides-grid[data-size="s"] .lp-all-slide-state{display:none}
 .lp-all-slide-card{display:flex;flex-direction:column;min-width:0;padding:0;overflow:hidden;text-align:left;background:var(--panel);color:var(--ink);border:1.5px solid var(--line);border-radius:10px;cursor:pointer}
-.lp-all-slide-image{display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:16/10;overflow:hidden;background:var(--sunk);border-bottom:1.5px solid var(--line)}
+/* 16:9, matching the source frames -- 16:10 letterboxed every slide slightly. */
+.lp-all-slide-image{display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:16/9;flex:0 0 auto;overflow:hidden;background:var(--sunk);border-bottom:1.5px solid var(--line)}
 .lp-all-slide-meta{display:flex;align-items:center;gap:8px;padding:9px 10px}
 .lp-all-slide-meta>span:first-child{display:flex;flex-direction:column;gap:1px;min-width:0}
 .lp-all-slide-meta strong{font:700 11px 'Space Grotesk'}

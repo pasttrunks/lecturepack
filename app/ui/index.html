@@ -290,12 +290,13 @@
               <span style="font-weight:700;font-size:14px">Slides <span id="slides-sel" style="color:var(--blue-ink);font:500 12px 'JetBrains Mono'">· 2 kept</span></span>
               <button id="btn-all-slides" class="lp-hit lp-press-sm" type="button">All slides</button>
             </div>
-            <div class="lp-slide-density" role="group" aria-label="Slide list density">
-              <span>Density</span>
-              <button class="lp-hit active" type="button" data-slide-density="compact" aria-pressed="true">Compact</button>
-              <button class="lp-hit" type="button" data-slide-density="comfortable" aria-pressed="false">Roomy</button>
-            </div>
-            <div id="slide-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:9px;padding-right:4px"></div>
+            <!-- The Compact/Roomy toggle is gone: the two modes differed by a
+                 22px thumbnail and a 1px font, so the control did not visibly
+                 change density and neither size was readable. One adaptive
+                 layout replaces it -- the rail fits two columns when it is wide
+                 enough for two legible 16:9 thumbnails and one when it is not.
+                 See app.css "slide rail card". -->
+            <div id="slide-list"></div>
             <div id="demo-review-actions" style="display:flex;gap:7px;margin-top:11px">
               <button id="btn-keep" class="lp-hit" style="flex:1;font:700 13px 'Space Grotesk';background:var(--green-fill);color:var(--on-signal);border:1.5px solid var(--green);border-radius:9px;padding:9px 0;cursor:pointer;">Keep</button>
               <button id="btn-reject" class="lp-hit" style="flex:1;font:700 13px 'Space Grotesk';background:var(--panel);color:var(--red);border:1.5px solid var(--red);border-radius:9px;padding:9px 0;cursor:pointer">Reject</button>
@@ -847,6 +848,14 @@
     <div class="lp-all-slides-shell">
       <header class="lp-all-slides-head">
         <div><span class="lp-all-slides-kicker">Review</span><h2 id="all-slides-title">All slides</h2><p id="all-slides-count">0 slides</p></div>
+        <!-- Three real stops (168 / 260 / 380px tiles). Each step is a visible
+             change, unlike the Compact/Roomy pair this replaces. -->
+        <div id="slide-size" role="group" aria-label="Slide size">
+          <span class="lbl">Size</span>
+          <button class="lp-hit" type="button" data-slide-size="s" aria-pressed="false" title="Small tiles">S</button>
+          <button class="lp-hit" type="button" data-slide-size="m" aria-pressed="true" title="Medium tiles">M</button>
+          <button class="lp-hit" type="button" data-slide-size="l" aria-pressed="false" title="Large tiles">L</button>
+        </div>
         <button id="btn-all-slides-close" class="lp-hit lp-press-sm" type="button" aria-label="Close all slides">Close</button>
       </header>
       <div id="all-slides-grid" class="lp-all-slides-grid"></div>

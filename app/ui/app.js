@@ -187,7 +187,14 @@
         settings: { count: 10, difficulty: 'Basic', style: 'Term → definition', scope: 'Entire lecture' }
       },
       viewingSlide: 2,
-      slideDensity: 'compact',
+      // "All slides" tile size: s/m/l are three visibly different stops, unlike
+      // the Compact/Roomy pair they replace. Remembered across sessions.
+      slideSize: (function () {
+        try {
+          var saved = browserStorage().getItem('lecturepack.slideSize');
+          return ['s', 'm', 'l'].indexOf(saved) >= 0 ? saved : 'm';
+        } catch (e) { return 'm'; }
+      })(),
 
       updateInfo: null,
       smartStudy: null,   // last smart_study payload
@@ -2411,13 +2418,18 @@
     var state = slideReviewState(slide), selected = state !== 'rejected' && slide.sel === true;
     var label = state === 'rejected' ? 'Rejected' : (viewing ? 'Viewing' : 'Kept');
     var image = slideImg(slide.thumb || slide.img, '', 16, state === 'rejected' ? 'var(--red)' : 'var(--muted)');
+    // A 16:9 thumbnail across the full rail width. The old row put it at
+    // 60x38 (82x52 "roomy"), at which a lecture slide is an unreadable smear
+    // -- and telling two bullet slides apart is the entire job of this screen.
     return '<button type="button" class="lp-hit lp-slide-card lp-slide-rail-card" data-slide="' + index +
       '" data-state="' + state + '" data-viewing="' + (viewing ? 'true' : 'false') +
       '" data-selected="' + (selected ? 'true' : 'false') + '" aria-label="Slide ' + (index + 1) +
       ', ' + esc(slide.time || '') + ', ' + label.toLowerCase() + '">' +
       '<span class="lp-slide-card-thumb">' + image + '</span>' +
       '<span class="lp-slide-card-meta"><span class="lp-slide-card-time">' + esc(slide.time) + '</span>' +
-      '<span class="lp-slide-card-status">' + label + '</span></span>' + slideCheckHtml(selected) + '</button>';
+      '<span class="lp-slide-card-status">' + label + '</span>' +
+      '<span class="lp-slide-card-idx">' + (index + 1) + '</span></span>' +
+      slideCheckHtml(selected) + '</button>';
   }
 
   function allSlidesCardHtml(slide, index, viewing) {
@@ -2437,6 +2449,11 @@
   function renderAllSlides() {
     var grid = $('all-slides-grid'), count = $('all-slides-count');
     if (!grid) return;
+    grid.dataset.size = LP.state.slideSize;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-slide-size]'), function (button) {
+      button.setAttribute('aria-pressed',
+        button.dataset.slideSize === LP.state.slideSize ? 'true' : 'false');
+    });
     var viewing = LP.state.viewingSlide;
     grid.innerHTML = LP.data.slides.map(function (slide, index) {
       return allSlidesCardHtml(slide, index, index === viewing);
@@ -2471,15 +2488,9 @@
     var v = LP.state.viewingSlide;
     var list = $('slide-list');
     updateExportPdfDescription();
-    list.dataset.density = LP.state.slideDensity;
     list.innerHTML = LP.data.slides.map(function (slide, index) {
       return slideRailCardHtml(slide, index, index === v);
     }).join('');
-    Array.prototype.forEach.call(document.querySelectorAll('[data-slide-density]'), function (button) {
-      var active = button.dataset.slideDensity === LP.state.slideDensity;
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
     if (!$('all-slides-overlay').hidden) renderAllSlides();
     finishSlides(v);
   }
@@ -7032,11 +7043,12 @@
       var item = e.target.closest('[data-slide]');
       if (item) { LP.state.viewingSlide = +item.dataset.slide; renderSlides(); }
     });
-    Array.prototype.forEach.call(document.querySelectorAll('[data-slide-density]'), function (b) {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-slide-size]'), function (b) {
       b.addEventListener('click', function () {
-        if (LP.state.slideDensity === b.dataset.slideDensity) return;
-        LP.state.slideDensity = b.dataset.slideDensity;
-        renderSlides();
+        if (LP.state.slideSize === b.dataset.slideSize) return;
+        LP.state.slideSize = b.dataset.slideSize;
+        try { browserStorage().setItem('lecturepack.slideSize', LP.state.slideSize); } catch (e) {}
+        renderAllSlides();
       });
     });
     $('btn-all-slides').addEventListener('click', openAllSlides);
