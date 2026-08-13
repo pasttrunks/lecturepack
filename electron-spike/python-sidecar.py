@@ -53,6 +53,32 @@ STAGES = [
     "Export",
 ]
 
+# Transcribe and Detect Slides run CONCURRENTLY after audio extraction
+# (job_controller.py: "they may run concurrently"). A single `current_stage`
+# scalar therefore has two writers racing at several hertz, which caused two
+# separate user-visible defects:
+#
+#   * the footer alternated between "Transcribe - 43%" and "Detect Slides - 29%"
+#     four times a second, reading as flicker; and
+#   * `_on_transcript_segment` derived its live percent only while
+#     `current_stage == "Transcribe"`. Detect Slides emits real stage-progress
+#     events and whisper emits none, so Detect Slides won the scalar and the
+#     Transcribe row could never take it back -- it sat grey at 0% for the whole
+#     lecture and then jumped to 100%.
+#
+# So membership is tracked as a set and `current_stage` is derived from it by a
+# FIXED priority. Transcribe outranks Detect Slides because it is the long pole
+# and the stage a student is actually waiting on.
+STAGE_PRIMARY_ORDER = (
+    "Export",
+    "Review Ready",
+    "Align",
+    "Transcribe",
+    "Detect Slides",
+    "Extract Audio",
+    "Inspect",
+)
+
 
 def _clock(seconds: float) -> str:
     value = max(0.0, float(seconds or 0.0))
@@ -111,6 +137,11 @@ class Sidecar:
         self.session_id = f"electron-sidecar-{os.getpid()}"
         self.current_job = None
         self.controller = None
+        # Every stage running RIGHT NOW, not just the last one to tick. See
+        # STAGE_PRIMARY_ORDER for why a scalar was not enough. Assigned before
+        # current_stage because that is a property backed by this set.
+        self.active_stages: set[str] = set()
+        self._current_stage = ""
         self.current_stage = ""
         self.stage_percent: dict[str, int] = {}
         self.backend_label = ""
@@ -4286,15 +4317,53 @@ class Sidecar:
     # ------------------------------------------------------------------ #
     # Controller -> JSONL events
     # ------------------------------------------------------------------ #
+    @property
+    def current_stage(self) -> str:
+        return self._current_stage
+
+    @current_stage.setter
+    def current_stage(self, value: str) -> None:
+        """Keep the primary-stage scalar and the running set consistent.
+
+        There are ~20 assignment sites across job activation, restore, retry,
+        cancel and terminal paths. Making the invariant structural here is what
+        stops a stale "Transcribe" leaking from a finished job into the next
+        one's checklist, which is the failure a per-site patch would invite.
+        """
+        stage = str(value or "")
+        self._current_stage = stage
+        if not stage or stage == "Queued":
+            # Idle, queued or terminal: nothing is running by definition.
+            self.active_stages.clear()
+        else:
+            self.active_stages.add(stage)
+
+    def _primary_stage(self) -> str:
+        """The one stage the footer speaks for while several run at once.
+
+        Derived from a fixed priority, so a parallel group produces a STABLE
+        label instead of alternating between its members on every event.
+        """
+        for stage in STAGE_PRIMARY_ORDER:
+            if stage in self.active_stages:
+                return stage
+        return ""
+
     def _on_stage_started(self, stage: str) -> None:
-        self.current_stage = str(stage)
-        self.stage_percent[str(stage)] = 0
-        self._emit_status("Processing", detail=f"{stage} - starting")
+        stage = str(stage)
+        self.active_stages.add(stage)
+        self.current_stage = self._primary_stage() or stage
+        self.stage_percent[stage] = 0
+        self._emit_status(
+            "Processing", detail=f"{self.current_stage} - starting")
         self._emit_pipeline()
 
     def _on_stage_progress(self, stage: str, percent: int) -> None:
         stage = str(stage)
-        self.current_stage = stage
+        # A stage that reports progress is running, even if its "started"
+        # signal was missed (restored jobs, retried stages).
+        self.active_stages.add(stage)
+        self.current_stage = self._primary_stage() or stage
         self.stage_percent[stage] = max(0, min(100, int(percent or 0)))
         if stage == "Export" and self.current_job is not None:
             progress = self.stage_percent[stage]
@@ -4304,7 +4373,12 @@ class Sidecar:
                 "pct": progress,
                 "label": f"exporting - {progress}%",
             })
-        self._emit_status("Processing", detail=f"{stage} - {self.stage_percent[stage]}%")
+        # Report the PRIMARY stage, not whichever one happened to tick. The
+        # other members of a parallel group still show their own live percent
+        # on their own checklist rows via _emit_pipeline below.
+        primary = self.current_stage or stage
+        self._emit_status(
+            "Processing", detail=f"{primary} - {self.stage_percent.get(primary, 0)}%")
         self._emit_pipeline()
 
     def _on_stage_log(self, stage: str, text: str) -> None:
@@ -4323,6 +4397,11 @@ class Sidecar:
 
     def _on_stage_finished(self, stage: str, success: bool, error: str) -> None:
         stage = str(stage)
+        self.active_stages.discard(stage)
+        # Hand the footer to whatever is still running -- e.g. when Detect
+        # Slides finishes first, the label falls back to Transcribe rather
+        # than freezing on a stage that has already ended.
+        self.current_stage = self._primary_stage()
         self.stage_percent[stage] = 100 if success else self.stage_percent.get(stage, 0)
         if self.current_job is not None and success and stage in {
             "Transcribe", "Detect Slides", "Review Ready", "Export"
@@ -4388,14 +4467,22 @@ class Sidecar:
         # the whole time). Derive a real, monotonic percent from the latest
         # segment's end time against the known duration. This only reads the
         # existing live stream -- it never changes the transcription engine.
-        if self.current_stage == "Transcribe":
+        # Gate on MEMBERSHIP, not on the primary-stage scalar. Detect Slides
+        # emits real stage-progress events and whisper emits none, so the old
+        # `current_stage == "Transcribe"` test lost the scalar to Detect Slides
+        # and could never win it back: Transcribe sat at 0% for the whole
+        # lecture, then jumped to 100%.
+        if "Transcribe" in self.active_stages:
             duration = float((self.current_job.source or {}).get("duration", 0.0) or 0.0)
             end_ms = float(segment.get("end_ms") or 0.0)
             if duration > 0 and end_ms > 0:
                 percent = max(0, min(99, round(end_ms / (duration * 1000.0) * 100)))
                 if percent > self.stage_percent.get("Transcribe", 0):
                     self.stage_percent["Transcribe"] = percent
-                    self._emit_status("Processing", detail=f"Transcribe - {percent}%")
+                    primary = self.current_stage or "Transcribe"
+                    self._emit_status(
+                        "Processing",
+                        detail=f"{primary} - {self.stage_percent.get(primary, percent)}%")
                     self._emit_pipeline()
 
     def _on_pipeline_completed(self) -> None:
@@ -4478,6 +4565,12 @@ class Sidecar:
         # live stage marker or percentages of the running job.
         active = self.current_stage if active_stage is None else active_stage
         percent_map = self.stage_percent if stage_percent is None else stage_percent
+        # EVERY concurrently running stage is active, not just the primary one.
+        # Testing `stage == active` alone left the other member of a parallel
+        # transcribe+detect group drawn as pending -- a grey, bar-less row for a
+        # stage that was in fact running, which is what made Transcribing audio
+        # look stuck. Only trust the live set for the job that is processing.
+        live = self.active_stages if active_stage is None else set()
         stages = []
         for index, stage in enumerate(STAGES):
             status = job.get_stage_status(stage)
@@ -4487,7 +4580,7 @@ class Sidecar:
             elif status == "failed":
                 state = "error"
                 percent = percent_map.get(stage, 0)
-            elif stage == active or (not active and status == "running"):
+            elif stage == active or stage in live or (not active and status == "running"):
                 state = "active"
                 percent = percent_map.get(stage, 0)
             else:
