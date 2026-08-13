@@ -58,6 +58,27 @@ def test_a_background_answer_does_not_borrow_lecture_citations():
     assert grounded["provenance"] == "extra_context"
 
 
+def test_a_background_answer_drops_citations_the_model_attached_itself():
+    """Observed against the deployed gateway, not hypothetical.
+
+    "When was Schliemann born?" returned "1822" correctly marked extra_context
+    -- but with a lecture_source pointing at a segment that really exists, so
+    validation passed and the UI would have cited the lecture for a date the
+    lecture never states. The model's own declaration wins over its own source.
+    """
+    grounded = ai_study_service._grounding(
+        {"answer": "1822", "provenance": "extra_context",
+         "lecture_sources": [
+             {"segment_id": "seg-1", "slide_id": "", "quote": "Schliemann excavated Troy"}],
+         "web_sources": []},
+        # A real segment, so _validated_lecture_sources would keep it.
+        [{"id": "seg-1", "segment_id": "seg-1", "start_ms": 0, "text": "Schliemann excavated Troy"}],
+        [], inherited=INHERITED,
+    )
+    assert grounded["lecture_sources"] == []
+    assert grounded["provenance"] == "extra_context"
+
+
 def test_a_lecture_answer_still_inherits_the_concept_citations():
     """The inheritance is load-bearing for real lecture answers -- keep it."""
     grounded = _ground("lecture")

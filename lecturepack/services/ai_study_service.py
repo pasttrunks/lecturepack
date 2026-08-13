@@ -372,14 +372,24 @@ def _grounding(raw: dict[str, Any], segments: list, slides: list,
         raw.get("lecture_sources", raw.get("sources")), segments, slides)
     web = _validated_web_sources(
         raw.get("web_sources"), allowed_urls=allowed_web_urls)
-    # Inheriting the concept's citations when the model returned none is right
-    # for material the lecture DID cover -- but not when the model has just told
-    # us the answer came from its own knowledge. Borrowing them there produced
-    # answers like "not mentioned in the provided lecture context" stamped with
-    # three "From lecture · Slide" chips: a citation for a claim no lecture
-    # source supports. Honour the declaration instead.
+    # An answer the model itself labels as coming from its own knowledge must
+    # not carry lecture citations. Two ways they used to appear:
+    #
+    #   * inheriting the retrieved concept's sources when the model returned
+    #     none -- right for material the lecture DID cover, wrong here; and
+    #   * the model attaching a real segment id anyway. Probing the deployed
+    #     gateway, "When was Schliemann born?" came back "1822", correctly
+    #     marked extra_context, but WITH a lecture source: the segment exists,
+    #     so validation passes, and the UI would cite the lecture for a date the
+    #     lecture never states.
+    #
+    # Both are dropped. The declaration is the model's own, so honouring it
+    # costs nothing when it is accurate and prevents a false citation when it
+    # is not. "mixed" is untouched: it legitimately carries both.
     declared = str(raw.get("provenance") or "").lower()
-    if not lecture and declared != "extra_context":
+    if declared == "extra_context":
+        lecture = []
+    elif not lecture:
         lecture = list(inherited.get("lecture_sources") or inherited.get("sources") or [])
     if not web:
         web = list(inherited.get("web_sources") or [])
