@@ -287,19 +287,40 @@ def test_sidecar_derives_live_transcribe_progress_from_segments() -> None:
     assert '"end_ms"' in seg
     assert '"duration"' in seg
     assert 'self.stage_percent["Transcribe"]' in seg
-    assert '_emit_status("Processing", detail=f"Transcribe - {percent}%")' in seg
+    assert "_emit_status(" in seg and '"Processing"' in seg
     assert "never changes the transcription engine" in seg
+    # The gate is MEMBERSHIP of the running set, not the primary-stage scalar.
+    # Detect Slides runs concurrently and emits real stage-progress events
+    # while whisper emits none, so a `current_stage == "Transcribe"` test lost
+    # the scalar to Detect Slides and could never win it back -- the row sat at
+    # 0% for the whole lecture. See tests/test_parallel_stage_reporting.py,
+    # which drives this end to end rather than reading the source.
+    assert '"Transcribe" in self.active_stages' in seg
+    assert 'self.current_stage == "Transcribe"' not in seg
 
 
-def test_pipeline_stages_never_show_two_active_stages() -> None:
-    """Only the explicit current stage may render active; a persisted
-    'running' status from the previous stage must not keep its bar lit next to
-    the real active stage (that made Process show two running stages and froze
-    the perceived percent during stage transitions)."""
+def test_pipeline_stages_never_light_a_stale_stage() -> None:
+    """A persisted 'running' status must not keep a finished stage's bar lit.
+
+    This originally read "never show two active stages", which was too strong:
+    Transcribe and Detect Slides genuinely DO run at the same time, and drawing
+    only one of them as active left the other as a grey, bar-less row while it
+    was working. What must never happen is a STALE row -- a leftover "running"
+    status from a previous stage lit next to the real one, which froze the
+    perceived percent during stage transitions.
+
+    So the fallback stays conditional on there being no live stage at all, and
+    only genuinely running stages (tracked in active_stages) light up. See
+    tests/test_parallel_stage_reporting.py for the concurrent-group behaviour.
+    """
     sidecar = read(SIDECAR)
     stages = block(sidecar, "def _pipeline_stages(", "def _slides(")
     assert "stage == active" in stages
+    assert "stage in live" in stages
     assert '(not active and status == "running")' in stages
+    # The live set is only trusted for the job actually processing -- another
+    # job must never borrow it.
+    assert "live = self.active_stages if active_stage is None else set()" in stages
 
 
 def test_queued_position_banner_is_one_based() -> None:

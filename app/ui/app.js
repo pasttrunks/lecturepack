@@ -3988,6 +3988,9 @@
   // ------------------------------------------------------------------ //
   // Study V2: grounded concepts, mastery, flashcards, quiz, quick study
   // ------------------------------------------------------------------ //
+  // 'all' first: indexOf(...) > 0 is the "is a real difficulty" test.
+  var QUIZ_DIFFICULTIES = ['all', 'easy', 'medium', 'hard'];
+  var QUIZ_LENGTHS = ['all', '5', '10', '20'];
   var studyV2 = {
     content: null,
     progress: null,
@@ -4002,6 +4005,10 @@
     quizCorrect: 0,
     quizAsked: [],
     quizGrades: {},
+    // How the student wants THIS run shaped. Applied locally to the generated
+    // pack: no AI request, works offline, and takes effect instantly.
+    quizDifficulty: 'all',
+    quizLength: 'all',
     quickSession: null,
     quickIndex: 0,
     quickCorrect: 0,
@@ -4050,6 +4057,8 @@
         quizAnswers: studyV2.quizAnswers,
         quizPicks: studyV2.quizPicks,
         quizGrades: studyV2.quizGrades,
+        quizDifficulty: studyV2.quizDifficulty,
+        quizLength: studyV2.quizLength,
         quickIndex: studyV2.quickIndex,
         quickCorrect: studyV2.quickCorrect,
         quickTotal: studyV2.quickTotal,
@@ -4083,6 +4092,8 @@
       studyV2.quizAnswers = Array.isArray(saved.quizAnswers) ? saved.quizAnswers : [];
       studyV2.quizPicks = saved.quizPicks && typeof saved.quizPicks === 'object' ? saved.quizPicks : {};
       studyV2.quizGrades = saved.quizGrades && typeof saved.quizGrades === 'object' ? saved.quizGrades : {};
+      studyV2.quizDifficulty = QUIZ_DIFFICULTIES.indexOf(String(saved.quizDifficulty)) >= 0 ? String(saved.quizDifficulty) : 'all';
+      studyV2.quizLength = QUIZ_LENGTHS.indexOf(String(saved.quizLength)) >= 0 ? String(saved.quizLength) : 'all';
       studyV2.quickIndex = Math.max(0, Number(saved.quickIndex) || 0);
       studyV2.quickCorrect = Math.max(0, Number(saved.quickCorrect) || 0);
       studyV2.quickTotal = Math.max(0, Number(saved.quickTotal) || 0);
@@ -4695,17 +4706,105 @@
     });
   }
 
+  /* ---- shaping the quiz -----------------------------------------------
+     "Make it harder / easier / longer / shorter" is answered from the pack
+     that is already generated: filtering is instant, costs no AI request and
+     works offline, where regenerating for every adjustment would be slow and
+     could fail. The generator is told to spread difficulty across the pack so
+     there is something real to filter. Whatever the model wrote is normalised
+     here -- an item with an unrecognised difficulty counts as medium rather
+     than vanishing from every view. */
+  function quizDifficultyOf(item) {
+    var raw = String((item && item.difficulty) || '').trim().toLowerCase();
+    return QUIZ_DIFFICULTIES.indexOf(raw) > 0 ? raw : 'medium';
+  }
+
+  function quizPool() {
+    var all = (studyV2.content && studyV2.content.quiz) || [];
+    var picked = studyV2.quizDifficulty === 'all' ? all.slice() : all.filter(function (q) {
+      return quizDifficultyOf(q) === studyV2.quizDifficulty;
+    });
+    var limit = Number(studyV2.quizLength);
+    return studyV2.quizLength === 'all' || !limit ? picked : picked.slice(0, limit);
+  }
+
+  function quizDifficultyCounts() {
+    var counts = { all: 0, easy: 0, medium: 0, hard: 0 };
+    ((studyV2.content && studyV2.content.quiz) || []).forEach(function (q) {
+      counts.all += 1;
+      counts[quizDifficultyOf(q)] += 1;
+    });
+    return counts;
+  }
+
+  function setQuizShape(key, value) {
+    if (key === 'difficulty') {
+      if (studyV2.quizDifficulty === value) return;
+      studyV2.quizDifficulty = value;
+    } else {
+      if (studyV2.quizLength === value) return;
+      studyV2.quizLength = value;
+    }
+    // Reshaping changes which questions exist, so a part-finished run cannot
+    // be carried over -- its index and score would refer to a different set.
+    studyV2.quizIndex = 0;
+    studyV2.quizCorrect = 0;
+    studyV2.quizAnswers = [];
+    studyV2.quizPicks = {};
+    studyV2PersistView();
+    renderStudyQuiz();
+  }
+
+  function quizShapeControlsHtml() {
+    var counts = quizDifficultyCounts();
+    var total = quizPool().length;
+    function group(label, key, options) {
+      return '<div class="lp-quiz-shape-group"><span class="lp-quiz-shape-label">' + label + '</span>' +
+        options.map(function (opt) {
+          var on = String(key === 'difficulty' ? studyV2.quizDifficulty : studyV2.quizLength) === String(opt.value);
+          return '<button class="lp-hit lp-quiz-shape-btn" data-shape="' + key + '" data-value="' + escText(String(opt.value)) + '"' +
+            ' aria-pressed="' + (on ? 'true' : 'false') + '"' + (opt.disabled ? ' disabled' : '') +
+            (opt.title ? ' title="' + escText(opt.title) + '"' : '') + '>' + escText(opt.label) + '</button>';
+        }).join('') + '</div>';
+    }
+    return '<div class="lp-quiz-shape">' +
+      group('Difficulty', 'difficulty', [
+        { value: 'all', label: 'Any' },
+        { value: 'easy', label: 'Easier', disabled: !counts.easy, title: counts.easy ? counts.easy + ' questions' : 'No easy questions in this pack' },
+        { value: 'medium', label: 'Medium', disabled: !counts.medium, title: counts.medium ? counts.medium + ' questions' : 'No medium questions in this pack' },
+        { value: 'hard', label: 'Harder', disabled: !counts.hard, title: counts.hard ? counts.hard + ' questions' : 'No hard questions in this pack' }
+      ]) +
+      group('Length', 'length', [
+        { value: '5', label: '5' },
+        { value: '10', label: '10' },
+        { value: '20', label: '20' },
+        { value: 'all', label: 'All' }
+      ]) +
+      '<span class="lp-quiz-shape-count">' + total + (total === 1 ? ' question' : ' questions') + '</span></div>';
+  }
+
   function renderStudyQuiz() {
-    var questions = (studyV2.content && studyV2.content.quiz) || [];
+    var all = (studyV2.content && studyV2.content.quiz) || [];
+    var questions = quizPool();
     var root = $('study-quiz-root');
-    if (!questions.length) {
+    if (!all.length) {
       root.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font:500 13px JetBrains Mono">No quiz questions yet.</div>';
+      return;
+    }
+    if (!questions.length) {
+      // Reachable only if the pack has questions but none match the shape;
+      // offer the way back rather than an empty screen.
+      root.innerHTML = quizShapeControlsHtml() +
+        '<div style="text-align:center;padding:40px;color:var(--muted);font:500 13px JetBrains Mono">' +
+        'No questions at this difficulty. Choose <strong>Any</strong> to see all ' + all.length + '.</div>';
+      bindQuizShapeControls(root);
       return;
     }
     var q = questions[studyV2.quizIndex];
     if (!q) {
       // Quiz complete
-      root.innerHTML = '<div style="text-align:center;padding:40px">' +
+      root.innerHTML = quizShapeControlsHtml() +
+        '<div style="text-align:center;padding:40px">' +
         '<div style="font-weight:700;font-size:20px;margin-bottom:8px">Quiz complete</div>' +
         '<div style="font:500 13px JetBrains Mono;color:var(--muted);margin-bottom:20px">' + studyV2.quizCorrect + ' / ' + questions.length + ' correct</div>' +
         '<button id="btn-study-quiz-restart" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer">Take again</button></div>';
@@ -4715,6 +4814,7 @@
         studyV2PersistView();
         renderStudyQuiz();
       });
+      bindQuizShapeControls(root);
       return;
     }
     var savedPick = Object.prototype.hasOwnProperty.call(studyV2.quizPicks, studyV2.quizIndex) ? Number(studyV2.quizPicks[studyV2.quizIndex]) : null;
@@ -4728,7 +4828,8 @@
         var color = answered ? (i === q.correct_index ? 'var(--green)' : i === savedPick ? 'var(--red)' : 'var(--border)') : 'var(--border)';
         return '<button class="lp-hit study-quiz-opt" data-opt="' + i + '" style="display:block;width:100%;text-align:left;font:600 14px Space Grotesk;background:var(--sunk);border:1.5px solid ' + color + ';border-radius:9px;padding:11px 14px;cursor:pointer;color:var(--ink);margin-bottom:8px"' + (answered ? ' disabled' : '') + '>' + escText(opt) + '</button>';
       }).join('');
-    root.innerHTML = '<div class="study-focus-content" style="max-width:680px;margin:0 auto">' +
+    root.innerHTML = quizShapeControlsHtml() +
+      '<div class="study-focus-content" style="max-width:680px;margin:0 auto">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>Question ' + (studyV2.quizIndex + 1) + ' of ' + questions.length + '</span><span>' + (isShortAnswer ? 'Short answer' : q.qtype === 'true_false' ? 'True or false' : 'Choose one') + '</span></div>' +
       '<div style="height:4px;border-radius:3px;background:var(--sunk);overflow:hidden;margin-bottom:24px"><div style="width:' + (((studyV2.quizIndex + 1) / questions.length) * 100) + '%;height:100%;background:var(--orange)"></div></div>' +
       '<div style="font-size:18px;font-weight:700;line-height:1.4;margin-bottom:18px;text-align:center">' + escText(q.question) + '</div>' +
@@ -4736,8 +4837,18 @@
       '<div id="study-quiz-feedback" style="margin-top:14px"></div>' +
       '<div style="display:flex;gap:7px;justify-content:center;margin-top:16px"><button class="lp-hit study-edit" data-kind="quiz" data-id="' + escText(q.id) + '">Edit</button><button class="lp-hit study-regenerate" data-kind="quiz" data-id="' + escText(q.id) + '">Regenerate</button><button class="lp-hit study-delete" data-kind="quiz" data-id="' + escText(q.id) + '">Delete</button></div></div>';
     bindStudyQuizButtons();
+    bindQuizShapeControls(root);
     if (answered && isShortAnswer) renderStudyShortAnswerFeedback(q, grade);
     else if (answered) renderStudyQuizFeedback(q, savedPick);
+  }
+
+  function bindQuizShapeControls(root) {
+    if (!root) return;
+    Array.prototype.forEach.call(root.querySelectorAll('.lp-quiz-shape-btn'), function (button) {
+      button.addEventListener('click', function () {
+        setQuizShape(button.dataset.shape, button.dataset.value);
+      });
+    });
   }
 
   function renderStudyQuizFeedback(q, selectedIndex) {
@@ -4777,7 +4888,10 @@
     opts.forEach(function (btn) {
       btn.addEventListener('click', function () {
         var idx = Number(btn.dataset.opt);
-        var questions = (studyV2.content && studyV2.content.quiz) || [];
+        // Same pool the question was drawn from -- quizIndex is an index INTO
+        // the shaped run, so reading the full pack would answer a different
+        // question than the one on screen.
+        var questions = quizPool();
         var q = questions[studyV2.quizIndex];
         if (!q || studyV2.quizAnswers.indexOf(studyV2.quizIndex) >= 0) return;
         var correct = (q.correct_index === idx);
@@ -4808,7 +4922,7 @@
     });
     var grade = $('btn-study-grade-short-answer');
     if (grade) grade.addEventListener('click', function () {
-      var questions = (studyV2.content && studyV2.content.quiz) || [];
+      var questions = quizPool();
       var q = questions[studyV2.quizIndex];
       var input = $('study-quiz-short-answer');
       var answer = input && input.value.trim();
@@ -7867,6 +7981,11 @@
       if (payload.progress_percent != null) studyV2.content.generation_metadata.progress_percent = payload.progress_percent;
       if (payload.error) studyV2.content.generation_metadata.last_error = { message: payload.error };
       renderStudyGenerationState();
+      // A refresh that failed must correct the optimistic "Refreshing…" toast
+      // the click put on screen, otherwise Regenerate reads as a dead button.
+      if (payload.refresh_status === 'failed') {
+        toast(payload.error || 'Those Study items could not be refreshed.');
+      }
       if (payload.status === 'ready' || payload.status === 'basic' || payload.status === 'failed' || payload.refresh_status === 'ready') {
         studyV2Load();
       }
@@ -7905,7 +8024,7 @@
         studyV2.quizGrades[questionId] = payload.result;
         studyV2.quizGrading = false;
         studyV2.quizGradingQuestionId = '';
-        var questions = (studyV2.content && studyV2.content.quiz) || [];
+        var questions = quizPool();
         var index = questions.findIndex(function (question) { return question.id === questionId; });
         if (index >= 0 && studyV2.quizAnswers.indexOf(index) < 0) {
           studyV2.quizAnswers.push(index);

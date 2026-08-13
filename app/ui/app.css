@@ -1030,6 +1030,27 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 .study-source-beyond{
   font:600 11px 'JetBrains Mono';border:1.5px dashed var(--border);border-radius:6px;
   padding:3px 8px;color:var(--muted);background:var(--panel)}
+/* --- quiz shaping row ------------------------------------------------------
+   "Harder / easier / longer / shorter", applied to the generated pack. Static
+   per AD-20: state changes are colour and border only, no transitions and no
+   animation on a surface that repaints on every question. Wraps rather than
+   scrolls so the whole row stays reachable in a 640px-wide window. */
+.lp-quiz-shape{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  margin:0 auto 18px;max-width:680px;padding-bottom:12px;
+  border-bottom:1.5px solid var(--line)}
+.lp-quiz-shape-group{display:flex;align-items:center;gap:5px}
+.lp-quiz-shape-label{font:600 10px 'JetBrains Mono';text-transform:uppercase;
+  letter-spacing:.05em;color:var(--muted);margin-right:3px}
+.lp-quiz-shape-btn{font:600 11px 'Space Grotesk';color:var(--muted);
+  background:transparent;border:1.5px solid transparent;border-radius:6px;
+  padding:4px 9px;cursor:pointer}
+.lp-quiz-shape-btn:hover:not(:disabled){background:var(--panel2);color:var(--ink)}
+.lp-quiz-shape-btn[aria-pressed="true"]{color:var(--secondary-text);
+  background:var(--secondary-surface);border-color:var(--secondary-border);font-weight:700}
+.lp-quiz-shape-btn:disabled{opacity:.4;cursor:not-allowed}
+.lp-quiz-shape-btn:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.lp-quiz-shape-count{margin-left:auto;font:500 11px 'JetBrains Mono';color:var(--muted)}
+
 .study-guide-section{background:var(--sunk);border:1.5px solid var(--line);border-radius:10px;padding:14px 16px}
 .study-guide-section h3{font-size:14px;margin:0 0 7px}
 .study-guide-section p{font-size:13px;line-height:1.55;color:var(--secondary-text);margin:0}

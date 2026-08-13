@@ -3037,9 +3037,23 @@ class Sidecar:
                         progress=progress,
                         cancelled=cancelled,
                     )
+                # A gateway outage or an unusable provider response is the
+                # LIKELIEST way a regeneration fails, and swallowing it made
+                # Regenerate look like a dead button: the student got an
+                # optimistic toast, then nothing changed and nothing was ever
+                # reported. Every failure now reaches the UI.
                 except (self.ai_gateway.GatewayError,
-                        self.ai_study_service.StudyContentError):
-                    pass
+                        self.ai_study_service.StudyContentError) as exc:
+                    if self._study_epoch_is_current(job_id, epoch):
+                        self._emit_study_generation({
+                            "job_id": job_id,
+                            "status": self.study_v2.load_content(job).get("study_status"),
+                            "stage": "Concept refresh needs attention",
+                            "progress_percent": 0,
+                            "refresh_status": "failed",
+                            "error": str(exc)[:300]
+                            or "The Study items could not be refreshed.",
+                        })
                 except Exception:  # noqa: BLE001 - background boundary
                     if self._study_epoch_is_current(job_id, epoch):
                         self._emit_study_generation({
@@ -4336,11 +4350,18 @@ class Sidecar:
         """
         stage = str(value or "")
         self._current_stage = stage
+        # Tolerate a partially built instance: tests and restore paths assign
+        # current_stage on an object created with __new__, before __init__ has
+        # run. Failing there would break callers that never touch the set.
+        active = getattr(self, "active_stages", None)
+        if active is None:
+            active = set()
+            object.__setattr__(self, "active_stages", active)
         if not stage or stage == "Queued":
             # Idle, queued or terminal: nothing is running by definition.
-            self.active_stages.clear()
+            active.clear()
         else:
-            self.active_stages.add(stage)
+            active.add(stage)
 
     def _primary_stage(self) -> str:
         """The one stage the footer speaks for while several run at once.

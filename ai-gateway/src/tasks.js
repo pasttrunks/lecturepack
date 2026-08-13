@@ -112,7 +112,7 @@ const schemas = {
 
 const taskInstructions = {
   lecture_analysis: 'Create the canonical lecture understanding: summary, important concepts and relationships, key terms, people, dates, likely misconceptions, and only a few justified web/vision requests. Cite only source IDs present in the bundle.',
-  study_material_generation: 'Using the canonical analysis and evidence supplied, generate one coherent study system: at least two guide sections, at least two flashcards, and a quiz containing at least one multiple-choice, one true/false, and one short-answer item, plus concepts, terms, people/dates, misconceptions, deterministic quick-study concept selections, and Teach Me foundations. Keep every claim grounded and label provenance.',
+  study_material_generation: 'Using the canonical analysis and evidence supplied, generate one coherent study system: guide sections, flashcards, a quiz, concepts, terms, people/dates, misconceptions, deterministic quick-study concept selections, and Teach Me foundations. Keep every claim grounded and label provenance. SIZE THE PACK TO THE LECTURE, because a student revising for an exam cannot use three questions: aim for about three flashcards and two quiz questions per concept you identified, and one guide section per concept -- so an eight-concept lecture should yield roughly 20 flashcards and 16 quiz questions, not the bare minimum. Never pad with duplicates or trivia: if the lecture genuinely only supports fewer, return fewer. The quiz must contain multiple-choice, true/false AND short-answer items, weighted toward multiple-choice. SPREAD THE DIFFICULTY so the student can choose a level: set each flashcard and quiz item difficulty to exactly one of "easy", "medium" or "hard" (lowercase), roughly a third each -- easy items recall a single stated fact, medium items connect two ideas or apply one, hard items require synthesis or reasoning across the lecture. Completing valid JSON matters more than reaching any target: if you are running long, return fewer items rather than a truncated object.',
   ask: 'Answer the student\'s question about this lecture. Lead with the lecture evidence whenever it covers the question, cite exact source IDs for those claims, and set provenance "lecture". When the question is about the lecture\'s own subject matter but the transcript and slides do not contain the answer -- a date, a definition, who someone was, what happened next -- answer it anyway from your own knowledge of the subject: say briefly that the lecture does not cover it, then give the answer. Mark that case provenance "extra_context" and return an EMPTY lecture_sources array, because no lecture source supports it; never attach lecture citations to a claim the lecture did not make. Use provenance "mixed" when one answer does both. Refusing to answer a question a student could look up in seconds is not grounding, it is a dead end -- only decline when the question is genuinely unrelated to the lecture subject.',
   teach_me: 'Teach one concept with a concise explanation, a useful analogy, and one understanding check plus a grading rubric. Ground the teaching in the supplied lecture evidence.',
   grade_short_answer: 'Grade meaning, not exact wording. Return a 0-1 score, a boolean result, specific feedback, and an ideal answer grounded in the provided rubric and evidence.',
@@ -178,7 +178,10 @@ export function validateTaskResult(task, result) {
 }
 
 export function maxOutputTokens(task) {
-  if (task === 'study_material_generation') return 12000;
+  // Raised with the per-concept targets above: a 20-card / 16-question pack
+  // does not fit the old 12k ceiling, and a truncated object costs a full
+  // fallback round-trip. The schema still caps the pack at 40/40.
+  if (task === 'study_material_generation') return 16000;
   if (task === 'lecture_analysis') return 7000;
   if (task === 'regenerate_concept') return 3500;
   if (task === 'vision_slide' || task === 'web_enrichment') return 2200;
