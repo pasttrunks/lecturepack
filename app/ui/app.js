@@ -1166,6 +1166,7 @@
 
   function _jobCardHtml(j) {
     var ready = _jobIsReady(j);
+    var draggable = _jobIsDraggable(j);
     var displayStatus = ready ? 'ready' : j.status;
     var b = JOB_BADGES[displayStatus] || JOB_BADGES.done;
     var dot = '<span style="width:6px;height:6px;border-radius:50%;background:' + b.dot + (b.blink ? ';animation:lpblink 1s infinite' : '') + '"></span>';
@@ -1213,7 +1214,9 @@
         '</span>'
       : '';
     var border = chosen ? 'var(--blue)' : 'var(--border)';
-    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + (ready ? 'draggable="true" data-existing-job-drag="true" ' : '') + 'data-status="' + esc(displayStatus) + '" style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:' + (ready ? 'grab' : 'pointer') + '">' +
+    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + (draggable ? 'draggable="true" data-existing-job-drag="true" ' : '') +
+      (_jobIsReprocessable(j) ? 'data-reprocess="true" title="Drag to Process to run this lecture again" ' : '') +
+      'data-status="' + esc(displayStatus) + '" style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:' + (draggable ? 'grab' : 'pointer') + '">' +
       '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + (selecting ? selbox : menu) + badge + '</div>' +
       '<div style="padding:14px 16px">' + body + '</div></div>';
   }
@@ -1644,11 +1647,23 @@
   function _jobIsReady(j) {
     return !!j && j.status === 'queued' && !_jobInQueue(j.id) && j.status !== 'running';
   }
+  // A lecture that has already finished (or failed, or was cancelled) can be
+  // put back through the pipeline. This is deliberately SEPARATE from
+  // _jobIsReady, which means "imported but never processed" and still governs
+  // the Start/Options/Remove buttons -- widening that would have put a Start
+  // button on every finished lecture. Only dragging consults this.
+  var REPROCESSABLE_STATUSES = { done: true, failed: true, cancelled: true, interrupted: true };
+  function _jobIsReprocessable(j) {
+    return !!j && !!j.id && REPROCESSABLE_STATUSES[j.status] === true && !_jobInQueue(j.id);
+  }
+  function _jobIsDraggable(j) {
+    return _jobIsReady(j) || _jobIsReprocessable(j);
+  }
   function internalDragIdsFor(sourceId) {
     var selected = LP.state.selecting && LP.state.selected[sourceId];
     var ids = [];
     (LP.data.jobs || []).forEach(function (job) {
-      if (!job || !job.id || !(_jobIsReady(job) && (!LP.state.selecting || !selected || LP.state.selected[job.id]))) return;
+      if (!job || !job.id || !(_jobIsDraggable(job) && (!LP.state.selecting || !selected || LP.state.selected[job.id]))) return;
       if (!selected && job.id !== sourceId) return;
       if (ids.indexOf(job.id) < 0) ids.push(job.id);
     });
@@ -1672,11 +1687,33 @@
     document.body.appendChild(ghost);
     return ghost;
   }
-  function queueExistingJobIds(ids) {
+  // Dropping finished lectures on Process re-runs them, which REPLACES their
+  // slides, transcript and Study pack. That is not something to discover after
+  // the fact, so the confirm names what is about to be overwritten and the
+  // reprocess flag only reaches the sidecar once the student has agreed.
+  function confirmReprocess(ids) {
+    var again = ids.map(_jobById).filter(_jobIsReprocessable);
+    if (!again.length) return Promise.resolve(false);
+    var names = again.map(function (j) { return '<li>' + esc(j.name || 'Untitled lecture') + '</li>'; }).join('');
+    return new Promise(function (resolve) {
+      lpModal({
+        title: again.length === 1 ? 'Process this lecture again?' : 'Process ' + again.length + ' lectures again?',
+        bodyHtml: '<div>Running these again replaces their existing slides, transcript and Study pack:</div>' +
+          '<ul style="margin:10px 0 0;padding-left:20px">' + names + '</ul>',
+        actions: [
+          { label: 'Cancel', onClick: function () { resolve(false); } },
+          { label: 'Process again', danger: true, onClick: function () { resolve(true); } }
+        ]
+      });
+    });
+  }
+  function queueExistingJobIds(ids, opts) {
     var unique = ids.filter(function (id, index) { return id && ids.indexOf(id) === index; });
     if (!unique.length) return Promise.resolve(null);
     if (!lpBridge.connected()) { toast('Preview mode — existing lectures were not queued.'); return Promise.resolve(null); }
-    return lpBridge.call('queue_jobs', { job_ids: unique }).then(function (result) {
+    var request = { job_ids: unique };
+    if (opts && opts.reprocess) request.reprocess = true;
+    return lpBridge.call('queue_jobs', request).then(function (result) {
       // Older desktop bridges expose the same normal queue one job at a time.
       // This fallback still sends each existing ID exactly once and never
       // routes an internal drag through file import.
@@ -6832,10 +6869,14 @@
         processQueueTarget.classList.remove('lp-existing-drop-hover');
         internalJobDragIds = [];
         if (processQueueTarget.dataset.nav === 'process') setScreen('process');
-        queueExistingJobIds(ids).then(function (result) {
-          var count = result && Number.isFinite(result.count) ? result.count : ids.length;
-          toast(count + ' lecture' + (count === 1 ? '' : 's') + ' queued');
-        }, function () { toast('The selected lectures could not be queued.'); });
+        var again = ids.map(_jobById).filter(_jobIsReprocessable).length > 0;
+        (again ? confirmReprocess(ids) : Promise.resolve(false)).then(function (agreed) {
+          if (again && !agreed) return;
+          return queueExistingJobIds(ids, { reprocess: again }).then(function (result) {
+            var count = result && Number.isFinite(result.count) ? result.count : ids.length;
+            toast(count + ' lecture' + (count === 1 ? '' : 's') + ' queued');
+          }, function () { toast('The selected lectures could not be queued.'); });
+        });
       });
     });
 

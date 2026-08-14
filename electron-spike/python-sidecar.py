@@ -1478,7 +1478,17 @@ class Sidecar:
         validation/reporting needed by an internal drag/drop action while the
         historical ``queue_jobs`` batch command remains compatible with the
         existing batch-import UI.
+
+        A finished lecture is normally skipped: queueing it again would re-run
+        a pipeline whose output already exists. ``reprocess`` is the explicit
+        opt-in for doing exactly that -- the renderer only sets it after the
+        student confirms a dialog naming the lectures whose slides, transcript
+        and Study pack will be replaced. Every stage is reset to pending first,
+        the same reset ``restart_job`` performs, so the job re-enters the queue
+        as unprocessed work rather than being enqueued in a completed state.
+        A job that is running or paused is never reset, opt-in or not.
         """
+        reprocess = bool(payload.get("reprocess"))
         job_ids = payload.get("job_ids") or []
         if isinstance(job_ids, str):
             try:
@@ -1505,7 +1515,11 @@ class Sidecar:
                 skipped.append({"job_id": job_id, "reason": "not_found"})
                 continue
             status = self._job_status(job)
-            if status in {"done", "failed", "cancelled", "interrupted"}:
+            terminal = status in {"done", "failed", "cancelled", "interrupted"}
+            if terminal and not reprocess:
+                skipped.append({"job_id": job_id, "reason": status})
+                continue
+            if status in {"running", "paused", "pause_requested"}:
                 skipped.append({"job_id": job_id, "reason": status})
                 continue
             if self.queue.active == job_id:
@@ -1518,6 +1532,17 @@ class Sidecar:
             if position is None or position < 0:
                 skipped.append({"job_id": job_id, "reason": "queue_rejected"})
                 continue
+            if terminal:
+                # Ordered after the enqueue so a rejected queue leaves the
+                # finished job exactly as it was: resetting first and failing
+                # here would erase the record that it had ever completed.
+                try:
+                    self.electron_backend.restart_job(job)
+                    job.save()
+                except Exception:  # noqa: BLE001 - roll back rather than queue a done job
+                    self.electron_backend.remove_from_queue(self.queue, job_id)
+                    skipped.append({"job_id": job_id, "reason": "reset_failed"})
+                    continue
             queued.append(job_id)
             positions.append({"job_id": job_id, "position": position})
         self._push_queue()

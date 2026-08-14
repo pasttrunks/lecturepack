@@ -494,11 +494,20 @@
         }
       };
     }
-    if (name === 'queue_jobs') {
-      return { command: 'queue_jobs', payload: { job_ids: Array.isArray(payload.job_ids) ? payload.job_ids : [] } };
-    }
-    if (name === 'queue_existing_jobs') {
-      return { command: 'queue_existing_jobs', payload: { job_ids: Array.isArray(payload.job_ids) ? payload.job_ids : [] } };
+    // reprocess is forwarded explicitly. mapCall rebuilds every payload from
+    // named keys rather than passing the renderer's object through, so a new
+    // key is dropped in silence unless it is named here -- which is exactly
+    // how re-running a finished lecture failed the first time: the sidecar
+    // accepted the flag, the renderer sent it, and the bridge between them
+    // deleted it. Coerced to a boolean so nothing but a real opt-in gets past.
+    if (name === 'queue_jobs' || name === 'queue_existing_jobs') {
+      return {
+        command: name,
+        payload: {
+          job_ids: Array.isArray(payload.job_ids) ? payload.job_ids : [],
+          reprocess: payload.reprocess === true
+        }
+      };
     }
     if (name === 'get_bootstrap' || name === 'get_onboarding_state' || name === 'replay_guided_tour' || name === 'reset_lecturepack') {
       return { command: name, payload: {} };

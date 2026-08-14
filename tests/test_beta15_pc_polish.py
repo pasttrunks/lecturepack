@@ -134,11 +134,18 @@ def test_demo_card_drag_restricted_to_thumbnail() -> None:
     assert "e.preventDefault(); return;" in drag
 
 
-def test_only_ready_job_cards_are_draggable_for_queueing() -> None:
+def test_only_queueable_job_cards_are_draggable() -> None:
+    """Draggable now means "the pipeline can run on this": never-processed
+    lectures AND finished ones (which re-run). A lecture that is running,
+    paused or already in the queue stays undraggable."""
     app = read(APP)
     card = block(app, "function _jobCardHtml", "/* ==================== import from a link")
-    assert "ready ? 'draggable=\"true\" data-existing-job-drag=\"true\" ' : ''" in card
-    assert "cursor:' + (ready ? 'grab' : 'pointer')" in card
+    assert "draggable ? 'draggable=\"true\" data-existing-job-drag=\"true\" ' : ''" in card
+    assert "cursor:' + (draggable ? 'grab' : 'pointer')" in card
+    assert "var draggable = _jobIsDraggable(j);" in card
+    # The Start/Options button row must stay on _jobIsReady: a finished lecture
+    # becoming draggable must not also grow a Start button.
+    assert "if (j.id && ready) {" in card
 
 
 # --------------------------------------------------------------------------- #
