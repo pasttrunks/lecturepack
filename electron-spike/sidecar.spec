@@ -117,6 +117,13 @@ hiddenimports = [
     "lecturepack.services.ai_gateway",
     "lecturepack.services.ai_study_service",
     "lecturepack.services.packaged_health",
+    # Belt-and-braces. PyInstaller's modulegraph does follow function-level
+    # imports, and the build xref confirms it already collects this one, so the
+    # entry is not load-bearing today. It is declared anyway because the caption
+    # pass swallows every exception: were the module ever to go missing, the
+    # only symptom would be downloaded lectures quietly transcribing from
+    # scratch, with nothing in any log to say the feature had stopped working.
+    "lecturepack.services.source_captions",
     "lecturepack.infrastructure.whisper_detector",
     "lecturepack.infrastructure.whisper_path_staging",
 ]

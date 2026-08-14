@@ -218,6 +218,20 @@ def test_sound_cues_are_not_treated_as_speech():
     assert sc.parse_vtt(cue)[0]["text"] == "Welcome to the lecture."
 
 
+def test_the_caption_module_is_declared_as_a_hidden_import():
+    """Declared because the caption pass swallows every exception.
+
+    PyInstaller's modulegraph does follow function-level imports -- the build
+    xref confirms it already collects this module, and several other lazily
+    imported lecturepack modules ship without an entry -- so this is
+    belt-and-braces rather than a fix. It earns its place because a missing
+    module here would surface only as downloaded lectures quietly transcribing
+    from scratch, with nothing in any log to say the feature had stopped.
+    """
+    spec = (ROOT / "electron-spike" / "sidecar.spec").read_text(encoding="utf-8")
+    assert '"lecturepack.services.source_captions"' in spec
+
+
 def test_a_caption_sidecar_can_never_be_mistaken_for_the_video():
     """Sidecars are written AFTER the media, so 'newest file wins' would break."""
     assert ".vtt" in MEDIA_FETCH.split("SIDECAR_SUFFIXES = (", 1)[1].split(")", 1)[0]
