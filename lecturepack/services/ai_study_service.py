@@ -836,7 +836,10 @@ def prepare_ai_study(job, client: GatewayClient, *,
                 "stage": "Study materials ready",
                 "progress_percent": 100,
             })
-        return final
+        # The pack is usable from here. Now grow it, one concept per request,
+        # because a student revising cannot use three questions.
+        return _expand_material(job, client, final,
+                                progress=progress, cancelled=cancelled)
     except GatewayError as exc:
         # A job may be deleted/reset while a provider request is in flight.
         # Cancellation is not a generation failure and must never recreate
@@ -1183,6 +1186,181 @@ def _basic_partial_refresh(job, changed_segment_ids: list[str], *,
 def _dependent_items(content: dict[str, Any], key: str, concept_id: str) -> list[dict[str, Any]]:
     return [item for item in content.get(key, [])
             if concept_id in (item.get("concept_ids") or [])]
+
+
+# How much material a lecture should end up with, and the ceiling that keeps
+# Quick Study's 5/10/20-minute sessions genuinely different from each other.
+EXPAND_CARDS_PER_CONCEPT = 3
+EXPAND_QUIZ_PER_CONCEPT = 2
+EXPAND_MAX_CARDS = 24
+EXPAND_MAX_QUIZ = 20
+
+
+def _dedup_key(item: dict[str, Any], *fields: str) -> str:
+    for field in fields:
+        text = _text(item.get(field), 400).strip().casefold()
+        if text:
+            return " ".join(text.split())
+    return ""
+
+
+def _normalize_expansion(job, raw: dict[str, Any], concept_id: str) -> dict[str, Any]:
+    """Validate expansion items through the same path generated content takes.
+
+    Nothing from a provider is trusted here any more than at generation time:
+    ids are re-issued, citations are re-validated against the real transcript
+    and slides, and anything ungrounded is dropped -- so an appended card
+    cannot carry a source the lecture does not have.
+    """
+    content = study_v2.load_content(job)
+    concept = next((item for item in content.get("concepts", [])
+                    if str(item.get("id") or "") == concept_id), None)
+    if concept is None:
+        return {"flashcards": [], "quiz": []}
+    # Pin every item to the concept it was written for BEFORE normalising.
+    # normalize_generated_content maps concept_ids through its own id table and
+    # drops anything unmapped, so a provider-invented id would silently discard
+    # the whole expansion and then trip its "no usable material" guard.
+    def _pinned(items: Any) -> list[dict[str, Any]]:
+        output = []
+        for item in items if isinstance(items, list) else []:
+            if isinstance(item, dict):
+                pinned = dict(item)
+                pinned["concept_ids"] = [concept_id]
+                output.append(pinned)
+        return output
+
+    synthetic = {
+        "lecture_summary": content.get("lecture_summary", ""),
+        "concepts": [dict(concept)],
+        "key_terms": [], "people": [], "dates": [], "misconceptions": [],
+        "study_guide": [],
+        "flashcards": _pinned(raw.get("flashcards")),
+        "quiz": _pinned(raw.get("quiz")),
+        "quick_study_material": {
+            "five_minute": [concept_id], "ten_minute": [concept_id],
+            "twenty_minute": [concept_id], "full": [concept_id],
+        },
+        "teach_me_foundations": [],
+    }
+    normalized = normalize_generated_content(
+        job, synthetic, {"relationships": []},
+        content.get("slide_interpretations", []), content.get("enrichment", []))
+    # normalize_generated_content re-issues concept ids; point the new items at
+    # the concept they were actually written for.
+    for key in ("flashcards", "quiz"):
+        for item in normalized.get(key, []):
+            item["concept_ids"] = [concept_id]
+    return {"flashcards": normalized.get("flashcards", []),
+            "quiz": normalized.get("quiz", [])}
+
+
+def _expand_material(job, client: GatewayClient, content: dict[str, Any], *,
+                     progress: ProgressCallback | None = None,
+                     cancelled: CancelCallback | None = None) -> dict[str, Any]:
+    """Grow a ready Study pack one concept at a time.
+
+    A single generation call returns close to the schema minimum -- typically
+    two flashcards and three questions -- which is not a revision pack, and it
+    is why the 5/10/20-minute Quick Study sessions all returned the same
+    handful of items: the pool was smaller than the smallest target.
+
+    Asking the generator for a bigger pack in ONE call is not an option. Its
+    route budget is fixed (50s NVIDIA inside a 175s client deadline), and
+    raising the ask past it produced provider_timeout followed by
+    provider_invalid_shape from truncated JSON -- Study AI failed outright.
+
+    So the pack grows across SEPARATE requests instead. Each one is a
+    regenerate_concept call: its own timeout, its own 3500-token ceiling, and
+    small enough that it cannot blow either. This runs AFTER the pack is marked
+    ready, so the student can already use it and it fills in behind them; a
+    failure here leaves the ready pack untouched rather than failing Study.
+    """
+    concepts = [str(item.get("id") or "")
+                for item in content.get("concepts", []) if item.get("id")]
+    if not concepts:
+        return content
+
+    seen_cards = {_dedup_key(c, "front") for c in content.get("flashcards", [])}
+    seen_quiz = {_dedup_key(q, "question") for q in content.get("quiz", [])}
+    added_cards = added_quiz = 0
+
+    for index, concept_id in enumerate(concepts):
+        if cancelled and cancelled():
+            return study_v2.load_content(job)
+        content = study_v2.load_content(job)
+        have_cards = len(_dependent_items(content, "flashcards", concept_id))
+        have_quiz = len(_dependent_items(content, "quiz", concept_id))
+        total_cards = len(content.get("flashcards", []))
+        total_quiz = len(content.get("quiz", []))
+        # Nothing to gain for this concept, or the pack is already full.
+        if (have_cards >= EXPAND_CARDS_PER_CONCEPT and have_quiz >= EXPAND_QUIZ_PER_CONCEPT):
+            continue
+        if total_cards >= EXPAND_MAX_CARDS and total_quiz >= EXPAND_MAX_QUIZ:
+            break
+
+        concept = next((item for item in content.get("concepts", [])
+                        if str(item.get("id") or "") == concept_id), None)
+        if concept is None:
+            continue
+        context, _ = _retrieved_context(job, concept.get("title", ""), concept_id=concept_id)
+        try:
+            # NOT regenerate_concept: that rewrites the dependents it is given,
+            # so with none it returns none and cannot grow anything. Measured
+            # against the live gateway before this task existed: five concepts,
+            # +0 cards and +0 questions each.
+            raw, _ = _call(client, "expand_concept_material", {
+                "concept": concept,
+                "existing_flashcards": [
+                    {"front": card.get("front", ""), "back": card.get("back", "")}
+                    for card in _dependent_items(content, "flashcards", concept_id)],
+                "existing_quiz": [
+                    {"question": item.get("question", "")}
+                    for item in _dependent_items(content, "quiz", concept_id)],
+                "retrieved_context": context,
+            })
+            # Normalisation is inside the try on purpose: it enforces the same
+            # whole-pack guards as generation and raises StudyContentError when
+            # an expansion is unusable, which must skip a concept rather than
+            # tear down a pack that is already ready.
+            merged = _normalize_expansion(job, raw, concept_id)
+        except Exception:  # noqa: BLE001 - bonus pass over an already-ready pack
+            # Deliberately every error class, not just the gateway's. This runs
+            # after the pack is marked ready, so the only thing a failure here
+            # can achieve is taking away material the student already has.
+            continue
+
+        fresh_cards = [card for card in merged.get("flashcards", [])
+                       if _dedup_key(card, "front") not in seen_cards]
+        fresh_quiz = [item for item in merged.get("quiz", [])
+                      if _dedup_key(item, "question") not in seen_quiz]
+        if not fresh_cards and not fresh_quiz:
+            continue
+
+        for card in fresh_cards[:max(0, EXPAND_MAX_CARDS - total_cards)]:
+            seen_cards.add(_dedup_key(card, "front"))
+            content.setdefault("flashcards", []).append(card)
+            added_cards += 1
+        for item in fresh_quiz[:max(0, EXPAND_MAX_QUIZ - total_quiz)]:
+            seen_quiz.add(_dedup_key(item, "question"))
+            content.setdefault("quiz", []).append(item)
+            added_quiz += 1
+
+        study_v2.save_content(job, content)
+        if progress:
+            progress({
+                "job_id": getattr(job, "job_id", ""),
+                "status": study_v2.STUDY_READY,
+                "stage": "Adding more practice material",
+                "progress_percent": 100,
+                # The renderer reloads on refresh_status ready, so each concept
+                # appears as it lands instead of all at the end.
+                "refresh_status": "ready",
+                "expanded": {"flashcards": added_cards, "quiz": added_quiz,
+                             "concept": index + 1, "of": len(concepts)},
+            })
+
+    return study_v2.load_content(job)
 
 
 def _regenerate_one(job, client: GatewayClient, content: dict[str, Any],

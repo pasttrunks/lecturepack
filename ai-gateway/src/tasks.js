@@ -5,6 +5,12 @@ export const TASK_TYPES = Object.freeze([
   'teach_me',
   'grade_short_answer',
   'regenerate_concept',
+  // Adds MORE practice material for one concept. regenerate_concept only
+  // rewrites the dependents it is given, so with none it returns none and
+  // cannot grow a pack. A single study_material_generation call returns close
+  // to the schema minimum and its route budget forbids asking for more, so the
+  // pack is grown across several of these small calls instead.
+  'expand_concept_material',
   'vision_slide',
   'web_enrichment',
 ]);
@@ -102,6 +108,15 @@ const schemas = {
     quiz: { type: 'array', items: object({ id: { type: 'string' }, question: { type: 'string' }, qtype: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer'] }, options: stringArray, correct_index: { type: 'integer' }, accepted_answers: stringArray, rubric: { type: 'string' }, explanation: { type: 'string' }, ...groundedFields }) },
     study_guide_fragments: { type: 'array', items: object({ heading: { type: 'string' }, body: { type: 'string' }, ...groundedFields }) },
   }),
+  expand_concept_material: object({
+    flashcards: { type: 'array', minItems: 0, maxItems: 8, items: object({ id: { type: 'string' }, front: { type: 'string' }, back: { type: 'string' }, difficulty: { type: 'string' }, ...groundedFields }) },
+    quiz: { type: 'array', minItems: 0, maxItems: 8, items: object({
+      id: { type: 'string' }, question: { type: 'string' },
+      qtype: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer'] },
+      options: stringArray, correct_index: { type: 'integer' }, accepted_answers: stringArray,
+      rubric: { type: 'string' }, explanation: { type: 'string' }, ...groundedFields,
+    }) },
+  }),
   vision_slide: object({
     slide_id: { type: 'string' }, visible_text: { type: 'string' }, interpretation: { type: 'string' }, concept_ids: stringArray,
   }),
@@ -117,6 +132,7 @@ const taskInstructions = {
   teach_me: 'Teach one concept with a concise explanation, a useful analogy, and one understanding check plus a grading rubric. Ground the teaching in the supplied lecture evidence.',
   grade_short_answer: 'Grade meaning, not exact wording. Return a 0-1 score, a boolean result, specific feedback, and an ideal answer grounded in the provided rubric and evidence. The score is the FRACTION of the rubric the answer earned, so an answer giving one of three required points scores about 0.33, not 1.0. `correct` must agree with it: true when score >= 0.7, false otherwise. A false verdict beside a high score is a contradiction the student sees.',
   regenerate_concept: 'Regenerate only the requested affected concept and its dependent cards/questions/guide fragments. Preserve the supplied concept ID and do not rewrite unrelated material.',
+  expand_concept_material: 'Write ADDITIONAL practice material for the one supplied concept, to sit alongside what the student already has. `existing_flashcards` and `existing_quiz` list what exists: do not repeat, reword or invert any of them -- every item you return must test something they do not. Return up to 4 flashcards and up to 4 quiz questions, all grounded in the supplied lecture evidence with exact source IDs, and set each item difficulty to exactly one of "easy", "medium" or "hard" (lowercase), favouring whichever levels are thin in what already exists. Prefer application and connection over recall when the concept supports it. If the lecture evidence genuinely does not support more distinct questions, return fewer or empty arrays -- padding with near-duplicates is worse than a short pack.',
   vision_slide: 'Interpret only this selected lecture slide. Transcribe visible educational text conservatively, explain what the visual contributes, and do not infer unreadable details.',
   web_enrichment: 'Research only the requested concept. Return concise verified context and exact public source titles and HTTPS URLs. Do not present web context as if the lecturer said it.',
 };
@@ -187,6 +203,10 @@ export function maxOutputTokens(task) {
   if (task === 'study_material_generation') return 12000;
   if (task === 'lecture_analysis') return 7000;
   if (task === 'regenerate_concept') return 3500;
+  // Up to 4 cards + 4 questions for ONE concept. Deliberately small: the pack
+  // grows across several of these rather than one large request, so no single
+  // call can approach the route timeout that broke study_material_generation.
+  if (task === 'expand_concept_material') return 3500;
   if (task === 'vision_slide' || task === 'web_enrichment') return 2200;
   return 1800;
 }

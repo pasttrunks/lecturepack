@@ -191,6 +191,28 @@ class _Client:
                 "quiz": [material["quiz"][0]],
                 "study_guide_fragments": [material["study_guide"][0]],
             }
+        elif task == "expand_concept_material":
+            # The post-ready enrichment pass. Returns ONE new card and question
+            # so the expansion path is exercised; the front/question differ from
+            # the generated pack, or dedup would drop them and the append would
+            # never be tested.
+            result = {
+                "flashcards": [{
+                    "id": "fc-extra", "front": "How does sea ice loss change hunting cost?",
+                    "back": "Longer swims raise energy spent per kill.",
+                    "difficulty": "hard", "concept_ids": ["c2"],
+                    "lecture_sources": [{"segment_id": "2"}],
+                }],
+                "quiz": [{
+                    "id": "qz-extra",
+                    "question": "Why does a longer swim reduce hunting success?",
+                    "qtype": "short_answer", "options": [], "correct_index": 0,
+                    "accepted_answers": ["It costs more energy than the prey returns."],
+                    "rubric": "Link distance to energy cost.",
+                    "explanation": "Energy spent travelling is not recovered.",
+                    "concept_ids": ["c2"], "lecture_sources": [{"segment_id": "2"}],
+                }],
+            }
         else:  # pragma: no cover - test fixture contract
             raise AssertionError(f"unexpected task: {task}")
         return {
@@ -227,12 +249,25 @@ def test_two_pass_generation_is_automatic_quality_shape_and_video_path_free(lect
     content, client = _prepare(lecture)
     tasks = [task for task, _payload in client.calls]
     assert tasks[0] == "lecture_analysis"
-    assert tasks[-1] == "study_material_generation"
+    # study_material_generation is the last call that BUILDS the pack. An
+    # enrichment pass of per-concept expand_concept_material calls follows it,
+    # once the pack is already marked ready -- a single generation call returns
+    # close to the schema minimum, and the route budget forbids asking for more
+    # in one request. See _expand_material.
+    assert "study_material_generation" in tasks
+    generation = tasks.index("study_material_generation")
+    assert generation > tasks.index("lecture_analysis")
+    assert set(tasks[generation + 1:]) <= {"expand_concept_material"}
     outbound = json.dumps([payload for _task, payload in client.calls])
     assert "original-video-must-not-be-sent" not in outbound
     assert content["study_status"] == study_v2.STUDY_READY
     assert len(content["concepts"]) == 2
-    assert len(content["flashcards"]) == 2
+    # Generation returns two cards; the expansion pass appends what it can on
+    # top, deduplicated by meaning. The pack is therefore larger than the
+    # generator alone produced -- which is the entire point of the pass.
+    assert len(content["flashcards"]) > 2
+    assert any(card["front"].startswith("How does sea ice loss")
+               for card in content["flashcards"]), "expansion output was not appended"
     assert {item["qtype"] for item in content["quiz"]} == {
         "multiple_choice", "true_false", "short_answer"}
 

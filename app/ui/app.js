@@ -1868,13 +1868,31 @@
     }
     g.style.display = 'flex'; g.style.flexDirection = 'column'; g.style.gap = '16px';
     g.style.gridTemplateColumns = 'none';
+    // A group only earns a container when it actually groups something.
+    // jobGroup() falls back to inferredJobGroup(), which slices a prefix off
+    // the title -- so a library of separately-named lectures produced one
+    // "group" per lecture, and containerising those gave seven boxes of one
+    // card each: noisier than no grouping at all. An EXPLICIT group (set by
+    // the student) always gets its own box, even alone; an INFERRED one only
+    // when two or more lectures share it. The rest pool into Ungrouped.
+    var counts = {};
+    LP.data.jobs.forEach(function (j) {
+      var k = jobGroup(j);
+      counts[k] = (counts[k] || 0) + 1;
+    });
     var groups = {}, order = [];
     LP.data.jobs.forEach(function (j) {
       var k = jobGroup(j);
+      if (!(j && j.group) && counts[k] < 2) k = 'Ungrouped';
       if (!groups[k]) { groups[k] = []; order.push(k); }
       groups[k].push(j);
     });
-    order.sort(function (a, b) { return String(a).localeCompare(String(b)); });
+    // Ungrouped is a remainder, not a category, so it sorts last.
+    order.sort(function (a, b) {
+      if (a === 'Ungrouped') return 1;
+      if (b === 'Ungrouped') return -1;
+      return String(a).localeCompare(String(b));
+    });
     // Every group is a bordered container with a persistent header. The old
     // build suppressed the header whenever there was only one group, which is
     // the common case -- so grouping was invisible exactly when a student was
@@ -6666,6 +6684,19 @@
     $('btn-bulk-group').addEventListener('click', function (e) {
       e.stopPropagation(); bulkGroup();
     });
+    /* dragenter MUST be cancelled or no drop ever arrives.
+       This is the whole "drag and drop doesn't work anywhere" bug. Chromium
+       decides whether an element is a valid drop target from the dragenter /
+       dragover pair; cancelling only dragover leaves the ENTER unhandled, so
+       the page is rejected as a target and `drop` is never dispatched at all.
+       The handlers below were therefore correct and simply never ran.
+       Verified over CDP against the packaged app with a real file drag:
+         without this listener -> dragenter, dragover, dragenter ... no drop
+         with it               -> drop fires, 1 file, full path resolved
+       Registered on window (capture) so it covers every screen, not just the
+       dropzone -- the app advertises "Drop a lecture video anywhere". */
+    window.addEventListener('dragenter', function (e) { e.preventDefault(); }, true);
+    dz.addEventListener('dragenter', function (e) { e.preventDefault(); });
     dz.addEventListener('dragover', function (e) {
       e.preventDefault();
       if (readInternalJobDrag(e).length || internalJobDragIds.length) { e.stopPropagation(); return; }
