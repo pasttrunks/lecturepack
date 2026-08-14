@@ -166,7 +166,13 @@ def test_sidecar_bundles_yt_dlp_extractors() -> None:
 def test_media_fetch_uses_normal_import_path() -> None:
     sidecar = read(SIDECAR)
     assert "def _import_media_url" in sidecar
-    assert "self._import_video(None, \"import_media_url\"" in sidecar
+    # The call is wrapped across lines now that it also carries captions_dir,
+    # so assert the parts rather than one contiguous string.
+    assert "self._import_video(" in sidecar
+    assert '"import_media_url"' in sidecar
+    assert '"captions_dir": d' in sidecar, (
+        "only the download path may hand captions to the importer"
+    )
     assert "QTimer.singleShot(0, self._poll_timer" in sidecar
     assert "MediaFetchCancelled" in sidecar
     assert "cancel_check=cancel.is_set" in sidecar

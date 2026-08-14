@@ -759,10 +759,50 @@
     var tmp = document.createElement('div'); tmp.innerHTML = b.html || '';
     return tmp.textContent;
   }
+  /* "Copy text" reflows the transcript into readable PARAGRAPHS.
+     It used to emit one paragraph per transcript block, so a transcript cut
+     into short caption-length blocks pasted as a column of fragments -- which
+     is what "Copy with timestamps" is already for. Here the blocks are joined
+     back into continuous prose and re-broken at sentence ends.
+
+     Speech-to-text output is not reliably punctuated, so a run with no
+     sentence ending is split at a word boundary rather than pasted as one
+     unbroken wall. */
   function formatTranscriptPlain(blocks) {
-    return (blocks || []).map(function (b) {
-      return transcriptBlockText(b).replace(/\s+/g, ' ').trim();
-    }).filter(Boolean).join('\n\n');
+    // Self-contained on purpose: this function is extracted and run on its own
+    // in a VM by tests/test_job_view_switching.py, so it must not depend on
+    // anything outside itself except transcriptBlockText.
+    var PARAGRAPH_CHARS = 700, HARD_WRAP_CHARS = 1200;
+
+    function splitLongRun(run) {
+      var out = [];
+      while (run.length > HARD_WRAP_CHARS) {
+        var cut = run.lastIndexOf(' ', PARAGRAPH_CHARS);
+        if (cut <= 0) cut = PARAGRAPH_CHARS;
+        out.push(run.slice(0, cut).trim());
+        run = run.slice(cut).trim();
+      }
+      if (run) out.push(run);
+      return out;
+    }
+
+    var text = (blocks || []).map(function (b) {
+      return transcriptBlockText(b);
+    }).join(' ').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    var sentences = text.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [text];
+    var paragraphs = [], current = '';
+    sentences.forEach(function (sentence) {
+      current += sentence;
+      if (current.length >= PARAGRAPH_CHARS) {
+        paragraphs.push(current.trim());
+        current = '';
+      }
+    });
+    if (current.trim()) paragraphs.push(current.trim());
+    return paragraphs.reduce(function (all, paragraph) {
+      return all.concat(splitLongRun(paragraph));
+    }, []).join('\n\n');
   }
   function formatTranscriptStamped(blocks) {
     return (blocks || []).map(function (b) {

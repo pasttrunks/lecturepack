@@ -185,7 +185,12 @@ const text = context.result;
 assert.ok(typeof text === 'string' && text.length > 0, 'empty copy');
 assert.ok(!text.includes('00:42') && !text.includes('00:55'), 'plain copy must not contain timestamps');
 assert.ok(text.includes('great pyramid') && text.includes('centimeters'), 'plain copy lost words');
-assert.strictEqual(text.split('\n\n').length, 2, 'one paragraph per block');
+// "Copy text" reflows into PROSE. It used to emit one paragraph per transcript
+// block, so a transcript cut into short caption-length blocks pasted as a
+// column of fragments -- which is what "Copy with timestamps" is already for.
+// Short blocks must therefore FLOW TOGETHER rather than each become a stanza.
+assert.strictEqual(text.split('\n\n').length, 1, 'short blocks must flow into one paragraph');
+assert.ok(!text.includes('\n'), 'no stray line breaks inside a paragraph');
 """.strip()
         + "\n",
         encoding="utf-8",

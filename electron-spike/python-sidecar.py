@@ -1099,6 +1099,49 @@ class Sidecar:
             shutil.copy2(source, target)
         return target if target.is_file() else source
 
+    def _adopt_source_captions(self, job: Any, captions_dir: str) -> None:
+        """Satisfy Transcribe from the downloaded video's own captions.
+
+        Writes the SAME raw.json whisper.cpp writes and marks the stage
+        completed, so every later consumer -- the transcript store, editing,
+        export, Study grounding -- works unchanged and has no idea the words
+        came from captions rather than from the audio.
+
+        Local transcription stays the failsafe. Anything unusable here (no
+        captions published, a malformed file, or too little text to be a real
+        transcript) leaves the stage alone and the pipeline transcribes as
+        before. A failure must never block the import.
+        """
+        try:
+            from lecturepack.services import source_captions
+
+            path = source_captions.find_caption_file(captions_dir)
+            if not path:
+                return
+            segments = source_captions.load_segments(path)
+            if not source_captions.is_usable(segments):
+                return
+            transcript_dir = Path(job.paths["transcript"])
+            transcript_dir.mkdir(parents=True, exist_ok=True)
+            raw = source_captions.to_whisper_raw(segments)
+            (transcript_dir / "raw.json").write_text(
+                json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+            # The literal the rest of this module uses (see STAGES); there is
+            # no STAGE_TRANSCRIBE constant here.
+            job.set_stage_status("Transcribe", "completed")
+            job.manifest["transcript_source"] = "published_captions"
+            job.save()
+            self._emit({
+                "event": "log_line",
+                "job": job.job_id,
+                "tag": "[Transcribe]",
+                "color": "var(--green)",
+                "text": (f"Using the {len(segments)} published captions that came with this "
+                         f"video; skipping local transcription."),
+            })
+        except Exception:  # noqa: BLE001 - captions are an optimisation only
+            return
+
     def _generate_poster(self, job: Any, source: Path) -> None:
         """Extract an instant job-card thumbnail at import time.
 
@@ -1176,7 +1219,7 @@ class Sidecar:
         }.get(str(value or "study").strip().lower(), "study_pack")
 
     def _import_one(self, path_text: str, *, title: str = "", preset: Any = None,
-                    bundled_demo: bool = False,
+                    bundled_demo: bool = False, captions_dir: str = "",
                     demo_session_id: str | None = None) -> tuple[Any, dict[str, Any], dict[str, Any]]:
         """Import ONE video through the normal single-video path and return
         (job, summary, metadata). Shared by the single import command and the
@@ -1267,6 +1310,12 @@ class Sidecar:
         # the card shows a real video frame before processing starts. A failure
         # must never prevent the import.
         self._generate_poster(job, source)
+        # Captions are adopted ONLY for a downloaded video, because only the
+        # download path passes captions_dir. A locally imported file never
+        # reaches this, which is the scoping the request asked for -- and it is
+        # structural, so it cannot drift out of step with a flag somewhere.
+        if captions_dir:
+            self._adopt_source_captions(job, captions_dir)
         return job, self._summary(job), metadata
 
     def _import_video(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
@@ -1275,6 +1324,7 @@ class Sidecar:
             title=str(payload.get("title") or ""),
             preset=payload.get("preset"),
             bundled_demo=bool(payload.get("bundled_demo")),
+            captions_dir=str(payload.get("captions_dir") or ""),
         )
         self._activate_job(job, emit_payloads=True)
         self._emit({
@@ -4241,8 +4291,11 @@ class Sidecar:
                 # The existing normal import path remains the only way a
                 # downloaded recording becomes a LecturePack job.
                 QTimer.singleShot(0, self._poll_timer,
-                                  lambda p=path, t=item.get("title"): self._import_video(None, "import_media_url",
-                                                                                         {"path": p, "title": t}))
+                                  lambda p=path, t=item.get("title"), d=str(destination): self._import_video(
+                                      None, "import_media_url",
+                                      # Only this path supplies captions_dir, so
+                                      # only downloads can adopt captions.
+                                      {"path": p, "title": t, "captions_dir": d}))
             except self.media_fetch.MediaFetchCancelled:
                 with self._download_lock:
                     if item_id in self._downloads:

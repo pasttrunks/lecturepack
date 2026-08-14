@@ -375,6 +375,18 @@ class MediaFetcher:
             "progress_hooks": [hook],
             "retries": 3,
             "continuedl": True,
+            # Take the captions the publisher already wrote. Transcribing a
+            # video that ships with a transcript is the slowest stage of the
+            # pipeline redoing finished work; see services/source_captions.py.
+            # Publisher-written subtitles are preferred, machine-generated ones
+            # are accepted as a second choice, and NEITHER is required -- a
+            # video without captions still transcribes locally as before.
+            "writesubtitles": True,
+            "writeautomaticsub": True,
+            "subtitleslangs": ["en", "en-US", "en-GB", "en-orig"],
+            "subtitlesformat": "vtt/srt/best",
+            # A caption failure must never cost the download itself.
+            "ignoreerrors": "only_download",
         })
 
         try:
@@ -388,6 +400,15 @@ class MediaFetcher:
             if state["cancelled"] or _is_cancel(exc):
                 raise MediaFetchCancelled() from exc
             raise MediaFetchError(_friendly(exc)) from exc
+
+        # A TRANSLATED track is not a transcript of this lecture. YouTube will
+        # happily serve English subtitles for a German talk, and adopting those
+        # would give a "transcript" that does not match a single spoken word --
+        # breaking slide alignment and making Study cite lines the lecturer
+        # never said. Captions are only safe when they are in the video's own
+        # language, so anything else is discarded and whisper transcribes the
+        # audio as before.
+        _discard_translated_captions(dest_dir, info)
 
         path = state["path"] or _path_from_info(info)
         if not path or not os.path.isfile(path):
@@ -405,6 +426,39 @@ def _path_from_info(info) -> str:
     if isinstance(reqs, list) and reqs and isinstance(reqs[0], dict):
         return reqs[0].get("filepath") or reqs[0].get("_filename") or ""
     return info.get("_filename") or ""
+
+
+SIDECAR_SUFFIXES = (".vtt", ".srt", ".ass", ".ssa", ".lrc", ".json3", ".srv1",
+                    ".srv2", ".srv3", ".ttml", ".description", ".info.json")
+CAPTION_SUFFIXES = (".vtt", ".srt")
+
+
+def _discard_translated_captions(dest_dir: str, info) -> None:
+    """Remove caption files that are a TRANSLATION rather than a transcript.
+
+    Captions are time-synced text of what is actually said, in the video's own
+    language. Subtitles may be a translation of it. Only the former is a
+    transcript of this lecture: an English track over German audio matches no
+    spoken word, so slide alignment and Study citations would both be wrong.
+
+    The language is only trusted when the extractor states it. When it says
+    nothing, the captions are kept -- English is requested, English is what the
+    pipeline expects, and the usability check downstream is the next guard.
+    """
+    language = ""
+    if isinstance(info, dict):
+        language = str(info.get("language") or "").strip().lower()
+    if not language or language.split("-")[0] == "en":
+        return
+    try:
+        for name in os.listdir(dest_dir):
+            if name.lower().endswith(CAPTION_SUFFIXES):
+                try:
+                    os.remove(os.path.join(dest_dir, name))
+                except OSError:
+                    pass
+    except OSError:
+        pass
 
 
 def _newest_media(dest_dir: str, not_before: float = 0.0) -> str:
@@ -425,6 +479,10 @@ def _newest_media(dest_dir: str, not_before: float = 0.0) -> str:
     files = []
     for p in entries:
         if not os.path.isfile(p) or p.endswith((".part", ".ytdl", ".tmp")):
+            continue
+        # Caption sidecars are written AFTER the media, so "newest file wins"
+        # would hand back a .vtt as though it were the lecture.
+        if p.lower().endswith(SIDECAR_SUFFIXES):
             continue
         try:
             if os.path.getmtime(p) < not_before:
