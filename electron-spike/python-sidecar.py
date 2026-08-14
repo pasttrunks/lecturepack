@@ -1037,6 +1037,12 @@ class Sidecar:
             "queue_position": queue_position,
             "waiting": queue_position is not None,
             "error": error[:500],
+            # set_job_group writes this to manifest.json, but the summary never
+            # sent it back -- so every jobs_changed refresh handed the renderer
+            # a job with no group, jobGroup() fell through to inferring one from
+            # the title, and the student's grouping "reset" itself. Written and
+            # never read is the whole bug.
+            "group": str(job.manifest.get("group", "") or ""),
         }
 
     @staticmethod

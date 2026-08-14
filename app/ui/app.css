@@ -797,6 +797,19 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 .lib-group-code{font:700 11px 'JetBrains Mono';letter-spacing:.08em;padding:3px 7px;
   border:1.5px solid var(--border);border-radius:6px;background:var(--panel);color:var(--ink)}
 .lib-group-count{font:500 11px 'JetBrains Mono';color:var(--muted);margin-left:auto;flex:none}
+/* Collapse toggle. A real button, first in the header and in the tab order, so
+   a stacked Home can be folded down by keyboard as well as by pointer. The
+   glyph carries the state and aria-expanded states it for screen readers, so
+   nothing here depends on colour. */
+.lib-group-toggle{flex:none;width:22px;height:22px;display:inline-flex;align-items:center;
+  justify-content:center;font:700 14px 'JetBrains Mono';line-height:1;
+  border:1.5px solid var(--border);border-radius:6px;background:var(--panel);
+  color:var(--ink);cursor:pointer;padding:0}
+.lib-group-toggle:hover{background:var(--sunk)}
+.lib-group-toggle:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+/* A collapsed group is a single bar: its header keeps the full border box, so
+   the row still reads as a container rather than a stray heading. */
+.lib-group[data-collapsed="true"] .lib-group-head{border-bottom:none}
 .lib-group[data-kind="queue"] .lib-group-head{background:var(--orange-soft);border-bottom-color:var(--orange)}
 .lib-group[data-kind="queue"] .lib-group-code{border-color:var(--orange);color:var(--orange-ink)}
 /* One adaptive rule for 640 -> 1920, no named modes. 200px is the floor at

@@ -1463,6 +1463,24 @@
   function jobGroup(job) {
     return (job && job.group) || inferredJobGroup(job && (job.name || job.title));
   }
+
+  /* Collapsed groups, remembered by group NAME rather than by job id: the
+     student collapses "CL100", not a set of lectures, so adding a lecture to a
+     collapsed course must not silently reopen it. Survives restart. */
+  var COLLAPSED_GROUPS_KEY = 'lecturepack.home.collapsedGroups';
+  function collapsedGroups() {
+    try {
+      var raw = JSON.parse(browserStorage().getItem(COLLAPSED_GROUPS_KEY) || '{}');
+      return raw && typeof raw === 'object' ? raw : {};
+    } catch (e) { return {}; }
+  }
+  function toggleGroupCollapsed(name) {
+    if (!name) return;
+    var state = collapsedGroups();
+    if (state[name]) delete state[name]; else state[name] = true;
+    try { browserStorage().setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(state)); } catch (e) {}
+    renderJobs();
+  }
   function _jobById(id) {
     return (LP.data.jobs || []).filter(function (j) { return j && j.id === id; })[0] || null;
   }
@@ -1898,13 +1916,33 @@
     // the common case -- so grouping was invisible exactly when a student was
     // first learning that lectures HAVE groups. The card grid auto-fills
     // instead of being pinned to three columns at every window width.
+    var collapsed = collapsedGroups();
     g.innerHTML = order.map(function (k) {
-      return '<section class="lib-group" aria-label="' + esc(k) + '">' +
-        '<div class="lib-group-head"><span class="lib-group-code">' + esc(k) + '</span>' +
-        '<span class="lib-group-count">' + groups[k].length +
-        (groups[k].length === 1 ? ' lecture' : ' lectures') + '</span></div>' +
-        '<div class="lib-grid">' + groups[k].map(_jobCardHtml).join('') + '</div></section>';
+      var count = groups[k].length;
+      var shut = collapsed[k] === true;
+      // Collapsed groups render their header only. Dropping the cards from the
+      // DOM (rather than hiding them) is the point of collapsing a library
+      // that has grown too tall to scan.
+      return '<section class="lib-group" aria-label="' + esc(k) + '" data-group="' + esc(k) + '"' +
+        (shut ? ' data-collapsed="true"' : '') + '>' +
+        '<div class="lib-group-head">' +
+        '<button type="button" class="lp-hit lib-group-toggle" data-group-toggle="' + esc(k) + '"' +
+        ' aria-expanded="' + (shut ? 'false' : 'true') + '"' +
+        ' title="' + (shut ? 'Expand' : 'Collapse') + ' ' + esc(k) + '"' +
+        ' aria-label="' + (shut ? 'Expand' : 'Collapse') + ' ' + esc(k) + '">' +
+        (shut ? '&#43;' : '&#8722;') + '</button>' +
+        '<span class="lib-group-code">' + esc(k) + '</span>' +
+        '<span class="lib-group-count">' + count +
+        (count === 1 ? ' lecture' : ' lectures') + '</span></div>' +
+        (shut ? '' : '<div class="lib-grid">' + groups[k].map(_jobCardHtml).join('') + '</div>') +
+        '</section>';
     }).join('');
+    Array.prototype.forEach.call(g.querySelectorAll('[data-group-toggle]'), function (button) {
+      button.addEventListener('click', function (e) {
+        e.stopPropagation();
+        toggleGroupCollapsed(button.getAttribute('data-group-toggle'));
+      });
+    });
     $('jobs-count').textContent = LP.data.jobs.length;
     renderContinueCard();
   }
