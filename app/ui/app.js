@@ -4684,7 +4684,10 @@
 
     if (title) {
       if (studyV2.scope.selectedJobId === 'all') {
-        title.textContent = groupName + ' Subject Overview';
+        // The badge immediately to the left already names the subject, and the
+        // page heading names it again below. Say what the scope IS here rather
+        // than printing the subject name three times in one header.
+        title.textContent = 'Subject overview';
       } else {
         var curJob = _jobById(studyV2.scope.selectedJobId);
         title.textContent = curJob ? (curJob.name || curJob.title || curJob.filename || 'Lecture') : 'Lecture View';
@@ -4702,7 +4705,7 @@
     // Populate In-Study Lecture Switcher
     var select = $('study-scope-lecture-select');
     if (select) {
-      var optionsHtml = '<option value="all"' + (studyV2.scope.selectedJobId === 'all' ? ' selected' : '') + '>📚 All Lectures (Subject Overview)</option>';
+      var optionsHtml = '<option value="all"' + (studyV2.scope.selectedJobId === 'all' ? ' selected' : '') + '>All lectures in this subject</option>';
       groupJobs.forEach(function (job) {
         var r = getJobReadiness(job);
         var jobTitle = job.name || job.title || job.filename || 'Lecture';
@@ -5179,10 +5182,14 @@
     $('study-progress-pct').textContent = pct + '%';
     $('study-progress-bar').style.transform = 'scaleX(' + (pct / 100) + ')';
     var needsReview = summary.needs_review || 0;
-    $('study-needs-review-line').textContent = needsReview + ' concepts left to review';
+    // "0 concepts left to review" next to "0% progress" reads as finished when
+    // nothing has been started. Only claim a remaining count once there is one.
+    $('study-needs-review-line').textContent = needsReview
+      ? needsReview + ' concepts left to review'
+      : (pct ? 'No concepts left to review' : 'Start studying to build your review queue');
 
     var guideHtml = content.lecture_summary ?
-      '<div class="study-guide-section"><h3>Lecture summary</h3><p>' + escText(content.lecture_summary) + '</p></div>' : '';
+      '<div class="study-guide-section"><h3>' + (isGroup ? 'Subject summary' : 'Lecture summary') + '</h3><p>' + escText(content.lecture_summary) + '</p></div>' : '';
     (content.study_guide || []).forEach(function (section) {
       guideHtml += '<div class="study-guide-section"><h3>' + escText(section.heading || 'Key idea') + '</h3><p>' + escText(section.body || '') + '</p>' +
         (studyItemSourcesHtml(section) ? '<div class="study-provenance-row" style="margin-top:9px">' + studyItemSourcesHtml(section) + '</div>' : '') + '</div>';
@@ -5225,7 +5232,12 @@
         needsReviewHtml += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px"><span style="font-weight:600">' + escText(c.title) + '</span></div>';
       }
     });
-    $('study-needs-review-list').innerHTML = needsReviewHtml || '<div style="font:500 12px JetBrains Mono;color:var(--muted)">Nothing to review — nice work.</div>';
+    // "Nice work" is only true if there was something to do. Nothing studied
+    // yet and nothing due are different states and must not read the same.
+    var reviewEmptyCopy = (summary.reviewed_count || summary.progress_percent)
+      ? 'Nothing to review right now. Nice work.'
+      : 'Nothing due yet. Review appears here once you have studied some concepts.';
+    $('study-needs-review-list').innerHTML = needsReviewHtml || '<div style="font:500 12px JetBrains Mono;color:var(--muted);line-height:1.5">' + reviewEmptyCopy + '</div>';
 
     // Study stats
     $('study-stats-v2').innerHTML =
@@ -5353,12 +5365,31 @@
     var hasAnyCard = ((studyV2.content && studyV2.content.flashcards) || []).length > 0;
     if (!cards.length) {
       var filteredOut = hasAnyCard && studyV2.flashDifficulty !== 'all';
+      // Three different situations were collapsed into two. With no deck at
+      // all -- which is every subject-level scope, because the cross-lecture
+      // map produces concepts rather than cards -- the "you have cleared the
+      // weak areas" copy congratulated a student who had not studied anything
+      // yet. An empty deck is not a finished deck; say which one this is.
+      var isGroupScope = !!(studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.groupName);
+      var emptyTitle, emptyBody;
+      if (filteredOut) {
+        emptyTitle = 'No cards at this difficulty';
+        emptyBody = 'Choose Any to see the whole deck.';
+      } else if (!hasAnyCard) {
+        emptyTitle = 'No flashcards here yet';
+        emptyBody = isGroupScope
+          ? 'Studying a subject builds the cross-lecture map. Flashcards belong to individual lectures, so open one from the Scope menu above to practise them.'
+          : 'This lecture has no flashcards yet.';
+      } else {
+        emptyTitle = 'Nothing needs another look';
+        emptyBody = 'You have cleared the current weak areas.';
+      }
       root.innerHTML = (hasAnyCard ? flashShapeControlsHtml() : '') +
         '<div class="study-empty-state" style="text-align:center;padding:56px 24px;color:var(--muted)">' +
         '<div style="font:700 18px Space Grotesk;color:var(--ink);margin-bottom:8px">' +
-        (filteredOut ? 'No cards at this difficulty' : 'Nothing needs another look') + '</div>' +
-        '<div style="font:500 13px JetBrains Mono;margin-bottom:18px">' +
-        (filteredOut ? 'Choose Any to see the whole deck.' : 'You have cleared the current weak areas.') + '</div>' +
+        emptyTitle + '</div>' +
+        '<div style="font:500 13px JetBrains Mono;margin-bottom:18px;max-width:52ch;margin-left:auto;margin-right:auto;line-height:1.55">' +
+        emptyBody + '</div>' +
         (studyV2.reviewOnly ? '<button id="btn-study-review-all" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:8px;padding:9px 15px;cursor:pointer;color:var(--ink)">Study all cards</button>' : '') +
         '</div>';
       var all = $('btn-study-review-all');
