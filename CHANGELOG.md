@@ -36,6 +36,20 @@ hardening pass, which is included in full.
   endpoint. The dashboard itself is static HTML; every data endpoint requires
   `ADMIN_API_KEY` and fails closed when it is unconfigured.
 
+### Fixed
+- **Group study could not work at all.** The cross-lecture map is returned by the
+  gateway inside a `result` envelope, which was never unwrapped, so a correct
+  answer was discarded and studying a subject always reported that it had no
+  material. The production gateway was also missing the route entirely. Both are
+  fixed and the path is now verified against the live gateway (BUG-43).
+- **Subjects screen.** The mastery percentage was rendered twice per card; an
+  ordinary subject name such as "Microeconomics" could break mid-word because the
+  Study button crowded it; a long subject name wrapped to five lines and stretched
+  its whole row; and the header restated itself over the title.
+- **Gateway admin dashboard.** The admin key is no longer accepted from the query
+  string, where it would reach access logs and referrers, and the key comparison is
+  now constant-time.
+
 ### Tests
 - The Milestone 3 adversarial suite was passing on fixtures that did not
   exercise the product — a hand-rolled study-content filename, an unknown
