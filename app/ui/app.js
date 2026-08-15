@@ -1599,9 +1599,9 @@
 
       return '<div class="subject-card lp-card" data-group="' + esc(grpName) + '">' +
         '<div class="subject-card-head">' +
-          '<div style="flex:1;min-width:0">' +
+          '<div style="flex:1 1 12rem;min-width:0">' +
             '<div class="subject-card-title-wrap">' +
-              '<span class="subject-card-title" data-group="' + esc(grpName) + '" title="Click to rename subject">' + esc(grpName) + '</span>' +
+              '<span class="subject-card-title" data-group="' + esc(grpName) + '" title="' + esc(grpName) + '\nClick to rename">' + esc(grpName) + '</span>' +
               '<button type="button" class="subject-rename-btn" data-group="' + esc(grpName) + '" title="Rename subject group"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>' +
             '</div>' +
             '<div class="subject-card-meta">' + members.length + (members.length === 1 ? ' lecture' : ' lectures') + ' · ' + doneCount + ' ready</div>' +
@@ -1612,7 +1612,7 @@
         '</div>' +
         '<div class="subject-coverage-section">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px \'JetBrains Mono\';color:var(--muted);margin-bottom:6px">' +
-            '<span>SUBJECT MASTERY</span><span>' + cov + '%</span>' +
+            '<span>SUBJECT MASTERY</span>' +
           '</div>' +
           renderCoverageBarHtml(cov, 'Overall subject mastery: ' + cov + '%') +
         '</div>' +
