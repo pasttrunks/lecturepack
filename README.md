@@ -47,6 +47,31 @@ No API key, no sign-in, and no first-run download before you can transcribe your
 
 Everything above happens on your machine.
 
+### What a full export writes
+
+A complete Study Pack export writes these files to
+`<data dir>/jobs/<job id>/exports/`. This is the authoritative inventory —
+`aligned.json`, `normalized.json` and `candidates.json` are *internal pipeline
+files* kept in the job root, and are not part of the export set.
+
+| File | Contents |
+| --- | --- |
+| `slides.pdf` | The detected slides, in order |
+| `transcript.txt` | Plain transcript |
+| `transcript.srt` | Subtitles |
+| `transcript.vtt` | WebVTT subtitles |
+| `transcript.json` | Segments with timings |
+| `transcript.jsonl` | One segment per line |
+| `transcript.csv` | Segments as a spreadsheet |
+| `transcript.md` | Markdown transcript |
+| `transcript.sections.md` | Transcript grouped under topic/slide headings |
+| `transcript.normalized.txt` | Readable, normalized paragraphs |
+| `study-pack.html` | Self-contained study pack (slides + transcript + notes) |
+| `study-pack.pdf` | Printable study pack |
+| `study-data.json` | Study concepts, flashcards and quiz data |
+
+Transcript-only and Slides-only runs write the relevant subset.
+
 ---
 
 ## Study

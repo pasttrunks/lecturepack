@@ -893,6 +893,43 @@ inventory that was authored rather than derived from the binaries.
 
 *None — BUG-07 was un-deferred and fixed on 2026-07-25.*
 
+### DEF-001 … DEF-014 — v2.0.2 polish audit sweep   ✅ FIXED (suite green, NOT hand-verified in the packaged app)
+- **Area:** Study scope, Export, drag-and-drop, Subjects, Process, sidebar.
+- **Reported / found:** 2026-08-15, master defect report against v2.0.2 (`4a0cca6`),
+  produced by live CDP automation + source analysis. 0 critical, 5 high, 6 medium, 3 low.
+- **Root causes — the recurring shape.** Three distinct patterns, worth remembering:
+  1. **Scope-blind dispatch.** Every per-concept Study action hardcoded
+     `job_id: LP.state.jobId`. In Subject scope the rendered concept is a *synthesized
+     cross-lecture merge* whose id exists in no single lecture's store, so the backend
+     answered `concept not found` (DEF-001). Fixed by stamping `origin_job_id` /
+     `origin_concept_id` in `buildGroupStudyContent`, rendering them onto the card, and
+     resolving through a new `studyItemOwner()` helper. **Passing only the owning job id
+     would NOT have been enough — the merged concept id is also wrong.**
+  2. **UI-state-only handlers.** `btn-export-again` flipped `LP.state.exportPhase` and
+     never re-exported (DEF-002); the Process "Output mode" cards carried `.lp-hit`
+     / `.lp-press-sm` and animated on click while being wired to nothing, *and* were
+     hardcoded to "Study Pack" regardless of the job's real `product_mode` (DEF-011).
+  3. **Parameters dropped at a boundary.** `electron-bridge.js` mapped both `export_all`
+     and `export_one` to `{command:'export', payload:{}}`, so the requested format never
+     left the renderer (DEF-003). A test *asserted* the empty payload, i.e. the defect was
+     pinned by its own regression test — updated in `tests/test_renderer_spike.py`.
+- **Also fixed:** `_jobIsReady` matched only `status === 'queued'`, so freshly imported
+  lectures ('ready'/'unstarted'/'imported') could not be dragged to Process (DEF-005);
+  scope-switch to a single lecture cleared Study content without reloading it (DEF-004);
+  `studyV2.scope.groupName` was not updated on subject rename, leaving a stale Overview
+  headline (DEF-010); a hardcoded `+ '.500'` produced `00:01:12.000.500` (DEF-006); raw
+  float seconds rendered in Subject cards (DEF-008); invalid link import gave no visible
+  feedback (DEF-009 — added `.lp-input-invalid` + `.lp-shake`, reduced-motion-neutralized);
+  `"1 lectures updated"` (DEF-012); citation pills and Study Stats clipped at the scroll
+  boundary (DEF-007); sidebar storage text wrapped `free` onto its own line (DEF-014);
+  README gained an authoritative export inventory (DEF-013).
+- **Verification:** full suite `1757 passed, 23 skipped`. `node --check` on `app.js` and
+  `electron-bridge.js`. **Not** driven end-to-end in the packaged app this session — the
+  Study-scope and export paths need a real lecture and a live sidecar to exercise.
+- **Files:** `app/ui/app.js`, `app/ui/app.css`, `app/ui/index.html`,
+  `electron-spike/electron-bridge.js`, `electron-spike/python-sidecar.py`,
+  `tests/test_renderer_spike.py`, `README.md`.
+
 ## FIXED
 
 ### BUG-05 — White text on saturated fills failed WCAG AA (systemic)   ✅ FIXED (verified)

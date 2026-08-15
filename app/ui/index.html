@@ -95,7 +95,7 @@
       <!-- Hidden until the backend reports real disk usage (job_storage signal).
            It previously shipped a hardcoded "340 MB" that no code ever updated. -->
       <div id="storage-widget" hidden style="margin-top:10px;padding:9px 10px;border:1.5px solid var(--line);border-radius:10px">
-        <div style="display:flex;justify-content:space-between;font:500 10px 'JetBrains Mono';color:var(--muted);margin-bottom:6px"><span>STORAGE</span><span id="storage-label">—</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;font:500 10px 'JetBrains Mono';color:var(--muted);margin-bottom:6px"><span style="flex:none">STORAGE</span><span id="storage-label" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;text-align:right">—</span></div>
         <div style="height:6px;border-radius:4px;background:var(--sunk);overflow:hidden"><div id="storage-bar" class="lp-fill" style="width:100%;height:100%;background:var(--blue);transform:scaleX(0)"></div></div>
       </div>
     </aside>
@@ -226,11 +226,17 @@
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:15px">
             <div style="font:500 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:11px">Output mode</div>
-            <div id="proc-modes" style="display:flex;flex-direction:column;gap:8px">
-              <label class="lp-hit lp-press-sm" data-mode="study" style="display:flex;align-items:center;gap:10px;background:var(--blue-tint);border:1.5px solid var(--blue);border-radius:9px;padding:10px 12px;cursor:pointer"><span style="width:15px;height:15px;border-radius:50%;border:1.5px solid var(--blue);background:radial-gradient(var(--blue) 42%,transparent 46%);flex:none"></span><span style="font-weight:600;font-size:13px">Study Pack</span></label>
-              <label class="lp-hit lp-press-sm" data-mode="transcript" style="display:flex;align-items:center;gap:10px;border:1.5px solid transparent;border-radius:9px;padding:10px 12px;cursor:pointer"><span style="width:15px;height:15px;border-radius:50%;border:1.5px solid var(--muted);flex:none"></span><span style="font-size:13px;color:var(--muted)">Transcript only</span></label>
-              <label class="lp-hit lp-press-sm" data-mode="slides" style="display:flex;align-items:center;gap:10px;border:1.5px solid transparent;border-radius:9px;padding:10px 12px;cursor:pointer"><span style="width:15px;height:15px;border-radius:50%;border:1.5px solid var(--muted);flex:none"></span><span style="font-size:13px;color:var(--muted)">Slides only</span></label>
+            <!-- Read-only. These rows report the mode this lecture was imported
+                 with; it is fixed for the run. They used to carry .lp-hit and
+                 .lp-press-sm, so they animated on click and changed nothing --
+                 a pure fake affordance. No pointer, no press, no radio glyph on
+                 the inactive rows. -->
+            <div id="proc-modes" role="group" aria-label="Output mode for this lecture" style="display:flex;flex-direction:column;gap:8px">
+              <div data-mode="study_pack" style="display:flex;align-items:center;gap:10px;border:1.5px solid transparent;border-radius:9px;padding:10px 12px"><span data-dot style="width:15px;height:15px;border-radius:50%;border:1.5px solid var(--muted);flex:none"></span><span data-label style="font-size:13px;color:var(--muted)">Study Pack</span></div>
+              <div data-mode="transcript_only" style="display:flex;align-items:center;gap:10px;border:1.5px solid transparent;border-radius:9px;padding:10px 12px"><span data-dot style="width:15px;height:15px;border-radius:50%;border:1.5px solid var(--muted);flex:none"></span><span data-label style="font-size:13px;color:var(--muted)">Transcript only</span></div>
+              <div data-mode="slides_only" style="display:flex;align-items:center;gap:10px;border:1.5px solid transparent;border-radius:9px;padding:10px 12px"><span data-dot style="width:15px;height:15px;border-radius:50%;border:1.5px solid var(--muted);flex:none"></span><span data-label style="font-size:13px;color:var(--muted)">Slides only</span></div>
             </div>
+            <div id="proc-modes-note" style="font:500 10px 'JetBrains Mono';color:var(--muted);margin-top:9px;line-height:1.5">Chosen at import. Reprocess this lecture to change it.</div>
           </div>
           <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:15px">
             <div style="font:500 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:11px">Transcription</div>

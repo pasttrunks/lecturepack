@@ -468,7 +468,12 @@
         }
       };
     }
-    if (name === 'export_all' || name === 'export_one') return { command: 'export', payload: {} };
+    if (name === 'export_all') return { command: 'export', payload: {} };
+    if (name === 'export_one') {
+      // The requested format was being dropped here, so "Export PDF" and
+      // "Export HTML" reached the sidecar indistinguishable from each other.
+      return { command: 'export', payload: { kind: String(payload.kind || first || 'pdf') } };
+    }
     if (name === 'import_video') {
       return {
         command: 'import_video',

@@ -1172,14 +1172,37 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 .study-teach-picker select,.study-mastery-select{
   max-width:310px;font:600 12px 'Space Grotesk';background:var(--sunk);color:var(--ink);
   border:2px solid var(--border);border-radius:8px;padding:8px 10px}
-.study-provenance-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+/* line-height 1 on a 9-11px mono face leaves descenders sitting on the pill
+   border, and the row itself sat flush against the card's bottom padding, so
+   the last citation read as sliced off. Give the pills their own leading and
+   the row a little clearance. */
+.study-provenance-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;
+  row-gap:6px;line-height:1.45;padding-bottom:2px}
 .study-source{
-  font:600 11px 'JetBrains Mono';border:1.5px solid var(--blue);border-radius:6px;
-  padding:3px 8px;cursor:pointer;color:var(--blue-ink);background:var(--blue-soft)}
+  font:600 11px 'JetBrains Mono';line-height:1.5;border:1.5px solid var(--blue);border-radius:6px;
+  padding:4px 8px;cursor:pointer;color:var(--blue-ink);background:var(--blue-soft)}
 .study-source-slide{color:var(--green);background:var(--green-soft);border-color:var(--green)}
 .study-provenance-badge{
-  font:700 9px 'JetBrains Mono';letter-spacing:.04em;border:1.5px solid var(--line);
-  border-radius:5px;padding:3px 6px;color:var(--secondary-text);background:var(--panel)}
+  font:700 9px 'JetBrains Mono';line-height:1.5;letter-spacing:.04em;border:1.5px solid var(--line);
+  border-radius:5px;padding:4px 6px;color:var(--secondary-text);background:var(--panel)}
+
+/* --- study overview: scroll clearance (DEF-007) ---------------------------
+   Both overview columns scroll independently. With no bottom padding the last
+   panel ended exactly at the scroll boundary, so STUDY STATS' final metric row
+   looked bisected by the viewport rather than simply scrolled to its end. */
+.study-overview-columns > div{padding-bottom:20px}
+.study-concept{padding-bottom:16px}
+
+/* --- invalid input feedback (DEF-009) -------------------------------------
+   A rejected link only recoloured a small line of helper text below the field.
+   Mark the field itself so the rejection is impossible to miss. */
+.lp-input-invalid{border-color:var(--red) !important;background:var(--red-soft) !important}
+@keyframes lpshake{
+  0%{transform:translateX(0)}20%{transform:translateX(-5px)}
+  40%{transform:translateX(4px)}60%{transform:translateX(-3px)}
+  80%{transform:translateX(2px)}100%{transform:translateX(0)}}
+.lp-shake{animation:lpshake var(--motion-fast) var(--motion-ease) both}
+@media (prefers-reduced-motion:reduce){.lp-shake{animation:none}}
 .study-provenance-badge[data-provenance="lecture"]{color:var(--blue-ink);background:var(--blue-soft);border-color:var(--blue)}
 .study-provenance-badge[data-provenance="web"]{color:var(--green);background:var(--green-soft);border-color:var(--green)}
 .study-web-source{font:600 11px 'JetBrains Mono';color:var(--green);text-decoration:none;border-bottom:1px solid currentColor}

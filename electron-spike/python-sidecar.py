@@ -2137,13 +2137,14 @@ class Sidecar:
         if self.controller is None:
             raise RuntimeError(self._engine_error or "engine is not loaded")
         job = self._job_for(payload)
+        kind = str(payload.get("kind") or "").strip().lower()
         if self.current_stage:
-            self._respond(request_id, command, job_id=job.job_id, already_running=True)
+            self._respond(request_id, command, job_id=job.job_id, kind=kind, already_running=True)
             return
         self.current_stage = "Export"
         self.auto_export = False
         self.controller.export_now()
-        self._respond(request_id, command, job_id=job.job_id, started=True)
+        self._respond(request_id, command, job_id=job.job_id, kind=kind, started=True)
 
     def _ollama_settings(self) -> dict:
         return dict(self.config.get("ollama", {}) or {}) if hasattr(self, "config") else {}

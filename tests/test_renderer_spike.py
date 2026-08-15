@@ -470,8 +470,16 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
   if (Object.prototype.hasOwnProperty.call(calls[1].payload, 'job_id')) {
     throw new Error('transcript correction command leaked an inferred job_id');
   }
-  for (const call of calls.slice(2)) {
-    if (call.command !== 'export' || Object.keys(call.payload).length !== 0) {
+  // export_all carries no payload; export_one MUST carry the requested kind --
+  // dropping it made "Export PDF" and "Export HTML" indistinguishable.
+  if (calls[2].command !== 'export' || Object.keys(calls[2].payload).length !== 0) {
+    throw new Error(`export_all mapping was not contract-shaped: ${JSON.stringify(calls[2])}`);
+  }
+  if (calls[3].command !== 'export' || calls[3].payload.kind !== 'pdf') {
+    throw new Error(`export_one dropped the requested format: ${JSON.stringify(calls[3])}`);
+  }
+  for (const call of calls.slice(4)) {
+    if (call.command !== 'export') {
       throw new Error(`export mapping was not contract-shaped: ${JSON.stringify(call)}`);
     }
   }

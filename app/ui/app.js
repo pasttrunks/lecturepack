@@ -1219,7 +1219,8 @@
       : '';
     var border = chosen ? 'var(--blue)' : 'var(--border)';
     return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + (draggable ? 'draggable="true" data-existing-job-drag="true" ' : '') +
-      (_jobIsReprocessable(j) ? 'data-reprocess="true" title="Drag to Process to run this lecture again" ' : '') +
+      (_jobIsReprocessable(j) ? 'data-reprocess="true" title="Drag to Process to run this lecture again" '
+        : (draggable ? 'title="Drag to Process to start this lecture" ' : '')) +
       'data-status="' + esc(displayStatus) + '" style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:' + (draggable ? 'grab' : 'pointer') + '">' +
       '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + (selecting ? selbox : menu) + badge + '</div>' +
       '<div style="padding:14px 16px">' + body + '</div></div>';
@@ -1283,9 +1284,24 @@
 
   function setLinkMsg(text, isError) {
     var el = $('link-msg');
-    if (!el) return;
-    el.textContent = text;
-    el.style.color = isError ? 'var(--red)' : 'var(--muted)';
+    if (el) {
+      el.textContent = text;
+      el.style.color = isError ? 'var(--red)' : 'var(--muted)';
+      el.style.fontWeight = isError ? '650' : '';
+    }
+    // The message alone was easy to miss -- it sits below the field and never
+    // changed shape, so a rejected link read as "nothing happened".
+    var input = $('link-url');
+    if (input) {
+      input.classList.toggle('lp-input-invalid', !!isError);
+      input.setAttribute('aria-invalid', isError ? 'true' : 'false');
+      if (isError) {
+        input.classList.remove('lp-shake');
+        void input.offsetWidth;
+        input.classList.add('lp-shake');
+        try { input.focus(); } catch (err) { /* modal may not be mounted yet */ }
+      }
+    }
   }
 
   function linkConfirmDialog(info) {
@@ -1590,7 +1606,7 @@
         return '<div class="subject-member-row' + (isViewing ? ' active' : '') + '" data-jobid="' + esc(m.id) + '">' +
           '<div style="flex:1;min-width:0">' +
             '<div class="subject-member-name" title="' + esc(mName) + '">' + esc(mName) + '</div>' +
-            '<div class="subject-member-meta">' + esc(r.label + (m.duration ? ' · ' + m.duration : '')) + '</div>' +
+            '<div class="subject-member-meta">' + esc(r.label + (m.duration ? ' · ' + fmtDuration(m.duration) : '')) + '</div>' +
           '</div>' +
           '<div style="width:70px;flex:none">' + renderCoverageBarHtml(mPct, mName + ': ' + mPct + '%') + '</div>' +
           '<button type="button" class="lp-hit subject-member-open" data-jobid="' + esc(m.id) + '" title="Open lecture">Open</button>' +
@@ -1714,7 +1730,17 @@
           allJobs.forEach(function (j) {
             if (memberIds.indexOf(j.id) >= 0) j.group = nextGroup;
           });
-          toast('Renamed subject to ' + nextGroup + ' (' + memberIds.length + ' lectures updated)');
+          // Study keeps its own copy of the scope; without this the Subject
+          // Overview headline kept showing the pre-rename name.
+          if (typeof studyV2 !== 'undefined' && studyV2.scope && studyV2.scope.groupName === oldGroup) {
+            studyV2.scope.groupName = nextGroup;
+            if (LP.state.screen === 'study') {
+              renderStudyScopeHeader();
+              renderStudyV2Overview();
+            }
+          }
+          toast('Renamed subject to ' + nextGroup + ' (' + memberIds.length +
+            (memberIds.length === 1 ? ' lecture updated)' : ' lectures updated)'));
         }
       }
       renderSubjects();
@@ -1868,8 +1894,13 @@
     var q = (LP.data.queue && LP.data.queue.queue) || [];
     return q.some(function (r) { return r.id === id; });
   }
+  // "Imported but never processed" -- the backend has used several names for
+  // that state over time ('queued', 'ready', 'unstarted', 'imported'), and
+  // matching only 'queued' left freshly imported lectures undraggable.
+  var UNSTARTED_STATUSES = { queued: true, ready: true, unstarted: true, imported: true };
   function _jobIsReady(j) {
-    return !!j && j.status === 'queued' && !_jobInQueue(j.id) && j.status !== 'running';
+    if (!j || !j.id || j.status === 'running') return false;
+    return UNSTARTED_STATUSES[j.status] === true && !_jobInQueue(j.id);
   }
   // A lecture that has already finished (or failed, or was cancelled) can be
   // put back through the pipeline. This is deliberately SEPARATE from
@@ -1961,10 +1992,33 @@
   }
   function renderProcOptions() {
     var el = $('proc-options');
-    if (!el) return;
     var job = _jobById(LP.state.jobId);
-    if (!job || !(job.preset || job.product_mode)) { el.textContent = ''; return; }
-    el.textContent = _optionsLabel(job);
+    if (el) {
+      if (!job || !(job.preset || job.product_mode)) el.textContent = '';
+      else el.textContent = _optionsLabel(job);
+    }
+    // The Output mode rows were hardcoded to "Study Pack" selected and never
+    // read the job, so a transcript-only lecture still showed Study Pack.
+    var modes = $('proc-modes');
+    if (!modes) return;
+    var active = (job && job.product_mode) || (job ? 'study_pack' : '');
+    Array.prototype.forEach.call(modes.querySelectorAll('[data-mode]'), function (row) {
+      var on = row.dataset.mode === active;
+      var dot = row.querySelector('[data-dot]');
+      var label = row.querySelector('[data-label]');
+      row.style.background = on ? 'var(--blue-tint)' : '';
+      row.style.borderColor = on ? 'var(--blue)' : 'transparent';
+      if (dot) {
+        dot.style.borderColor = on ? 'var(--blue)' : 'var(--muted)';
+        dot.style.background = on ? 'radial-gradient(var(--blue) 42%,transparent 46%)' : '';
+      }
+      if (label) {
+        label.style.color = on ? 'var(--ink)' : 'var(--muted)';
+        label.style.fontWeight = on ? '600' : '';
+      }
+    });
+    var note = $('proc-modes-note');
+    if (note) note.hidden = !job;
   }
 
   // ---------------- viewed-job selection -------------------------------
@@ -2869,7 +2923,7 @@
     var cur = LP.data.slides[v];
     previewCtl.show(cur);
     $('slide-frame-meta').innerHTML = cur
-      ? (esc(cur.time) + '.500 <span style="color:var(--muted);font-weight:400">· frame ' + (cur.frame || Math.round(cur.pct * 30)) + '</span>')
+      ? (esc(cur.time) + ' <span style="color:var(--muted);font-weight:400">· frame ' + (cur.frame || Math.round(cur.pct * 30)) + '</span>')
       : '';
     renderTimeline();
     refreshControlStates();
@@ -4577,11 +4631,18 @@
 
     var concepts = (analysis.concepts || []).map(function (c) {
       var sources = [];
+      // A group concept is a SYNTHESIZED merge of per-lecture concepts, so its
+      // id exists in no single lecture's store. Remember the first real owning
+      // lecture + concept so per-concept actions (mastery, Teach Me, edit,
+      // delete, regenerate) can address the row the backend actually has.
+      var originJobId = '';
+      var originConceptId = '';
       (c.job_ids || []).forEach(function (jid) {
         var member = memberMap[jid];
         if (!member) return;
         (member.concepts || []).forEach(function (mc) {
           if ((c.source_concept_ids || []).indexOf(mc.id) >= 0 || (mc.title && mc.title.toLowerCase() === c.title.toLowerCase())) {
+            if (!originJobId) { originJobId = jid; originConceptId = mc.id; }
             (mc.lecture_sources || mc.sources || []).forEach(function (s) {
               sources.push({
                 job_id: jid,
@@ -4601,6 +4662,8 @@
         importance: c.importance,
         coverage: c.coverage,
         job_ids: c.job_ids || [],
+        origin_job_id: originJobId,
+        origin_concept_id: originConceptId,
         sources: sources,
         lecture_sources: sources
       };
@@ -4770,6 +4833,10 @@
           studyV2PersistGroupView();
           selectJob(val, { screen: 'study' });
           renderStudyScopeHeader();
+          // selectJob clears the group content immediately but only reloads
+          // when it happens to observe a study->study transition. Ask for the
+          // single-lecture pack explicitly so the panel never lands empty.
+          studyV2Load();
         }
       });
     }
@@ -5211,15 +5278,18 @@
       var masteryLabel = { NEW: 'New', LEARNING: 'Learning', MASTERED: 'Mastered', NEEDS_REVIEW: 'Needs review' }[mastery] || 'New';
       var sources = studyItemSourcesHtml(c);
       var emphasisBadge = c.emphasis ? '<span style="font:600 9px JetBrains Mono;color:var(--orange-ink);background:var(--orange-soft);border:1.5px solid var(--orange);border-radius:5px;padding:2px 6px;text-transform:uppercase">Emphasized</span>' : '';
+      // In Subject scope the visible concept is a merge; address the owning
+      // lecture's real row instead of whatever lecture is active in the switcher.
+      var ownerAttrs = ' data-job-id="' + escText(c.origin_job_id || '') + '" data-origin-id="' + escText(c.origin_concept_id || '') + '"';
       conceptsHtml += '<div class="study-concept" style="background:var(--sunk);border:1.5px solid var(--line);border-radius:10px;padding:14px 16px">' +
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-weight:700;font-size:14px;flex:1">' + escText(c.title) + '</span>' + emphasisBadge + '<span style="font:600 10px JetBrains Mono;color:var(--muted)">' + masteryLabel + '</span></div>' +
         '<div style="font-size:13px;color:var(--secondary-text);line-height:1.55;margin-bottom:8px">' + escText(c.explanation) + '</div>' +
         (sources ? '<div class="study-provenance-row">' + sources + '</div>' : '') +
-        '<div style="display:flex;gap:6px;margin-top:8px"><button class="lp-hit study-explain" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--ink)">Explain</button>' +
-        '<button class="lp-hit study-edit" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--muted)">Edit</button>' +
-        '<button class="lp-hit study-regenerate" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--muted)">Regenerate</button>' +
-        '<button class="lp-hit study-delete" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--red)">Delete</button>' +
-        '<select class="study-mastery-select" data-concept-id="' + escText(c.id) + '" aria-label="Mastery for ' + escText(c.title) + '">' +
+        '<div style="display:flex;gap:6px;margin-top:8px"><button class="lp-hit study-explain" data-id="' + escText(c.id) + '"' + ownerAttrs + ' style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--ink)">Explain</button>' +
+        '<button class="lp-hit study-edit" data-kind="concept" data-id="' + escText(c.id) + '"' + ownerAttrs + ' style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--muted)">Edit</button>' +
+        '<button class="lp-hit study-regenerate" data-kind="concept" data-id="' + escText(c.id) + '"' + ownerAttrs + ' style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--muted)">Regenerate</button>' +
+        '<button class="lp-hit study-delete" data-kind="concept" data-id="' + escText(c.id) + '"' + ownerAttrs + ' style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--red)">Delete</button>' +
+        '<select class="study-mastery-select" data-concept-id="' + escText(c.id) + '"' + ownerAttrs + ' aria-label="Mastery for ' + escText(c.title) + '">' +
         ['NEW', 'LEARNING', 'MASTERED', 'NEEDS_REVIEW'].map(function (value) { return '<option value="' + value + '"' + (value === mastery ? ' selected' : '') + '>' + ({ NEW: 'New', LEARNING: 'Learning', MASTERED: 'Mastered', NEEDS_REVIEW: 'Needs review' }[value]) + '</option>'; }).join('') +
         '</select></div></div>';
     });
@@ -6166,9 +6236,15 @@
       studyV2.teachResult = null;
       studyV2.teachGrade = null;
       renderStudyTeach();
+      // Subject scope: teach the owning lecture's real concept row.
+      var teachConcept = ((studyV2.content && studyV2.content.concepts) || []).filter(function (c) {
+        return c.id === studyV2.teachConceptId;
+      })[0] || {};
       lpBridge.call('study_v2_teach_me', {
-        job_id: LP.state.jobId,
-        concept_id: studyV2.teachConceptId
+        job_id: teachConcept.origin_job_id || LP.state.jobId,
+        concept_id: teachConcept.origin_job_id && teachConcept.origin_concept_id
+          ? teachConcept.origin_concept_id
+          : studyV2.teachConceptId
       }).then(function (result) {
         if (!result || result.ok === false) {
           studyV2.teachLoading = false;
@@ -6187,20 +6263,21 @@
       var t = e.target.closest('.study-source');
       if (t) { navigateStudySource(t); return; }
       var edit = e.target.closest('.study-edit');
-      if (edit) { studyV2EditItem(edit.dataset.kind, edit.dataset.id); return; }
+      if (edit) { studyV2EditItem(edit.dataset.kind, edit.dataset.id, studyItemOwner(edit, edit.dataset.id)); return; }
       var del = e.target.closest('.study-delete');
-      if (del) { studyV2DeleteItem(del.dataset.kind, del.dataset.id); return; }
+      if (del) { studyV2DeleteItem(del.dataset.kind, del.dataset.id, studyItemOwner(del, del.dataset.id)); return; }
       var regenerate = e.target.closest('.study-regenerate');
-      if (regenerate) { studyV2RegenerateItem(regenerate.dataset.kind, regenerate.dataset.id); return; }
+      if (regenerate) { studyV2RegenerateItem(regenerate.dataset.kind, regenerate.dataset.id, studyItemOwner(regenerate, regenerate.dataset.id)); return; }
       var explain = e.target.closest('.study-explain');
       if (explain) { studyV2ExplainItem(explain.dataset.id); }
     });
     if (concepts) concepts.addEventListener('change', function (e) {
       var select = e.target.closest('.study-mastery-select');
       if (!select || !lpBridge.connected()) return;
+      var masteryOwner = studyItemOwner(select, select.dataset.conceptId);
       lpBridge.call('study_v2_set_mastery', {
-        job_id: LP.state.jobId,
-        concept_id: select.dataset.conceptId,
+        job_id: masteryOwner.job_id,
+        concept_id: masteryOwner.id,
         mastery: select.value
       }).then(function () { studyV2Load(); }).catch(function () {
         toast('Mastery could not be updated.');
@@ -6315,7 +6392,8 @@
     });
   }
 
-  function studyV2EditItem(kind, id) {
+  function studyV2EditItem(kind, id, owner) {
+    owner = owner || { job_id: LP.state.jobId, id: id };
     if (!id || !lpBridge.connected()) return;
     var content = studyV2.content || { concepts: [], flashcards: [], quiz: [] };
     var item = null, field = 'title', label = 'Title';
@@ -6341,7 +6419,7 @@
           var input = $('lp-study-edit-input');
           var value = (input && input.value || '').trim();
           if (!value || !lpBridge.connected()) return true;
-          var payload = { job_id: LP.state.jobId, kind: kind, id: id };
+          var payload = { job_id: owner.job_id, kind: kind, id: owner.id };
           if (kind === 'concept') payload.title = value;
           else if (kind === 'flashcard') payload.front = value;
           else if (kind === 'quiz') payload.question = value;
@@ -6352,8 +6430,9 @@
     setTimeout(function () { var i = $('lp-study-edit-input'); if (i) { i.focus(); i.select(); } }, 30);
   }
 
-  function studyV2DeleteItem(kind, id) {
+  function studyV2DeleteItem(kind, id, owner) {
     if (!id || !lpBridge.connected()) return;
+    owner = owner || { job_id: LP.state.jobId, id: id };
     var noun = kind === 'concept' ? 'concept' : kind === 'flashcard' ? 'flashcard' : 'question';
     lpModal({
       title: 'Delete this ' + noun + '?',
@@ -6361,18 +6440,32 @@
       actions: [
         { label: 'Cancel' },
         { label: 'Delete', danger: true, onClick: function () {
-          lpBridge.call('study_v2_delete', { job_id: LP.state.jobId, kind: kind, id: id }).then(function () { studyV2Load(); }).catch(function () {});
+          lpBridge.call('study_v2_delete', { job_id: owner.job_id, kind: kind, id: owner.id }).then(function () { studyV2Load(); }).catch(function () {});
         } }
       ]
     });
   }
 
-  function studyV2RegenerateItem(kind, id) {
+  /* In Subject scope the rendered concept is a cross-lecture merge whose id is
+     not in any lecture's store. The card carries the owning lecture + the real
+     concept id; fall back to the active lecture for ordinary single-lecture
+     scope, where the displayed id IS the stored id. */
+  function studyItemOwner(el, displayedId) {
+    var jobId = (el && el.dataset && el.dataset.jobId) || '';
+    var originId = (el && el.dataset && el.dataset.originId) || '';
+    return {
+      job_id: jobId || LP.state.jobId,
+      id: (jobId && originId) ? originId : displayedId
+    };
+  }
+
+  function studyV2RegenerateItem(kind, id, owner) {
     if (!kind || !id || !lpBridge.connected()) return;
+    owner = owner || { job_id: LP.state.jobId, id: id };
     lpBridge.call('study_v2_regenerate', {
-      job_id: LP.state.jobId,
+      job_id: owner.job_id,
       kind: kind,
-      id: id
+      id: owner.id
     }).then(function (result) {
       if (!result || result.ok === false) {
         toast((result && result.error) || 'This Study item could not be regenerated.');
@@ -7095,6 +7188,32 @@
       renderExportPhase();
       setTimeout(function () { LP.state.exportPhase = 'done'; renderExportPhase(); }, 1700);
     }
+  }
+
+  /* Rebuilds the study pack so the requested file is refreshed. These used to
+     fire and return silently, which read exactly like a dead button. */
+  function exportOne(kind, label) {
+    if (!LP.state.jobId) { toast('Load a lecture first — there is nothing to export yet.'); return; }
+    if (!lpBridge.connected()) { toast('Not connected to the engine — the ' + label + ' could not be rebuilt.'); return; }
+    LP.state.exportPhase = 'running';
+    renderExportPhase();
+    toast('Rebuilding the study pack to refresh the ' + label + '…');
+    lpBridge.call('export_one', { kind: kind }).then(function (value) {
+      var result = parseBridgeResult(value);
+      if (result && result.already_running) {
+        toast('An export is already running — the ' + label + ' will be refreshed with it.');
+        return;
+      }
+      if (result && result.ok === false) {
+        LP.state.exportPhase = 'idle';
+        renderExportPhase();
+        toast((result && result.error) || ('The ' + label + ' could not be rebuilt.'));
+      }
+    }).catch(function () {
+      LP.state.exportPhase = 'idle';
+      renderExportPhase();
+      toast('The ' + label + ' could not be rebuilt.');
+    });
   }
 
   /* ======================= updates / what's new ======================= */
@@ -8092,16 +8211,16 @@
       renderExportFormats();
     });
     $('btn-export-all').addEventListener('click', startExport);
-    $('btn-export-again').addEventListener('click', function () { LP.state.exportPhase = 'idle'; renderExportPhase(); });
+    // Re-running the export is the whole point of this button; resetting the
+    // banner alone left the files on disk untouched.
+    $('btn-export-again').addEventListener('click', function () {
+      LP.state.exportPhase = 'idle';
+      renderExportPhase();
+      startExport();
+    });
     $('btn-open-folder').addEventListener('click', function () { lpBridge.call('open_export_folder'); });
-    $('btn-export-pdf').addEventListener('click', function () {
-      if (!LP.state.jobId) { toast('Load a lecture first — there is nothing to export yet.'); return; }
-      lpBridge.call('export_one', 'pdf');
-    });
-    $('btn-export-html').addEventListener('click', function () {
-      if (!LP.state.jobId) { toast('Load a lecture first — there is nothing to export yet.'); return; }
-      lpBridge.call('export_one', 'html');
-    });
+    $('btn-export-pdf').addEventListener('click', function () { exportOne('pdf', 'PDF'); });
+    $('btn-export-html').addEventListener('click', function () { exportOne('html', 'HTML'); });
 
     // what's new / updates
     $('btn-whatsnew-close').addEventListener('click', hideWhatsNew);
