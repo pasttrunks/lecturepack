@@ -114,12 +114,44 @@ def main() -> int:
             "one per slide; refusing to capture a pack that under-represents "
             "the bundled lecture")
 
-    print("building the Study pack (real gateway) ...")
+    # Read EVERY slide during capture.
+    #
+    # Vision normally runs only on the slides the analysis pass asks about, and
+    # for this lecture it asked about none -- so the first capture covered the
+    # two facts spoken aloud and ignored the two that exist only as text on
+    # slides 2 and 4. A demo pack that silently drops half the lecture is the
+    # worst possible thing to hand someone who is about to stress-test it.
+    #
+    # This is a capture-time override, not a product change: the running app
+    # still asks for slides only when the analysis wants them. Everything it
+    # produces is still genuine model output grounded in the real slides.
+    bundle = ai_study_service.build_lecture_bundle(job)
+    slide_ids = [str(s.get("slide_id")) for s in bundle["slides"]]
+    ai_study_service._MAX_VISION_SLIDES = max(
+        ai_study_service._MAX_VISION_SLIDES, len(slide_ids))
+    original_call = ai_study_service._call
+
+    def call_reading_every_slide(client, task, payload):
+        result, diagnostics = original_call(client, task, payload)
+        if task == "lecture_analysis" and isinstance(result, dict):
+            result["vision_requests"] = [
+                {"slide_id": sid,
+                 "reason": "Demo capture: every slide is read so the shipped "
+                           "pack covers the whole lecture."}
+                for sid in slide_ids
+            ]
+        return result, diagnostics
+
+    ai_study_service._call = call_reading_every_slide
+    print(f"building the Study pack (real gateway, {len(slide_ids)} slides read) ...")
     started = time.time()
     client = ai_gateway.GatewayClient(str(scratch))
-    ai_study_service.prepare_ai_study(
-        job, client, progress=lambda p: print(
-            f"  {p.get('progress_percent', 0):3}% {p.get('stage', '')}"))
+    try:
+        ai_study_service.prepare_ai_study(
+            job, client, progress=lambda p: print(
+                f"  {p.get('progress_percent', 0):3}% {p.get('stage', '')}"))
+    finally:
+        ai_study_service._call = original_call
     print(f"  built in {time.time() - started:.1f}s")
 
     content = study_v2.load_content(job)

@@ -34,6 +34,7 @@ TASK_TYPES = {
     "teach_me",
     "grade_short_answer",
     "regenerate_concept",
+    "expand_concept_material",
     "vision_slide",
     "web_enrichment",
 }

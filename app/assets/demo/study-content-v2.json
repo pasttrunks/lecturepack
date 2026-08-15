@@ -13,9 +13,9 @@
       "progress_percent": 100,
       "last_error": null,
       "diagnostics": {
-        "request_id": "lp-16c123d6-475b-4427-a37b-c2482bb43fc3",
+        "request_id": "lp-befe97a0-58fc-4d3e-92e5-5e9b37e249ce",
         "task_type": "study_material_generation",
-        "timestamp": "2026-08-14T23:35:20.234Z",
+        "timestamp": "2026-08-15T00:48:21.391Z",
         "app_version": "2.0.1",
         "error_category": "",
         "attempted_routes": [],
@@ -25,18 +25,20 @@
         "retry_count": 0,
         "last_successful_stage": "Study material generation"
       },
-      "updated_at": "2026-08-14T23:35:21.902185+00:00"
+      "updated_at": "2026-08-15T00:48:23.142918+00:00"
     },
-    "lecture_summary": "This lecture discusses the polar bear, highlighting its unique characteristics and classification as a marine mammal.",
+    "lecture_summary": "This lecture discusses polar bears, specifically their fur and classification as marine mammals.",
     "lecture_analysis": {
-      "lecture_summary": "This lecture discusses the polar bear, highlighting its unique characteristics and classification as a marine mammal.",
+      "lecture_summary": "This lecture discusses polar bears, specifically their fur and classification as marine mammals.",
       "concepts": [
         {
           "id": "concept-1",
-          "title": "Polar Bears",
+          "title": "Polar bears",
           "importance": 5,
-          "explanation": "Polar bears are a species of bear that live in the Arctic region. They are known for their white fur, which is actually transparent and covers black skin.",
-          "related_concept_ids": [],
+          "explanation": "Polar bears are a species of bear that live in the Arctic region.",
+          "related_concept_ids": [
+            "concept-2"
+          ],
           "sources": [
             {
               "segment_id": "0",
@@ -45,7 +47,18 @@
               "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
               "slide_id": "slide_18_750.png",
               "slide_timestamp_ms": 750
-            },
+            }
+          ],
+          "web_sources": [],
+          "provenance": "lecture"
+        },
+        {
+          "id": "concept-2",
+          "title": "Marine mammals",
+          "importance": 4,
+          "explanation": "Marine mammals are animals that live in the ocean and breathe air.",
+          "related_concept_ids": [],
+          "sources": [
             {
               "segment_id": "1",
               "start_ms": 7600,
@@ -57,27 +70,6 @@
           ],
           "web_sources": [],
           "provenance": "lecture"
-        },
-        {
-          "id": "concept-2",
-          "title": "Marine Mammals",
-          "importance": 5,
-          "explanation": "Marine mammals are a group of mammals that live in the ocean, including whales, dolphins, and seals.",
-          "related_concept_ids": [
-            "concept-1"
-          ],
-          "sources": [
-            {
-              "segment_id": "1",
-              "start_ms": 7600,
-              "end_ms": 9840,
-              "preview": "They are actually marine mammals.",
-              "slide_id": "slide_156_6500.png",
-              "slide_timestamp_ms": 6500
-            }
-          ],
-          "web_sources": [],
-          "provenance": "lecture"
         }
       ],
       "relationships": []
@@ -85,11 +77,13 @@
     "concepts": [
       {
         "id": "concept-1",
-        "title": "Polar Bears",
+        "title": "Polar bears",
         "importance": 5,
-        "explanation": "Polar bears are a species of bear that live in the Arctic region. They are known for their white fur, which is actually transparent and covers black skin.",
-        "related_concept_ids": [],
-        "emphasis": "Unique Characteristics",
+        "explanation": "Polar bears are a species of bear that live in the Arctic region.",
+        "related_concept_ids": [
+          "concept-2"
+        ],
+        "emphasis": "Physical characteristics",
         "sources": [
           {
             "segment_id": "0",
@@ -98,14 +92,6 @@
             "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
             "slide_id": "slide_18_750.png",
             "slide_timestamp_ms": 750
-          },
-          {
-            "segment_id": "1",
-            "start_ms": 7600,
-            "end_ms": 9840,
-            "preview": "They are actually marine mammals.",
-            "slide_id": "slide_96_4000.png",
-            "slide_timestamp_ms": 4000
           }
         ],
         "lecture_sources": [
@@ -116,14 +102,6 @@
             "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
             "slide_id": "slide_18_750.png",
             "slide_timestamp_ms": 750
-          },
-          {
-            "segment_id": "1",
-            "start_ms": 7600,
-            "end_ms": 9840,
-            "preview": "They are actually marine mammals.",
-            "slide_id": "slide_96_4000.png",
-            "slide_timestamp_ms": 4000
           }
         ],
         "web_sources": [],
@@ -131,12 +109,10 @@
       },
       {
         "id": "concept-2",
-        "title": "Marine Mammals",
-        "importance": 5,
-        "explanation": "Marine mammals are a group of mammals that live in the ocean, including whales, dolphins, and seals.",
-        "related_concept_ids": [
-          "concept-1"
-        ],
+        "title": "Marine mammals",
+        "importance": 4,
+        "explanation": "Marine mammals are animals that live in the ocean and breathe air.",
+        "related_concept_ids": [],
         "emphasis": "Classification",
         "sources": [
           {
@@ -144,8 +120,8 @@
             "start_ms": 7600,
             "end_ms": 9840,
             "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
           }
         ],
         "lecture_sources": [
@@ -154,8 +130,8 @@
             "start_ms": 7600,
             "end_ms": 9840,
             "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
           }
         ],
         "web_sources": [],
@@ -167,8 +143,8 @@
     "dates": [],
     "study_guide": [
       {
-        "heading": "Introduction to Polar Bears",
-        "body": "Polar bears are a species of bear that live in the Arctic region. They are known for their white fur, which is actually transparent and covers black skin.",
+        "heading": "Physical Characteristics of Polar Bears",
+        "body": "Polar bears have transparent fur and black skin.",
         "concept_ids": [
           "concept-1"
         ],
@@ -196,8 +172,8 @@
         "provenance": "lecture"
       },
       {
-        "heading": "Classification of Marine Mammals",
-        "body": "Marine mammals are a group of mammals that live in the ocean, including whales, dolphins, and seals.",
+        "heading": "Classification of Polar Bears",
+        "body": "Polar bears are classified as marine mammals.",
         "concept_ids": [
           "concept-2"
         ],
@@ -207,8 +183,8 @@
             "start_ms": 7600,
             "end_ms": 9840,
             "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
           }
         ],
         "lecture_sources": [
@@ -217,8 +193,8 @@
             "start_ms": 7600,
             "end_ms": 9840,
             "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
           }
         ],
         "web_sources": [],
@@ -228,8 +204,8 @@
     "flashcards": [
       {
         "id": "flashcard-1",
-        "front": "What is unique about the fur of polar bears?",
-        "back": "Their fur is transparent and covers black skin.",
+        "front": "What is unique about polar bears' fur?",
+        "back": "Their fur is transparent.",
         "difficulty": "easy",
         "concept_ids": [
           "concept-1"
@@ -259,8 +235,145 @@
       },
       {
         "id": "flashcard-2",
-        "front": "What group of mammals do polar bears belong to?",
-        "back": "Marine mammals.",
+        "front": "What is polar bears' skin color?",
+        "back": "Black.",
+        "difficulty": "easy",
+        "concept_ids": [
+          "concept-1"
+        ],
+        "sources": [
+          {
+            "segment_id": "0",
+            "start_ms": 0,
+            "end_ms": 7040,
+            "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
+            "slide_id": "slide_18_750.png",
+            "slide_timestamp_ms": 750
+          }
+        ],
+        "lecture_sources": [
+          {
+            "segment_id": "0",
+            "start_ms": 0,
+            "end_ms": 7040,
+            "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
+            "slide_id": "slide_18_750.png",
+            "slide_timestamp_ms": 750
+          }
+        ],
+        "web_sources": [],
+        "provenance": "lecture"
+      },
+      {
+        "id": "flashcard-1",
+        "front": "What is the main reason polar bears are classified as marine mammals?",
+        "back": "They live in the ocean and breathe air.",
+        "difficulty": "medium",
+        "concept_ids": [
+          "concept-1"
+        ],
+        "sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "lecture_sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "web_sources": [],
+        "provenance": "lecture"
+      },
+      {
+        "id": "flashcard-2",
+        "front": "What is unique about polar bears' habitat?",
+        "back": "They live in the Arctic region.",
+        "difficulty": "easy",
+        "concept_ids": [
+          "concept-1"
+        ],
+        "sources": [
+          {
+            "segment_id": "0",
+            "start_ms": 0,
+            "end_ms": 7040,
+            "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
+            "slide_id": "slide_18_750.png",
+            "slide_timestamp_ms": 750
+          }
+        ],
+        "lecture_sources": [
+          {
+            "segment_id": "0",
+            "start_ms": 0,
+            "end_ms": 7040,
+            "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
+            "slide_id": "slide_18_750.png",
+            "slide_timestamp_ms": 750
+          }
+        ],
+        "web_sources": [],
+        "provenance": "lecture"
+      },
+      {
+        "id": "flashcard-3",
+        "front": "What is the main difference between polar bears' fur and skin?",
+        "back": "Fur is transparent, and skin is black.",
+        "difficulty": "hard",
+        "concept_ids": [
+          "concept-1"
+        ],
+        "sources": [
+          {
+            "segment_id": "0",
+            "start_ms": 0,
+            "end_ms": 7040,
+            "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
+            "slide_id": "slide_18_750.png",
+            "slide_timestamp_ms": 750
+          }
+        ],
+        "lecture_sources": [
+          {
+            "segment_id": "0",
+            "start_ms": 0,
+            "end_ms": 7040,
+            "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
+            "slide_id": "slide_18_750.png",
+            "slide_timestamp_ms": 750
+          }
+        ],
+        "web_sources": [],
+        "provenance": "lecture"
+      },
+      {
+        "id": "flashcard-4",
+        "front": "What is the importance of polar bears?",
+        "back": "They have an importance of 5.",
+        "difficulty": "easy",
+        "concept_ids": [
+          "concept-1"
+        ],
+        "sources": [],
+        "lecture_sources": [],
+        "web_sources": [],
+        "provenance": "extra_context"
+      },
+      {
+        "id": "flashcard-1",
+        "front": "What is the definition of marine mammals?",
+        "back": "Marine mammals are animals that live in the ocean and breathe air.",
         "difficulty": "easy",
         "concept_ids": [
           "concept-2"
@@ -271,8 +384,8 @@
             "start_ms": 7600,
             "end_ms": 9840,
             "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
           }
         ],
         "lecture_sources": [
@@ -281,8 +394,101 @@
             "start_ms": 7600,
             "end_ms": 9840,
             "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "web_sources": [],
+        "provenance": "lecture"
+      },
+      {
+        "id": "flashcard-2",
+        "front": "What is an example of a marine mammal?",
+        "back": "Polar bears are an example of a marine mammal.",
+        "difficulty": "medium",
+        "concept_ids": [
+          "concept-2"
+        ],
+        "sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "lecture_sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "web_sources": [],
+        "provenance": "lecture"
+      },
+      {
+        "id": "flashcard-3",
+        "front": "What is the importance of marine mammals?",
+        "back": "Marine mammals are important for their role in the ocean ecosystem.",
+        "difficulty": "hard",
+        "concept_ids": [
+          "concept-2"
+        ],
+        "sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "lecture_sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "web_sources": [],
+        "provenance": "lecture"
+      },
+      {
+        "id": "flashcard-4",
+        "front": "What is the classification of marine mammals?",
+        "back": "Marine mammals are classified as mammals.",
+        "difficulty": "easy",
+        "concept_ids": [
+          "concept-2"
+        ],
+        "sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "lecture_sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
           }
         ],
         "web_sources": [],
@@ -292,19 +498,19 @@
     "quiz": [
       {
         "id": "quiz-1",
-        "question": "What is unique about the fur of polar bears?",
+        "question": "What is unique about polar bears' fur?",
         "qtype": "multiple_choice",
         "options": [
-          "Their fur is white.",
-          "Their fur is transparent and covers black skin.",
-          "Their fur is brown."
+          "It is white",
+          "It is transparent",
+          "It is black"
         ],
         "correct_index": 1,
         "accepted_answers": [
-          "Their fur is transparent and covers black skin."
+          "transparent"
         ],
-        "rubric": "Correct answer: Their fur is transparent and covers black skin.",
-        "explanation": "Polar bears have transparent fur that covers black skin.",
+        "rubric": "Correct answer is 'transparent'.",
+        "explanation": "Polar bears' fur is transparent.",
         "concept_ids": [
           "concept-1"
         ],
@@ -333,7 +539,7 @@
       },
       {
         "id": "quiz-2",
-        "question": "What group of mammals do polar bears belong to?",
+        "question": "What is polar bears' skin color?",
         "qtype": "true_false",
         "options": [
           "True",
@@ -341,31 +547,31 @@
         ],
         "correct_index": 1,
         "accepted_answers": [
-          "True"
+          "false"
         ],
-        "rubric": "Correct answer: True.",
-        "explanation": "Polar bears are marine mammals.",
+        "rubric": "Correct answer is 'false'.",
+        "explanation": "Polar bears' skin is black.",
         "concept_ids": [
-          "concept-2"
+          "concept-1"
         ],
         "sources": [
           {
-            "segment_id": "1",
-            "start_ms": 7600,
-            "end_ms": 9840,
-            "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "segment_id": "0",
+            "start_ms": 0,
+            "end_ms": 7040,
+            "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
+            "slide_id": "slide_18_750.png",
+            "slide_timestamp_ms": 750
           }
         ],
         "lecture_sources": [
           {
-            "segment_id": "1",
-            "start_ms": 7600,
-            "end_ms": 9840,
-            "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "segment_id": "0",
+            "start_ms": 0,
+            "end_ms": 7040,
+            "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
+            "slide_id": "slide_18_750.png",
+            "slide_timestamp_ms": 750
           }
         ],
         "web_sources": [],
@@ -373,15 +579,15 @@
       },
       {
         "id": "quiz-3",
-        "question": "What is the classification of marine mammals?",
+        "question": "What is polar bears' classification?",
         "qtype": "short_answer",
         "options": [],
         "correct_index": null,
         "accepted_answers": [
-          "Marine mammals are a group of mammals that live in the ocean, including whales, dolphins, and seals."
+          "marine mammals"
         ],
-        "rubric": "Correct answer: Marine mammals are a group of mammals that live in the ocean, including whales, dolphins, and seals.",
-        "explanation": "Marine mammals are a group of mammals that live in the ocean, including whales, dolphins, and seals.",
+        "rubric": "Correct answer is 'marine mammals'.",
+        "explanation": "Polar bears are classified as marine mammals.",
         "concept_ids": [
           "concept-2"
         ],
@@ -391,8 +597,8 @@
             "start_ms": 7600,
             "end_ms": 9840,
             "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
           }
         ],
         "lecture_sources": [
@@ -401,8 +607,164 @@
             "start_ms": 7600,
             "end_ms": 9840,
             "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "web_sources": [],
+        "provenance": "lecture"
+      },
+      {
+        "id": "quiz-1",
+        "question": "What is the main reason polar bears are classified as marine mammals?",
+        "qtype": "multiple_choice",
+        "options": [
+          "They live on land",
+          "They live in the ocean and breathe air",
+          "They live in the Arctic region"
+        ],
+        "correct_index": 1,
+        "accepted_answers": [
+          "They live in the ocean and breathe air"
+        ],
+        "rubric": "Correct answer: They live in the ocean and breathe air.",
+        "explanation": "Polar bears are classified as marine mammals because they live in the ocean and breathe air.",
+        "concept_ids": [
+          "concept-1"
+        ],
+        "sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "lecture_sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "web_sources": [],
+        "provenance": "lecture"
+      },
+      {
+        "id": "quiz-2",
+        "question": "What is unique about polar bears' habitat?",
+        "qtype": "short_answer",
+        "options": [],
+        "correct_index": null,
+        "accepted_answers": [
+          "Arctic region"
+        ],
+        "rubric": "Correct answer: Arctic region.",
+        "explanation": "Polar bears live in the Arctic region.",
+        "concept_ids": [
+          "concept-1"
+        ],
+        "sources": [
+          {
+            "segment_id": "0",
+            "start_ms": 0,
+            "end_ms": 7040,
+            "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
+            "slide_id": "slide_18_750.png",
+            "slide_timestamp_ms": 750
+          }
+        ],
+        "lecture_sources": [
+          {
+            "segment_id": "0",
+            "start_ms": 0,
+            "end_ms": 7040,
+            "preview": "Behold the polar bear. Its fur is not white but transparent. Beneath it, their skin is black.",
+            "slide_id": "slide_18_750.png",
+            "slide_timestamp_ms": 750
+          }
+        ],
+        "web_sources": [],
+        "provenance": "lecture"
+      },
+      {
+        "id": "quiz-1",
+        "question": "What is the definition of marine mammals?",
+        "qtype": "short_answer",
+        "options": [],
+        "correct_index": null,
+        "accepted_answers": [
+          "Marine mammals are animals that live in the ocean and breathe air."
+        ],
+        "rubric": "The answer should be a clear and concise definition of marine mammals.",
+        "explanation": "Marine mammals are animals that live in the ocean and breathe air.",
+        "concept_ids": [
+          "concept-2"
+        ],
+        "sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "lecture_sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "web_sources": [],
+        "provenance": "lecture"
+      },
+      {
+        "id": "quiz-2",
+        "question": "What is an example of a marine mammal?",
+        "qtype": "multiple_choice",
+        "options": [
+          "Polar bears",
+          "Giraffes",
+          "Lions"
+        ],
+        "correct_index": 0,
+        "accepted_answers": [
+          "Polar bears"
+        ],
+        "rubric": "The answer should be a clear and concise example of a marine mammal.",
+        "explanation": "Polar bears are an example of a marine mammal.",
+        "concept_ids": [
+          "concept-2"
+        ],
+        "sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
+          }
+        ],
+        "lecture_sources": [
+          {
+            "segment_id": "1",
+            "start_ms": 7600,
+            "end_ms": 9840,
+            "preview": "They are actually marine mammals.",
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
           }
         ],
         "web_sources": [],
@@ -412,20 +774,20 @@
     "misconceptions": [],
     "quick_study_material": {
       "five_minute": [
-        "concept-2",
-        "concept-1"
+        "concept-1",
+        "concept-2"
       ],
       "ten_minute": [
-        "concept-2",
-        "concept-1"
+        "concept-1",
+        "concept-2"
       ],
       "twenty_minute": [
-        "concept-2",
-        "concept-1"
+        "concept-1",
+        "concept-2"
       ],
       "full": [
-        "concept-2",
-        "concept-1"
+        "concept-1",
+        "concept-2"
       ]
     },
     "teach_me_foundations": [
@@ -434,10 +796,10 @@
         "concept_ids": [
           "concept-1"
         ],
-        "explanation": "Polar bears are a species of bear that live in the Arctic region. They are known for their white fur, which is actually transparent and covers black skin.",
-        "analogy": "Polar bears are like white bears, but their fur is actually transparent.",
-        "check_question": "What is unique about the fur of polar bears?",
-        "rubric": "Correct answer: Their fur is transparent and covers black skin.",
+        "explanation": "Polar bears are a species of bear that live in the Arctic region.",
+        "analogy": "Polar bears are like a fish, but they live on land.",
+        "check_question": "What is unique about polar bears' fur?",
+        "rubric": "Correct answer is 'transparent'.",
         "sources": [
           {
             "segment_id": "0",
@@ -466,18 +828,18 @@
         "concept_ids": [
           "concept-2"
         ],
-        "explanation": "Marine mammals are a group of mammals that live in the ocean, including whales, dolphins, and seals.",
-        "analogy": "Polar bears are like whales, but they live on land.",
-        "check_question": "What group of mammals do polar bears belong to?",
-        "rubric": "Correct answer: Marine mammals.",
+        "explanation": "Marine mammals are animals that live in the ocean and breathe air.",
+        "analogy": "Polar bears are like a fish, but they live on land.",
+        "check_question": "What is polar bears' classification?",
+        "rubric": "Correct answer is 'marine mammals'.",
         "sources": [
           {
             "segment_id": "1",
             "start_ms": 7600,
             "end_ms": 9840,
             "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
           }
         ],
         "lecture_sources": [
@@ -486,18 +848,59 @@
             "start_ms": 7600,
             "end_ms": 9840,
             "preview": "They are actually marine mammals.",
-            "slide_id": "slide_156_6500.png",
-            "slide_timestamp_ms": 6500
+            "slide_id": "slide_96_4000.png",
+            "slide_timestamp_ms": 4000
           }
         ],
         "web_sources": [],
         "provenance": "lecture"
       }
     ],
-    "slide_interpretations": [],
+    "slide_interpretations": [
+      {
+        "slide_id": "slide_18_750.png",
+        "visible_text": "Polar Bear Secrets\nFact: Their fur is actually clear!",
+        "interpretation": "The slide presents a visual of a polar bear with a question mark above its head, accompanied by the fact that polar bear fur is transparent. The image reinforces the concept that polar bears have unique adaptations for their Arctic environment.",
+        "concept_ids": [
+          "polar_bear_adaptations",
+          "arctic_ecology"
+        ]
+      },
+      {
+        "slide_id": "slide_96_4000.png",
+        "visible_text": "Goth Beneath the Fluff\n\nFact: Underneath it all, their skin is black.",
+        "interpretation": "The slide presents a polar bear dressed in a black leather jacket playing an electric guitar, with the caption 'Goth Beneath the Fluff'. The fact below states that despite their white fur, polar bears have black skin underneath.",
+        "concept_ids": [
+          "polar_bears",
+          "black_skin",
+          "goth_culture"
+        ]
+      },
+      {
+        "slide_id": "slide_156_6500.png",
+        "visible_text": "Basically a Fish?\n\nFact: They are classified as marine mammals!",
+        "interpretation": "The slide presents a polar bear wearing a blue swim cap and holding colorful snorkeling tubes, humorously suggesting it's 'basically a fish.' The accompanying fact clarifies that polar bears are actually classified as marine mammals, despite their fish-like aquatic behavior.",
+        "concept_ids": [
+          "marine_mammals",
+          "polar_bears",
+          "aquatic_adaptations"
+        ]
+      },
+      {
+        "slide_id": "slide_210_8750.png",
+        "visible_text": "The Stealth Chonk\n\nFact: They can weigh 800kg but still try to tiptoe.",
+        "interpretation": "The slide presents a polar bear standing on an ice floe, with a caption highlighting the bear's weight and its attempt to tiptoe despite its size. The visual emphasizes the bear's physical characteristics and behavior in its natural habitat.",
+        "concept_ids": [
+          "polar_bear",
+          "weight",
+          "tiptoeing",
+          "ice_habitat"
+        ]
+      }
+    ],
     "enrichment": [],
     "cached_responses": [],
     "provider": "gateway",
-    "generated_at": "2026-08-14T23:35:21.902185+00:00"
+    "generated_at": "2026-08-15T00:48:23.142918+00:00"
   }
 }

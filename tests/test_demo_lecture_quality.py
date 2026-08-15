@@ -111,6 +111,37 @@ def test_the_shipped_cache_is_a_real_ready_pack():
     assert content.get("lecture_summary")
 
 
+def test_the_demo_pack_is_big_enough_to_be_stress_tested():
+    """The first thing anyone does with a demo is push on it.
+
+    A pack at the generator's schema minimum -- 2 flashcards, 3 questions --
+    is what shipped while pack expansion was silently dead at two gates. These
+    floors fail a capture taken against a broken expansion path rather than
+    quietly shipping the thin pack again.
+    """
+    content = demo_study_cache.load_cache(str(CACHE))["content"]
+    assert len(content["flashcards"]) >= 8, (
+        "expansion did not run during capture -- check that "
+        "expand_concept_material is allowlisted AND deployed"
+    )
+    assert len(content["quiz"]) >= 6
+    # The shaping controls need something to shape.
+    assert len({c.get("difficulty") for c in content["flashcards"]}) >= 2
+    assert len({q.get("qtype") for q in content["quiz"]}) >= 2
+
+
+def test_the_demo_pack_covers_every_slide():
+    """Vision requests none of these slides on its own, so the capture forces
+    it. Without that, two of the four slides -- whose facts appear only as
+    on-screen text -- were absent from the pack entirely."""
+    content = demo_study_cache.load_cache(str(CACHE))["content"]
+    interpretations = content.get("slide_interpretations") or []
+    assert len(interpretations) == 4, (
+        "capture must read every slide: scripts/capture_demo_study_cache.py"
+    )
+    assert len({str(item.get("slide_id")) for item in interpretations}) == 4
+
+
 def test_every_citation_in_the_cache_resolves():
     """Citations are positional. A pack whose refs point past the transcript
     would show a student a source that jumps nowhere."""
