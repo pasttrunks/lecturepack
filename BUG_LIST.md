@@ -212,6 +212,42 @@ re-debug the same thing from scratch.
   geometry, stale-animation protection. **This one did not hold** — the four regions
   overlapped and the target was still dimmed. See BUG-41.
 
+### BUG-42 — the M3 adversarial suite tested nothing it claimed to   ✅ FIXED (verified)
+- **Area:** `tests/test_m3_adversarial_challenge.py` (harness only; no product defect).
+- **Found:** 2026-08-15, running the suite the teamwork agents left behind. 6 failures.
+- **Severity:** false assurance. The suite was reported as milestone coverage for group
+  study and the packaged binary; it was covering neither.
+- **Symptom:** 6 failures that read like product bugs — `no_ready_lectures` for groups
+  that plainly had ready lectures, and a packaged `.exe` that appeared not to answer
+  `health_check` at all.
+- **Root cause:** four independent wrong assumptions in the fixtures.
+  1. The job fixture wrote `study-content.json`; `study_v2.load_content()` reads
+     `study_v2.CONTENT_FILENAME` = `study-content-v2.json`. Every group came back empty,
+     so four tests were asserting against `no_ready_lectures` instead of the behaviour
+     in their own docstrings.
+  2. The "unready" fixture used the status string `"pending"`, which is not a real
+     status. `load_content()` normalises unknown statuses and, seeing concepts, promotes
+     them to `STUDY_READY` — the unready lecture was ready.
+  3. Clearing a group asserts `manifest["group"] == ""`, but `set_job_group()` pops the
+     key so the job reverts to its derived default. Absence is the contract.
+  4. The packaged test sent `{"id": …}`; the sidecar reads `request_id` (see
+     `production-main.js`). With no id, `_respond()` returns early and emits nothing, so
+     a perfectly healthy binary looked dead. The in-process tests never caught this
+     because the fixture stubs `_respond` and skips that guard.
+- **Fix:** fixtures use `study_v2.CONTENT_FILENAME` and `STUDY_PREPARING`, the clear-group
+  assertion checks for absence, and every message uses the real `request_id` wire key.
+  The packaged response wait is now deadline-based on a reader thread rather than a
+  ten-line budget — `health_check` sits behind 20+ `bootstrap_progress` events, and a
+  `readline` on a pipe cannot be interrupted if the sidecar never answers.
+- **Verified:** 8 passed, including both tests driving the real packaged `.exe`. Full
+  suite 1770 passed, 0 failed.
+- **Lesson:** a fixture that hand-rolls a filename or a status string the product parses
+  is a test that silently stops testing. Reference the product's own constant
+  (`CONTENT_FILENAME`, `STUDY_*`) so a rename breaks the test loudly instead of quietly
+  turning it green against nothing. And a fixture that stubs the transport (`_respond`)
+  cannot prove the wire protocol — only the packaged end-to-end test can, which is
+  exactly why its failure was the one telling the truth.
+
 ### BUG-32 — updater would install an UNVERIFIED installer (fail-open)   ✅ FIXED (verified)
 - **Area:** `electron-spike/updater.js` (`check`, `download`, `expectedInstallerSha256`).
 - **Found:** 2026-08-10 release-hardening audit of shipped v2.0.0. Not user-reported.

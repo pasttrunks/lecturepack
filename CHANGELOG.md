@@ -9,6 +9,39 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.0.2] — unreleased
+
+Study a whole subject, not one lecture at a time. Built on the 2.0.1
+hardening pass, which is included in full.
+
+### Group study — revise a subject as one thing
+- **Lectures can belong to a subject.** Lectures can be grouped, renamed and
+  tracked for progress from a new Subjects screen, individually or in bulk.
+- **A cross-lecture map.** Studying a group builds one map over every ready
+  lecture in it: which concepts are the same idea taught more than once, which
+  build on an earlier treatment, what runs through the whole subject, and where
+  the lectures leave a hole. Study gains a group scope header, a lecture
+  switcher and citations that cross lectures.
+- **It is a reduce over work already done.** Each lecture stores its own
+  analysis when processed, so a group of ten costs one request over ten small
+  summaries, not ten transcripts read again. The map is cached against the
+  exact set of lectures it was built from, so adding or reprocessing a lecture
+  rebuilds it and studying the same group again is free.
+- **A group studies what is ready.** A lecture still processing, or whose pack
+  failed, is simply absent from the map, which rebuilds when it arrives.
+
+### Gateway
+- **Google AI Studio (Gemini) added as a provider and route.**
+- **An admin dashboard**, with usage metrics storage behind an authenticated
+  endpoint. The dashboard itself is static HTML; every data endpoint requires
+  `ADMIN_API_KEY` and fails closed when it is unconfigured.
+
+### Tests
+- The Milestone 3 adversarial suite was passing on fixtures that did not
+  exercise the product — a hand-rolled study-content filename, an unknown
+  status string that normalised to "ready", and the wrong IPC wire key. See
+  BUG-42. It now drives the real packaged binary.
+
 ## [2.0.1] — unreleased
 
 Release-hardening pass over 2.0.0. No feature changes.
