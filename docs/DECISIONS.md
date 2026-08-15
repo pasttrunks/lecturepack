@@ -405,10 +405,12 @@ service, and general-purpose scheduler were rejected as duplicate architecture.
 Playlist expansion was not added because the current fetcher intentionally
 resolves one recording per URL; multi-line input provides explicit batch scope.
 
-## AD-36: Study mastery keeps an atomic last-known-good generation
+## AD-54: Study mastery keeps an atomic last-known-good generation
 
 **Date:** 2026-08-09
-**Status:** Implemented on `codex/study-progress-backup`
+**Status:** Implemented. Authored 2026-08-09 on `codex/study-progress-backup`,
+cherry-picked onto the release line 2026-08-15 as the last unmerged work from
+`kimi/study-overhaul-v1`. Renumbered from AD-36, which was already taken.
 
 **Context:** `study-progress-v2.json` contains irreplaceable user mastery,
 attempt history, and Quick Study position. The shared JSON helper already wrote
