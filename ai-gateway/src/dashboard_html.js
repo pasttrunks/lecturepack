@@ -445,12 +445,20 @@ const rawHtml = `<!DOCTYPE html>
   const urlSearch = new URLSearchParams(window.location.search);
   const hashString = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
   const hashSearch = new URLSearchParams(hashString);
-  const paramKey = hashSearch.get('key') || urlSearch.get('key');
+  // The admin key is accepted ONLY from the URL fragment, never the query
+  // string: a fragment is not sent to the server, so it stays out of access
+  // logs, proxies and Referer headers. It is stripped from the address bar
+  // immediately after it is read so it does not linger in history or in a
+  // bookmark the operator shares later.
+  const paramKey = hashSearch.get('key');
   const paramUrl = hashSearch.get('url') || urlSearch.get('url');
 
   if (paramKey) {
     adminKeyInput.value = paramKey;
     localStorage.setItem(STORAGE_KEY_ADMIN, paramKey);
+    hashSearch.delete('key');
+    const rest = hashSearch.toString();
+    window.history.replaceState(null, '', window.location.pathname + window.location.search + (rest ? '#' + rest : ''));
   } else if (localStorage.getItem(STORAGE_KEY_ADMIN)) {
     adminKeyInput.value = localStorage.getItem(STORAGE_KEY_ADMIN);
   }

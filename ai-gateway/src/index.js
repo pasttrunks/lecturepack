@@ -95,13 +95,27 @@ function corsHeaders(request, env) {
   };
 }
 
+// Compare a presented credential against the real one without leaking how
+// much of it matched. A plain === returns on the first differing byte, so
+// response time is a slow oracle for guessing the key one character at a
+// time. Length is compared first because it is not itself a secret.
+function timingSafeEqual(presented, expected) {
+  const a = String(presented ?? '');
+  const b = String(expected ?? '');
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 function checkAdminAuth(request, env) {
   if (!env.ADMIN_API_KEY) {
     return { ok: false, status: 503, code: 'admin_not_configured', message: 'ADMIN_API_KEY is not configured on this gateway.' };
   }
   const headerKey = request.headers.get('x-admin-key');
   const bearer = bearerToken(request);
-  if ((headerKey && headerKey === env.ADMIN_API_KEY) || (bearer && bearer === env.ADMIN_API_KEY)) {
+  if ((headerKey && timingSafeEqual(headerKey, env.ADMIN_API_KEY))
+      || (bearer && timingSafeEqual(bearer, env.ADMIN_API_KEY))) {
     return { ok: true };
   }
   return { ok: false, status: 401, code: 'unauthorized_admin', message: 'Invalid or missing admin key.' };
