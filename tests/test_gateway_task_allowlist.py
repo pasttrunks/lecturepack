@@ -34,7 +34,10 @@ def called_tasks() -> set[str]:
     for path in SERVICES.glob("*.py"):
         text = path.read_text(encoding="utf-8")
         found.update(re.findall(r'_call\(\s*client\s*,\s*"([a-z_]+)"', text))
-        found.update(re.findall(r'\.request\(\s*"([a-z_]+)"', text))
+        # Both `client.request("x", ...)` and a locally bound `request("x", ...)`
+        # -- group_study injects the callable so the reduce can be tested
+        # without a live gateway, and the task name is still a literal there.
+        found.update(re.findall(r'\brequest\(\s*"([a-z_]+)"', text))
     return found
 
 

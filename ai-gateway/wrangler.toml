@@ -62,6 +62,17 @@ OPENROUTER_GRADE_SHORT_ANSWER_MODEL = "openrouter/free"
 OPENROUTER_FALLBACK_MODEL = "openrouter/free"
 OPENROUTER_VISION_MODEL = "openrouter/free"
 OPENROUTER_VISION_FALLBACK_MODEL = "openrouter/free"
+# Group synthesis routes to a STRONGER model than everything else, and is the
+# only task that does. Merging ten lectures into one map -- deciding which
+# concepts are the same idea taught twice and which build on each other -- is
+# the hardest reasoning the app asks for, and an 8B model is the wrong tool for
+# it. Every other task keeps its measured route untouched.
+#
+# group_analysis is deliberately absent from NVIDIA_FIRST_TASKS so it takes the
+# default OpenRouter-first order: it runs once per group and is cached, so the
+# better answer is worth more than the faster one.
+OPENROUTER_GROUP_ANALYSIS_MODEL = "openrouter/free"
+OPENROUTER_GROUP_ANALYSIS_FALLBACK_MODEL = "openrouter/free"
 WORKERS_AI_PRIMARY_MODEL = "@cf/openai/gpt-oss-20b"
 WORKERS_AI_INTERACTIVE_MODEL = "@cf/openai/gpt-oss-20b"
 WORKERS_AI_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it"

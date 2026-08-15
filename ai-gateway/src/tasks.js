@@ -11,6 +11,14 @@ export const TASK_TYPES = Object.freeze([
   // to the schema minimum and its route budget forbids asking for more, so the
   // pack is grown across several of these small calls instead.
   'expand_concept_material',
+  // Merges the per-lecture analyses of a whole group into one cross-lecture
+  // map. Deliberately a REDUCE over work already done: every lecture stores
+  // its own lecture_analysis at processing time, so studying ten lectures
+  // costs one request over ten small summaries rather than re-reading ten
+  // transcripts. Its job is the part a single lecture cannot know -- which
+  // concepts are the same idea taught twice, how they build on each other,
+  // and what the subject as a whole is about.
+  'group_analysis',
   'vision_slide',
   'web_enrichment',
 ]);
@@ -78,6 +86,35 @@ const schemas = {
     research_requests: { type: 'array', items: object({ concept_id: { type: 'string' }, query: { type: 'string' }, reason: { type: 'string' } }) },
     vision_requests: { type: 'array', items: object({ slide_id: { type: 'string' }, reason: { type: 'string' } }) },
   }),
+  // Every concept carries the lecture it came from, because a citation in a
+  // group session has to name WHICH lecture as well as where in it.
+  group_analysis: object({
+    group_summary: { type: 'string' },
+    concepts: { type: 'array', minItems: 1, maxItems: 40, items: object({
+      id: { type: 'string' },
+      title: { type: 'string' },
+      importance: { type: 'integer', minimum: 1, maximum: 5 },
+      explanation: { type: 'string' },
+      job_ids: stringArray,
+      source_concept_ids: stringArray,
+      coverage: { type: 'string', enum: ['single_lecture', 'recurring', 'built_up'] },
+    }) },
+    relationships: { type: 'array', items: object({
+      from_concept_id: { type: 'string' },
+      to_concept_id: { type: 'string' },
+      relationship: { type: 'string' },
+      crosses_lectures: { type: 'boolean' },
+    }) },
+    through_lines: { type: 'array', maxItems: 8, items: object({
+      title: { type: 'string' },
+      body: { type: 'string' },
+      concept_ids: stringArray,
+      job_ids: stringArray,
+    }) },
+    gaps: { type: 'array', maxItems: 8, items: object({
+      title: { type: 'string' }, body: { type: 'string' }, concept_ids: stringArray,
+    }) },
+  }),
   study_material_generation: object({
     lecture_summary: { type: 'string' },
     concepts: { type: 'array', items: concept, minItems: 1, maxItems: 24 },
@@ -133,6 +170,7 @@ const taskInstructions = {
   grade_short_answer: 'Grade meaning, not exact wording. Return a 0-1 score, a boolean result, specific feedback, and an ideal answer grounded in the provided rubric and evidence. The score is the FRACTION of the rubric the answer earned, so an answer giving one of three required points scores about 0.33, not 1.0. `correct` must agree with it: true when score >= 0.7, false otherwise. A false verdict beside a high score is a contradiction the student sees.',
   regenerate_concept: 'Regenerate only the requested affected concept and its dependent cards/questions/guide fragments. Preserve the supplied concept ID and do not rewrite unrelated material.',
   expand_concept_material: 'Write ADDITIONAL practice material for the one supplied concept, to sit alongside what the student already has. `existing_flashcards` and `existing_quiz` list what exists: do not repeat, reword or invert any of them -- every item you return must test something they do not. Return up to 4 flashcards and up to 4 quiz questions, all grounded in the supplied lecture evidence with exact source IDs, and set each item difficulty to exactly one of "easy", "medium" or "hard" (lowercase), favouring whichever levels are thin in what already exists. Prefer application and connection over recall when the concept supports it. If the lecture evidence genuinely does not support more distinct questions, return fewer or empty arrays -- padding with near-duplicates is worse than a short pack.',
+  group_analysis: 'You are given the finished analyses of several lectures that a student has grouped together as one subject, each tagged with its job_id and lecture title. Build ONE map of the subject. Merge concepts that are the same idea taught in more than one lecture into a single concept listing every job_id it appears in and marking coverage "recurring", or "built_up" when later lectures extend an earlier treatment rather than repeat it; leave a concept that appears once as "single_lecture". Every concept must list the job_ids it came from and the source_concept_ids it was built from -- these are how the student is shown which lecture a statement came from, so they must be exact IDs from the supplied evidence and never invented. Record relationships that cross lectures, setting crosses_lectures true only when the two concepts come from different job_ids. In through_lines, name the arguments or themes that run across the whole group rather than sitting in one lecture. In gaps, note where the lectures disagree or where a concept is referred to but never explained in any of them. Do not restate each lecture in turn: what a single lecture already says is not what this task is for.',
   vision_slide: 'Interpret only this selected lecture slide. Transcribe visible educational text conservatively, explain what the visual contributes, and do not infer unreadable details.',
   web_enrichment: 'Research only the requested concept. Return concise verified context and exact public source titles and HTTPS URLs. Do not present web context as if the lecturer said it.',
 };
@@ -202,6 +240,11 @@ export function maxOutputTokens(task) {
   // three-route worst case is already 160s inside a 175s client deadline.
   if (task === 'study_material_generation') return 12000;
   if (task === 'lecture_analysis') return 7000;
+  // A group map, not a pack: concepts and relationships only, no flashcards or
+  // quiz. Those are generated afterwards from this map by the existing tasks,
+  // which is what keeps this one call away from the ceiling that broke
+  // study_material_generation.
+  if (task === 'group_analysis') return 8000;
   if (task === 'regenerate_concept') return 3500;
   // Up to 4 cards + 4 questions for ONE concept. Deliberately small: the pack
   // grows across several of these rather than one large request, so no single
