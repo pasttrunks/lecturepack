@@ -212,6 +212,40 @@ re-debug the same thing from scratch.
   geometry, stale-animation protection. **This one did not hold** — the four regions
   overlapped and the target was still dimmed. See BUG-41.
 
+### BUG-43 — group study could never have worked for a single user   ✅ FIXED (verified live)
+- **Area:** `lecturepack/services/group_study.py` (`prepare`), plus the deployed gateway.
+- **Found:** 2026-08-15, first time the reduce was ever run against the real gateway.
+- **Severity:** P0. The headline feature of 2.0.2, broken 100% of the time.
+- **Symptom:** studying a group always returned `empty_analysis`, after a full-price
+  ~11-25s AI request. Nothing in the UI could work.
+- **Root cause:** two independent faults, either one fatal.
+  1. **The deployed Worker was stale** — 8 tasks, predating both `group_analysis` and
+     `expand_concept_material`. Live calls returned HTTP 400 `unsupported_task`. The
+     inherited handoff claimed both routes were "live"; they were not.
+  2. **The envelope was never unwrapped.** `GatewayClient.request()` returns
+     `{"result": …, "diagnostics": …}` — the documented contract, unwrapped correctly by
+     `ai_study_service.py:689`. `prepare()` passed the whole envelope to `normalize()`,
+     which looked for `concepts` at the top level, found none, dropped everything and
+     reported `empty_analysis`. A *correct* AI answer was thrown away every time.
+- **Why every test passed:** all of them mocked the client with a *bare* analysis, so the
+  mocks agreed with each other and with nothing else. The suite pinned a contract the
+  gateway does not have.
+- **Fix:** `unwrap_result()` takes the analysis out of the envelope (accepting a bare
+  analysis too, since `prepare` also takes an injected `call`). Gateway redeployed — now
+  reports `configured_tasks: 10, required_tasks: 10`.
+- **Verified:** live against the production gateway — `ok=True` in 10.9s, 4 concepts,
+  4 relationships, 2 through-lines, 2 gaps, every citation grounded to a real job, second
+  call served from cache in 0.01s. Two regression tests added to
+  `tests/test_group_study.py` pinning the real envelope; confirmed they fail without the
+  fix (`normalize(envelope)` → 0 concepts, `normalize(unwrap(envelope))` → 1).
+- **Lesson:** a mock is a claim about someone else's contract, and an unverified claim.
+  When every test for a feature builds its fixture from the same wrong assumption, the
+  suite's agreement is worthless — it proves the mocks match each other. One live
+  round-trip before shipping would have caught both faults in a minute; instead a
+  headline feature was tagged, packaged and acceptance-tested while being incapable of
+  working. Test at least one real round trip per external contract, and treat "deployed"
+  in an inherited doc as a rumour until a live probe agrees.
+
 ### BUG-42 — the M3 adversarial suite tested nothing it claimed to   ✅ FIXED (verified)
 - **Area:** `tests/test_m3_adversarial_challenge.py` (harness only; no product defect).
 - **Found:** 2026-08-15, running the suite the teamwork agents left behind. 6 failures.

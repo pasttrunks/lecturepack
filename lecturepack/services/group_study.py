@@ -156,6 +156,24 @@ def save(data_dir: str, group: str, fingerprint_value: str,
     return path
 
 
+def unwrap_result(raw: Any) -> Any:
+    """Take the analysis out of the gateway's envelope.
+
+    ``GatewayClient.request`` answers ``{"result": ..., "diagnostics": ...}``;
+    the map is under ``result``. Handing the envelope straight to ``normalize``
+    finds no ``concepts`` at the top level and silently yields an empty map, so
+    a perfectly good answer reads as ``empty_analysis`` -- which is exactly how
+    group study shipped broken past a suite of mocks that returned the
+    unwrapped shape. Both shapes are accepted because ``prepare`` also takes an
+    injected ``call``, which may hand back a bare analysis.
+    """
+    if isinstance(raw, dict) and "concepts" not in raw:
+        inner = raw.get("result")
+        if isinstance(inner, dict):
+            return inner
+    return raw
+
+
 def normalize(analysis: Any, members: list[dict[str, Any]]) -> dict[str, Any]:
     """Keep only what the supplied lectures can actually support.
 
@@ -212,7 +230,7 @@ def prepare(data_dir: str, group: str, jobs: list[Any], client: Any, *,
             return {"ok": True, "cached": True, "analysis": cached, "members": members}
     request = call or (lambda task, payload: client.request(task, payload))
     raw = request("group_analysis", build_evidence(members))
-    analysis = normalize(raw, members)
+    analysis = normalize(unwrap_result(raw), members)
     if not analysis.get("concepts"):
         return {"ok": False, "reason": "empty_analysis", "members": members}
     save(data_dir, group, mark, analysis, members)

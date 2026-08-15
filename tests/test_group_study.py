@@ -232,3 +232,54 @@ def test_the_task_is_allowlisted_and_defined():
     assert "group_analysis: object({" in source
     assert "group_analysis: 'You are given the finished analyses" in source
     assert "if (task === 'group_analysis') return 8000;" in source
+
+
+def test_the_real_gateway_envelope_is_unwrapped(tmp_path, library):
+    """A live answer arrives as {"result": ..., "diagnostics": ...}.
+
+    This is the shape ``GatewayClient.request`` actually returns, and it is the
+    one every mock in this suite got wrong: they returned a bare analysis, so
+    the whole feature passed its tests while ``normalize`` looked for
+    ``concepts`` on the envelope, found none, and reported ``empty_analysis``
+    for every real request. Pin the real shape here or the mocks agree with
+    each other and with nothing else.
+    """
+    jobs, _ = library
+
+    class _Client:
+        def __init__(self):
+            self.calls = []
+
+        def request(self, task, payload):
+            self.calls.append(task)
+            return {
+                "result": {
+                    "group_summary": "The subject as one thing",
+                    "concepts": [
+                        {"id": "g1", "title": "Shared", "job_ids": ["job-a", "job-b"]},
+                    ],
+                    "relationships": [],
+                    "through_lines": [],
+                    "gaps": [],
+                },
+                "diagnostics": {"request_id": "lp-test", "task_type": "group_analysis"},
+            }
+
+    client = _Client()
+    result = group_study.prepare(str(tmp_path), "CL100", jobs, client)
+
+    assert result["ok"] is True, result.get("reason")
+    assert result["analysis"]["group_summary"] == "The subject as one thing"
+    assert [c["title"] for c in result["analysis"]["concepts"]] == ["Shared"]
+    assert client.calls == ["group_analysis"]
+
+
+def test_a_bare_analysis_from_an_injected_call_still_works(tmp_path, library):
+    """``prepare`` also accepts an injected ``call`` that returns no envelope."""
+    jobs, _ = library
+    bare = {"group_summary": "s", "concepts": [
+        {"id": "g1", "title": "Shared", "job_ids": ["job-a", "job-b"]}]}
+    result = group_study.prepare(str(tmp_path), "CL100", jobs, None,
+                                 call=lambda task, payload: bare)
+    assert result["ok"] is True
+    assert result["analysis"]["concepts"][0]["title"] == "Shared"
