@@ -1,0 +1,11 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\03-empty-launch-guided-demo\03-01-PLAN.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\03-empty-launch-guided-demo\03-01-SUMMARY.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\03-empty-launch-guided-demo\03-02-PLAN.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\03-empty-launch-guided-demo\03-02-SUMMARY.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\03-empty-launch-guided-demo\03-03-PLAN.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\03-empty-launch-guided-demo\03-03-SUMMARY.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\03-empty-launch-guided-demo\03-CONTEXT.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\03-empty-launch-guided-demo\03-EVAL-REVIEW.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\03-empty-launch-guided-demo\03-RESEARCH.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\03-empty-launch-guided-demo\03-UAT.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\03-empty-launch-guided-demo\03-VERIFICATION.md

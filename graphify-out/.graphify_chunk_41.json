@@ -1,0 +1,446 @@
+{
+  "nodes": [
+    {
+      "id": "docs_evidence_v1_2_0_release_packaged_validation_packaged_validation",
+      "label": "Packaged Validation Evidence",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\PACKAGED_VALIDATION.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_requirement_traceability_requirement_traceability",
+      "label": "Phase 1 Source Requirement Traceability",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_source_validation_source_validation",
+      "label": "Source Validation Evidence",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\SOURCE_VALIDATION.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_test_reconciliation_test_reconciliation",
+      "label": "Pytest Collection Reconciliation",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\TEST_RECONCILIATION.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_architecture_privacy_audit_output_audit_output",
+      "label": "Architecture & Privacy Audit Output",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\architecture_privacy_audit_output.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_build_output_build_output",
+      "label": "Release Build Output (PyInstaller)",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\build_output.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_development_selftest_output_development_selftest",
+      "label": "Development Self-Test Output",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\development_selftest_output.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_extracted_selftest_output_extracted_selftest",
+      "label": "Clean-Extracted Frozen Self-Test Output",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\extracted_selftest_output.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_full_pytest_output_full_pytest",
+      "label": "Full pytest Run Output",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\full_pytest_output.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_packaged_selftest_output_packaged_selftest",
+      "label": "Onedir Frozen Self-Test Output",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\packaged_selftest_output.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_test_collection_output_test_collection",
+      "label": "pytest Collection Output",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\test_collection_output.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_requirement_traceability_lecturepack_1_2_0",
+      "label": "LecturePack 1.2.0",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Phase 1 release target packaging/validation evidence; strict adjacent-layer conformance deliberately not claimed, with 47 baseline violation identities disclosed as Phase 2 debt."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_requirement_traceability_strict_adjacent_layer",
+      "label": "Strict Adjacent-Layer Architecture Rule",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Target dependency direction is UI -> Controller -> Service -> Infrastructure with no reverse dependencies. Strict conformance is the eventual goal but is deferred to Phase 2; Phase 1 only proves no new violation identity was introduced."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_requirement_traceability_architecture_debt",
+      "label": "Deferred Architecture Violation Debt (47)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "47 exact baseline violation identities across 62 cross-layer edges, deferred to Phase 2. Phase 1 neither hides nor erases the debt; it proves only that this release introduced no new exact identity."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_requirement_traceability_baseline_25e9dd1",
+      "label": "Baseline Commit 25e9dd1",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Immutable evidence baseline against which current architecture violation identities are compared; the no-regression gate fails any identity absent from this commit."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_requirement_traceability_privacy_no_telemetry",
+      "label": "No-Telemetry Privacy Rule (P1)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "P1 privacy-safety rule: no telemetry or analytics. Enforced by PRIVACY_CHECK with zero violations and targeted production import/source audits."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_release_packaged_validation_pyinstaller_onedir",
+      "label": "PyInstaller Onedir Packaging",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\PACKAGED_VALIDATION.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Distribution is built as a non-mocked PyInstaller onedir plus clean-extracted portable archive; checks define the packaged artifact excluding model, secret, config, job data, transcript, slide data, and original media."
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_evidence_v1_2_0_release_packaged_validation_packaged_validation",
+      "target": "docs_evidence_v1_2_0_release_build_output_build_output",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\PACKAGED_VALIDATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_packaged_validation_packaged_validation",
+      "target": "docs_evidence_v1_2_0_release_packaged_selftest_output_packaged_selftest",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\PACKAGED_VALIDATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_packaged_validation_packaged_validation",
+      "target": "docs_evidence_v1_2_0_release_extracted_selftest_output_extracted_selftest",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\PACKAGED_VALIDATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_packaged_validation_packaged_validation",
+      "target": "docs_evidence_v1_2_0_release_packaged_validation_pyinstaller_onedir",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\PACKAGED_VALIDATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_packaged_validation_packaged_validation",
+      "target": "docs_evidence_v1_2_0_release_requirement_traceability_lecturepack_1_2_0",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\PACKAGED_VALIDATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_source_validation_source_validation",
+      "target": "docs_evidence_v1_2_0_release_test_collection_output_test_collection",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\SOURCE_VALIDATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_source_validation_source_validation",
+      "target": "docs_evidence_v1_2_0_release_full_pytest_output_full_pytest",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\SOURCE_VALIDATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_source_validation_source_validation",
+      "target": "docs_evidence_v1_2_0_release_development_selftest_output_development_selftest",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\SOURCE_VALIDATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_source_validation_source_validation",
+      "target": "docs_evidence_v1_2_0_release_architecture_privacy_audit_output_audit_output",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\SOURCE_VALIDATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_source_validation_source_validation",
+      "target": "docs_evidence_v1_2_0_release_test_reconciliation_test_reconciliation",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\SOURCE_VALIDATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_source_validation_source_validation",
+      "target": "docs_evidence_v1_2_0_release_requirement_traceability_architecture_debt",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\SOURCE_VALIDATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_test_reconciliation_test_reconciliation",
+      "target": "docs_evidence_v1_2_0_release_test_collection_output_test_collection",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\TEST_RECONCILIATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_requirement_traceability_requirement_traceability",
+      "target": "docs_evidence_v1_2_0_release_architecture_privacy_audit_output_audit_output",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_requirement_traceability_requirement_traceability",
+      "target": "docs_evidence_v1_2_0_release_requirement_traceability_architecture_debt",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_requirement_traceability_requirement_traceability",
+      "target": "docs_evidence_v1_2_0_release_requirement_traceability_strict_adjacent_layer",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_requirement_traceability_architecture_debt",
+      "target": "docs_evidence_v1_2_0_release_requirement_traceability_strict_adjacent_layer",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_requirement_traceability_architecture_debt",
+      "target": "docs_evidence_v1_2_0_release_requirement_traceability_baseline_25e9dd1",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_architecture_privacy_audit_output_audit_output",
+      "target": "docs_evidence_v1_2_0_release_requirement_traceability_architecture_debt",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\architecture_privacy_audit_output.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_requirement_traceability_requirement_traceability",
+      "target": "docs_evidence_v1_2_0_release_requirement_traceability_privacy_no_telemetry",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\REQUIREMENT_TRACEABILITY.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_packaged_selftest_output_packaged_selftest",
+      "target": "docs_evidence_v1_2_0_release_extracted_selftest_output_extracted_selftest",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\packaged_selftest_output.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_release_development_selftest_output_development_selftest",
+      "target": "docs_evidence_v1_2_0_release_packaged_selftest_output_packaged_selftest",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\release\\development_selftest_output.txt",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "packaged_distribution_validation_flow",
+      "label": "Packaged Distribution Validation Flow",
+      "nodes": [
+        "docs_evidence_v1_2_0_release_packaged_validation_packaged_validation",
+        "docs_evidence_v1_2_0_release_build_output_build_output",
+        "docs_evidence_v1_2_0_release_packaged_selftest_output_packaged_selftest",
+        "docs_evidence_v1_2_0_release_extracted_selftest_output_extracted_selftest"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "pytest_release_gate",
+      "label": "pytest Release Gate",
+      "nodes": [
+        "docs_evidence_v1_2_0_release_source_validation_source_validation",
+        "docs_evidence_v1_2_0_release_test_collection_output_test_collection",
+        "docs_evidence_v1_2_0_release_full_pytest_output_full_pytest",
+        "docs_evidence_v1_2_0_release_test_reconciliation_test_reconciliation"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "selftest_evidence_suite",
+      "label": "Self-Test Evidence Suite",
+      "nodes": [
+        "docs_evidence_v1_2_0_release_development_selftest_output_development_selftest",
+        "docs_evidence_v1_2_0_release_packaged_selftest_output_packaged_selftest",
+        "docs_evidence_v1_2_0_release_extracted_selftest_output_extracted_selftest"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED"
+    }
+  ]
+}

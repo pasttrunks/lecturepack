@@ -1,0 +1,182 @@
+{
+  "nodes": [
+    {
+      "id": "app_assets_demo_hero_hero",
+      "label": "Polar Bears Guided Demo Hero Image",
+      "file_type": "image",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\hero.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_assets_demo_polar_bears_thumbnail_polar_bears_thumbnail",
+      "label": "Polar Bears Demo Video Thumbnail",
+      "file_type": "image",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\polar_bears_thumbnail.jpg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_assets_demo_slide_01_slide_01",
+      "label": "Demo Slide 01 - Polar Bear Secrets",
+      "file_type": "image",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_01.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_assets_demo_slide_02_slide_02",
+      "label": "Demo Slide 02 - The Stealth Chonk",
+      "file_type": "image",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_02.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_assets_demo_hero_transparent_fur_black_skin",
+      "label": "Transparent fur, black skin",
+      "file_type": "concept",
+      "rationale": "Key lecture fact: polar bear fur is transparent, not white, and the skin beneath it is black.",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_01.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_assets_demo_slide_01_polar_bear_secrets",
+      "label": "Polar Bear Secrets",
+      "file_type": "concept",
+      "rationale": "Title slide concept for demo slide 01 - introduces polar bear misapprehensions (fur color).",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_01.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_assets_demo_slide_02_the_stealth_chonk",
+      "label": "The Stealth Chonk",
+      "file_type": "concept",
+      "rationale": "Title slide concept for demo slide 02.",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_02.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_assets_demo_hero_marine_mammals",
+      "label": "Marine mammals",
+      "file_type": "concept",
+      "rationale": "Key lecture fact: polar bears are classified as marine mammals.",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_02.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "app_assets_demo_polar_bears_thumbnail_polar_bears_thumbnail",
+      "target": "app_assets_demo_hero_hero",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\polar_bears_thumbnail.jpg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_assets_demo_slide_01_slide_01",
+      "target": "app_assets_demo_slide_01_polar_bear_secrets",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_01.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_assets_demo_slide_02_slide_02",
+      "target": "app_assets_demo_slide_02_the_stealth_chonk",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_02.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_assets_demo_hero_transparent_fur_black_skin",
+      "target": "app_assets_demo_slide_01_polar_bear_secrets",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_01.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_assets_demo_hero_marine_mammals",
+      "target": "app_assets_demo_slide_02_the_stealth_chonk",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_02.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_assets_demo_hero_transparent_fur_black_skin",
+      "target": "app_assets_demo_hero_marine_mammals",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_01.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "app_assets_demo_slide_01_slide_01",
+      "target": "app_assets_demo_slide_02_slide_02",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\app\\assets\\demo\\slide_01.png",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "polar_bears_demo_asset_set",
+      "label": "Polar Bears Demo Asset Set",
+      "nodes": [
+        "app_assets_demo_hero_hero",
+        "app_assets_demo_polar_bears_thumbnail_polar_bears_thumbnail",
+        "app_assets_demo_slide_01_slide_01",
+        "app_assets_demo_slide_02_slide_02"
+      ],
+      "relation": "participate_in",
+      "confidence": "INFERRED"
+    }
+  ]
+}

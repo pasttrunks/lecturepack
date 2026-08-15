@@ -1,0 +1,182 @@
+{
+  "nodes": [
+    {
+      "id": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_progress_bar_eta",
+      "label": "Progress bar + ETA for quiz/flashcard generation",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Replaces the spinning circle with a determinate-style progress bar, percent, and rough '~Ns remaining' ETA (estimate = 3.5 + 1.6*count seconds), capped at ~93% until the real result lands to avoid overstating progress."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_genbar",
+      "label": "_genBar/startGen/stopGen (app.js)",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Shared generation-UI helpers in app.js; a 250ms timer animates the bar while Cancel remains functional."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_lpspin",
+      "label": "lpspin spinner",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "The old spinning circle; removed from both generating states."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_quiz_prompt",
+      "label": "_quiz_prompt (Ollama AI path)",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Rewritten in lecturepack/services/study_assistant_service.py: demands questions grounded in a specific transcript fact/name/number, exactly one correct option, plausible on-topic distractors, no meta questions about 'the lecture', no 'all/none of the above'. Difficulty and question type are now threaded through the worker into the prompt (previously ignored)."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_grounded_cloze",
+      "label": "Grounded cloze (fill-in-the-blank) fallback generator",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Deterministic no-AI fallback: a sentence mentioning a key term is blanked and distractors are other key terms that do NOT appear in that sentence, so the answer is unambiguous. Replaces the weak 'Which of the following is a key term?' quiz that used unrelated generic distractors."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_clean_terms",
+      "label": "_clean_terms key-term cleaner",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Drops stopwords/filler like 'one', 'it's', 'see', 'know', 'world' so key terms are meaningful."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_flashcard_fallback",
+      "label": "Grounded flashcard fallback",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Backs each term with the actual lecture sentence that introduces it, not a generic prompt; flashcard prompt also strengthened for grounding and depth."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_study_overview",
+      "label": "Study overview",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_key_terms_panel",
+      "label": "Key terms chip panel",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Low-value 'Key terms' chip list (showing junk like 'one'/'see') removed from the Study overview to give the assistant/quiz more vertical space; key terms are still computed internally to seed the fallback generators."
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_genbar",
+      "target": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_progress_bar_eta",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md"
+    },
+    {
+      "source": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_progress_bar_eta",
+      "target": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_lpspin",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md"
+    },
+    {
+      "source": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_clean_terms",
+      "target": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_grounded_cloze",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md"
+    },
+    {
+      "source": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_clean_terms",
+      "target": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_flashcard_fallback",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md"
+    },
+    {
+      "source": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_grounded_cloze",
+      "target": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_quiz_prompt",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md"
+    },
+    {
+      "source": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_grounded_cloze",
+      "target": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_flashcard_fallback",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md"
+    },
+    {
+      "source": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_key_terms_panel",
+      "target": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_study_overview",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md"
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_quiz_quality_improvements",
+      "label": "Quiz/flashcard quality improvements",
+      "nodes": [
+        "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_quiz_prompt",
+        "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_grounded_cloze",
+        "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_clean_terms",
+        "docs_evidence_v1_2_0_webview_functionality_recovery_quiz_quality_README_flashcard_fallback"
+      ],
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\webview_functionality_recovery\\quiz_quality\\README.md"
+    }
+  ]
+}

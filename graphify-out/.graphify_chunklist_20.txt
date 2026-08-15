@@ -1,0 +1,5 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\research\ARCHITECTURE.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\research\FEATURES.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\research\PITFALLS.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\research\STACK.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\research\SUMMARY.md

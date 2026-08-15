@@ -1,0 +1,5 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\detector\egyptA_candidates.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\detector\egyptB_candidates.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\detector\egyptB_dense.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\detector\egypt_full_candidates_0.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\detector\egypt_full_candidates_1.png

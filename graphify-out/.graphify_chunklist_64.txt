@@ -1,0 +1,8 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\assets\hero.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\assets\showcase_flashcards.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\assets\showcase_focus_mode.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\assets\showcase_home_dark.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\assets\showcase_home_light.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\assets\showcase_new_job.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\assets\showcase_review.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\assets\showcase_transcript.png

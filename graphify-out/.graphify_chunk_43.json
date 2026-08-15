@@ -1,0 +1,334 @@
+{
+  "nodes": [
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_readme",
+      "label": "v1.2 Study Workspace Evidence README",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_study_workspace_page",
+      "label": "Study Workspace Page",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Completed Study Pack jobs land on the Study workspace page by default, displaying lecture title, duration, accepted-slide/transcript counts, actual backend, review count, deterministic overview, topics, and key terms."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_study_json",
+      "label": "study.json User State Persistence",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "All personal study data (bookmarks, slide notes, section notes, last-viewed position) is persisted separately in study.json so that source-derived content (raw transcript, candidate images) remains 100% immutable."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_protected_artifacts",
+      "label": "Protected Artifacts (Immutable Source Set)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "source.json, candidates.json, raw transcript JSON, and all candidate PNGs form a protected set whose SHA-256, byte size, and nanosecond modification time must remain byte-for-byte and timestamp-for-timestamp identical across exports."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_study_exports",
+      "label": "Study Pack Exports",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "HTML study pack (study-pack.html), study-pack PDF (study-pack.pdf), and study-data JSON (study-data.json) embed user annotations clearly labeled while source/raw/candidate signatures stay identical."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_old_job_compatibility",
+      "label": "Old-Job Compatibility Fallback",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Opening an old job with missing or absent study.json materializes a clean empty state without throwing migration failures; no DB modifications are performed and study.json is only written when a bookmark, note, or position is saved by the user."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_slide_bookmark_note",
+      "label": "Slide Bookmark and Note",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Selecting a slide, toggling Bookmark (star icon), entering a short personal note, and moving to another page preserves user state in study.json and restores it on reopening the job."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_section_bookmark_jump",
+      "label": "Section Bookmark and Jump",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "In the Read transcript > Sections tab, bookmarking a section and clicking Jump to first slide stars the section in the table and selects the nearest slide in the review page."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_backend_used",
+      "label": "Actual Backend (backend_used)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "A persisted backend_used value records the actual backend; it is displayed on the Study workspace landing page and used by the deterministic overview."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_results_json",
+      "label": "results.json Evidence Record",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "records.json records the restart state, actual backend, Study export signatures, and before/after protected-artifact signatures; protected_artifacts_identical is true when all SHA-256, byte size, and nanosecond modification times match."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_focused_pytest_output",
+      "label": "Focused pytest Run (Study Workspace)",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\focused_pytest_output.txt",
+      "source_location": "9 passed in 4.14s",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_full_pytest_output",
+      "label": "Full pytest Suite Run",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\full_pytest_output.txt",
+      "source_location": "130 passed in 143.75s",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_timestamp_links",
+      "label": "Timestamp Links Navigation",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\focused_pytest_output.txt",
+      "source_location": "tests/test_timestamp_links_navigate_correctly",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_study_workspace_keyboard_navigation",
+      "label": "Keyboard Navigation on Study Page",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\focused_pytest_output.txt",
+      "source_location": "tests/test_keyboard_navigation_on_study_page",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_study_json",
+      "target": "docs_evidence_v1_2_0_study_workspace_protected_artifacts",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": "Persistence result",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_study_json",
+      "target": "docs_evidence_v1_2_0_study_workspace_study_exports",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": "Reproduction and observed behavior",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_slide_bookmark_note",
+      "target": "docs_evidence_v1_2_0_study_workspace_study_json",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": "Reproduction and observed behavior",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_section_bookmark_jump",
+      "target": "docs_evidence_v1_2_0_study_workspace_study_json",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": "Reproduction and observed behavior",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_study_workspace_page",
+      "target": "docs_evidence_v1_2_0_study_workspace_backend_used",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": "Reproduction and observed behavior",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_study_workspace_page",
+      "target": "docs_evidence_v1_2_0_study_workspace_study_exports",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": "Automated results",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_old_job_compatibility",
+      "target": "docs_evidence_v1_2_0_study_workspace_study_json",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": "Old-job compatibility result",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_results_json",
+      "target": "docs_evidence_v1_2_0_study_workspace_protected_artifacts",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": "Automated results",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_focused_pytest_output",
+      "target": "docs_evidence_v1_2_0_study_workspace_readme",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": "Automated results",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_full_pytest_output",
+      "target": "docs_evidence_v1_2_0_study_workspace_readme",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": "Automated results",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_focused_pytest_output",
+      "target": "docs_evidence_v1_2_0_study_workspace_study_workspace_page",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\focused_pytest_output.txt",
+      "source_location": "tests/test_study_workspace_v12.py",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_timestamp_links",
+      "target": "docs_evidence_v1_2_0_study_workspace_study_workspace_page",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\focused_pytest_output.txt",
+      "source_location": "tests/test_timestamp_links_navigate_correctly",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_keyboard_navigation",
+      "target": "docs_evidence_v1_2_0_study_workspace_study_workspace_page",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\focused_pytest_output.txt",
+      "source_location": "tests/test_keyboard_navigation_on_study_page",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_study_workspace_full_pytest_output",
+      "target": "docs_evidence_v1_2_0_study_workspace_focused_pytest_output",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\study_workspace\\README.md",
+      "source_location": "Automated results",
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "study_personal_state_persistence_flow",
+      "label": "Study Personal State Persistence Flow",
+      "nodes": [
+        "docs_evidence_v1_2_0_study_workspace_slide_bookmark_note",
+        "docs_evidence_v1_2_0_study_workspace_section_bookmark_jump",
+        "docs_evidence_v1_2_0_study_workspace_study_json",
+        "docs_evidence_v1_2_0_study_workspace_protected_artifacts"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "immutable_export_verification",
+      "label": "Immutable Export Verification",
+      "nodes": [
+        "docs_evidence_v1_2_0_study_workspace_protected_artifacts",
+        "docs_evidence_v1_2_0_study_workspace_study_exports",
+        "docs_evidence_v1_2_0_study_workspace_results_json"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED"
+    }
+  ]
+}

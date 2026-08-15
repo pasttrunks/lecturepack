@@ -1,0 +1,2 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.github\ISSUE_TEMPLATE\bug_report.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.github\ISSUE_TEMPLATE\feature_request.md

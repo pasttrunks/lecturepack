@@ -1,0 +1,485 @@
+{
+  "nodes": [
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_live_validation",
+      "label": "Groq Live Validation Evidence",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Documents real live validation against the Groq API conducted on 2026-07-17 with the API key configured in Windows Credential Manager, proving connection, transcription quality, fallback, privacy, and process-cleaning behavior."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_api",
+      "label": "Groq API",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_online_fast_whisper_turbo",
+      "label": "Online Fast (whisper-large-v3-turbo)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_online_accurate_whisper_v3",
+      "label": "Online Accurate (whisper-large-v3)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_local_whispercpp",
+      "label": "Private Local Backend (local-whispercpp / Vulkan)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_credential_test",
+      "label": "Groq Credential Test",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_online_fallback",
+      "label": "Online-to-Local Fallback",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "When the Groq API key is absent, selecting Online Fast must still resolve to a completed job by silently falling back to the private local whispercpp backend while preserving slide detection and emitting no partial or duplicate segments."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_privacy_consent",
+      "label": "Per-Job Privacy Consent Dialog",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Online mode requires explicit opt-in per job ('Do you consent to this audio upload for this job?'); no request is made to Groq before consent, and keys are never saved to job manifests, configs, or logs."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_secret_redaction",
+      "label": "API Key Redaction",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Authentication headers and keys are correctly redacted in logs, shown as 'Bearer [redacted]', so credentials never leak into persisted output."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_slide_detection",
+      "label": "Slide Detection",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_process_tree_cleanup",
+      "label": "FFmpeg Process-Tree Cleanup",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "All background FFmpeg process trees are terminated immediately on job cancellation or application close, leaving no orphaned helper processes."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_difficult_name_comparison",
+      "label": "Difficult-Name Comparison",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Compares private local, online fast, and online accurate backends on a challenging egyptology excerpt to show online models correctly transcribe proper names ('Mark Lehner', 'dolerite') that the local Vulkan backend garbles, while noting online accurate omits the first 20 seconds of the intro."
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_readme_transcription_accuracy",
+      "label": "Transcription Accuracy (Zero Hallucination)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_focused_run",
+      "label": "Focused Pytest Run (21 tests passed)",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\focused_pytest_output.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_test_transcription_backend_contract",
+      "label": "test_transcription_backend_contract",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\focused_pytest_output.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_test_groq_transcription",
+      "label": "test_groq_transcription",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\focused_pytest_output.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_evidence_v1_2_0_groq_live_validation_full_pytest_output_full_run",
+      "label": "Full Pytest Run (151 tests passed)",
+      "file_type": "document",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\full_pytest_output.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_live_validation",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_focused_run",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_live_validation",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_full_pytest_output_full_run",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_online_fast_whisper_turbo",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_api",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_online_accurate_whisper_v3",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_api",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_online_fast_whisper_turbo",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_online_accurate_whisper_v3",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_local_whispercpp",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_online_fast_whisper_turbo",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_online_fallback",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_online_fast_whisper_turbo",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_online_fallback",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_local_whispercpp",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_online_fallback",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_slide_detection",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_privacy_consent",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_api",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_secret_redaction",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_api",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_credential_test",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_api",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_credential_test",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_secret_redaction",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_process_tree_cleanup",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_live_validation",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_difficult_name_comparison",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_transcription_accuracy",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_difficult_name_comparison",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_local_whispercpp",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_difficult_name_comparison",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_online_fast_whisper_turbo",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_readme_difficult_name_comparison",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_online_accurate_whisper_v3",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_focused_run",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_test_transcription_backend_contract",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\focused_pytest_output.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_focused_run",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_test_groq_transcription",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\focused_pytest_output.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_test_groq_transcription",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_api",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\focused_pytest_output.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_test_transcription_backend_contract",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_local_whispercpp",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\focused_pytest_output.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_test_transcription_backend_contract",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_privacy_consent",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\focused_pytest_output.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_focused_run",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_live_validation",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\focused_pytest_output.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_full_pytest_output_full_run",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_focused_pytest_output_focused_run",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\full_pytest_output.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_evidence_v1_2_0_groq_live_validation_full_pytest_output_full_run",
+      "target": "docs_evidence_v1_2_0_groq_live_validation_readme_groq_live_validation",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\full_pytest_output.txt",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "transcription_backend_set",
+      "label": "Transcription Backend Set",
+      "nodes": [
+        "docs_evidence_v1_2_0_groq_live_validation_readme_online_fast_whisper_turbo",
+        "docs_evidence_v1_2_0_groq_live_validation_readme_online_accurate_whisper_v3",
+        "docs_evidence_v1_2_0_groq_live_validation_readme_local_whispercpp"
+      ],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md"
+    },
+    {
+      "id": "online_transcription_safety_and_resilience",
+      "label": "Online Transcription Safety & Resilience",
+      "nodes": [
+        "docs_evidence_v1_2_0_groq_live_validation_readme_privacy_consent",
+        "docs_evidence_v1_2_0_groq_live_validation_readme_secret_redaction",
+        "docs_evidence_v1_2_0_groq_live_validation_readme_online_fallback"
+      ],
+      "relation": "implement",
+      "confidence": "INFERRED",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\docs\\evidence\\v1.2.0\\groq_live_validation\\README.md"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.2.0\release\PACKAGED_VALIDATION.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.2.0\release\REQUIREMENT_TRACEABILITY.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.2.0\release\SOURCE_VALIDATION.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.2.0\release\TEST_RECONCILIATION.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.2.0\release\architecture_privacy_audit_output.txt
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.2.0\release\build_output.txt
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.2.0\release\development_selftest_output.txt
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.2.0\release\extracted_selftest_output.txt
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.2.0\release\full_pytest_output.txt
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.2.0\release\packaged_selftest_output.txt
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.2.0\release\test_collection_output.txt

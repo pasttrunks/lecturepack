@@ -1,6 +1,6 @@
 # Repo and release state
 
-**Snapshot:** 2026-08-15 · **Shipped:** v2.0.2
+**Snapshot:** 2026-08-15 (updated after the `main` merge) · **Shipped:** v2.0.2
 
 > This is a point-in-time snapshot of branch and worktree topology, written because
 > this project has twelve worktrees and two earlier handoffs made confident claims
@@ -24,8 +24,8 @@
 
 | Ref | Commit | Contains 2.0.0 | 2.0.1 | 2.0.2 |
 | --- | --- | --- | --- | --- |
-| `sol/release-polish` (release line) | `4a0cca6` | yes | yes | **yes** |
-| `origin/main` | `8404ddc` | yes | yes | no |
+| `sol/release-polish` (release line) | `bd1dcce` | yes | yes | **yes** |
+| `origin/main` | `0408881` | yes | yes | **yes** (merged 2026-08-15) |
 | tag `v2.0.2` | `796cd53` | — | — | — |
 | tag `v2.0.1` | — | — | — | — |
 | tag `v2.0.0` | — | — | — | — |
@@ -34,7 +34,16 @@
 git rev-parse --short origin/main sol/release-polish v2.0.2
 ```
 
-### Correction: `main` is not beta-era
+### `main` now carries 2.0.2
+
+Merged 2026-08-15 as `0408881`. The release line is **0 commits ahead of `main`**; the
+two are in sync. The merge hit two conflicts, both of which were simply `main` lacking an
+addition, and the merged tree came out byte-identical to the release line
+(`git diff sol/release-polish` was empty). Suite on the merge result: **1758 passed, 0
+failed, 22 skipped** — the extra skips versus the release line are the payload-gated tests
+correctly skipping in a checkout with no `bin/`.
+
+### Correction: `main` was never beta-era
 
 Two earlier handoffs stated that `main` was still `459faf5` / `0.9.0-beta.5` and
 contained none of 2.0.x. **That is false.** `origin/main` is `8404ddc` and already
@@ -70,8 +79,8 @@ session that shipped 2.0.2 began by working in the wrong one.
 | `LecturePack-worktrees\release-base-integration` | `sol/release-base-integration` | merged, 0 unique |
 | `LecturePack-worktrees\release-hardening` | `sol/release-critical-hardening` | merged, 0 unique |
 | `LecturePack-worktrees\stable-release` | `sol/lecturepack-stable-release` | merged, 0 unique |
-| `LecturePack-worktrees\polish-ui` | `sol/polish-ui` | **4 unique commits — review before deleting** |
-| `LecturePack-worktrees\study-v1-integration` | `kimi/study-overhaul-v1` | **1 unique commit — review before deleting** |
+| `LecturePack-worktrees\polish-ui` | `sol/polish-ui` | reviewed: all 4 commits **already applied** upstream — safe to remove |
+| `LecturePack-worktrees\study-v1-integration` | `kimi/study-overhaul-v1` | reviewed: its 1 commit **cherry-picked** as `0dd78c0` — safe to remove |
 | `.claude\worktrees\lecturepack-promo-video-b5e67c` | `claude/lecturepack-release-polish-38e98d` | 1 unique = `8404ddc`, already cherry-picked |
 | `.claude\worktrees\lecturepak-v2-0-1-hardening-00a922` | `claude/design-mcp-setup-30b506` | same commit, already cherry-picked |
 | `.claude\worktrees\remote-control-setup-82c6ab` | detached HEAD | same commit |
@@ -81,28 +90,34 @@ git worktree list
 git merge-base --is-ancestor <branch> sol/release-polish && echo merged || echo unmerged
 ```
 
-### The two worth reading before pruning
+### Both were read, and the result corrects this document
 
-Everything else is either fully merged or holds only `8404ddc`, which is already in
-the release line under a different hash.
+An earlier version of this file said these two branches held unmerged work needing review.
+That was measured with `git rev-list --count`, which counts **hashes**, not content. The
+right tool is `git cherry`, which compares patch-ids:
 
-**`sol/polish-ui`** — 4 commits, all UI reliability:
-
-```
-a067379  fix(ui): ignore stale demo animation callbacks
-ae03c33  fix(ui): keep guided demo at import gate
-1704a38  test(ui): align checklist readiness contract
-ef72b53  fix(ui): guard runtime checklist readiness
+```bash
+git cherry -v sol/release-polish sol/polish-ui          # all "-" = already applied
+git cherry -v sol/release-polish kimi/study-overhaul-v1 # "+" = genuinely missing
 ```
 
-**`kimi/study-overhaul-v1`** — 1 commit:
+**`sol/polish-ui`** — all four commits came back `-`: already applied upstream under
+different hashes. `requiredChecklistReady`, `waitForChecklist` and `REQUIRED_CHECK_IDS`
+are all present in the release line. **Nothing to salvage; safe to delete.**
 
-```
-d44e2cb  fix(study): preserve mastery progress backup
-```
+**`kimi/study-overhaul-v1`** — its single commit came back `+`, genuinely missing, and it
+mattered: study progress persistence was writing through a fixed `.tmp` name with **no
+`fsync` and no backup**. `study-progress-v2.json` holds irreplaceable mastery, attempt
+history and Quick Study position; a power loss mid-write, or later corruption, lost it
+permanently. Now cherry-picked as `0dd78c0`: unique same-directory temp file, flush and
+`fsync`, atomic replace, and a rolling `.bak` last-known-good generation that load falls
+back to. An invalid primary is never promoted over a valid backup.
 
-Both touch areas 2.0.2 changed (the runtime checklist gate and study mastery), so they
-need a real look rather than a blind merge or delete.
+Two conflicts were resolved by keeping **both** sides rather than either: the release
+line's `_job_lock` (thread safety, added after this commit was authored) now wraps the
+backup logic, and the incoming tests were kept alongside the `@requires_rust_study_core`
+decorator they collided with. Recorded as **AD-54** in `docs/DECISIONS.md`, renumbered
+because AD-36 was taken. Suite went 1772 → **1776 passed**.
 
 ## Commits that produced 2.0.2
 
@@ -150,10 +165,11 @@ state are all cheap to verify and expensive to assume.
 
 ## Open structural work
 
-- [ ] **Merge the release line into `main`.** 70 commits one way, 1 already-applied commit
-      the other. Not the hard job the old docs described.
-- [ ] **Review then prune worktrees.** Nine are safely removable; `sol/polish-ui` and
-      `kimi/study-overhaul-v1` need reading first.
+- [x] ~~Merge the release line into `main`.~~ Done, `0408881`. In sync, 0 ahead.
+- [x] ~~Review `sol/polish-ui` and `kimi/study-overhaul-v1`.~~ Done. The first was already
+      applied; the second is cherry-picked as `0dd78c0`.
+- [ ] **Prune worktrees.** All eleven besides `release-polish` now hold nothing unmerged.
+      Left to the user to remove.
 - [ ] **CI still cannot build.** `bin/` (ffmpeg, ffprobe, whisper-cli, model) is gitignored
       with no fetch step, so releases can only be cut from this machine. Fix is to host the
       payload and add a fetch + checksum step.

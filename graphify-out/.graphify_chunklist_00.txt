@@ -1,0 +1,16 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\AGENTS.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\BUG_LIST.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\CHANGELOG.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\CLAUDE.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\CONTRIBUTING.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\HANDOFF.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\INTEGRATION.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\MULTI_AGENT_CONTEXT.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\README-FIRST.txt
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\README.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\RELEASE_NOTES.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\RELEASING.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\THIRD_PARTY_NOTICES.txt
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\requirements-dev.txt
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\requirements-release.txt
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\requirements.txt

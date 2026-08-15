@@ -1,0 +1,14 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-01-PLAN.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-01-SUMMARY.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-02-PLAN.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-02-SUMMARY.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-03-PLAN.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-03-SUMMARY.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-04-PLAN.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-04-SUMMARY.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-CONTEXT.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-DISCUSSION-LOG.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-PATTERNS.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-RESEARCH.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-UI-SPEC.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\04-visual-artifact-reliability\04-VALIDATION.md

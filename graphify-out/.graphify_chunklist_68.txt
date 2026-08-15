@@ -1,0 +1,4 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\screenshots\01_setup_product_modes.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\screenshots\02_review_transcript_copy_search.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\screenshots\03_context_repair_workspace.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\screenshots\04_context_repair_proper_names.png

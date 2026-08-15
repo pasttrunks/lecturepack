@@ -1,0 +1,586 @@
+{
+  "nodes": [
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_milestone_v0_9_0_beta_6",
+      "label": "Milestone v0.9.0-beta.6",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 1",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Delivers clean-machine reliability, signed repair, empty owned Home landing, guided onboarding demo, visual artifact reliability, and packaged release verification for portable LecturePack on Windows."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_core_value",
+      "label": "LecturePack Core Value (on-device study packs)",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 10",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Convert locally stored lecture videos into complete, reviewable, portable study packs entirely on-device with zero cloud telemetry."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_1_runtime_contract_bootstrap",
+      "label": "Phase 1: Runtime Contract & Bootstrap",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 14",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_deterministic_cpu_runtime_admission",
+      "label": "Deterministic CPU Runtime Admission",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 16",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Deterministic CPU runtime admission for FFmpeg, ffprobe, Whisper CLI/DLL set, and ggml-base.en.bin."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_runtime_health_gate",
+      "label": "Setup-required Bridge Safety Guards (runtime HEALTHY gate)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 17",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Setup-required bridge safety guards block navigation until runtime health is HEALTHY."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_ad19_ed25519_contract",
+      "label": "AD-19: Ed25519 Signing/Verifier Contract",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 18",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Explicitly approved Ed25519 signing/verifier contract (AD-19). Ed25519 detached signatures over exact canonical manifest bytes; signature verified BEFORE ZIP archive parsing."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_2_hard_setup_signed_repair",
+      "label": "Phase 2: Hard Setup & Signed Repair",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 21",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_non_dismissible_setup_gate",
+      "label": "Non-dismissible Setup Gate",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 23",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Non-dismissible setup gate for missing, unreadable, or corrupt runtime components."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_signed_release_acquisition",
+      "label": "Exact-version Signed Release Acquisition",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 24",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Exact-version release acquisition authenticated via Ed25519 signatures before archive parsing."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_transactional_activation",
+      "label": "Transactional Activation with Atomic Rollback",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 25",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Transactional activation with atomic rollback on fault."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_3_empty_launch_guided_demo",
+      "label": "Phase 3: Empty Launch & Guided Demo",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 28",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_empty_home_ownership",
+      "label": "First-run Empty Home Ownership",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 30",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "First-run empty Home ownership with explicit job activation."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_guided_tour",
+      "label": "Replayable 5-step Guided Tour",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 31",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Replayable 5-step guided tour (Home -> Process -> Review -> Transcript -> Study) with rights-clear Polar Bears demo card."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_isolated_demo_pipeline",
+      "label": "Isolated Demo Pipeline",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 32",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Isolated demo pipeline preventing test data from polluting user profile or library state."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_4_visual_artifact_reliability",
+      "label": "Phase 4: Visual Artifact Reliability",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 35",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_pre_visible_theme_init",
+      "label": "Pre-visible Theme Initialization",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 37",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Pre-visible theme initialization eliminating Light/Dark startup flashes."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_pure_css_spotlight",
+      "label": "Pure CSS Spotlight Box",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 38",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Non-blocking pure CSS spotlight box (box-shadow: 0 0 0 9999px rgba(8,10,14,0.65) with pointer-events: none). Replaces full-viewport SVG masks to eliminate QtWebEngine hit-testing locks."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_wcag_aa_theme",
+      "label": "WCAG AA Normal Contrast Theme",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 39",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "WCAG AA Normal contrast across all surface pairs and responsive reflow down to 640px."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_5_packaged_release_gate",
+      "label": "Phase 5: Packaged & Physical Release Gate",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 42",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_pyinstaller_build",
+      "label": "PyInstaller Standalone Build (LecturePack.exe)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 44",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "PyInstaller standalone build (LecturePack.exe) with clean-state gate verification."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_unicode_path_smoke_tests",
+      "label": "Hostile Unicode Path Smoke Tests",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 45",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Packaged profile smoke tests passing under hostile non-ASCII Unicode paths (LecturePack Testing Staging Ñº/)."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_repair_fault_matrix",
+      "label": "Signed Repair Fault Matrix (19-case)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 46",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "19-case signed repair fault matrix verified (19/19 passed in 3.02s)."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_ad18_unicode_paths",
+      "label": "AD-18: Unicode Paths End-to-end",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 51",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Keep Unicode paths end-to-end while staging native whisper.cpp arguments under private ASCII paths."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_pyside6_dll_order",
+      "label": "Windows PySide6 DLL Order",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 53",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Call os.add_dll_directory for PySide6, shiboken6, and PATH before importing QtCore."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_zero_cloud_telemetry",
+      "label": "Privacy Assurance (Zero Cloud Telemetry)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 64",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "100% local processing; zero cloud telemetry."
+    },
+    {
+      "id": "_planning_reports_milestone_summary_v0_9_0_beta_6_test_suite",
+      "label": "Release Verification Test Suite (853 tests)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 60",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "853 passed (851 unit/integration + 2 packaged fixture tests); UI Visual Suite 53/53 in 0.75s; Packaged Smoke Suite 5/5 in 109s."
+    }
+  ],
+  "edges": [
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_1_runtime_contract_bootstrap",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_milestone_v0_9_0_beta_6",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 14"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_2_hard_setup_signed_repair",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_milestone_v0_9_0_beta_6",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 21"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_3_empty_launch_guided_demo",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_milestone_v0_9_0_beta_6",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 28"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_4_visual_artifact_reliability",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_milestone_v0_9_0_beta_6",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 35"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_5_packaged_release_gate",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_milestone_v0_9_0_beta_6",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 42"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_deterministic_cpu_runtime_admission",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_1_runtime_contract_bootstrap",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 16"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_runtime_health_gate",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_1_runtime_contract_bootstrap",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 17"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_ad19_ed25519_contract",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_1_runtime_contract_bootstrap",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 18"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_signed_release_acquisition",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_ad19_ed25519_contract",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 24"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_non_dismissible_setup_gate",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_2_hard_setup_signed_repair",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 23"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_signed_release_acquisition",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_2_hard_setup_signed_repair",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 24"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_transactional_activation",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_2_hard_setup_signed_repair",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 25"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_repair_fault_matrix",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_2_hard_setup_signed_repair",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 46"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_empty_home_ownership",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_3_empty_launch_guided_demo",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 30"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_guided_tour",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_3_empty_launch_guided_demo",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 31"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_isolated_demo_pipeline",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_3_empty_launch_guided_demo",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 32"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_pre_visible_theme_init",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_4_visual_artifact_reliability",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 37"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_pure_css_spotlight",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_4_visual_artifact_reliability",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 38"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_wcag_aa_theme",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_4_visual_artifact_reliability",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 39"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_pyinstaller_build",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_5_packaged_release_gate",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 44"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_unicode_path_smoke_tests",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_5_packaged_release_gate",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 45"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_unicode_path_smoke_tests",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_ad18_unicode_paths",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 45"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_repair_fault_matrix",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_ad19_ed25519_contract",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 46"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_pyside6_dll_order",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_pyinstaller_build",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 53"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_zero_cloud_telemetry",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_core_value",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 64"
+    },
+    {
+      "source": "_planning_reports_milestone_summary_v0_9_0_beta_6_test_suite",
+      "target": "_planning_reports_milestone_summary_v0_9_0_beta_6_milestone_v0_9_0_beta_6",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "line 60"
+    }
+  ],
+  "hyperedges": [
+    {
+      "members": [
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_1_runtime_contract_bootstrap",
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_2_hard_setup_signed_repair",
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_3_empty_launch_guided_demo",
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_4_visual_artifact_reliability",
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_phase_5_packaged_release_gate"
+      ],
+      "relation": "composes",
+      "label": "Milestone v0.9.0-beta.6 phase set",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "lines 14-46"
+    },
+    {
+      "members": [
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_runtime_health_gate",
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_non_dismissible_setup_gate",
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_signed_release_acquisition",
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_transactional_activation"
+      ],
+      "relation": "flow",
+      "label": "Clean-machine runtime bootstrap and signed repair flow",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "lines 16-25"
+    },
+    {
+      "members": [
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_ad18_unicode_paths",
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_ad19_ed25519_contract",
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_pyside6_dll_order",
+        "_planning_reports_milestone_summary_v0_9_0_beta_6_pure_css_spotlight"
+      ],
+      "relation": "references",
+      "label": "Key technical decisions (AD-18, AD-19, PySide6 DLL order, pure CSS spotlight)",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\reports\\MILESTONE_SUMMARY-v0.9.0-beta.6.md",
+      "source_location": "lines 51-55"
+    }
+  ]
+}

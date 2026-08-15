@@ -1,0 +1,694 @@
+{
+  "nodes": [
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_visual_artifact_reliability",
+      "label": "Phase 4: Visual Artifact Reliability",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_navigation_only_entrance",
+      "label": "Navigation-only entrance animation (D-01..D-04)",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Entrance animation must run only after a real user navigation to a different page; backend events, option changes, state rendering, active-nav re-click, and overlay closure must never replay or jump the page."
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_atomic_theme_transaction",
+      "label": "Atomic theme initialization and switching (D-05..D-09)",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Fresh profile defaults to Light; saved theme applies before the first visible frame; user toggle swaps the whole palette atomically with immediate one-value persistence, no crossfade or per-element color tween."
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_long_value_tooltip",
+      "label": "Long model value tooltip and responsive layout (D-10..D-12)",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Long local-model names stay on one line with ellipsis released via hover/focus tooltip; narrow layouts stack controls with vertical scrolling, and Phase 4 imposes no minimum window size."
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_tour_geometry_focus",
+      "label": "Tour/gate resize, DPI, and focus reliability (D-13..D-16)",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Tour spotlight continuously tracks the real target and clamps the card to the viewport on resize/scroll/DPI changes with minimal reveal scroll; runtime setup gate stays modal with scoped focus and always-reachable Exit."
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_locked_visual_preservation",
+      "label": "Locked beta-5 visual preservation contract (D-17, D-18)",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Preserve beta-5 animation timings, transitions, hard dark shadows, press/embedded control movement, palette, typography, and motion character; do not use a full-viewport SVG mask for spotlights, retaining the QtWebEngine-safe CSS spotlight."
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_light_theme_default",
+      "label": "Light theme as fresh-profile default",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_css_spotlight",
+      "label": "QtWebEngine-safe CSS spotlight (Phase 3)",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Reuse the existing CSS box-shadow spotlight with a pointer-transparent overlay and real controls instead of a full-viewport SVG mask or synthetic hit layer to preserve QtWebEngine hit-test behavior."
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_rAF_coalesced_geometry",
+      "label": "requestAnimationFrame-coalesced geometry scheduler",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Deduplicate resize/scroll/visual-viewport/observer events into one requestAnimationFrame callback that minimally reveals the target, remeasures live rects, and clamps spotlight/card/tooltip using actual viewport dimensions."
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_tooltip_controller",
+      "label": "Non-reflowing ARIA tooltip controller",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Give each truncated model display stable tabindex, aria-describedby, and one shared tooltip element; show exact textContent on hover/focus and hide on leave/blur, clamped inside the viewport without resizing or reflowing the source field."
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_set_screen_guard",
+      "label": "setScreen idempotent active-screen guard",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_set_theme_apply",
+      "label": "applyTheme/setTheme root-theme transaction",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_bridge_bootstrap",
+      "label": "bridge.py get_bootstrap() canonical QSettings theme",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_set_screen",
+      "label": "setScreen() navigation owner",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-PATTERNS.md",
+      "source_location": "app/ui/app.js:1843-1886",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_lp_motion_nav",
+      "label": "LP.motion.nav / lprail entrance selector",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-PATTERNS.md",
+      "source_location": "app/ui/app.css:235-255; app/ui/app.js:1845-1886",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_tour_spotlight_box",
+      "label": "#tour-spotlight-box CSS spotlight overlay",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-PATTERNS.md",
+      "source_location": "app/ui/app.css:721-747; app/ui/index.html:568-590",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_position_tour_spotlight",
+      "label": "positionTourSpotlight() geometry writer",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-PATTERNS.md",
+      "source_location": "app/ui/app.js:2467-2521",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_trap_focus",
+      "label": "Modal focus containment (trapFocus)",
+      "file_type": "code",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-PATTERNS.md",
+      "source_location": "app/ui/app.js:1982,2271-2275",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_ui_spec_spacing_scale",
+      "label": "Multiples-of-4 spacing scale",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-UI-SPEC.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_ui_spec_color_palette",
+      "label": "Light/Dark CSS-variable palette and accent roles",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-UI-SPEC.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_ui_spec_motion_contract",
+      "label": "Navigation-only motion contract",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-UI-SPEC.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_01_plan_atomic_theme_bootstrap",
+      "label": "Pre-visible atomic theme bootstrap (provides atomic-theme-bootstrap)",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-01-PLAN.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_01_plan_idempotent_navigation",
+      "label": "Idempotent navigation (provides idempotent-navigation)",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-01-PLAN.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_02_plan_model_tooltip",
+      "label": "ARIA-linked model-value tooltip (provides model-tooltip)",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-02-PLAN.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_02_plan_coalesced_tour_geometry",
+      "label": "Coalesced tour geometry and scoped focus (coalesced-tour-geometry, scoped-tour-focus)",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-02-PLAN.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_03_summary_clean_fixture_validation",
+      "label": "Read-only clean packaged onedir fixture validation",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-03-SUMMARY.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Run packaged tests only after app.packaging.build.check_clean_state reports no violations and pass LECTUREPACK_ONEDIR_FIXTURE only in the pytest process on disposable copies; mark automated readiness only after focused and full pytest pass."
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_04_plan_physical_package_gate",
+      "label": "Physical packaged visual verification gate (blocking human)",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-04-PLAN.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Packaged QtWebEngine first-frame theme, responsive/DPI/tour/gate interaction, and console cleanliness must be evidenced on physical Windows rendering, not inferred from DOM tests; perceptual fidelity requires human visual judgment against the beta-5 baseline before Phase 5."
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_validation_wave_0_complete",
+      "label": "wave_0_complete and nyquist_compliant validation flags",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-VALIDATION.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_locked_preservation_gate",
+      "label": "Beta-5 preservation human judgment gate",
+      "file_type": "rationale",
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Perceptual preservation of the approved beta-5 hard-shadow and embedded-press identity remains an explicit Plan 04 human judgment gate; no descriptor is fabricated."
+    }
+  ],
+  "edges": [
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_navigation_only_entrance",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_visual_artifact_reliability",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_atomic_theme_transaction",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_visual_artifact_reliability",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_long_value_tooltip",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_visual_artifact_reliability",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_tour_geometry_focus",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_visual_artifact_reliability",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_locked_visual_preservation",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_visual_artifact_reliability",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_light_theme_default",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_atomic_theme_transaction",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_set_screen_guard",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_set_screen",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_set_screen_guard",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_navigation_only_entrance",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_set_theme_apply",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_atomic_theme_transaction",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_bridge_bootstrap",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_set_theme_apply",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_rAF_coalesced_geometry",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_tour_geometry_focus",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_tooltip_controller",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_long_value_tooltip",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_css_spotlight",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_locked_visual_preservation",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_set_screen",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_lp_motion_nav",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-PATTERNS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_position_tour_spotlight",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_tour_spotlight_box",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-PATTERNS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_position_tour_spotlight",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_rAF_coalesced_geometry",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-PATTERNS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_trap_focus",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_tour_geometry_focus",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-PATTERNS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_ui_spec_motion_contract",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_navigation_only_entrance",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-UI-SPEC.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_ui_spec_color_palette",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_atomic_theme_transaction",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-UI-SPEC.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_ui_spec_spacing_scale",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_ui_spec_color_palette",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-UI-SPEC.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_01_plan_atomic_theme_bootstrap",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_atomic_theme_transaction",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-01-PLAN.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_01_plan_idempotent_navigation",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_navigation_only_entrance",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-01-PLAN.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_01_plan_atomic_theme_bootstrap",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_bridge_bootstrap",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-01-PLAN.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_02_plan_model_tooltip",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_long_value_tooltip",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-02-PLAN.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_02_plan_coalesced_tour_geometry",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_tour_geometry_focus",
+      "relation": "implements",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-02-PLAN.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_02_plan_coalesced_tour_geometry",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_rAF_coalesced_geometry",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-02-PLAN.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_03_summary_clean_fixture_validation",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_validation_wave_0_complete",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-03-SUMMARY.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_03_summary_clean_fixture_validation",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_04_plan_physical_package_gate",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-03-SUMMARY.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_04_plan_physical_package_gate",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_validation_wave_0_complete",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-04-PLAN.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_04_plan_physical_package_gate",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_locked_preservation_gate",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-04-PLAN.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_locked_preservation_gate",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_locked_visual_preservation",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-CONTEXT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_set_theme_apply",
+      "target": "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_set_screen",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "C:\\Users\\marsh\\Documents\\LecturePack-worktrees\\release-polish\\.planning\\milestones\\v0.9.0-beta.6\\phases\\04-visual-artifact-reliability\\04-RESEARCH.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "phase4_theme_transaction_flow",
+      "label": "Atomic theme transaction flow (bridge to root to persistence)",
+      "nodes": [
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_bridge_bootstrap",
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_set_theme_apply",
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_atomic_theme_transaction",
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_01_plan_atomic_theme_bootstrap"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "phase4_tour_geometry_focus_flow",
+      "label": "Tour/gate live geometry and focus cycle",
+      "nodes": [
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_research_rAF_coalesced_geometry",
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_position_tour_spotlight",
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_patterns_trap_focus",
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_tour_geometry_focus"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "id": "phase4_validation_evidence_gate",
+      "label": "Phase 4 validation evidence and approval gate",
+      "nodes": [
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_03_summary_clean_fixture_validation",
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_04_plan_physical_package_gate",
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_validation_wave_0_complete",
+        "planning_milestones_v0_9_0_beta_6_phases_04_visual_artifact_reliability_04_context_locked_preservation_gate"
+      ],
+      "relation": "form",
+      "confidence": "EXTRACTED"
+    }
+  ]
+}

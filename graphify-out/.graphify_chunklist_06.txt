@@ -1,0 +1,5 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\intel\SYNTHESIS.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\intel\constraints.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\intel\context.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\intel\decisions.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\intel\requirements.md

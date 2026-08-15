@@ -1,0 +1,3 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\mvp\processing_view.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\mvp\review_view.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\mvp\setup_view.png

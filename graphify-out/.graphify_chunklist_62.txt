@@ -1,0 +1,4 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\app\assets\demo\hero.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\app\assets\demo\polar_bears_thumbnail.jpg
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\app\assets\demo\slide_01.png
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\app\assets\demo\slide_02.png

@@ -1,0 +1,3 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\app\README.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\app\requirements-build.txt
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\app\requirements.txt

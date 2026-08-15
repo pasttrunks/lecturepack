@@ -1,0 +1,8 @@
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\codebase\ARCHITECTURE.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\codebase\CONCERNS.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\codebase\CONVENTIONS.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\codebase\INTEGRATIONS.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\codebase\STACK.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\codebase\STRUCTURE.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\codebase\TESTING.md
+C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\codebase\UI_ANALYSIS.md
