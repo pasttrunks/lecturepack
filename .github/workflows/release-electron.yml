@@ -113,8 +113,16 @@ jobs:
       - name: Build the Electron release candidate
         shell: bash
         run: |
+          # package-sidecar.mjs defaults to .venv/Scripts/pyinstaller.exe, which
+          # only exists on a release machine that built a project venv. CI
+          # installs requirements-release.txt (pyinstaller included) into the
+          # hosted interpreter instead, so point the builder at that copy rather
+          # than at a venv this job never creates.
+          PYINSTALLER="$(python -c 'import shutil, sys; p = shutil.which("pyinstaller"); sys.exit("pyinstaller not found on PATH") if not p else print(p)')"
+          echo "using pyinstaller: ${PYINSTALLER}"
           python scripts/build_electron_release.py \
             --output-dir "dist-release/${APP_VERSION}" \
+            --pyinstaller "${PYINSTALLER}" \
             | tee electron-release-build.json
 
       # build_electron_release.py already ran the authoritative packaged
