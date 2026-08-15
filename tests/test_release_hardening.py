@@ -45,6 +45,10 @@ def test_packaged_health_contract_has_stable_required_checks(tmp_path, monkeypat
     assert [check["id"] for check in result["checks"]] == list(packaged_health.CHECK_ORDER)
     assert result["passed"] is True
     assert result["startup_ok"] is True
+    assert [item["id"] for item in result["checklist"]] == [
+        "windows_version", "ffmpeg_ffprobe", "whisper_runtime", "bundled_model", "data_directory",
+    ]
+    assert all(set(item) == {"id", "verdict", "detail"} for item in result["checklist"])
 
 
 def test_source_sidecar_health_uses_checked_in_smoke_asset():
@@ -164,7 +168,12 @@ def test_packaged_source_has_no_personal_developer_paths():
     assert "OneDrive" not in source
     assert "const engine =" not in package_script
     assert "const sidecar =" not in package_script
-    assert "extraResource: [uiDir, packagedSidecar, demoAssets, icon]" in package_script
+    assert "const license = path.join(repoRoot, 'LICENSE');" in package_script
+    assert "const guidedDemoAssets = path.join(repoRoot, 'app', 'assets', 'demo');" in package_script
+    assert "extraResource: [uiDir, packagedSidecar, demoAssets, icon, license]" in package_script
+    assert "afterCopyExtraResources: [async ({ buildPath }) =>" in package_script
+    assert "path.join(buildPath, 'resources', 'assets', 'demo')" in package_script
+    assert "path.basename(source) !== 'demo_lecture.mp4'" in package_script
     assert "const productionAsarFiles = new Set([" in package_script
     assert "return !productionAsarFiles.has(relative);" in package_script
 
@@ -179,6 +188,57 @@ def test_release_packaging_prunes_only_unreachable_locale_and_headless_qt_payloa
     assert "QtCore.pyd" not in sidecar_packager
     assert "retainedLocales = new Set(['en-US.pak', 'en-GB.pak'])" in electron_packager
     assert "LICENSES.chromium.html" not in electron_packager
+
+
+def test_stable_release_gate_covers_new_guided_handoff_and_normal_auto_export():
+    gate = (ROOT / "scripts" / "stable_release_acceptance.py").read_text(encoding="utf-8")
+
+    assert 'self.click("#btn-runtime-done")' in gate
+    assert 'app.click("#glowing-demo-card")' in gate
+    assert '"guided_demo_prebaked_content"' in gate
+    assert "hero.naturalWidth>0" in gate
+    assert "fallback.length===0" in gate
+    assert '"guided_demo_quiz_accessibility"' in gate
+    assert "textual and semantic guided-demo quiz result" in gate
+    assert "aria-pressed" in gate
+    assert 'for screen in ("demo", "home", "review", "study")' in gate
+    assert 'app.click("#btn-replay-tour")' in gate
+    assert 'app.evaluate("openDemo(4)")' not in gate
+    assert "criticalOutOfView" in gate
+    assert "'glowing-demo-card':'btn-load-jobs'" in gate
+    assert "homeNeedsDemoAction" in gate
+    assert "const jobsEmpty=" in gate
+    assert 'app.resize(1024, 720)' in gate
+    assert '"first_run_demo_action_visible"' in gate
+    assert '"completed_tour_demo_action_visible"' in gate
+    assert '"guided_demo_footer_settled"' in gate
+    assert "settled footer after guided demo cleanup" in gate
+    assert 'app.click("#btn-demo-run")' in gate
+    assert "guided_demo_review_ready" in gate
+    assert 'LP.state.screen === \'review\'' in gate
+    assert ": null; }})()" not in gate
+    assert 'app.request("import_paths", {"paths": [str(demo)]})' in gate
+    assert '"auto_export": True' in gate
+    assert '"Study AI readiness"' in gate
+    assert "c.study_status==='ready'" in gate
+    assert '"guided_demo_cleanup_stayed_final"' in gate
+    assert "document.querySelector('#study-quick-root').innerText.includes('Quick Study')" in gate
+    assert "document.getElementById('status-detail')" in gate
+    assert "document.getElementById('proc-strip-meta')" not in gate
+    assert '["taskkill.exe", "/PID", str(self.proc.pid), "/T", "/F"]' in gate
+    assert "d.status==='running'" in gate
+    assert "d.legacy_status==='downloading'" in gate
+
+
+def test_release_builder_requires_every_guided_demo_runtime_asset():
+    build = (ROOT / "scripts" / "build_electron_release.py").read_text(encoding="utf-8")
+    for relative in (
+        '"resources" / "assets" / "demo" / "demo.data.js"',
+        '"resources" / "assets" / "demo" / "hero.png"',
+        '"resources" / "assets" / "demo" / "slide_01.png"',
+        '"resources" / "assets" / "demo" / "slide_02.png"',
+    ):
+        assert relative in build
 
 
 def test_paste_link_remains_visible_and_disabled_when_yt_dlp_is_unavailable():
@@ -205,6 +265,12 @@ def test_clean_machine_validator_has_no_development_runtime_dependency():
     assert "python -m" not in validator.lower()
     assert "node.exe" in validator  # presence is recorded, never required to run the gate
     assert "git.exe" not in validator
+    assert "$imported = Invoke-SidecarRequest 'import_video' @{ path = $installedMedia }" in validator
+    assert "path = $installedMedia; bundled_demo = $true" not in validator
+    assert "function Stop-AcceptanceSidecar" in validator
+    assert "'/PID', [string]$sidecarProcess.Id, '/T', '/F'" in validator
+    assert "Stop-AcceptanceSidecar" in validator
+    assert "[void](Remove-AcceptanceTestInstall $acceptanceInstallDir)" in validator
 
 
 def test_slide_image_io_supports_unicode_windows_paths(tmp_path):

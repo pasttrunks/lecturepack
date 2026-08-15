@@ -28,6 +28,7 @@ import shutil
 import sys
 import threading
 import time
+import uuid
 from typing import Any
 
 from PySide6.QtCore import QCoreApplication, QProcess, QTimer
@@ -51,6 +52,32 @@ STAGES = [
     "Review Ready",
     "Export",
 ]
+
+# Transcribe and Detect Slides run CONCURRENTLY after audio extraction
+# (job_controller.py: "they may run concurrently"). A single `current_stage`
+# scalar therefore has two writers racing at several hertz, which caused two
+# separate user-visible defects:
+#
+#   * the footer alternated between "Transcribe - 43%" and "Detect Slides - 29%"
+#     four times a second, reading as flicker; and
+#   * `_on_transcript_segment` derived its live percent only while
+#     `current_stage == "Transcribe"`. Detect Slides emits real stage-progress
+#     events and whisper emits none, so Detect Slides won the scalar and the
+#     Transcribe row could never take it back -- it sat grey at 0% for the whole
+#     lecture and then jumped to 100%.
+#
+# So membership is tracked as a set and `current_stage` is derived from it by a
+# FIXED priority. Transcribe outranks Detect Slides because it is the long pole
+# and the stage a student is actually waiting on.
+STAGE_PRIMARY_ORDER = (
+    "Export",
+    "Review Ready",
+    "Align",
+    "Transcribe",
+    "Detect Slides",
+    "Extract Audio",
+    "Inspect",
+)
 
 
 def _clock(seconds: float) -> str:
@@ -110,6 +137,11 @@ class Sidecar:
         self.session_id = f"electron-sidecar-{os.getpid()}"
         self.current_job = None
         self.controller = None
+        # Every stage running RIGHT NOW, not just the last one to tick. See
+        # STAGE_PRIMARY_ORDER for why a scalar was not enough. Assigned before
+        # current_stage because that is a property backed by this set.
+        self.active_stages: set[str] = set()
+        self._current_stage = ""
         self.current_stage = ""
         self.stage_percent: dict[str, int] = {}
         self.backend_label = ""
@@ -125,6 +157,20 @@ class Sidecar:
         self._download_cancel: dict[str, threading.Event] = {}
         self._data_error = ""
         self._last_health: dict[str, Any] | None = None
+        self._demo_session: dict[str, Any] | None = None
+        self._cleaning_demo = False
+        self._guided_tour_state: dict[str, Any] | None = None
+        self._study_workers_lock = threading.Lock()
+        self._study_workers: dict[str, threading.Thread] = {}
+        self._ai_interaction_workers: dict[str, threading.Thread] = {}
+        self._ai_interaction_jobs: dict[str, str] = {}
+        # Every asynchronous Study task captures the current per-job epoch.
+        # Deleting/resetting a job advances it, so an in-flight gateway call
+        # can finish harmlessly without persisting into a removed job folder.
+        self._study_job_epochs: dict[str, int] = {}
+        self._pending_study_refresh: dict[str, dict[str, set[str]]] = {}
+        self._study_basic_opt_out: set[str] = set()
+        self._ai_gateway_client = None
 
         self.repo_root = self._resolve_repo_root()
         if self.repo_root and str(self.repo_root) not in sys.path:
@@ -142,6 +188,7 @@ class Sidecar:
         self._configure_runtime()
         self._connect_controller()
         self._init_queue()
+        self._reconcile_demo_session_on_startup()
 
         self._poll_timer = QTimer(self.app)
         self._poll_timer.setInterval(25)
@@ -201,8 +248,18 @@ class Sidecar:
             from lecturepack.infrastructure.file_manager import FileManager
             from lecturepack.models.job import Job
             from lecturepack import electron_backend, electron_study
-            from lecturepack.services import job_ops, media_fetch, packaged_health, study_service, transcript_store
-            from lecturepack.services import study_presets, study_v2
+            from lecturepack.services import (
+                job_ops,
+                media_fetch,
+                onboarding_state,
+                packaged_health,
+                reset_service,
+                ai_gateway,
+                ai_study_service,
+                study_service,
+                transcript_store,
+            )
+            from lecturepack.services import group_study, study_presets, study_v2
             from lecturepack.services.job_queue import JobQueue
 
             self.JobController = JobController
@@ -214,11 +271,16 @@ class Sidecar:
             self.electron_backend = electron_backend
             self.electron_study = electron_study
             self.media_fetch = media_fetch
+            self.onboarding_state = onboarding_state
             self.packaged_health = packaged_health
+            self.reset_service = reset_service
+            self.ai_gateway = ai_gateway
+            self.ai_study_service = ai_study_service
             self.job_ops = job_ops
             self.study_service = study_service
             self.study_presets = study_presets
             self.study_v2 = study_v2
+            self.group_study = group_study
         except Exception as exc:  # noqa: BLE001 - surfaced through ready/error
             self._engine_error = f"{type(exc).__name__}: {exc}"
 
@@ -234,6 +296,7 @@ class Sidecar:
                 self._engine_error = self._data_error
             return
         self.config = self.ConfigManager(str(self.data_dir))
+        self._guided_tour_state = self.onboarding_state.ensure_guided_tour_state(self.config)
         ffmpeg = self._first_file(
             self.runtime_root / "bin" / "ffmpeg.exe",
             self.runtime_root / "ffmpeg.exe",
@@ -536,6 +599,20 @@ class Sidecar:
                 self._apply_job_settings(request_id, command, payload)
             elif command == "queue_jobs":
                 self._queue_jobs(request_id, command, payload)
+            elif command == "queue_existing_jobs":
+                self._queue_existing_jobs(request_id, command, payload)
+            elif command == "get_onboarding_state":
+                self._get_onboarding_state(request_id, command)
+            elif command == "set_guided_tour_state":
+                self._set_guided_tour_state(request_id, command, payload)
+            elif command == "replay_guided_tour":
+                self._replay_guided_tour(request_id, command)
+            elif command == "acknowledge_setup":
+                self._acknowledge_setup(request_id, command)
+            elif command == "end_demo_job":
+                self._end_demo_job(request_id, command, payload)
+            elif command == "reset_lecturepack":
+                self._reset_lecturepack(request_id, command)
             elif command == "recover_interrupted_jobs":
                 self._recover_interrupted_jobs(request_id, command)
             elif command == "search_transcripts":
@@ -626,12 +703,24 @@ class Sidecar:
                 self._save_notes(request_id, command, payload)
             elif command == "study_v2_status":
                 self._study_v2_status(request_id, command, payload)
+            elif command == "study_v2_retry":
+                self._study_v2_retry(request_id, command, payload)
+            elif command == "study_v2_use_basic":
+                self._study_v2_use_basic(request_id, command, payload)
+            elif command == "study_v2_copy_diagnostics":
+                self._study_v2_copy_diagnostics(request_id, command, payload)
+            elif command == "study_v2_set_mastery":
+                self._study_v2_set_mastery(request_id, command, payload)
             elif command == "study_v2_record_flashcard":
                 self._study_v2_record_flashcard(request_id, command, payload)
             elif command == "study_v2_record_quiz":
                 self._study_v2_record_quiz(request_id, command, payload)
+            elif command == "study_v2_grade_short_answer":
+                self._study_v2_grade_short_answer(request_id, command, payload)
             elif command == "study_v2_quick_study":
                 self._study_v2_quick_study(request_id, command, payload)
+            elif command == "study_v2_teach_me":
+                self._study_v2_teach_me(request_id, command, payload)
             elif command == "study_v2_summary":
                 self._study_v2_summary(request_id, command, payload)
             elif command == "study_v2_edit":
@@ -640,6 +729,8 @@ class Sidecar:
                 self._study_v2_delete(request_id, command, payload)
             elif command == "study_v2_regenerate":
                 self._study_v2_regenerate(request_id, command, payload)
+            elif command == "study_v2_group_prepare":
+                self._study_v2_group_prepare(request_id, command, payload)
             elif command == "smart_study_status":
                 self._smart_study_status(request_id, command)
             elif command == "set_study_preset":
@@ -722,12 +813,51 @@ class Sidecar:
             request_id,
             command,
             healthy=health["startup_ok"],
+            runtime_health_state="HEALTHY" if health["startup_ok"] else "SETUP_REQUIRED",
+            setup_acknowledged=bool(
+                health["startup_ok"]
+                and hasattr(self, "config")
+                and self.config.setup_acknowledged()
+            ),
+            setup_complete=bool(
+                health["startup_ok"]
+                and hasattr(self, "config")
+                and self.config.setup_acknowledged()
+            ),
             engine_loaded=not bool(self._engine_error),
             qt_application="QCoreApplication",
             passed=health["passed"],
             startup_ok=health["startup_ok"],
             checks=health["checks"],
+            checklist=health.get("checklist", []),
             error=self._engine_error,
+        )
+
+    def _acknowledge_setup(self, request_id: str | None, command: str) -> None:
+        """Persist acknowledgement only against the latest passing health."""
+        health = self._last_health
+        if health is None:
+            health = self._packaged_self_test(include_sidecar=False)
+            self._last_health = health
+        if not health.get("startup_ok") or not hasattr(self, "config"):
+            self._respond(
+                request_id,
+                command,
+                ok=False,
+                error="Runtime Setup must pass its required checks before it can be acknowledged.",
+                error_code="SETUP_REQUIRED",
+                runtime_health_state="SETUP_REQUIRED",
+                setup_acknowledged=False,
+            )
+            return
+        self.config.persist_setup_acknowledged()
+        self._respond(
+            request_id,
+            command,
+            setup_acknowledged=True,
+            setup_complete=True,
+            runtime_health_state="HEALTHY",
+            healthy=True,
         )
 
     def _packaged_self_test(self, *, include_sidecar: bool = True) -> dict[str, Any]:
@@ -781,6 +911,7 @@ class Sidecar:
                 smoke_wav=smoke_wav,
             )
         checks = list(health["checks"])
+        checklist = list(health.get("checklist", []))
         if include_sidecar:
             sidecar_ok = True
             checks.insert(0, {
@@ -796,6 +927,7 @@ class Sidecar:
             "passed": all(check.get("ok") for check in checks if check.get("required")),
             "startup_ok": all(check.get("ok") for check in checks if check.get("fatal_at_startup")),
             "checks": checks,
+            "checklist": checklist,
         }
 
     def _job_objects(self) -> list[Any]:
@@ -908,6 +1040,12 @@ class Sidecar:
             "queue_position": queue_position,
             "waiting": queue_position is not None,
             "error": error[:500],
+            # set_job_group writes this to manifest.json, but the summary never
+            # sent it back -- so every jobs_changed refresh handed the renderer
+            # a job with no group, jobGroup() fell through to inferring one from
+            # the title, and the student's grouping "reset" itself. Written and
+            # never read is the whole bug.
+            "group": str(job.manifest.get("group", "") or ""),
         }
 
     @staticmethod
@@ -918,6 +1056,7 @@ class Sidecar:
         return "Queued"
 
     def _list_jobs(self, request_id: str | None, command: str) -> None:
+        guided_tour = self._emit_onboarding_state()
         jobs = self._job_objects()
         if jobs and self.current_job is None:
             self._activate_job(jobs[0], emit_payloads=False)
@@ -933,7 +1072,7 @@ class Sidecar:
             self._emit({"event": "active_job", "id": "", "title": ""})
         self._push_queue()
         self._maybe_resume_queue()
-        self._respond(request_id, command, jobs=summaries)
+        self._respond(request_id, command, jobs=summaries, guided_tour=guided_tour)
 
     def _resolve_demo_video(self) -> Path | None:
         """Resolve the bundled demo video for the normal import path.
@@ -963,6 +1102,49 @@ class Sidecar:
             shutil.copy2(source, target)
         return target if target.is_file() else source
 
+    def _adopt_source_captions(self, job: Any, captions_dir: str) -> None:
+        """Satisfy Transcribe from the downloaded video's own captions.
+
+        Writes the SAME raw.json whisper.cpp writes and marks the stage
+        completed, so every later consumer -- the transcript store, editing,
+        export, Study grounding -- works unchanged and has no idea the words
+        came from captions rather than from the audio.
+
+        Local transcription stays the failsafe. Anything unusable here (no
+        captions published, a malformed file, or too little text to be a real
+        transcript) leaves the stage alone and the pipeline transcribes as
+        before. A failure must never block the import.
+        """
+        try:
+            from lecturepack.services import source_captions
+
+            path = source_captions.find_caption_file(captions_dir)
+            if not path:
+                return
+            segments = source_captions.load_segments(path)
+            if not source_captions.is_usable(segments):
+                return
+            transcript_dir = Path(job.paths["transcript"])
+            transcript_dir.mkdir(parents=True, exist_ok=True)
+            raw = source_captions.to_whisper_raw(segments)
+            (transcript_dir / "raw.json").write_text(
+                json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+            # The literal the rest of this module uses (see STAGES); there is
+            # no STAGE_TRANSCRIBE constant here.
+            job.set_stage_status("Transcribe", "completed")
+            job.manifest["transcript_source"] = "published_captions"
+            job.save()
+            self._emit({
+                "event": "log_line",
+                "job": job.job_id,
+                "tag": "[Transcribe]",
+                "color": "var(--green)",
+                "text": (f"Using the {len(segments)} published captions that came with this "
+                         f"video; skipping local transcription."),
+            })
+        except Exception:  # noqa: BLE001 - captions are an optimisation only
+            return
+
     def _generate_poster(self, job: Any, source: Path) -> None:
         """Extract an instant job-card thumbnail at import time.
 
@@ -983,11 +1165,29 @@ class Sidecar:
             dst = root / "poster.webp"
             if dst.is_file():
                 return
+            # Seek in before grabbing the frame. Taking frame ZERO produced a
+            # solid black thumbnail for most real lectures, because recordings
+            # and downloaded videos almost always fade in from black or open on
+            # a title card -- four of five cards in a reported queue were black
+            # rectangles. The poster was being generated correctly; it was just
+            # a picture of nothing.
+            #
+            # 10% in (clamped to 2-30s) lands in real content on both a 90
+            # second clip and a two hour lecture, and the `thumbnail` filter
+            # then picks the most representative frame of the batch that
+            # follows, so a fade or a cut-to-black at that exact instant does
+            # not win either.
+            duration = 0.0
+            try:
+                duration = float((getattr(job, "source", None) or {}).get("duration", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                duration = 0.0
+            offset = min(30.0, max(2.0, duration * 0.10)) if duration > 0 else 3.0
             process = QProcess()
             process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
             process.start(ffmpeg, [
-                "-y", "-i", str(source), "-frames:v", "1",
-                "-vf", "scale=320:-2", "-f", "webp", str(dst),
+                "-y", "-ss", f"{offset:.2f}", "-i", str(source), "-frames:v", "1",
+                "-vf", "thumbnail,scale=320:-2", "-f", "webp", str(dst),
             ])
             if not process.waitForFinished(30000):
                 process.kill()
@@ -1022,7 +1222,8 @@ class Sidecar:
         }.get(str(value or "study").strip().lower(), "study_pack")
 
     def _import_one(self, path_text: str, *, title: str = "", preset: Any = None,
-                    bundled_demo: bool = False) -> tuple[Any, dict[str, Any], dict[str, Any]]:
+                    bundled_demo: bool = False, captions_dir: str = "",
+                    demo_session_id: str | None = None) -> tuple[Any, dict[str, Any], dict[str, Any]]:
         """Import ONE video through the normal single-video path and return
         (job, summary, metadata). Shared by the single import command and the
         batch import command so a multi-file import creates every job through
@@ -1053,6 +1254,16 @@ class Sidecar:
         if not os.access(source, os.R_OK):
             raise ImportVideoError("UNREADABLE", f"video is not readable: {source}")
         if bundled_demo:
+            # Starting a bundled demo is the real replay/new-tour boundary.
+            # Reset only the durable offer state; ordinary lecture imports do
+            # not affect onboarding and existing jobs remain untouched.
+            if hasattr(self, "config"):
+                self._guided_tour_state = self.onboarding_state.set_guided_tour_status(
+                    self.config, "not_seen"
+                )
+                self._emit({"event": "onboarding_state",
+                            "guided_tour": dict(self._guided_tour_state),
+                            **self._guided_tour_state})
             source = self._copy_demo_if_needed(source)
         if self.controller is None:
             raise RuntimeError(self._engine_error or "engine is not loaded")
@@ -1064,18 +1275,60 @@ class Sidecar:
         # Keep the immutable source filename/path in manifest["source"] and a
         # separate, editable display title in manifest["title"].
         job.manifest["title"] = str(title or self.job_ops.clean_display_title(source.name))
+        if bundled_demo:
+            demo_session_id = str(demo_session_id or f"demo-{uuid.uuid4()}")
+            job.manifest.update({
+                "is_demo": True,
+                "bundled_demo": True,
+                "demo_session_id": demo_session_id,
+                "demo_owner": "guided_tour",
+            })
         job.source.update(metadata)
-        job.settings["preset"] = self._preset(preset)
+        # PRESETS["demo"] was calibrated for the bundled lecture -- 10 seconds
+        # with a slide change roughly every 2.5s -- but nothing could ever
+        # select it: _preset() whitelists the three student-facing names and
+        # silently returns "balanced" for anything else. Balanced enforces
+        # min_time_between_slides=5.0, so the demo detected its first slide and
+        # then one more, and the guided tour showed 2 slides for a 4-slide
+        # lecture. Measured on the bundled video: balanced 2 (1.5s, 9.5s),
+        # detailed 2, demo 4 (0.75s, 4.0s, 6.5s, 8.75s) -- one per slide.
+        # Forced here rather than widened in _preset() so "demo" stays
+        # unselectable as an ordinary processing option.
+        job.settings["preset"] = "demo" if bundled_demo else self._preset(preset)
         job.settings.setdefault("whisper", {})["engine"] = "cpu"
         model = self.config.get("whisper_model", "")
         if model and os.path.isfile(model):
             job.settings["whisper"]["model"] = model
         job.settings["whisper"]["transcription_backend"] = "local-whispercpp"
         job.save()
+        if bundled_demo:
+            self._demo_session = {
+                "session_id": demo_session_id,
+                "job_id": job.job_id,
+                "status": "running",
+            }
+            try:
+                self._write_demo_marker(self._demo_session)
+            except Exception as exc:  # noqa: BLE001 - do not leave an untracked demo job
+                try:
+                    shutil.rmtree(Path(job.paths["root"]))
+                except OSError:
+                    pass
+                self._demo_session = None
+                raise ImportVideoError(
+                    "DEMO_STATE_FAILED",
+                    f"guided demo session could not be recorded: {exc}",
+                ) from exc
         # PC polish: generate the job-card thumbnail immediately at import so
         # the card shows a real video frame before processing starts. A failure
         # must never prevent the import.
         self._generate_poster(job, source)
+        # Captions are adopted ONLY for a downloaded video, because only the
+        # download path passes captions_dir. A locally imported file never
+        # reaches this, which is the scoping the request asked for -- and it is
+        # structural, so it cannot drift out of step with a flag somewhere.
+        if captions_dir:
+            self._adopt_source_captions(job, captions_dir)
         return job, self._summary(job), metadata
 
     def _import_video(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
@@ -1084,6 +1337,7 @@ class Sidecar:
             title=str(payload.get("title") or ""),
             preset=payload.get("preset"),
             bundled_demo=bool(payload.get("bundled_demo")),
+            captions_dir=str(payload.get("captions_dir") or ""),
         )
         self._activate_job(job, emit_payloads=True)
         self._emit({
@@ -1098,6 +1352,10 @@ class Sidecar:
             job=summary,
             job_id=job.job_id,
             source=metadata,
+            **({
+                "is_demo": True,
+                "demo_session_id": self._demo_session.get("session_id"),
+            } if self._is_demo_job(job) and self._demo_session else {}),
         )
 
     def _import_videos(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
@@ -1193,6 +1451,13 @@ class Sidecar:
         """Enqueue a batch of jobs in their visible order. The queue respects
         the single active slot: the first job claims it on start, the rest
         wait in FIFO order. Nothing is started merely by queuing."""
+        # The production bridge uses this historical command for internal
+        # drag/drop as well as batch actions. Once the real data root exists,
+        # use the identity/status-aware path; the small fallback preserves the
+        # older adapter seam used by lightweight unit fixtures.
+        if hasattr(self, "data_dir"):
+            self._queue_existing_jobs(request_id, command, payload)
+            return
         job_ids = payload.get("job_ids") or []
         if isinstance(job_ids, str):
             try:
@@ -1210,11 +1475,392 @@ class Sidecar:
             positions.append({"job_id": job_id, "position": position})
         self._push_queue()
         self._emit_job_payloads()
-        self._respond(request_id, command, queued=positions, count=len(positions))
+        self._respond(request_id, command, queued=positions,
+                      queued_ids=[row["job_id"] for row in positions],
+                      count=len(positions))
         # "Queue all" is an action, not a parked-state editor. When the active
         # slot is idle, immediately promote and start the first queued job;
         # the existing completion path continues the remaining FIFO entries.
         self._maybe_resume_queue()
+
+    def _queue_existing_jobs(self, request_id: str | None, command: str,
+                             payload: dict[str, Any]) -> None:
+        """Queue already-imported jobs without importing or duplicating them.
+
+        ``JobQueue`` remains the only FIFO authority. This adapter adds the
+        validation/reporting needed by an internal drag/drop action while the
+        historical ``queue_jobs`` batch command remains compatible with the
+        existing batch-import UI.
+
+        A finished lecture is normally skipped: queueing it again would re-run
+        a pipeline whose output already exists. ``reprocess`` is the explicit
+        opt-in for doing exactly that -- the renderer only sets it after the
+        student confirms a dialog naming the lectures whose slides, transcript
+        and Study pack will be replaced. Every stage is reset to pending first,
+        the same reset ``restart_job`` performs, so the job re-enters the queue
+        as unprocessed work rather than being enqueued in a completed state.
+        A job that is running or paused is never reset, opt-in or not.
+        """
+        reprocess = bool(payload.get("reprocess"))
+        job_ids = payload.get("job_ids") or []
+        if isinstance(job_ids, str):
+            try:
+                job_ids = json.loads(job_ids)
+            except json.JSONDecodeError:
+                job_ids = []
+        if not isinstance(job_ids, list):
+            job_ids = []
+        jobs_by_id = {str(job.job_id): job for job in self._job_objects()}
+        queued: list[str] = []
+        positions: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for raw_id in job_ids:
+            job_id = str(raw_id or "").strip()
+            if not job_id:
+                continue
+            if job_id in seen:
+                skipped.append({"job_id": job_id, "reason": "duplicate_request"})
+                continue
+            seen.add(job_id)
+            job = jobs_by_id.get(job_id)
+            if job is None:
+                skipped.append({"job_id": job_id, "reason": "not_found"})
+                continue
+            status = self._job_status(job)
+            terminal = status in {"done", "failed", "cancelled", "interrupted"}
+            if terminal and not reprocess:
+                skipped.append({"job_id": job_id, "reason": status})
+                continue
+            if status in {"running", "paused", "pause_requested"}:
+                skipped.append({"job_id": job_id, "reason": status})
+                continue
+            if self.queue.active == job_id:
+                skipped.append({"job_id": job_id, "reason": "active"})
+                continue
+            if job_id in self.queue.queued():
+                skipped.append({"job_id": job_id, "reason": "already_queued"})
+                continue
+            position = self.electron_backend.enqueue_job(self.queue, job_id)
+            if position is None or position < 0:
+                skipped.append({"job_id": job_id, "reason": "queue_rejected"})
+                continue
+            if terminal:
+                # Ordered after the enqueue so a rejected queue leaves the
+                # finished job exactly as it was: resetting first and failing
+                # here would erase the record that it had ever completed.
+                try:
+                    self.electron_backend.restart_job(job)
+                    job.save()
+                except Exception:  # noqa: BLE001 - roll back rather than queue a done job
+                    self.electron_backend.remove_from_queue(self.queue, job_id)
+                    skipped.append({"job_id": job_id, "reason": "reset_failed"})
+                    continue
+            queued.append(job_id)
+            positions.append({"job_id": job_id, "position": position})
+        self._push_queue()
+        self._emit_job_payloads()
+        self._respond(
+            request_id,
+            command,
+            queued=queued,
+            queued_ids=queued,
+            positions=positions,
+            skipped=skipped,
+            count=len(queued),
+        )
+        self._maybe_resume_queue()
+
+    def _emit_onboarding_state(self) -> dict[str, Any]:
+        if not hasattr(self, "config"):
+            return self._guided_tour_state or {
+                "current_version": 2,
+                "seen_version": 0,
+                "version": "2.0.1",
+                "status": "not_seen",
+                "completed": False,
+                "skipped": False,
+                "eligible": True,
+            }
+        self._guided_tour_state = self.onboarding_state.ensure_guided_tour_state(self.config)
+        self._emit({"event": "onboarding_state",
+                    "guided_tour": dict(self._guided_tour_state),
+                    **self._guided_tour_state})
+        return dict(self._guided_tour_state)
+
+    def _get_onboarding_state(self, request_id: str | None, command: str) -> None:
+        state = self._emit_onboarding_state()
+        self._respond(request_id, command, guided_tour=state, **state)
+
+    def _set_guided_tour_state(self, request_id: str | None, command: str,
+                               payload: dict[str, Any]) -> None:
+        if not hasattr(self, "config"):
+            self._respond(request_id, command, ok=False, error="Runtime state is unavailable.")
+            return
+        status = payload.get("status") or payload.get("state")
+        state = self.onboarding_state.set_guided_tour_status(self.config, status)
+        self._guided_tour_state = state
+        self._emit({"event": "onboarding_state", "guided_tour": dict(state), **state})
+        self._respond(request_id, command, guided_tour=state, **state)
+
+    def _replay_guided_tour(self, request_id: str | None, command: str) -> None:
+        """Reset only the tour offer; the bridge starts a fresh demo session."""
+        if not hasattr(self, "config"):
+            self._respond(request_id, command, ok=False, error="Runtime state is unavailable.")
+            return
+        state = self.onboarding_state.set_guided_tour_status(self.config, "not_seen")
+        self._guided_tour_state = state
+        self._emit({"event": "onboarding_state", "replay": True,
+                    "guided_tour": dict(state), **state})
+        self._respond(request_id, command, replay=True, ready_to_start=True,
+                      guided_tour=state, **state)
+
+    def _record_guided_tour_terminal_state(self, reason: Any) -> dict[str, Any] | None:
+        """Persist explicit renderer demo-exit reasons at the state boundary.
+
+        The current renderer also keeps a legacy localStorage marker. Do not
+        make that browser-only marker authoritative: the sidecar owns the
+        durable state and can safely interpret the two explicit tour reasons
+        that cross the demo-session boundary. Operational cancellation and
+        runtime failure deliberately remain eligible for a later retry.
+        """
+        normalized = str(reason or "").strip().lower()
+        status = {
+            "tour_complete": "completed",
+            "tour_completed": "completed",
+            "complete": "completed",
+            "completed": "completed",
+            "tour_exit": "skipped",
+            "tour_skip": "skipped",
+            "skip": "skipped",
+            "skipped": "skipped",
+        }.get(normalized)
+        if status is None or not hasattr(self, "config"):
+            return None
+        state = self.onboarding_state.set_guided_tour_status(self.config, status)
+        self._guided_tour_state = state
+        self._emit({"event": "onboarding_state", "guided_tour": dict(state), **state})
+        return state
+
+    # ------------------------------------------------------------------ #
+    # Temporary guided-demo lifecycle
+    # ------------------------------------------------------------------ #
+    def _demo_marker_path(self) -> Path:
+        return self.data_dir / "demo-session.json"
+
+    def _write_demo_marker(self, session: dict[str, Any]) -> None:
+        self.FileManager.write_json_atomic(str(self._demo_marker_path()), {
+            "schema_version": 1,
+            "session_id": str(session["session_id"]),
+            "job_id": str(session["job_id"]),
+            "status": str(session.get("status") or "running"),
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        })
+
+    def _read_demo_marker(self) -> dict[str, Any] | None:
+        path = self._demo_marker_path()
+        if not path.is_file():
+            return None
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    def _is_demo_job(self, job: Any) -> bool:
+        manifest = getattr(job, "manifest", {}) or {}
+        return bool(
+            manifest.get("is_demo") is True
+            or manifest.get("bundled_demo") is True
+            or manifest.get("demo_session_id")
+        )
+
+    def _remove_demo_inputs(self) -> None:
+        target = self.data_dir / "demo-inputs"
+        if not (target.exists() or target.is_symlink() or os.path.islink(target)):
+            return
+        root = self.data_dir.resolve(strict=False)
+        resolved = target.resolve(strict=False)
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise RuntimeError(f"refusing to remove demo inputs outside data root: {target}") from exc
+        if target.is_symlink() or os.path.islink(target):
+            target.unlink()
+        else:
+            shutil.rmtree(target)
+
+    def _delete_demo_job(self, job_id: str) -> dict[str, Any]:
+        if not _SAFE_JOB_ID.fullmatch(str(job_id or "")):
+            return {"ok": False, "error": "invalid demo job id"}
+        result = self.electron_backend.delete_job(str(self.data_dir), str(job_id))
+        if result.get("ok") and hasattr(self, "queue"):
+            self.queue.remove(str(job_id))
+        return result
+
+    def _reconcile_demo_session_on_startup(self) -> None:
+        """Remove only explicitly marked demo jobs left by a crashed tour."""
+        if self._engine_error or not hasattr(self, "electron_backend"):
+            return
+        marker = self._read_demo_marker()
+        demo_ids: set[str] = set()
+        if marker and _SAFE_JOB_ID.fullmatch(str(marker.get("job_id") or "")):
+            demo_ids.add(str(marker["job_id"]))
+        jobs_root = self.data_dir / "jobs"
+        if jobs_root.is_dir():
+            for directory in jobs_root.iterdir():
+                manifest_path = directory / "manifest.json"
+                if not directory.is_dir() or not manifest_path.is_file():
+                    continue
+                try:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if isinstance(manifest, dict) and (
+                    manifest.get("is_demo") is True
+                    or manifest.get("bundled_demo") is True
+                    or manifest.get("demo_session_id")
+                ):
+                    if _SAFE_JOB_ID.fullmatch(directory.name):
+                        demo_ids.add(directory.name)
+        removed = 0
+        for job_id in sorted(demo_ids):
+            try:
+                result = self._delete_demo_job(job_id)
+                if result.get("ok"):
+                    removed += 1
+            except Exception as exc:  # noqa: BLE001 - startup must surface, not hide, cleanup faults
+                self._emit({"event": "error", "error": f"demo reconciliation: {exc}"})
+        if marker or removed:
+            try:
+                self._demo_marker_path().unlink(missing_ok=True)
+                self._remove_demo_inputs()
+            except (OSError, RuntimeError) as exc:
+                self._emit({"event": "error", "error": f"demo artifact cleanup: {exc}"})
+        if removed:
+            self._push_queue()
+
+    def _cleanup_demo_session(self, reason: str = "tour_end") -> dict[str, Any]:
+        session = self._demo_session or self._read_demo_marker()
+        if not session:
+            return {"ok": True, "status": "not_running"}
+        job_id = str(session.get("job_id") or "")
+        session_id = str(session.get("session_id") or "")
+        if not _SAFE_JOB_ID.fullmatch(job_id):
+            return {"ok": False, "error": "guided demo session has an invalid job id"}
+
+        # Study generation is intentionally independent of the media
+        # pipeline. Invalidate it before deleting the temporary job so a slow
+        # gateway response cannot recreate the demo directory afterward.
+        self._cancel_study_jobs([job_id])
+        self._cleaning_demo = True
+        try:
+            if self.current_job is not None and self.current_job.job_id == job_id:
+                if self.current_stage and self.controller is not None:
+                    self.controller.cancel()
+                    self.current_stage = ""
+                    if not self._drain_previous_run():
+                        return {"ok": False, "error": "guided demo workers did not stop safely"}
+            result = self._delete_demo_job(job_id)
+            if not result.get("ok") and (self.data_dir / "jobs" / job_id).exists():
+                return {"ok": False, "error": result.get("error") or "could not remove guided demo job"}
+            if self.current_job is not None and self.current_job.job_id == job_id:
+                self.current_job = None
+                self.current_stage = ""
+                self.stage_percent = {}
+                if self.controller is not None:
+                    self.controller.set_job(None)
+                self._emit({"event": "active_job", "id": "", "title": ""})
+            try:
+                self._demo_marker_path().unlink(missing_ok=True)
+                self._remove_demo_inputs()
+            except (OSError, RuntimeError) as exc:
+                return {"ok": False, "error": f"could not remove guided demo artifacts: {exc}"}
+            self._demo_session = None
+            guided_tour = self._record_guided_tour_terminal_state(reason)
+            self._emit({
+                "event": "demo_session",
+                "status": "cleaned",
+                "reason": str(reason or "tour_end"),
+                "session_id": session_id,
+                "job_id": job_id,
+            })
+            self._emit({"event": "jobs_changed", "jobs": [
+                self._summary(job) for job in self._job_objects()
+            ]})
+            self._push_queue()
+            return {
+                "ok": True,
+                "status": "cleaned",
+                "session_id": session_id,
+                "job_id": job_id,
+                **({"guided_tour": guided_tour} if guided_tour else {}),
+            }
+        finally:
+            self._cleaning_demo = False
+
+    def _end_demo_job(self, request_id: str | None, command: str,
+                      payload: dict[str, Any]) -> None:
+        session = self._demo_session
+        reason = str(payload.get("reason") or "tour_end")
+        if session is None:
+            guided_tour = self._record_guided_tour_terminal_state(reason)
+            self._respond(request_id, command, ok=True, status="not_running",
+                          **({"guided_tour": guided_tour} if guided_tour else {}))
+            return
+        requested = str(payload.get("job_id") or "")
+        if requested and requested != str(session.get("job_id")):
+            self._respond(request_id, command, ok=False,
+                          error="guided demo session does not match requested job")
+            return
+        result = self._cleanup_demo_session(reason)
+        self._respond(request_id, command, **result)
+
+    def _reset_lecturepack(self, request_id: str | None, command: str) -> None:
+        """Stop workers, clear known data-root state, and report failures."""
+        self._cancel_all_study_work()
+        with self._download_lock:
+            for event in self._download_cancel.values():
+                event.set()
+            for item in self._downloads.values():
+                if item.get("status") in {"waiting", "downloading"}:
+                    item["status"] = "cancelled"
+            self._persist_downloads_locked()
+        if self.controller is not None:
+            try:
+                self.controller.cancel()
+            except Exception:
+                pass
+        self.current_stage = ""
+        if not self._drain_previous_run(timeout_ms=8000):
+            self._respond(request_id, command, ok=False,
+                          error="LecturePack workers did not stop safely; reset was not completed.")
+            return
+        result = self.reset_service.reset_data_root(self.data_dir)
+        if not result.get("ok"):
+            self._respond(request_id, command, ok=False, error="LecturePack reset could not remove all owned state.",
+                          reset=result)
+            return
+        self.current_job = None
+        self._demo_session = None
+        self.current_stage = ""
+        self.stage_percent = {}
+        if self.controller is not None:
+            self.controller.set_job(None)
+        self._downloads.clear()
+        self._download_order.clear()
+        self._download_cancel.clear()
+        self.config = self.ConfigManager(str(self.data_dir))
+        self._guided_tour_state = self.onboarding_state.ensure_guided_tour_state(self.config)
+        self.queue = self.JobQueue(str(self.data_dir))
+        self._emit({"event": "active_job", "id": "", "title": ""})
+        self._emit({"event": "jobs_changed", "jobs": []})
+        self._push_queue()
+        self._emit_downloads()
+        self._emit_onboarding_state()
+        self._respond(request_id, command, reset=result,
+                      guided_tour=self._guided_tour_state,
+                      relaunch_required=True)
 
     def _search_transcripts(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         """Search processed transcript text across completed jobs.
@@ -1326,7 +1972,13 @@ class Sidecar:
         job = self._job_for(payload)
         if payload.get("mode"):
             job.settings["product_mode"] = self._product_mode(payload.get("mode"))
-        if payload.get("preset"):
+        # The bundled demo keeps the preset calibrated for it. The bridge always
+        # sends a preset here (payload.preset or the current setting), so
+        # without this guard the "demo" preset chosen at import is overwritten
+        # with "balanced" the instant the job starts -- which is how the demo
+        # came to detect 2 slides in a 4-slide lecture while the code that
+        # picked the right preset looked correct.
+        if payload.get("preset") and not self._is_demo_job(job):
             job.settings["preset"] = self._preset(payload.get("preset"))
         job.settings.setdefault("whisper", {})["engine"] = "cpu"
         job.settings["whisper"]["transcription_backend"] = "local-whispercpp"
@@ -1466,15 +2118,19 @@ class Sidecar:
             raise ValueError("transcript corrections must be an array")
         segments = self.transcript_store.load_working(job.paths)
         changed = 0
-        for segment, value in zip(segments, texts):
+        changed_segment_ids: list[str] = []
+        for index, (segment, value) in enumerate(zip(segments, texts)):
             text = str(value)
             if segment.get("text", "") != text:
                 segment["text"] = text
                 segment["edited"] = True
                 changed += 1
+                changed_segment_ids.append(str(index))
         self.transcript_store.save_working(job.paths, segments)
         transcript = self._transcript(job)
         self._emit({"event": "transcript_changed", "job": job.job_id, **transcript})
+        if changed_segment_ids:
+            self._start_partial_study_refresh(job, changed_segment_ids)
         self._respond(request_id, command, job_id=job.job_id, saved=True, changed=changed)
 
     def _export(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
@@ -1590,6 +2246,7 @@ class Sidecar:
     # ------------------------------------------------------------------ #
     def _delete_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         job_id = str(payload.get("job_id") or "")
+        self._cancel_study_jobs([job_id])
         result = self.electron_backend.delete_job(str(self.data_dir), job_id)
         self._emit({"event": "job_deleted", **result})
         if result.get("ok"):
@@ -1607,6 +2264,8 @@ class Sidecar:
                 ids = json.loads(ids)
             except json.JSONDecodeError:
                 ids = []
+        ids = [str(value) for value in (ids or [])]
+        self._cancel_study_jobs(ids)
         result = self.electron_backend.delete_jobs(str(self.data_dir), ids)
         self._emit({"event": "job_deleted", **result})
         if result.get("ok"):
@@ -2284,8 +2943,349 @@ class Sidecar:
             "notes": notes,
         })
 
+    def _gateway_client(self):
+        """Return the one anonymous, server-routed Study gateway client."""
+        with self._study_workers_lock:
+            if self._ai_gateway_client is None:
+                self._ai_gateway_client = self.ai_gateway.GatewayClient(self.data_dir)
+            return self._ai_gateway_client
+
+    def _emit_study_generation(self, payload: dict[str, Any]) -> None:
+        """Forward background Study progress without exposing provider details."""
+        clean = dict(payload or {})
+        job_id = str(clean.pop("job_id", "") or "")
+        if "error" in clean:
+            clean["error"] = str(clean.get("error") or "Study AI needs attention.")[:500]
+        self._emit({"event": "study_generation", "job": job_id, **clean})
+
+    def _study_epoch_is_current(self, job_id: str, epoch: int) -> bool:
+        with self._study_workers_lock:
+            return int(self._study_job_epochs.get(str(job_id or ""), 0)) == int(epoch)
+
+    def _cancel_study_jobs(self, job_ids: list[str]) -> None:
+        """Invalidate asynchronous Study work without blocking the UI thread."""
+        safe_ids = {
+            str(job_id) for job_id in (job_ids or [])
+            if _SAFE_JOB_ID.fullmatch(str(job_id or ""))
+        }
+        if not safe_ids:
+            return
+        with self._study_workers_lock:
+            for job_id in safe_ids:
+                self._study_job_epochs[job_id] = int(
+                    self._study_job_epochs.get(job_id, 0)) + 1
+                self._pending_study_refresh.pop(job_id, None)
+                self._study_basic_opt_out.discard(job_id)
+
+    def _cancel_all_study_work(self) -> None:
+        with self._study_workers_lock:
+            job_ids = set(self._study_workers)
+            job_ids.update(self._ai_interaction_jobs.values())
+        self._cancel_study_jobs(sorted(job_ids))
+
+    def _purge_cancelled_study_output(self, job_id: str) -> None:
+        """Remove only a manifest-less directory recreated by cancelled Study.
+
+        The normal delete/reset path owns the real job (and its manifest). A
+        late Study write can create only Study JSON files. Requiring the
+        manifest to be absent prevents this final race guard from ever
+        deleting a valid lecture when a requested delete itself failed.
+        """
+        if not _SAFE_JOB_ID.fullmatch(str(job_id or "")):
+            return
+        target = self.data_dir / "jobs" / str(job_id)
+        if not target.is_dir() or (target / "manifest.json").is_file():
+            return
+        jobs_root = (self.data_dir / "jobs").resolve(strict=False)
+        resolved = target.resolve(strict=False)
+        if resolved.parent != jobs_root:
+            return
+        try:
+            self.electron_backend.delete_job(str(self.data_dir), str(job_id))
+        except Exception:
+            # This is a last-ditch race guard. The next startup reconciliation
+            # and normal reset remain available if Windows temporarily locks
+            # the tiny, manifest-less directory.
+            pass
+
+    def _study_worker_running(self, job_id: str) -> bool:
+        with self._study_workers_lock:
+            worker = self._study_workers.get(str(job_id or ""))
+            return bool(worker and worker.is_alive())
+
+    def _adopt_demo_study_cache(self, job: Any) -> bool:
+        """Serve the shipped Study pack for the bundled demo lecture.
+
+        Returns True only when a matching cache was actually persisted. Every
+        failure -- no cache, a swapped demo video, a transcript or slide list
+        that no longer has the shape the cache was captured against -- returns
+        False and lets the normal build run. A stale cache must cost time, not
+        correctness, so the match is deliberately strict: half-matching would
+        attach real-looking citations to the wrong timestamps.
+        """
+        if not self._is_demo_job(job):
+            return False
+        try:
+            from lecturepack.services import demo_study_cache
+
+            path = demo_study_cache.find_cache(self.runtime_root, self.repo_root)
+            if not path:
+                return False
+            cache = demo_study_cache.load_cache(path)
+            if cache is None:
+                return False
+            source = (job.manifest or {}).get("source") or {}
+            video = str(source.get("original_path") or "")
+            if not video or not os.path.isfile(video):
+                return False
+            segments = self.study_v2._load_segments(job)
+            slides = self.study_v2._load_accepted_slides(job)
+            if not demo_study_cache.matches(cache, video, len(segments), len(slides)):
+                return False
+            self.study_v2.save_content(job, demo_study_cache.content_for(cache))
+        except Exception:  # noqa: BLE001 - the demo falls back to a real build
+            return False
+        self._emit_study_generation({
+            "job_id": str(job.job_id),
+            "status": self.study_v2.STUDY_READY,
+            "stage": "Ready",
+            "progress_percent": 100,
+            "error": "",
+        })
+        return True
+
+    def _start_ai_study(self, job: Any, *, force: bool = False) -> bool:
+        """Start the canonical two-pass Study build once per job."""
+        if self._shutting_down or job is None:
+            return False
+        job_id = str(job.job_id)
+        content = self.study_v2.load_content(job)
+        if not force and content.get("study_status") in {
+                self.study_v2.STUDY_READY, self.study_v2.STUDY_BASIC}:
+            return False
+        # The guided demo serves a pre-built pack for its own bundled lecture.
+        # A real build of that lecture measures 15.6s of gateway work on top of
+        # local processing -- a long hold for someone still being shown around.
+        # force=True (the student pressing Regenerate) skips the cache, so a
+        # real build is always reachable.
+        if not force and self._adopt_demo_study_cache(job):
+            return False
+        with self._study_workers_lock:
+            existing = self._study_workers.get(job_id)
+            if existing and existing.is_alive():
+                return False
+            if force:
+                self._study_basic_opt_out.discard(job_id)
+            epoch = int(self._study_job_epochs.get(job_id, 0))
+            self.study_v2.update_generation_state(
+                job, stage="Queued for Study AI", progress_percent=1,
+                last_successful_stage="Local lecture processing")
+
+            def worker() -> None:
+                try:
+                    def progress(payload: dict[str, Any]) -> None:
+                        with self._study_workers_lock:
+                            opted_out = job_id in self._study_basic_opt_out
+                            current = int(self._study_job_epochs.get(job_id, 0)) == epoch
+                        if current and not opted_out:
+                            self._emit_study_generation(payload)
+
+                    def cancelled() -> bool:
+                        with self._study_workers_lock:
+                            return (
+                                job_id in self._study_basic_opt_out
+                                or int(self._study_job_epochs.get(job_id, 0)) != epoch
+                            )
+
+                    self.ai_study_service.prepare_ai_study(
+                        job, self._gateway_client(), progress=progress,
+                        cancelled=cancelled)
+                except (self.ai_gateway.GatewayError,
+                        self.ai_study_service.StudyContentError):
+                    # The service already persisted a safe, retryable failure.
+                    pass
+                except Exception:  # noqa: BLE001 - background boundary
+                    if self._study_epoch_is_current(job_id, epoch):
+                        self.study_v2.mark_generation_failed(
+                            job,
+                            code="unexpected_generation_error",
+                            message="Study AI could not finish. Retry, or use Basic Study.",
+                            diagnostics={"last_successful_stage": "Local lecture processing"},
+                        )
+                        self._emit_study_generation({
+                            "job_id": job_id,
+                            "status": self.study_v2.STUDY_FAILED,
+                            "stage": "Study AI needs attention",
+                            "progress_percent": 0,
+                            "error": "Study AI could not finish. Retry, or use Basic Study.",
+                        })
+                finally:
+                    with self._study_workers_lock:
+                        opted_out = job_id in self._study_basic_opt_out
+                    if opted_out and self._study_epoch_is_current(job_id, epoch):
+                        self.study_v2.use_basic_study(job)
+                        self._emit_study_generation({
+                            "job_id": job_id,
+                            "status": self.study_v2.STUDY_BASIC,
+                            "stage": "Basic Study ready",
+                            "progress_percent": 100,
+                        })
+                    pending: dict[str, set[str]] = {}
+                    with self._study_workers_lock:
+                        self._study_workers.pop(job_id, None)
+                        pending = self._pending_study_refresh.pop(job_id, {})
+                        current = int(self._study_job_epochs.get(job_id, 0)) == epoch
+                    if not current:
+                        self._purge_cancelled_study_output(job_id)
+                    elif pending and not self._shutting_down:
+                        self._start_partial_study_refresh(
+                            job,
+                            list(pending.get("segments", set())),
+                            concept_ids=list(pending.get("concepts", set())),
+                            expected_epoch=epoch,
+                        )
+
+            thread = threading.Thread(
+                target=worker, daemon=True, name=f"lp-study-build-{job_id[:16]}")
+            self._study_workers[job_id] = thread
+            self._emit_study_generation({
+                "job_id": job_id,
+                "status": self.study_v2.STUDY_PREPARING,
+                "stage": "Queued for Study AI",
+                "progress_percent": 1,
+            })
+            thread.start()
+        return True
+
+    def _start_partial_study_refresh(self, job: Any,
+                                     changed_segment_ids: list[str], *,
+                                     concept_ids: list[str] | None = None,
+                                     expected_epoch: int | None = None) -> bool:
+        """Refresh only concepts connected to edited lecture evidence."""
+        if self._shutting_down or job is None:
+            return False
+        job_id = str(job.job_id)
+        segments = {str(value) for value in (changed_segment_ids or []) if str(value)}
+        concepts = {str(value) for value in (concept_ids or []) if str(value)}
+        if not segments and not concepts:
+            return False
+        with self._study_workers_lock:
+            current_epoch = int(self._study_job_epochs.get(job_id, 0))
+            if expected_epoch is not None and current_epoch != int(expected_epoch):
+                return False
+            existing = self._study_workers.get(job_id)
+            if existing and existing.is_alive():
+                pending = self._pending_study_refresh.setdefault(
+                    job_id, {"segments": set(), "concepts": set()})
+                pending["segments"].update(segments)
+                pending["concepts"].update(concepts)
+                return True
+            epoch = current_epoch
+
+            def worker() -> None:
+                try:
+                    def progress(payload: dict[str, Any]) -> None:
+                        if self._study_epoch_is_current(job_id, epoch):
+                            self._emit_study_generation(payload)
+
+                    def cancelled() -> bool:
+                        with self._study_workers_lock:
+                            return (
+                                job_id in self._study_basic_opt_out
+                                or int(self._study_job_epochs.get(job_id, 0)) != epoch
+                            )
+
+                    self.ai_study_service.regenerate_affected(
+                        job,
+                        self._gateway_client(),
+                        sorted(segments),
+                        concept_ids=sorted(concepts) or None,
+                        progress=progress,
+                        cancelled=cancelled,
+                    )
+                # A gateway outage or an unusable provider response is the
+                # LIKELIEST way a regeneration fails, and swallowing it made
+                # Regenerate look like a dead button: the student got an
+                # optimistic toast, then nothing changed and nothing was ever
+                # reported. Every failure now reaches the UI.
+                except (self.ai_gateway.GatewayError,
+                        self.ai_study_service.StudyContentError) as exc:
+                    if self._study_epoch_is_current(job_id, epoch):
+                        self._emit_study_generation({
+                            "job_id": job_id,
+                            "status": self.study_v2.load_content(job).get("study_status"),
+                            "stage": "Concept refresh needs attention",
+                            "progress_percent": 0,
+                            "refresh_status": "failed",
+                            "error": str(exc)[:300]
+                            or "The Study items could not be refreshed.",
+                        })
+                except Exception:  # noqa: BLE001 - background boundary
+                    if self._study_epoch_is_current(job_id, epoch):
+                        self._emit_study_generation({
+                            "job_id": job_id,
+                            "status": self.study_v2.load_content(job).get("study_status"),
+                            "stage": "Concept refresh needs attention",
+                            "progress_percent": 0,
+                            "refresh_status": "failed",
+                            "error": "The edited Study items could not be refreshed.",
+                        })
+                finally:
+                    with self._study_workers_lock:
+                        opted_out = job_id in self._study_basic_opt_out
+                    if opted_out and self._study_epoch_is_current(job_id, epoch):
+                        self.study_v2.use_basic_study(job)
+                    pending: dict[str, set[str]] = {}
+                    with self._study_workers_lock:
+                        self._study_workers.pop(job_id, None)
+                        pending = self._pending_study_refresh.pop(job_id, {})
+                        current = int(self._study_job_epochs.get(job_id, 0)) == epoch
+                    if not current:
+                        self._purge_cancelled_study_output(job_id)
+                    elif pending and not self._shutting_down:
+                        self._start_partial_study_refresh(
+                            job,
+                            list(pending.get("segments", set())),
+                            concept_ids=list(pending.get("concepts", set())),
+                            expected_epoch=epoch,
+                        )
+
+            thread = threading.Thread(
+                target=worker, daemon=True, name=f"lp-study-refresh-{job_id[:16]}")
+            self._study_workers[job_id] = thread
+            thread.start()
+        return True
+
+    def _start_ai_interaction(self, key: str, target: Any, *, job_id: str = "") -> bool:
+        """Run an Ask/Teach/grade interaction off the Qt command loop."""
+        if self._shutting_down:
+            return False
+        with self._study_workers_lock:
+            existing = self._ai_interaction_workers.get(key)
+            if existing and existing.is_alive():
+                return False
+            epoch = int(self._study_job_epochs.get(job_id, 0))
+
+            def worker() -> None:
+                try:
+                    target()
+                finally:
+                    with self._study_workers_lock:
+                        self._ai_interaction_workers.pop(key, None)
+                        self._ai_interaction_jobs.pop(key, None)
+                        current = int(self._study_job_epochs.get(job_id, 0)) == epoch
+                    if job_id and not current:
+                        self._purge_cancelled_study_output(job_id)
+
+            thread = threading.Thread(
+                target=worker, daemon=True, name=f"lp-study-interaction-{key[:24]}")
+            self._ai_interaction_workers[key] = thread
+            self._ai_interaction_jobs[key] = job_id
+            thread.start()
+        return True
+
     def _ask_ai(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
-        prompt = str(payload.get("prompt") or "")
+        prompt = str(payload.get("prompt") or "").strip()
         try:
             job = self._job_for(payload)
         except (FileNotFoundError, RuntimeError):
@@ -2294,68 +3294,79 @@ class Sidecar:
             self._emit({"event": "ai_done"})
             self._respond(request_id, command, ok=True, job_id="")
             return
-        segments = self.transcript_store.load_working(job.paths) or []
-        try:
-            study_content = self.study_v2.ensure_study_v2(job)
-        except Exception:
-            study_content = self.study_v2.load_content(job)
-        o = self._ollama_settings()
-        local_ready = bool(o.get("enabled") and o.get("model"))
-        if not local_ready:
-            answer = self.electron_study.builtin_answer(prompt, segments, study_content)
-            self._emit({"event": "ai_token", "job": job.job_id, "text": answer})
-            self._emit({"event": "ai_sources",
-                        "job": job.job_id,
-                        "sources": self.electron_study.builtin_sources(
-                            prompt, segments, content=study_content)})
-            self._emit({"event": "ai_done", "job": job.job_id})
-            self._emit({"event": "ai_status",
-                        "job": job.job_id,
-                        "label": self.study_presets.PROVIDER_BUILTIN, "model": ""})
-            try:
-                self.study_service.append_chat_message(job, "user", prompt)
-                self.study_service.append_chat_message(job, "assistant", answer)
-            except Exception:
-                pass
-            self._respond(request_id, command, ok=True, job_id=job.job_id)
+        if not prompt:
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error="Ask a question first.")
             return
-        # Local AI path: use the existing StudyAssistantWorker (Qt thread).
-        from lecturepack.services.study_assistant_service import StudyAssistantWorker
-        transcript_text = StudyAssistantWorker.transcript_context(segments)
-        self._emit({"event": "ai_status", "job": job.job_id,
-                    "label": "Thinking…", "model": o.get("model")})
-        worker = StudyAssistantWorker(
-            "chat", transcript_text, o, history=[], question=prompt, count=5)
-        self._ai_worker = worker
-
-        def ok(task, result):
-            answer = (result or {}).get("answer", "") if isinstance(result, dict) else ""
-            answer = answer or "I couldn't find an answer in the transcript."
+        study_content = self.study_v2.load_content(job)
+        if study_content.get("study_status") == self.study_v2.STUDY_BASIC:
+            segments = self.transcript_store.load_working(job.paths) or []
+            answer = self.electron_study.builtin_answer(
+                prompt, segments, study_content)
             self._emit({"event": "ai_token", "job": job.job_id, "text": answer})
-            self._emit({"event": "ai_sources",
-                        "job": job.job_id,
-                        "sources": self.electron_study.builtin_sources(
-                            prompt, segments, content=study_content)})
-            self._emit({"event": "ai_done", "job": job.job_id})
-            self._emit({"event": "ai_status",
-                        "job": job.job_id,
-                        "label": self.study_presets.PROVIDER_LOCAL, "model": o.get("model")})
-            try:
-                self.study_service.append_chat_message(job, "user", prompt)
-                self.study_service.append_chat_message(job, "assistant", answer)
-            except Exception:
-                pass
-
-        def fail(kind, message, details):
-            self._emit({"event": "ai_token", "job": job.job_id, "text": f"⚠ {message}"})
+            self._emit({
+                "event": "ai_sources", "job": job.job_id,
+                "sources": self.electron_study.builtin_sources(
+                    prompt, segments, content=study_content),
+            })
             self._emit({"event": "ai_done", "job": job.job_id})
             self._emit({"event": "ai_status", "job": job.job_id,
-                        "label": "AI error", "model": o.get("model")})
+                        "label": "Basic Study", "state": "ready"})
+            self._respond(request_id, command, ok=True, job_id=job.job_id,
+                          started=False, basic=True)
+            return
+        self._emit({"event": "ai_status", "job": job.job_id,
+                    "label": "LecturePack Study", "state": "thinking"})
 
-        worker.finished_ok.connect(ok)
-        worker.failed.connect(fail)
-        worker.start()
-        self._respond(request_id, command, ok=True, job_id=job.job_id)
+        def interaction() -> None:
+            try:
+                result = self.ai_study_service.ask(
+                    job, self._gateway_client(), prompt)
+                lecture_sources = list(
+                    result.get("lecture_sources") or result.get("sources") or [])
+                web_sources = [
+                    {**source, "kind": "web"}
+                    for source in (result.get("web_sources") or [])
+                    if isinstance(source, dict)
+                ]
+                self._emit({
+                    "event": "ai_token", "job": job.job_id,
+                    "text": str(result.get("answer") or
+                                "I could not find that in this lecture."),
+                })
+                self._emit({
+                    "event": "ai_sources", "job": job.job_id,
+                    "sources": lecture_sources + web_sources,
+                    # An answer the lecture does not cover carries no lecture
+                    # sources by design. Pass the declaration through so the UI
+                    # can say where it came from instead of showing nothing.
+                    "provenance": str(result.get("provenance") or ""),
+                })
+                self._emit({"event": "ai_done", "job": job.job_id})
+                self._emit({"event": "ai_status", "job": job.job_id,
+                            "label": "LecturePack Study", "state": "ready"})
+            except (self.ai_gateway.GatewayError,
+                    self.ai_study_service.StudyContentError,
+                    ValueError) as exc:
+                message = str(exc)[:500] or "Study AI could not answer that question."
+                self._emit({"event": "ai_token", "job": job.job_id,
+                            "text": message})
+                self._emit({"event": "ai_done", "job": job.job_id})
+                self._emit({"event": "ai_status", "job": job.job_id,
+                            "label": "Study AI needs attention", "state": "error"})
+            except Exception:  # noqa: BLE001 - background boundary
+                self._emit({
+                    "event": "ai_token", "job": job.job_id,
+                    "text": "Study AI could not answer right now. Please retry.",
+                })
+                self._emit({"event": "ai_done", "job": job.job_id})
+                self._emit({"event": "ai_status", "job": job.job_id,
+                            "label": "Study AI needs attention", "state": "error"})
+
+        key = f"ask:{job.job_id}:{request_id or time.monotonic_ns()}"
+        started = self._start_ai_interaction(key, interaction, job_id=job.job_id)
+        self._respond(request_id, command, ok=started, job_id=job.job_id,
+                      started=started)
 
     def _generate_quiz(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         job = self.current_job
@@ -2596,12 +3607,22 @@ class Sidecar:
     # Study V2: grounded concepts, mastery, quick study
     # ------------------------------------------------------------------ #
     def _study_v2_status(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
-        """Return the full Study V2 snapshot: content, progress, summary, and
-        the Rust core diagnostic. Ensures Study V2 content exists (old-job
-        migration) before returning."""
+        """Return Study state and automatically migrate eligible old jobs."""
         job = self._job_for(payload)
         try:
-            content = self.study_v2.ensure_study_v2(job)
+            content = self.study_v2.load_content(job)
+            metadata = content.get("generation_metadata") or {}
+            has_transcript = bool(self.transcript_store.load_working(job.paths))
+            should_start = (
+                content.get("study_status") == self.study_v2.STUDY_PREPARING
+                or (
+                    content.get("study_status") == self.study_v2.STUDY_BASIC
+                    and metadata.get("basic_reason") == "legacy_migration"
+                )
+            )
+            if has_transcript and should_start and not self._study_worker_running(job.job_id):
+                self._start_ai_study(job)
+                content = self.study_v2.load_content(job)
         except Exception as exc:  # noqa: BLE001 - never crash on bad study data
             self._respond(request_id, command, ok=False, job_id=job.job_id,
                           error=f"Study data could not be loaded: {exc}")
@@ -2611,7 +3632,65 @@ class Sidecar:
         core_info = self.study_v2.study_core_info()
         self._respond(request_id, command, ok=True, job_id=job.job_id,
                       content=content, progress=progress, summary=summary,
-                      core_info=core_info)
+                      core_info=core_info,
+                      worker_running=self._study_worker_running(job.job_id))
+
+    def _study_v2_retry(self, request_id: str | None, command: str,
+                        payload: dict[str, Any]) -> None:
+        """Explicitly retry the full Study AI generation path."""
+        job = self._job_for(payload)
+        if not self.transcript_store.load_working(job.paths):
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error="A transcript is required before Study AI can run.")
+            return
+        started = self._start_ai_study(job, force=True)
+        self._respond(request_id, command, ok=started, job_id=job.job_id,
+                      started=started, content=self.study_v2.load_content(job))
+
+    def _study_v2_use_basic(self, request_id: str | None, command: str,
+                            payload: dict[str, Any]) -> None:
+        """Honor the user's explicit Basic Study choice for this job."""
+        job = self._job_for(payload)
+        with self._study_workers_lock:
+            self._study_basic_opt_out.add(str(job.job_id))
+        try:
+            content = self.study_v2.use_basic_study(job)
+        except Exception as exc:  # noqa: BLE001 - user-facing boundary
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error=f"Basic Study could not be prepared: {exc}")
+            return
+        self._emit_study_generation({
+            "job_id": job.job_id,
+            "status": self.study_v2.STUDY_BASIC,
+            "stage": "Basic Study ready",
+            "progress_percent": 100,
+        })
+        self._respond(request_id, command, ok=True, job_id=job.job_id,
+                      content=content)
+
+    def _study_v2_copy_diagnostics(self, request_id: str | None, command: str,
+                                   payload: dict[str, Any]) -> None:
+        """Return only safe, secret-free support diagnostics."""
+        job = self._job_for(payload)
+        self._respond(
+            request_id, command, ok=True, job_id=job.job_id,
+            diagnostics=self.ai_study_service.diagnostics(job))
+
+    def _study_v2_set_mastery(self, request_id: str | None, command: str,
+                              payload: dict[str, Any]) -> None:
+        """Apply a manual mastery correction through the persisted model."""
+        job = self._job_for(payload)
+        concept_id = str(payload.get("concept_id") or "")
+        mastery = str(payload.get("mastery") or "")
+        try:
+            progress = self.study_v2.set_manual_mastery(job, concept_id, mastery)
+        except ValueError as exc:
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error=str(exc))
+            return
+        self._respond(
+            request_id, command, ok=True, job_id=job.job_id,
+            progress=progress, summary=self.study_v2.calculate_study_summary(job))
 
     def _study_v2_record_flashcard(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         """Record a flashcard review result through the Rust core."""
@@ -2665,17 +3744,195 @@ class Sidecar:
         self._respond(request_id, command, ok=True, job_id=job.job_id,
                       progress=progress, summary=summary)
 
+    def _study_v2_grade_short_answer(self, request_id: str | None, command: str,
+                                     payload: dict[str, Any]) -> None:
+        """Semantically grade a short answer through the Study gateway."""
+        job = self._job_for(payload)
+        question_id = str(payload.get("question_id") or "")
+        question = str(payload.get("question") or "")
+        rubric = str(payload.get("rubric") or payload.get("ideal_answer") or "")
+        answer = str(payload.get("answer") or "").strip()
+        concept_ids = payload.get("concept_ids") or []
+        if isinstance(concept_ids, str):
+            try:
+                concept_ids = json.loads(concept_ids)
+            except json.JSONDecodeError:
+                concept_ids = []
+        if not isinstance(concept_ids, list):
+            concept_ids = []
+        content = self.study_v2.load_content(job)
+        item = None
+        if question_id:
+            item = next((value for value in content.get("quiz", [])
+                         if str(value.get("id") or "") == question_id), None)
+            if item:
+                question = str(item.get("question") or question)
+                rubric = str(item.get("rubric") or item.get("ideal_answer") or
+                             item.get("explanation") or rubric)
+                concept_ids = list(item.get("concept_ids") or concept_ids)
+        if not question or not answer:
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error="A question and answer are required.")
+            return
+        if content.get("study_status") == self.study_v2.STUDY_BASIC:
+            source_item = item or next((value for value in content.get("teach_me_foundations", [])
+                                        if str(value.get("concept_id") or "") in {
+                                            str(cid) for cid in concept_ids}), {})
+            ideal = ""
+            if item:
+                ideal = str((item.get("accepted_answers") or [""])[0] or "")
+            ideal = ideal or rubric
+            expected_words = {
+                word.casefold() for word in re.findall(r"[A-Za-z0-9']+", ideal)
+                if len(word) > 2
+            }
+            answer_words = {
+                word.casefold() for word in re.findall(r"[A-Za-z0-9']+", answer)
+                if len(word) > 2
+            }
+            score = min(1.0, len(expected_words & answer_words) /
+                        max(1, min(8, len(expected_words))))
+            correct = score >= 0.5
+            result = {
+                "correct": correct,
+                "score": round(score, 3),
+                "feedback": (
+                    "Your answer covers the main Basic Study points."
+                    if correct else
+                    "Compare your answer with the lecture-backed explanation and try again."
+                ),
+                "ideal_answer": ideal,
+                "concept_ids": [str(value) for value in concept_ids],
+                "sources": list(source_item.get("sources") or []),
+                "lecture_sources": list(source_item.get("lecture_sources") or
+                                         source_item.get("sources") or []),
+                "web_sources": [],
+                "provenance": "lecture",
+                "basic": True,
+            }
+            progress = self.study_v2.record_quiz_result(
+                job, question_id or f"basic-{time.monotonic_ns()}",
+                [str(value) for value in concept_ids], correct)
+            self._emit({
+                "event": "study_short_answer_graded", "job": job.job_id,
+                "question_id": question_id, "ok": True, "result": result,
+                "progress": progress,
+                "summary": self.study_v2.calculate_study_summary(job),
+            })
+            self._respond(request_id, command, ok=True, job_id=job.job_id,
+                          started=False, basic=True, question_id=question_id)
+            return
+
+        def interaction() -> None:
+            try:
+                result = self.ai_study_service.grade_short_answer(
+                    job, self._gateway_client(), question=question,
+                    answer=answer, rubric=rubric,
+                    concept_ids=[str(value) for value in concept_ids])
+                progress = self.study_v2.load_progress(job)
+                if question_id:
+                    progress = self.study_v2.record_quiz_result(
+                        job, question_id, [str(value) for value in concept_ids],
+                        bool(result.get("correct")))
+                self._emit({
+                    "event": "study_short_answer_graded",
+                    "job": job.job_id,
+                    "question_id": question_id,
+                    "ok": True,
+                    "result": result,
+                    "progress": progress,
+                    "summary": self.study_v2.calculate_study_summary(job),
+                })
+            except (self.ai_gateway.GatewayError,
+                    self.ai_study_service.StudyContentError,
+                    ValueError) as exc:
+                self._emit({
+                    "event": "study_short_answer_graded",
+                    "job": job.job_id,
+                    "question_id": question_id,
+                    "ok": False,
+                    "error": str(exc)[:500],
+                })
+            except Exception:  # noqa: BLE001 - background boundary
+                self._emit({
+                    "event": "study_short_answer_graded",
+                    "job": job.job_id,
+                    "question_id": question_id,
+                    "ok": False,
+                    "error": "Study AI could not grade this answer right now.",
+                })
+
+        key = f"grade:{job.job_id}:{request_id or time.monotonic_ns()}"
+        started = self._start_ai_interaction(key, interaction, job_id=job.job_id)
+        self._respond(request_id, command, ok=started, job_id=job.job_id,
+                      started=started, question_id=question_id)
+
     def _study_v2_quick_study(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         """Build a Quick Study session using the Rust core."""
         job = self._job_for(payload)
+        minutes = payload.get("minutes", payload.get("duration", 10))
         try:
-            session = self.study_v2.build_quick_study_session(job)
+            session = self.study_v2.build_quick_study_session(job, minutes=minutes)
         except Exception as exc:  # noqa: BLE001 - never crash on bad study data
             self._respond(request_id, command, ok=False, job_id=job.job_id,
                           error=f"Could not build Quick Study: {exc}")
             return
         self._respond(request_id, command, ok=True, job_id=job.job_id,
                       session=session)
+
+    def _study_v2_teach_me(self, request_id: str | None, command: str,
+                           payload: dict[str, Any]) -> None:
+        """Generate one concept-scoped teaching step and comprehension check."""
+        job = self._job_for(payload)
+        concept_id = str(payload.get("concept_id") or "")
+        if not concept_id:
+            self._respond(request_id, command, ok=False, job_id=job.job_id,
+                          error="Choose a concept first.")
+            return
+        content = self.study_v2.load_content(job)
+        if content.get("study_status") == self.study_v2.STUDY_BASIC:
+            foundation = next((item for item in content.get("teach_me_foundations", [])
+                               if str(item.get("concept_id") or "") == concept_id), None)
+            if foundation is None:
+                self._respond(request_id, command, ok=False, job_id=job.job_id,
+                              error="This concept does not have a Basic Study lesson.")
+                return
+            self._emit({
+                "event": "study_teach_ready", "job": job.job_id,
+                "concept_id": concept_id, "ok": True,
+                "result": {**foundation, "basic": True},
+            })
+            self._respond(request_id, command, ok=True, job_id=job.job_id,
+                          started=False, basic=True, concept_id=concept_id)
+            return
+
+        def interaction() -> None:
+            try:
+                result = self.ai_study_service.teach_me(
+                    job, self._gateway_client(), concept_id)
+                self._emit({
+                    "event": "study_teach_ready", "job": job.job_id,
+                    "concept_id": concept_id, "ok": True, "result": result,
+                })
+            except (self.ai_gateway.GatewayError,
+                    self.ai_study_service.StudyContentError,
+                    ValueError) as exc:
+                self._emit({
+                    "event": "study_teach_ready", "job": job.job_id,
+                    "concept_id": concept_id, "ok": False,
+                    "error": str(exc)[:500],
+                })
+            except Exception:  # noqa: BLE001 - background boundary
+                self._emit({
+                    "event": "study_teach_ready", "job": job.job_id,
+                    "concept_id": concept_id, "ok": False,
+                    "error": "Study AI could not prepare this lesson right now.",
+                })
+
+        key = f"teach:{job.job_id}:{concept_id}"
+        started = self._start_ai_interaction(key, interaction, job_id=job.job_id)
+        self._respond(request_id, command, ok=started, job_id=job.job_id,
+                      started=started, concept_id=concept_id)
 
     def _study_v2_summary(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         """Return the study summary (mastery counts, progress percent)."""
@@ -2731,17 +3988,126 @@ class Sidecar:
         job = self._job_for(payload)
         kind = str(payload.get("kind") or "")
         item_id = str(payload.get("id") or "")
-        # For V1, regeneration falls back to deterministic content for the
-        # whole pack (the AI path is wired through the existing async worker).
-        # A targeted single-item regeneration is a future refinement.
-        try:
-            content = self.study_v2.ensure_study_v2(job)
-        except Exception as exc:  # noqa: BLE001 - never crash on bad study data
+        content = self.study_v2.load_content(job)
+        concept_ids: list[str] = []
+        if kind == "concept":
+            if any(str(item.get("id") or "") == item_id
+                   for item in content.get("concepts", [])):
+                concept_ids = [item_id]
+        elif kind in {"flashcard", "quiz"}:
+            key = "flashcards" if kind == "flashcard" else "quiz"
+            item = next((value for value in content.get(key, [])
+                         if str(value.get("id") or "") == item_id), None)
+            if item:
+                concept_ids = [str(value) for value in item.get("concept_ids", [])
+                               if str(value)]
+        if not concept_ids:
             self._respond(request_id, command, ok=False, job_id=job.job_id,
-                          error=f"Could not regenerate: {exc}")
+                          error="The selected Study item could not be found.")
             return
-        self._respond(request_id, command, ok=True, job_id=job.job_id,
-                      kind=kind, id=item_id, content=content)
+        changed_segments: list[str] = []
+        for concept in content.get("concepts", []):
+            if str(concept.get("id") or "") not in concept_ids:
+                continue
+            for source in concept.get("sources", []) or []:
+                segment_id = str(source.get("segment_id") or "")
+                if segment_id and segment_id not in changed_segments:
+                    changed_segments.append(segment_id)
+        started = self._start_partial_study_refresh(
+            job, changed_segments, concept_ids=concept_ids)
+        self._respond(request_id, command, ok=started, job_id=job.job_id,
+                      started=started, kind=kind, id=item_id,
+                      concept_ids=concept_ids)
+
+    def _study_v2_group_prepare(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Prepare cross-lecture Study map for a whole course/subject group."""
+        group = str(payload.get("group") or "").strip()
+        force = bool(payload.get("force", False))
+        if not group:
+            self._respond(request_id, command, ok=False, group="", reason="missing_group", error="group is required")
+            return
+
+        all_jobs = self._job_objects()
+        matching_jobs: list[Any] = []
+        for job in all_jobs:
+            manifest = getattr(job, "manifest", {}) or {}
+            explicit_group = str(manifest.get("group") or "").strip()
+            if explicit_group:
+                job_group = explicit_group
+            else:
+                title = str(manifest.get("title") or "")
+                job_group = self.electron_backend._derive_group(title)
+            if job_group.strip().casefold() == group.casefold():
+                matching_jobs.append(job)
+
+        self._emit({
+            "event": "group_study_progress",
+            "group": group,
+            "status": "preparing",
+            "stage": "Collecting member lectures",
+            "total_jobs": len(matching_jobs),
+        })
+
+        try:
+            result = self.group_study.prepare(
+                str(self.data_dir),
+                group,
+                matching_jobs,
+                self._gateway_client(),
+                force=force,
+            )
+        except Exception as exc:  # noqa: BLE001 - user-facing boundary
+            self._emit({
+                "event": "group_study_progress",
+                "group": group,
+                "status": "failed",
+                "error": str(exc),
+            })
+            self._respond(
+                request_id,
+                command,
+                ok=False,
+                group=group,
+                reason="prepare_failed",
+                error=f"Group Study could not be prepared: {exc}",
+            )
+            return
+
+        if result.get("ok"):
+            self._emit({
+                "event": "group_study_progress",
+                "group": group,
+                "status": "ready",
+                "cached": bool(result.get("cached")),
+                "members_count": len(result.get("members") or []),
+            })
+            self._respond(
+                request_id,
+                command,
+                ok=True,
+                group=group,
+                cached=bool(result.get("cached")),
+                analysis=result.get("analysis"),
+                members=result.get("members") or [],
+                reason=None,
+            )
+        else:
+            self._emit({
+                "event": "group_study_progress",
+                "group": group,
+                "status": "failed",
+                "reason": str(result.get("reason") or "unknown"),
+            })
+            self._respond(
+                request_id,
+                command,
+                ok=False,
+                group=group,
+                cached=False,
+                analysis=None,
+                members=result.get("members") or [],
+                reason=str(result.get("reason") or "unknown"),
+            )
 
     # ------------------------------------------------------------------ #
     # Phase 9: paste link / yt-dlp
@@ -2847,14 +4213,24 @@ class Sidecar:
             for raw in rows:
                 if not isinstance(raw, dict):
                     continue
-                item_id = str(raw.get("id") or "")
+                item_id = str(raw.get("id") or raw.get("download_id") or "")
                 url = str(raw.get("url") or "")
                 if not item_id or not url or item_id in self._downloads:
                     continue
                 item = {key: value for key, value in raw.items()
-                        if key in {"id", "url", "title", "status", "pct", "eta",
-                                   "speed", "error", "name", "path", "downloaded", "total"}}
-                status = str(item.get("status") or "failed")
+                        if key in {"id", "download_id", "url", "title", "status",
+                                   "legacy_status", "progress", "pct", "eta", "speed",
+                                   "error", "name", "path", "downloaded", "total"}}
+                item["id"] = item_id
+                item["download_id"] = item_id
+                raw_status = str(item.get("legacy_status") or item.get("status") or "failed")
+                status = {
+                    "running": "downloading",
+                    "completed": "complete",
+                }.get(raw_status, raw_status)
+                item["status"] = status
+                if "pct" not in item:
+                    item["pct"] = int(item.get("progress", 0) or 0)
                 if status in {"waiting", "downloading"}:
                     item.update({
                         "status": "failed",
@@ -2872,9 +4248,30 @@ class Sidecar:
             if changed:
                 self._persist_downloads_locked()
 
+    @staticmethod
+    def _download_ui_status(status: Any) -> str:
+        return {
+            "downloading": "running",
+            "complete": "completed",
+            "cancelled": "failed",
+        }.get(str(status or "failed"), str(status or "failed"))
+
     def _download_public(self, item: dict[str, Any]) -> dict[str, Any]:
-        return {key: value for key, value in item.items()
-                if key not in {"path"}}
+        public = {key: value for key, value in item.items() if key not in {"path"}}
+        item_id = str(item.get("download_id") or item.get("id") or "")
+        progress = int(item.get("progress", item.get("pct", 0)) or 0)
+        legacy_status = str(item.get("status") or "failed")
+        public.update({
+            "id": item_id,
+            "download_id": item_id,
+            "status": self._download_ui_status(legacy_status),
+            "legacy_status": legacy_status,
+            "progress": max(0, min(100, progress)),
+            "pct": max(0, min(100, progress)),
+            "eta_seconds": int(item.get("eta", 0) or 0),
+            "state": self._download_ui_status(legacy_status),
+        })
+        return public
 
     def _download_snapshot(self) -> list[dict[str, Any]]:
         with self._download_lock:
@@ -2935,7 +4332,7 @@ class Sidecar:
             item = self._downloads.get(download_id)
             if item and item.get("status") in {"failed", "cancelled"}:
                 item.update({"status": "waiting", "pct": 0, "eta": 0,
-                             "speed": 0, "error": ""})
+                             "progress": 0, "speed": 0, "error": ""})
                 retried = True
             if retried:
                 self._persist_downloads_locked()
@@ -2973,10 +4370,12 @@ class Sidecar:
                 item_id = f"download-{time.time_ns()}-{len(added)}"
                 item = {
                     "id": item_id,
+                    "download_id": item_id,
                     "url": url,
                     "title": str(raw.get("title") or "Lecture download"),
                     "status": "waiting",
                     "pct": 0,
+                    "progress": 0,
                     "eta": 0,
                     "speed": 0,
                     "error": "",
@@ -3041,7 +4440,15 @@ class Sidecar:
                     current.update({key: update.get(key, current.get(key))
                                     for key in ("status", "pct", "eta", "speed", "downloaded", "total")})
                     current["status"] = "downloading"
-                self._emit({"event": "media_progress", "download_id": item_id, **update})
+                    current["progress"] = int(current.get("pct", 0) or 0)
+                    progress_payload = dict(update)
+                    progress_payload.update({
+                        "download_id": item_id,
+                        "status": "running",
+                        "progress": current["progress"],
+                        "eta_seconds": int(current.get("eta", 0) or 0),
+                    })
+                self._emit({"event": "media_progress", **progress_payload})
                 self._emit_downloads()
 
             try:
@@ -3056,23 +4463,30 @@ class Sidecar:
                     current = self._downloads.get(item_id)
                     if current:
                         current.update({"status": "complete", "pct": 100,
-                                        "eta": 0, "path": path,
+                                        "progress": 100, "eta": 0, "path": path,
                                         "name": os.path.basename(path)})
                         self._persist_downloads_locked()
                 payload_out = {"ok": True, "download_id": item_id,
-                               "name": os.path.basename(path)}
+                               "name": os.path.basename(path), "status": "completed",
+                               "progress": 100, "eta_seconds": 0,
+                               "title": item.get("title", "")}
                 # The existing normal import path remains the only way a
                 # downloaded recording becomes a LecturePack job.
                 QTimer.singleShot(0, self._poll_timer,
-                                  lambda p=path, t=item.get("title"): self._import_video(None, "import_media_url",
-                                                                                         {"path": p, "title": t}))
+                                  lambda p=path, t=item.get("title"), d=str(destination): self._import_video(
+                                      None, "import_media_url",
+                                      # Only this path supplies captions_dir, so
+                                      # only downloads can adopt captions.
+                                      {"path": p, "title": t, "captions_dir": d}))
             except self.media_fetch.MediaFetchCancelled:
                 with self._download_lock:
                     if item_id in self._downloads:
                         self._downloads[item_id]["status"] = "cancelled"
                         self._persist_downloads_locked()
                 payload_out = {"ok": False, "cancelled": True,
-                               "download_id": item_id}
+                               "download_id": item_id, "status": "failed",
+                               "legacy_status": "cancelled", "progress": 0,
+                               "title": item.get("title", "")}
             except Exception as exc:  # media_fetch already makes yt-dlp errors friendly
                 with self._download_lock:
                     if item_id in self._downloads:
@@ -3080,7 +4494,9 @@ class Sidecar:
                                                         "error": str(exc)[:300]})
                         self._persist_downloads_locked()
                 payload_out = {"ok": False, "error": str(exc)[:300],
-                               "download_id": item_id}
+                               "download_id": item_id, "status": "failed",
+                               "progress": int(item.get("pct", 0) or 0),
+                               "title": item.get("title", "")}
             finally:
                 with self._download_lock:
                     self._download_cancel.pop(item_id, None)
@@ -3178,15 +4594,60 @@ class Sidecar:
     # ------------------------------------------------------------------ #
     # Controller -> JSONL events
     # ------------------------------------------------------------------ #
+    @property
+    def current_stage(self) -> str:
+        return self._current_stage
+
+    @current_stage.setter
+    def current_stage(self, value: str) -> None:
+        """Keep the primary-stage scalar and the running set consistent.
+
+        There are ~20 assignment sites across job activation, restore, retry,
+        cancel and terminal paths. Making the invariant structural here is what
+        stops a stale "Transcribe" leaking from a finished job into the next
+        one's checklist, which is the failure a per-site patch would invite.
+        """
+        stage = str(value or "")
+        self._current_stage = stage
+        # Tolerate a partially built instance: tests and restore paths assign
+        # current_stage on an object created with __new__, before __init__ has
+        # run. Failing there would break callers that never touch the set.
+        active = getattr(self, "active_stages", None)
+        if active is None:
+            active = set()
+            object.__setattr__(self, "active_stages", active)
+        if not stage or stage == "Queued":
+            # Idle, queued or terminal: nothing is running by definition.
+            active.clear()
+        else:
+            active.add(stage)
+
+    def _primary_stage(self) -> str:
+        """The one stage the footer speaks for while several run at once.
+
+        Derived from a fixed priority, so a parallel group produces a STABLE
+        label instead of alternating between its members on every event.
+        """
+        for stage in STAGE_PRIMARY_ORDER:
+            if stage in self.active_stages:
+                return stage
+        return ""
+
     def _on_stage_started(self, stage: str) -> None:
-        self.current_stage = str(stage)
-        self.stage_percent[str(stage)] = 0
-        self._emit_status("Processing", detail=f"{stage} - starting")
+        stage = str(stage)
+        self.active_stages.add(stage)
+        self.current_stage = self._primary_stage() or stage
+        self.stage_percent[stage] = 0
+        self._emit_status(
+            "Processing", detail=f"{self.current_stage} - starting")
         self._emit_pipeline()
 
     def _on_stage_progress(self, stage: str, percent: int) -> None:
         stage = str(stage)
-        self.current_stage = stage
+        # A stage that reports progress is running, even if its "started"
+        # signal was missed (restored jobs, retried stages).
+        self.active_stages.add(stage)
+        self.current_stage = self._primary_stage() or stage
         self.stage_percent[stage] = max(0, min(100, int(percent or 0)))
         if stage == "Export" and self.current_job is not None:
             progress = self.stage_percent[stage]
@@ -3196,7 +4657,12 @@ class Sidecar:
                 "pct": progress,
                 "label": f"exporting - {progress}%",
             })
-        self._emit_status("Processing", detail=f"{stage} - {self.stage_percent[stage]}%")
+        # Report the PRIMARY stage, not whichever one happened to tick. The
+        # other members of a parallel group still show their own live percent
+        # on their own checklist rows via _emit_pipeline below.
+        primary = self.current_stage or stage
+        self._emit_status(
+            "Processing", detail=f"{primary} - {self.stage_percent.get(primary, 0)}%")
         self._emit_pipeline()
 
     def _on_stage_log(self, stage: str, text: str) -> None:
@@ -3215,6 +4681,11 @@ class Sidecar:
 
     def _on_stage_finished(self, stage: str, success: bool, error: str) -> None:
         stage = str(stage)
+        self.active_stages.discard(stage)
+        # Hand the footer to whatever is still running -- e.g. when Detect
+        # Slides finishes first, the label falls back to Transcribe rather
+        # than freezing on a stage that has already ended.
+        self.current_stage = self._primary_stage()
         self.stage_percent[stage] = 100 if success else self.stage_percent.get(stage, 0)
         if self.current_job is not None and success and stage in {
             "Transcribe", "Detect Slides", "Review Ready", "Export"
@@ -3237,6 +4708,10 @@ class Sidecar:
                 "slides_detected": len(self._slides(self.current_job)),
                 "segment_count": self._transcript(self.current_job)["transcript"].get("segments", 0),
             })
+            if self._is_demo_job(self.current_job) and getattr(self, "_demo_session", None) is not None:
+                # Let the bridge/UI consume the terminal pipeline event first,
+                # then remove the temporary demo from the normal library.
+                QTimer.singleShot(0, lambda: self._cleanup_demo_session("tour_complete"))
             # Release the active slot and launch the next queued job (FIFO).
             self._promote_next()
         if not success:
@@ -3276,14 +4751,22 @@ class Sidecar:
         # the whole time). Derive a real, monotonic percent from the latest
         # segment's end time against the known duration. This only reads the
         # existing live stream -- it never changes the transcription engine.
-        if self.current_stage == "Transcribe":
+        # Gate on MEMBERSHIP, not on the primary-stage scalar. Detect Slides
+        # emits real stage-progress events and whisper emits none, so the old
+        # `current_stage == "Transcribe"` test lost the scalar to Detect Slides
+        # and could never win it back: Transcribe sat at 0% for the whole
+        # lecture, then jumped to 100%.
+        if "Transcribe" in self.active_stages:
             duration = float((self.current_job.source or {}).get("duration", 0.0) or 0.0)
             end_ms = float(segment.get("end_ms") or 0.0)
             if duration > 0 and end_ms > 0:
                 percent = max(0, min(99, round(end_ms / (duration * 1000.0) * 100)))
                 if percent > self.stage_percent.get("Transcribe", 0):
                     self.stage_percent["Transcribe"] = percent
-                    self._emit_status("Processing", detail=f"Transcribe - {percent}%")
+                    primary = self.current_stage or "Transcribe"
+                    self._emit_status(
+                        "Processing",
+                        detail=f"{primary} - {self.stage_percent.get(primary, percent)}%")
                     self._emit_pipeline()
 
     def _on_pipeline_completed(self) -> None:
@@ -3292,6 +4775,9 @@ class Sidecar:
         self.current_stage = "Review Ready"
         self._emit_job_payloads()
         self._emit_status("Review Ready", detail="Transcript and slides are ready")
+        # Study AI begins as soon as local lecture assets are complete. It is
+        # independent of export and never blocks queue promotion or shutdown.
+        self._start_ai_study(self.current_job)
         if self.auto_export and self.current_job.get_stage_status("Export") != "completed":
             QTimer.singleShot(0, self._start_automatic_export)
         else:
@@ -3306,6 +4792,7 @@ class Sidecar:
 
     def _on_pipeline_failed(self, error: str) -> None:
         if self.current_job is not None:
+            demo_failed = self._is_demo_job(self.current_job) and getattr(self, "_demo_session", None) is not None
             self.current_stage = ""
             self._emit({
                 "event": "job_failed",
@@ -3316,6 +4803,8 @@ class Sidecar:
             self._emit_status("Failed", detail=str(error or "Processing failed"))
             self._emit_job_payloads()
             self._promote_next()
+            if demo_failed:
+                QTimer.singleShot(0, lambda: self._cleanup_demo_session("tour_failed"))
 
     # ------------------------------------------------------------------ #
     # Payload builders
@@ -3360,6 +4849,12 @@ class Sidecar:
         # live stage marker or percentages of the running job.
         active = self.current_stage if active_stage is None else active_stage
         percent_map = self.stage_percent if stage_percent is None else stage_percent
+        # EVERY concurrently running stage is active, not just the primary one.
+        # Testing `stage == active` alone left the other member of a parallel
+        # transcribe+detect group drawn as pending -- a grey, bar-less row for a
+        # stage that was in fact running, which is what made Transcribing audio
+        # look stuck. Only trust the live set for the job that is processing.
+        live = self.active_stages if active_stage is None else set()
         stages = []
         for index, stage in enumerate(STAGES):
             status = job.get_stage_status(stage)
@@ -3369,7 +4864,7 @@ class Sidecar:
             elif status == "failed":
                 state = "error"
                 percent = percent_map.get(stage, 0)
-            elif stage == active or (not active and status == "running"):
+            elif stage == active or stage in live or (not active and status == "running"):
                 state = "active"
                 percent = percent_map.get(stage, 0)
             else:

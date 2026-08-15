@@ -38,6 +38,250 @@ re-debug the same thing from scratch.
 
 *(newest first)*
 
+### BUG-41 — guided-demo overlay: the four dim regions OVERLAPPED, showing a hard seam   ✅ FIXED (verified in the packaged app)
+- **Area:** `app/ui/app.js::positionTourSpotlight`, `app/ui/app.css` (3.8a guided tour).
+- **Found:** 2026-08-12, from user screenshots of the packaged guided demo.
+- **Symptom:** a hard vertical edge down the window on every tour step, and the
+  *highlighted* control read as dim rather than lit. The seam always landed at
+  `left + width` of the target — x≈1130 on Exports (right edge of *Export all*),
+  x≈510 on Review (right edge of Keep/Reject), x≈1337 on Home (right edge of the
+  dropzone).
+- **Root cause:** the four regions must TILE the viewport but did not. `top` and
+  `bottom` each span the full width; `left` spans only the target's height band;
+  but `right` spanned the **full viewport height**. So both right-hand corners
+  were painted twice (.65 over .65 ≈ .878) while the left-hand corners were
+  painted once. That asymmetry *is* the seam, and it also meant the target was
+  being judged against two different surround values.
+- **Wrong first diagnosis (mine):** I read `#guided-tour-overlay{…background:
+  rgba(8,10,14,.65)}` on line 748 and concluded the overlay double-dimmed the
+  regions. Line **749** immediately overrides it to `transparent`. Two adjacent
+  rules for the same selector: read the *whole* cascade before blaming it.
+- **Rejected fix — do not retry:** replacing the four rects with one element
+  carrying `box-shadow:0 0 0 100vmax` plus geometry transitions. It is cleaner
+  and makes seams structurally impossible, but it re-creates **exactly** the
+  design AD-20 removed. See BUG-42.
+- **Fix:** give `right` the same height band as `left`:
+  `setTourDimRect('tour-dim-right', left + width, top, viewportWidth - left - width, height)`.
+- **Tests:** `test_spotlight_dim_regions_tile_the_viewport_without_overlapping`
+  (structure) and `test_dim_regions_tile_exactly_for_real_target_geometry`, which
+  executes the real rect arithmetic under Node and asserts no two regions overlap
+  and `dim area + hole area == viewport area` for four viewport/target cases.
+- **Verified (2026-08-12) in the packaged Electron renderer over CDP**, UI swapped into a
+  copy of the `guided-demo-fix-20260811` candidate: at 1920x1009 the four regions tile
+  the viewport EXACTLY -- 1,926,960 dim + 10,320 hole = 1,937,280 = vw*vh -- with **zero
+  pairwise overlaps**, and the dim computes to a single `rgba(8,10,14,0.65)` rather than
+  the doubled ~.88. Packaged acceptance is byte-identical to the baseline candidate.
+- **Lesson:** "four regions around a hole" is a tiling problem. Assert the tiling
+  (area covered exactly once), not the presence of four elements — the old test
+  checked that all four ids existed, which the buggy code satisfied.
+- **Files:** `app/ui/app.js`, `tests/test_polish_ui.py`.
+
+### BUG-42 — the spread-shadow spotlight is BANNED by AD-20; do not reintroduce it   ⚪️ DEFERRED (known, accepted for now)
+- **Area:** `app/ui/app.css` (guided tour), `docs/DECISIONS.md` AD-20.
+- **Found:** 2026-08-12, while attempting to redesign the overlay (BUG-41).
+- **Why this entry exists:** the spread-shadow spotlight is the *obvious* fix for
+  the seam, it is what an external design review will recommend, and it is what
+  the code originally did. It was removed on purpose and the reasons are not
+  visible from the CSS.
+- **History:** before `0207f08` (2026-08-02) the spotlight was
+  `box-shadow:0 0 0 9999px rgba(8,10,14,.65)` + `transition` on left/top/width/
+  height + `will-change:left,top,width,height`, with `filter:drop-shadow` on the
+  arrow. **AD-20** replaced all of it with four static rects because beta.10 was
+  smooth on the dev machine but *flickered and felt laggy on a separate
+  clean-install Windows machine*. `--disable-gpu` did not change the symptom, so
+  it is not GPU-specific and will not reproduce on the dev box.
+- **Standing constraint:** no spread-shadow scrim (`9999px`/`100vmax`), no
+  geometry transitions on tour elements, no `will-change`, no `filter:drop-shadow`
+  on the arrow. Guarded by `test_spotlight_uses_static_scrim_and_geometry_without_
+  expensive_effects` and restated in `test_css_spotlight_is_pointer_transparent_
+  and_uses_a_static_scrim`.
+- **Lesson:** a perf constraint that only reproduces on *other people's hardware*
+  must be written down where the next person will hit it, or it gets "cleaned up"
+  by someone whose machine is fast enough not to notice.
+- **Files:** `app/ui/app.css`, `docs/DECISIONS.md`, `tests/test_flashing_reliability.py`.
+
+### BUG-43 — DEMO·STUDY step targeted markup Study V2 had superseded   🟠 PARTIAL / needs verification
+- **Area:** `app/ui/app.js::TOUR_PHASES.study`, `app/ui/index.html`.
+- **Found:** 2026-08-12, from user screenshots.
+- **Symptom:** the Study step rendered with **no dim, no ring and no arrow** —
+  the only step with no spotlight at all — while its card told the user to "try
+  the chat box", which was not on screen.
+- **Root cause:** the step targeted `#demo-study-actions`, which lives inside
+  `<div id="study-legacy" hidden>` (`index.html:422`). Study V2 owns the visible
+  Study workspace now. `positionTourSpotlight` collapses on
+  `target.closest('[hidden]')`, so the step correctly refused to point at a
+  hidden node — and then had nothing to show.
+- **Fix:** added `id="demo-study-actions-v2"` to the Study V2 overview action row
+  and retargeted the step; retitled to "Your study workspace" with copy describing
+  concepts/flashcards/quiz, which is what is actually on screen. Deliberately did
+  **not** target the V2 Ask pane: it is behind a tab *and* depends on a model
+  being loaded, so it can fail in the same "spotlight on nothing" way.
+- **Tests:** `test_every_tour_target_exists_and_is_not_inside_a_hidden_ancestor`
+  parses the markup and walks the real open-element stack for all five steps.
+  Screen-level containers (`[data-screen]`) are exempt — every screen is `hidden`
+  at rest and unhidden by the `setScreen()` the step itself declares.
+- **Verified (2026-08-12), partially:** `#demo-study-actions-v2` is present in the packaged
+  renderer and `#study-legacy` is confirmed `hidden` there, which is the root cause.
+- **BLOCKER on full verification:** the end-to-end guided demo cannot be driven on this
+  machine. A fresh profile lands on the first-run Runtime Setup gate, which is green-only
+  by design (bypass buttons were deliberately removed) and cannot go green without the
+  Whisper model and ffprobe, which are absent here. Packaged acceptance confirms it:
+  `transcript_generated` FAIL on BOTH the fixed and the baseline candidate. Anyone with a
+  complete runtime should replay the tour and confirm the Study step now lights up.
+- **Lesson:** when a workspace is replaced (V2), every *external* reference into
+  the old markup — tours, deep links, tests — is a silent dangling pointer. The
+  legacy nodes still exist, so nothing throws.
+- **Files:** `app/ui/app.js`, `app/ui/index.html`, `tests/test_guided_tour.py`.
+
+### BUG-44 — the coach card covered the control it was describing   🟠 PARTIAL / needs verification
+- **Area:** `app/ui/app.css#guided-tour-card`, `app/ui/app.js::positionTourCard`.
+- **Found:** 2026-08-12, from user screenshots (DEMO·IMPORT, DEMO·EXPORTS).
+- **Root cause:** the card was pinned `right:24px;bottom:24px` regardless of where
+  the spotlight was, so on steps whose target sits low or right it sat on top of it.
+- **Fix:** `positionTourCard()` anchors it below → above → right → left, first side
+  it fits with a 16px gutter. When the target nearly fills the window and no side
+  fits, it docks to the side with the most room rather than defaulting to a corner
+  that buries the target. Static placement only — no transition (see BUG-42).
+- **Tests:** `test_tour_card_is_anchored_beside_the_target_and_never_covers_it`
+  runs the real function under Node against five viewport/target cases and asserts
+  the card is on-screen, adjacent, and does not intersect the spotlight rect.
+- **Verified (2026-08-12), mechanism only:** in the packaged renderer `--tour-card-x/y`
+  drive the card's computed `left`/`top`, and the card does not intersect the hole.
+  The live placement decision across all five steps is NOT verified -- see the blocker
+  on BUG-43.
+- **Files:** `app/ui/app.js`, `app/ui/app.css`, `tests/test_polish_ui.py`.
+
+### BUG-45 — tour layer sat BELOW the model tooltip   ✅ FIXED (verified in the packaged app)
+- **Area:** `app/ui/app.css`.
+- **Found:** 2026-08-12, during the BUG-41 review.
+- **Root cause:** `#guided-tour-overlay` was `z-index:170` while `.lp-model-tooltip`
+  is `180`, so a model tooltip could render *over* the tour scrim. The tour's
+  internal layers were also 0/1/2 — a flat scale with no room and no relationship
+  to the app's own stacking.
+- **Fix:** contiguous band — scrim 200 < lifted target 210 < ring 220 < arrow 230
+  < card 240 — above the tooltip (180) and below the drag ghost (300).
+- **Tests:** `test_css_spotlight_is_pointer_transparent_and_uses_a_static_scrim`
+  now parses the z-indexes and asserts both the internal order and the clearances.
+- **Verified (2026-08-12):** computed z-indexes in the packaged renderer are scrim 200,
+  ring 220, arrow 230, card 240 -- above the model tooltip (180), below the drag ghost (300).
+- **Files:** `app/ui/app.css`, `tests/test_guided_tour.py`.
+
+### BUG-33..BUG-40 — the guided-demo hardening pass (all 🟠 PARTIAL / needs verification)
+> Fixed on `sol/polish-integration` up to `a758885`, but **downgraded from FIXED to
+> PARTIAL on 2026-08-12 at the user's instruction**: none has been exercised on the
+> packaged build since the final patch, and the guided demo has a history of a fix
+> landing while the *observable* behaviour stayed broken (see BUG-41/43). Do not mark
+> any of these ✅ without a packaged run.
+
+- **BUG-33 — Runtime Setup showed all five checks as `Pending`.** Root cause was not
+  the normalization: `Sidecar._packaged_self_test()` rebuilt its response dict and
+  **dropped `health.checklist`**. Two earlier attempts missed it — normalizing packaged
+  health in the bridge, then discovering PyInstaller was loading the *installed*
+  `lecturepack` package instead of the worktree. Fix: preserve the checklist in the
+  sidecar envelope + a renderer `checklistReady` guard. Last packaged result: 5 ready,
+  state gate 24/24.
+- **BUG-34 — "Try the demo lecture" did nothing.** The button animated
+  `#glowing-demo-card`, which was inside hidden `#home-demo` with a zero-size rect, so
+  it never emitted `animationend` and the callback that starts the tour never ran.
+  Fix: detect hidden/zero-size cards and invoke the fallback directly. (Related: the
+  old `minW/minH` fallback box made this worse by drawing a glow around empty space —
+  see the note in `test_spotlight_hides_when_target_missing`.)
+- **BUG-35 — Replay skipped the drag/drop/import step.** The replay handler called
+  `startGuidedDemo()`, which advanced straight to `imported/running`, switched to
+  Process and started the backend job. Fix: replay stops at `DEMO · IMPORT`; the user
+  must click *Use demo* or drag the video.
+- **BUG-36 — The bridge auto-started processing and auto-exported.** `startDemoJob()`
+  sent `import_video` then `start_processing` with `auto_export:true`, so the demo
+  exported and cleaned itself up before the user could review. Fix: `auto_export:false`.
+- **BUG-37 — The overlay broke after entering Process/Review.** Cleanup removed the
+  temporary demo job and cleared `active_job` while the renderer deliberately kept the
+  tour active, leaving the overlay attached to an empty workspace. Fix: terminal
+  cleanup/failure and viewed-job removal dismiss the tour and return Home. **A user
+  screenshot dated 8/11 18:45 still shows this** (Keep/Reject spotlit over "No lecture
+  loaded"); it predates the fix, so reproduce before concluding either way.
+- **BUG-38 — The bridge retained stale demo identity.** `demoSession` was not cleared
+  after terminal events, so later ordinary pipeline events could be read as events for
+  the old demo. Fix: emit the terminal demo event first, *then* clear `demoSession`.
+- **BUG-39 — Guided-tour eligibility was inconsistent for existing users.** Logic mixed
+  renderer localStorage, job count and durable backend state, so the guided card could
+  be hidden while the fallback button was visible. Fix: durable versioned `guided_tour`
+  eligibility + the real `replay_guided_tour` command.
+- **BUG-40 — Tour highlighting and geometry were unstable.** The target could appear
+  dimmed along with the background; geometry risked flicker and invalid Process/Review
+  targets. Fix attempted: "stable four-region dimming", lifted targets, guarded
+  geometry, stale-animation protection. **This one did not hold** — the four regions
+  overlapped and the target was still dimmed. See BUG-41.
+
+### BUG-43 — group study could never have worked for a single user   ✅ FIXED (verified live)
+- **Area:** `lecturepack/services/group_study.py` (`prepare`), plus the deployed gateway.
+- **Found:** 2026-08-15, first time the reduce was ever run against the real gateway.
+- **Severity:** P0. The headline feature of 2.0.2, broken 100% of the time.
+- **Symptom:** studying a group always returned `empty_analysis`, after a full-price
+  ~11-25s AI request. Nothing in the UI could work.
+- **Root cause:** two independent faults, either one fatal.
+  1. **The deployed Worker was stale** — 8 tasks, predating both `group_analysis` and
+     `expand_concept_material`. Live calls returned HTTP 400 `unsupported_task`. The
+     inherited handoff claimed both routes were "live"; they were not.
+  2. **The envelope was never unwrapped.** `GatewayClient.request()` returns
+     `{"result": …, "diagnostics": …}` — the documented contract, unwrapped correctly by
+     `ai_study_service.py:689`. `prepare()` passed the whole envelope to `normalize()`,
+     which looked for `concepts` at the top level, found none, dropped everything and
+     reported `empty_analysis`. A *correct* AI answer was thrown away every time.
+- **Why every test passed:** all of them mocked the client with a *bare* analysis, so the
+  mocks agreed with each other and with nothing else. The suite pinned a contract the
+  gateway does not have.
+- **Fix:** `unwrap_result()` takes the analysis out of the envelope (accepting a bare
+  analysis too, since `prepare` also takes an injected `call`). Gateway redeployed — now
+  reports `configured_tasks: 10, required_tasks: 10`.
+- **Verified:** live against the production gateway — `ok=True` in 10.9s, 4 concepts,
+  4 relationships, 2 through-lines, 2 gaps, every citation grounded to a real job, second
+  call served from cache in 0.01s. Two regression tests added to
+  `tests/test_group_study.py` pinning the real envelope; confirmed they fail without the
+  fix (`normalize(envelope)` → 0 concepts, `normalize(unwrap(envelope))` → 1).
+- **Lesson:** a mock is a claim about someone else's contract, and an unverified claim.
+  When every test for a feature builds its fixture from the same wrong assumption, the
+  suite's agreement is worthless — it proves the mocks match each other. One live
+  round-trip before shipping would have caught both faults in a minute; instead a
+  headline feature was tagged, packaged and acceptance-tested while being incapable of
+  working. Test at least one real round trip per external contract, and treat "deployed"
+  in an inherited doc as a rumour until a live probe agrees.
+
+### BUG-42 — the M3 adversarial suite tested nothing it claimed to   ✅ FIXED (verified)
+- **Area:** `tests/test_m3_adversarial_challenge.py` (harness only; no product defect).
+- **Found:** 2026-08-15, running the suite the teamwork agents left behind. 6 failures.
+- **Severity:** false assurance. The suite was reported as milestone coverage for group
+  study and the packaged binary; it was covering neither.
+- **Symptom:** 6 failures that read like product bugs — `no_ready_lectures` for groups
+  that plainly had ready lectures, and a packaged `.exe` that appeared not to answer
+  `health_check` at all.
+- **Root cause:** four independent wrong assumptions in the fixtures.
+  1. The job fixture wrote `study-content.json`; `study_v2.load_content()` reads
+     `study_v2.CONTENT_FILENAME` = `study-content-v2.json`. Every group came back empty,
+     so four tests were asserting against `no_ready_lectures` instead of the behaviour
+     in their own docstrings.
+  2. The "unready" fixture used the status string `"pending"`, which is not a real
+     status. `load_content()` normalises unknown statuses and, seeing concepts, promotes
+     them to `STUDY_READY` — the unready lecture was ready.
+  3. Clearing a group asserts `manifest["group"] == ""`, but `set_job_group()` pops the
+     key so the job reverts to its derived default. Absence is the contract.
+  4. The packaged test sent `{"id": …}`; the sidecar reads `request_id` (see
+     `production-main.js`). With no id, `_respond()` returns early and emits nothing, so
+     a perfectly healthy binary looked dead. The in-process tests never caught this
+     because the fixture stubs `_respond` and skips that guard.
+- **Fix:** fixtures use `study_v2.CONTENT_FILENAME` and `STUDY_PREPARING`, the clear-group
+  assertion checks for absence, and every message uses the real `request_id` wire key.
+  The packaged response wait is now deadline-based on a reader thread rather than a
+  ten-line budget — `health_check` sits behind 20+ `bootstrap_progress` events, and a
+  `readline` on a pipe cannot be interrupted if the sidecar never answers.
+- **Verified:** 8 passed, including both tests driving the real packaged `.exe`. Full
+  suite 1770 passed, 0 failed.
+- **Lesson:** a fixture that hand-rolls a filename or a status string the product parses
+  is a test that silently stops testing. Reference the product's own constant
+  (`CONTENT_FILENAME`, `STUDY_*`) so a rename breaks the test loudly instead of quietly
+  turning it green against nothing. And a fixture that stubs the transport (`_respond`)
+  cannot prove the wire protocol — only the packaged end-to-end test can, which is
+  exactly why its failure was the one telling the truth.
+
 ### BUG-32 — updater would install an UNVERIFIED installer (fail-open)   ✅ FIXED (verified)
 - **Area:** `electron-spike/updater.js` (`check`, `download`, `expectedInstallerSha256`).
 - **Found:** 2026-08-10 release-hardening audit of shipped v2.0.0. Not user-reported.

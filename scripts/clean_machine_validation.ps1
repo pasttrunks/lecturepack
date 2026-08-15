@@ -268,6 +268,37 @@ function Write-ValidationResult([System.Collections.IDictionary]$Result, [string
     Write-Host "Wrote $textPath"
 }
 
+function Stop-AcceptanceSidecar {
+    $sidecarProcess = $script:SidecarProcess
+    if ($null -eq $sidecarProcess) { return }
+    try {
+        $sidecarProcess.Refresh()
+        if ($sidecarProcess.HasExited) { return }
+        $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+        $killer = Start-Process -FilePath $taskkill -ArgumentList @(
+            '/PID', [string]$sidecarProcess.Id, '/T', '/F'
+        ) -WindowStyle Hidden -Wait -PassThru
+        $sidecarProcess.WaitForExit(10000) | Out-Null
+        if (-not $sidecarProcess.HasExited -and $killer.ExitCode -ne 0) {
+            Stop-Process -Id $sidecarProcess.Id -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        Stop-Process -Id $sidecarProcess.Id -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Remove-AcceptanceTestInstall([string]$InstallDir) {
+    $uninstaller = Join-Path $InstallDir 'unins000.exe'
+    if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { return $null }
+    $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList @(
+        '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+    ) -Wait -PassThru
+    if ($uninstallProcess.ExitCode -ne 0) {
+        throw "Test uninstaller exited $($uninstallProcess.ExitCode)"
+    }
+    return [int]$uninstallProcess.ExitCode
+}
+
 function Invoke-Acceptance {
     New-Item -ItemType Directory -Path $ResultsDir -Force | Out-Null
     $installer = Get-ChildItem -LiteralPath $KitRoot -Filter 'LecturePack-*-Setup.exe' -File | Select-Object -First 1
@@ -299,7 +330,9 @@ function Invoke-Acceptance {
     Start-SidecarSession $candidate $dataDir $installedMedia
     [void](Wait-SidecarEvent 'ready' 60)
     $health = Invoke-SidecarRequest 'health_check'
-    $imported = Invoke-SidecarRequest 'import_video' @{ path = $installedMedia; bundled_demo = $true }
+    # The guided demo is intentionally transient and cleans itself after completion.
+    # This gate needs a normal persisted job so it can validate transcript and exports.
+    $imported = Invoke-SidecarRequest 'import_video' @{ path = $installedMedia }
     $jobId = [string]$imported.job_id
     [void](Invoke-SidecarRequest 'start_job' @{ job_id = $jobId; mode = 'study'; auto_export = $true })
     [void](Wait-SidecarEvent 'job_completed' $JobTimeoutSeconds)
@@ -322,12 +355,7 @@ function Invoke-Acceptance {
     Start-Sleep -Seconds 1
     $orphans = @(Get-NewLecturePackProcesses $before)
     $studyData = Join-Path $exportDir 'study-data.json'
-    $uninstaller = Join-Path $installDir 'unins000.exe'
-    $uninstallResult = $null
-    if (Test-Path -LiteralPath $uninstaller) {
-        $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
-        $uninstallResult = $uninstallProcess.ExitCode
-    }
+    $uninstallResult = Remove-AcceptanceTestInstall $installDir
     $result = [ordered]@{
         system = $systemEvidence
         lecturepack_version = $lecturePackVersion
@@ -413,4 +441,15 @@ function Invoke-Negative {
     if (-not $passed) { exit 1 }
 }
 
-if ($Mode -eq 'Negative') { Invoke-Negative } else { Invoke-Acceptance }
+if ($Mode -eq 'Negative') {
+    Invoke-Negative
+} else {
+    $acceptanceInstallDir = Join-Path $ResultsDir 'Installed LecturePack'
+    try {
+        Invoke-Acceptance
+    } finally {
+        # A failed validation must not leave an installed app, registry entry, or shell shortcut behind.
+        Stop-AcceptanceSidecar
+        [void](Remove-AcceptanceTestInstall $acceptanceInstallDir)
+    }
+}

@@ -5,13 +5,18 @@ import { fileURLToPath } from 'node:url';
 
 const spikeRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(spikeRoot, '..');
+const buildRoot = process.env.LECTUREPACK_BUILD_ROOT
+  ? path.resolve(process.env.LECTUREPACK_BUILD_ROOT)
+  : spikeRoot;
 const pyinstaller = process.env.LECTUREPACK_PYINSTALLER
   ? path.resolve(process.env.LECTUREPACK_PYINSTALLER)
   : path.join(repoRoot, '.venv', 'Scripts', 'pyinstaller.exe');
 const spec = path.join(spikeRoot, 'sidecar.spec');
-const distPath = path.join(spikeRoot, 'dist-sidecar');
-const workPath = path.join(spikeRoot, 'build-sidecar');
+const distPath = path.join(buildRoot, 'dist-sidecar');
+const workPath = path.join(buildRoot, 'build-sidecar');
 const packagedSidecar = path.join(distPath, 'LecturePackSidecar');
+
+fs.mkdirSync(buildRoot, { recursive: true });
 
 for (const file of [pyinstaller, spec]) {
   if (!fs.existsSync(file)) throw new Error(`Required sidecar build input is missing: ${file}`);

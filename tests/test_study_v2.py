@@ -192,6 +192,95 @@ def test_repeated_successes_master(tmp_path):
     assert progress["concepts"]["c1"]["mastery"] == "MASTERED"
 
 
+def test_progress_keeps_previous_valid_state_as_rolling_backup(tmp_path):
+    class FakeJob:
+        def __init__(self, root):
+            self.paths = {"root": str(root)}
+
+    job = FakeJob(tmp_path)
+    first = study_v2.empty_progress()
+    first["concepts"]["c1"] = {"mastery": "LEARNING", "attempts": 1}
+    study_v2.save_progress(job, first)
+    backup_path = Path(study_v2.progress_path(job) + study_v2.PROGRESS_BACKUP_SUFFIX)
+    assert json.loads(backup_path.read_text(encoding="utf-8"))["concepts"]["c1"] == {
+        "mastery": "LEARNING", "attempts": 1,
+    }
+
+    second = study_v2.empty_progress()
+    second["concepts"]["c1"] = {"mastery": "MASTERED", "attempts": 2}
+    study_v2.save_progress(job, second)
+
+    assert json.loads(backup_path.read_text(encoding="utf-8"))["concepts"]["c1"] == {
+        "mastery": "LEARNING", "attempts": 1,
+    }
+    assert study_v2.load_progress(job)["concepts"]["c1"]["mastery"] == "MASTERED"
+
+
+def test_progress_recovers_from_backup_without_overwriting_it(tmp_path, caplog):
+    class FakeJob:
+        def __init__(self, root):
+            self.paths = {"root": str(root)}
+
+    job = FakeJob(tmp_path)
+    first = study_v2.empty_progress()
+    first["concepts"]["c1"] = {"mastery": "LEARNING", "attempts": 1}
+    study_v2.save_progress(job, first)
+    second = study_v2.empty_progress()
+    second["concepts"]["c1"] = {"mastery": "MASTERED", "attempts": 2}
+    study_v2.save_progress(job, second)
+
+    primary_path = Path(study_v2.progress_path(job))
+    backup_path = Path(str(primary_path) + study_v2.PROGRESS_BACKUP_SUFFIX)
+    primary_path.write_text('{"truncated":', encoding="utf-8")
+
+    recovered = study_v2.load_progress(job)
+    assert recovered["concepts"]["c1"]["mastery"] == "LEARNING"
+    assert "Recovered Study mastery progress" in caplog.text
+    recovered["concepts"]["c1"]["attempts"] = 2
+    study_v2.save_progress(job, recovered)
+
+    assert study_v2.load_progress(job)["concepts"]["c1"]["attempts"] == 2
+    assert json.loads(backup_path.read_text(encoding="utf-8"))["concepts"]["c1"] == {
+        "mastery": "LEARNING", "attempts": 1,
+    }
+
+
+def test_progress_returns_empty_only_when_primary_and_backup_are_invalid(tmp_path):
+    class FakeJob:
+        def __init__(self, root):
+            self.paths = {"root": str(root)}
+
+    job = FakeJob(tmp_path)
+    primary_path = Path(study_v2.progress_path(job))
+    primary_path.write_text("not json", encoding="utf-8")
+    Path(str(primary_path) + study_v2.PROGRESS_BACKUP_SUFFIX).write_text(
+        "also not json", encoding="utf-8",
+    )
+
+    assert study_v2.load_progress(job) == study_v2.empty_progress()
+
+
+def test_progress_write_interruption_preserves_primary_and_removes_temp(
+        tmp_path, monkeypatch):
+    target = tmp_path / "study-progress-v2.json"
+    study_v2._write_progress_json(str(target), {"generation": 1})
+    real_replace = os.replace
+
+    def interrupted_replace(source, destination):
+        if os.path.abspath(destination) == os.path.abspath(target):
+            raise OSError("simulated process interruption")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(
+        "lecturepack.infrastructure.file_manager.os.replace", interrupted_replace,
+    )
+    with pytest.raises(OSError, match="simulated process interruption"):
+        study_v2._write_progress_json(str(target), {"generation": 2})
+
+    assert json.loads(target.read_text(encoding="utf-8")) == {"generation": 1}
+    assert list(tmp_path.glob(".study-progress-v2.json.*.tmp")) == []
+
+
 @requires_rust_study_core
 def test_study_core_info_reports_rust():
     info = study_v2.study_core_info()
@@ -239,8 +328,13 @@ def test_delete_concept_removes_related_items(tmp_path):
     job = FakeJob(tmp_path)
     content = {
         "schema_version": 2,
+        "lecture_analysis": {
+            "concepts": [{"id": "c1"}, {"id": "c2"}],
+            "relationships": [{"from_concept_id": "c1", "to_concept_id": "c2"}],
+        },
         "concepts": [
             {"id": "c1", "title": "Troy", "explanation": "x", "sources": [], "emphasis": None},
+            {"id": "c2", "title": "Legacy", "explanation": "y", "sources": [], "emphasis": None},
         ],
         "flashcards": [
             {"id": "f1", "front": "Q", "back": "A", "concept_ids": ["c1"], "sources": []},
@@ -249,10 +343,29 @@ def test_delete_concept_removes_related_items(tmp_path):
             {"id": "q1", "question": "Q", "qtype": "mc", "options": ["a", "b"],
              "correct_index": 0, "explanation": "e", "concept_ids": ["c1"], "sources": []},
         ],
+        "study_guide": [{"heading": "Troy", "concept_ids": ["c1"]}],
+        "key_terms": [{"label": "Hisarlik", "concept_ids": ["c1"]}],
+        "teach_me_foundations": [{"concept_id": "c1", "concept_ids": ["c1"]}],
+        "quick_study_material": {
+            "five_minute": ["c1", "c2"], "ten_minute": ["c1", "c2"],
+            "twenty_minute": ["c1", "c2"], "full": ["c1", "c2"],
+        },
+        "cached_responses": [{"key": "one", "concept_ids": ["c1"], "response": {}}],
+        "enrichment": [{"concept_id": "c1", "sources": []}],
     }
     study_v2.save_content(job, content)
+    study_v2.record_quiz_result(job, "history", ["c1"], False)
     assert study_v2.delete_concept(job, "c1") is True
     loaded = study_v2.load_content(job)
-    assert loaded["concepts"] == []
+    assert [item["id"] for item in loaded["concepts"]] == ["c2"]
     assert loaded["flashcards"] == []
     assert loaded["quiz"] == []
+    assert loaded["study_guide"] == []
+    assert loaded["key_terms"] == []
+    assert loaded["teach_me_foundations"] == []
+    assert loaded["cached_responses"] == []
+    assert loaded["enrichment"] == []
+    assert loaded["lecture_analysis"]["concepts"] == [{"id": "c2"}]
+    assert loaded["lecture_analysis"]["relationships"] == []
+    assert loaded["quick_study_material"]["full"] == ["c2"]
+    assert study_v2.load_progress(job)["concepts"]["c1"]["mastery"] == "NEEDS_REVIEW"

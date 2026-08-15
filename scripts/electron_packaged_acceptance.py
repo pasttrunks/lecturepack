@@ -538,13 +538,16 @@ def result_to_text(result: dict[str, Any], notes: Iterable[str] = ()) -> str:
 class JsonlSession:
     """Own a subprocess that speaks the sidecar's JSONL stdin/stdout contract."""
 
-    def __init__(self, executable: Path, args: list[str], timeout_s: float = PROTOCOL_TIMEOUT_S):
+    def __init__(self, executable: Path, args: list[str], timeout_s: float = PROTOCOL_TIMEOUT_S,
+                 env: dict[str, str] | None = None):
         self.executable = Path(executable)
         self.args = list(args)
         self.timeout = float(timeout_s)
+        self.env = dict(env) if env is not None else None
         self.proc: Optional[subprocess.Popen] = None
         self._queue: queue.Queue[Optional[dict[str, Any]]] = queue.Queue()
         self._thread: Optional[threading.Thread] = None
+        self._stderr_thread: Optional[threading.Thread] = None
         self.messages: list[dict[str, Any]] = []
         self.stderr_lines: list[str] = []
         self._request_counter = 0
@@ -559,9 +562,12 @@ class JsonlSession:
             bufsize=1,
             encoding="utf-8",
             errors="replace",
+            env=self.env,
         )
         self._thread = threading.Thread(target=self._pump, daemon=True)
         self._thread.start()
+        self._stderr_thread = threading.Thread(target=self._pump_stderr, daemon=True)
+        self._stderr_thread.start()
 
     def _pump(self) -> None:
         for line in self.proc.stdout:  # type: ignore[union-attr]
@@ -575,6 +581,8 @@ class JsonlSession:
             if isinstance(msg, dict) and str(msg.get("event", "")):
                 self.messages.append(msg)
                 self._queue.put(msg)
+
+    def _pump_stderr(self) -> None:
         for line in self.proc.stderr or []:  # type: ignore[union-attr]
             if line.strip():
                 self.stderr_lines.append(line.strip())
@@ -589,7 +597,17 @@ class JsonlSession:
         return request_id
 
     def _next(self, timeout: float | None) -> dict[str, Any]:
-        return self._queue.get(timeout=self.timeout if timeout is None else timeout)
+        try:
+            return self._queue.get(timeout=self.timeout if timeout is None else timeout)
+        except queue.Empty as exc:
+            code = self.proc.poll() if self.proc is not None else None
+            state = (
+                "was not started" if self.proc is None
+                else f"exited with code {code}" if code is not None
+                else "is still running"
+            )
+            detail = "; ".join(self.stderr_lines[-5:]) or "no stderr"
+            raise TimeoutError(f"sidecar {state}; {detail}") from exc
 
     def wait_event(self, event_name: str, timeout: float | None = None,
                    predicate: Callable[[dict[str, Any]], bool] | None = None) -> dict[str, Any]:

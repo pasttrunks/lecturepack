@@ -172,7 +172,13 @@ def test_completed_background_download_uses_normal_import_path(tmp_path: Path, m
 
     sidecar._download_worker()
 
-    assert imported == [{"path": str(target), "title": "Week 4"}]
+    # The download hands over the media and its title exactly as before, plus
+    # the directory the captions landed in. That extra key is what scopes
+    # caption adoption to downloads: a local import never supplies it.
+    assert len(imported) == 1
+    assert imported[0]["path"] == str(target)
+    assert imported[0]["title"] == "Week 4"
+    assert imported[0]["captions_dir"], "the download must pass its captions directory"
     assert destinations == [tmp_path / "download-1"]
     assert sidecar._downloads["download-1"]["status"] == "complete"
     assert any(event.get("event") == "media_progress" and event.get("pct") == 42 for event in events)

@@ -7,6 +7,9 @@
   'use strict';
 
   var $ = function (id) { return document.getElementById(id); };
+  // One guarded indirection keeps feature stores consistent and preserves a
+  // single place to substitute storage in renderer-level tests.
+  var browserStorage = function () { return window.localStorage; };
   var esc = function (s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -32,25 +35,10 @@
     if (nm && name) nm.textContent = name;
   }
 
-  /* ======================= guided tour models =======================
-     These reducers deliberately contain no DOM or bridge calls.  The DOM
-     controller below is a thin projection of their state, which keeps the
-     user-controlled tour and stale-event filtering testable without a live
-     QtWebEngine window. */
-  function GuidedTourModel(seen) {
-    var active = false, prompt = false, step = -1, completed = !!seen;
-    function snapshot() { return { active: active, prompt: prompt, step: step, completed: completed }; }
-    return {
-      offer: function () { if (!completed && !active) prompt = true; return snapshot(); },
-      start: function () { prompt = false; active = true; step = 0; return snapshot(); },
-      replay: function () { prompt = false; active = true; step = 0; return snapshot(); },
-      next: function (count) { if (active && step < count - 1) step += 1; return snapshot(); },
-      back: function () { if (active && step > 0) step -= 1; return snapshot(); },
-      exit: function () { active = false; prompt = false; step = -1; completed = true; return snapshot(); },
-      snapshot: snapshot
-    };
-  }
-
+  /* ======================= demo session model =======================
+     This reducer deliberately contains no DOM or bridge calls. The
+     self-contained demo screen owns presentation; this model only rejects
+     stale start/stop events from the real bundled-lecture hand-off. */
   function GuidedDemoSessionModel() {
     var operationId = '', sessionId = '', active = false, status = 'idle', stage = '', progress = 0, error = '', terminal = false, attempt = 0;
     function snapshot() { return { operationId: operationId, sessionId: sessionId, active: active, status: status, stage: stage, progress: progress, error: error, terminal: terminal, attempt: attempt }; }
@@ -126,27 +114,6 @@
     };
   }
 
-  function GuidedDemoFlowModel() {
-    var phase = 'idle', imported = false, reviewDecisionMade = false;
-    function snapshot() {
-      return { phase: phase, imported: imported, reviewDecisionMade: reviewDecisionMade,
-        nextEnabled: phase === 'study' || phase === 'exports',
-        backEnabled: phase === 'study' || phase === 'exports' };
-    }
-    return {
-      beginAttempt: function () { phase = 'import'; imported = false; reviewDecisionMade = false; return snapshot(); },
-      start: function () { phase = 'import'; imported = false; reviewDecisionMade = false; return snapshot(); },
-      imported: function () { if (phase === 'import') { imported = true; phase = 'processing'; } return snapshot(); },
-      running: function () { if (phase === 'processing') phase = 'processing'; return snapshot(); },
-      reviewReady: function () { if (phase === 'processing') phase = 'review'; return snapshot(); },
-      reviewDecision: function () { if (phase === 'review') { reviewDecisionMade = true; phase = 'study'; } return snapshot(); },
-      next: function () { if (phase === 'study') phase = 'exports'; else if (phase === 'exports') phase = 'finished'; return snapshot(); },
-      back: function () { if (phase === 'exports') phase = 'study'; else if (phase === 'study') phase = 'review'; return snapshot(); },
-      exit: function () { phase = 'idle'; imported = false; reviewDecisionMade = false; return snapshot(); },
-      snapshot: snapshot
-    };
-  }
-
   function SlideDetectionPresetModel() {
     var selected = 'balanced';
     var presets = { low: 'conservative', balanced: 'balanced', high: 'detailed' };
@@ -162,10 +129,8 @@
       snapshot: snapshot
     };
   }
-  /* ===================== guided tour models end ===================== */
-  window.LPTourModel = GuidedTourModel;
+  /* ===================== demo session model end ===================== */
   window.LPDemoSessionModel = GuidedDemoSessionModel;
-  window.LPDemoFlowModel = GuidedDemoFlowModel;
   window.LPSlideDetectionPresetModel = SlideDetectionPresetModel;
 
   var THUMB_SVG = '<svg width="{S}" height="{S}" viewBox="0 0 24 24" fill="none" stroke="{C}" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
@@ -222,7 +187,14 @@
         settings: { count: 10, difficulty: 'Basic', style: 'Term → definition', scope: 'Entire lecture' }
       },
       viewingSlide: 2,
-      slidesView: 'grid',   // grid = visual tiles, list = compact rows
+      // "All slides" tile size: s/m/l are three visibly different stops, unlike
+      // the Compact/Roomy pair they replace. Remembered across sessions.
+      slideSize: (function () {
+        try {
+          var saved = browserStorage().getItem('lecturepack.slideSize');
+          return ['s', 'm', 'l'].indexOf(saved) >= 0 ? saved : 'm';
+        } catch (e) { return 'm'; }
+      })(),
 
       updateInfo: null,
       smartStudy: null,   // last smart_study payload
@@ -563,7 +535,7 @@
     else if (restored) {
       // A live (queued/running/paused) job: clear the previous job's terminal
       // readouts; real pipeline events take over from here.
-      var liveLabel = $('status-label'); if (liveLabel) liveLabel.textContent = 'Idle';
+      var liveLabel = $('status-state'); if (liveLabel) liveLabel.textContent = 'Idle';
       setFill('status-bar', 0);
       setStatusDotText($('side-job-status'), restored.status === 'running' ? 'Processing' : 'Queued', 'var(--orange)', restored.status === 'running');
     }
@@ -787,10 +759,50 @@
     var tmp = document.createElement('div'); tmp.innerHTML = b.html || '';
     return tmp.textContent;
   }
+  /* "Copy text" reflows the transcript into readable PARAGRAPHS.
+     It used to emit one paragraph per transcript block, so a transcript cut
+     into short caption-length blocks pasted as a column of fragments -- which
+     is what "Copy with timestamps" is already for. Here the blocks are joined
+     back into continuous prose and re-broken at sentence ends.
+
+     Speech-to-text output is not reliably punctuated, so a run with no
+     sentence ending is split at a word boundary rather than pasted as one
+     unbroken wall. */
   function formatTranscriptPlain(blocks) {
-    return (blocks || []).map(function (b) {
-      return transcriptBlockText(b).replace(/\s+/g, ' ').trim();
-    }).filter(Boolean).join('\n\n');
+    // Self-contained on purpose: this function is extracted and run on its own
+    // in a VM by tests/test_job_view_switching.py, so it must not depend on
+    // anything outside itself except transcriptBlockText.
+    var PARAGRAPH_CHARS = 700, HARD_WRAP_CHARS = 1200;
+
+    function splitLongRun(run) {
+      var out = [];
+      while (run.length > HARD_WRAP_CHARS) {
+        var cut = run.lastIndexOf(' ', PARAGRAPH_CHARS);
+        if (cut <= 0) cut = PARAGRAPH_CHARS;
+        out.push(run.slice(0, cut).trim());
+        run = run.slice(cut).trim();
+      }
+      if (run) out.push(run);
+      return out;
+    }
+
+    var text = (blocks || []).map(function (b) {
+      return transcriptBlockText(b);
+    }).join(' ').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    var sentences = text.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [text];
+    var paragraphs = [], current = '';
+    sentences.forEach(function (sentence) {
+      current += sentence;
+      if (current.length >= PARAGRAPH_CHARS) {
+        paragraphs.push(current.trim());
+        current = '';
+      }
+    });
+    if (current.trim()) paragraphs.push(current.trim());
+    return paragraphs.reduce(function (all, paragraph) {
+      return all.concat(splitLongRun(paragraph));
+    }, []).join('\n\n');
   }
   function formatTranscriptStamped(blocks) {
     return (blocks || []).map(function (b) {
@@ -846,9 +858,40 @@
     if (/^(inspect|inspecting|probe|probing)/.test(normalized)) return 'Inspecting video';
     if (/extract( audio|ing audio)?/.test(normalized)) return 'Extracting audio';
     if (/^align|aligning/.test(normalized)) return 'Aligning notes';
-    if (/review ready|preparing review/.test(normalized)) return 'Preparing review';
+    if (/preparing review/.test(normalized)) return 'Preparing review';
+    if (/review[ _-]?ready/.test(normalized)) return 'Review ready';
     if (/^prepare|preparing/.test(normalized)) return 'Preparing';
     return raw.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+  }
+
+  /* A stage the pipeline FINISHED and handed back to the student. The app is
+     NOT working, so the footer must stop implying that it is: a partly-filled
+     solid orange bar is this app's idiom for work in progress, and the demo
+     parks at review_ready/86% permanently (auto_export:false), which is what
+     made the footer read "Preparing review 86%" through Review, Study AND
+     Exports. The backend stage alone cannot say WHICH handoff is pending, so
+     it resolves from app state. Works for a real job too: a job is "decided"
+     once every slide carries an accepted/rejected state. */
+  function reviewDecisionTaken() {
+    var slides = (LP.data && LP.data.slides) || [];
+    if (!slides.length) return false;
+    return slides.every(function (sl) {
+      return sl.state === 'accepted' || sl.state === 'rejected';
+    });
+  }
+  function waitingHandoff(stage) {
+    var n = normalizedProcessingText(String(stage == null ? '' : stage));
+    if (!/review[ _-]?ready|awaiting[ _-]?review/.test(n)) return null;
+    if (reviewDecisionTaken()) {
+      return { label: 'Ready to export', detail: 'Study pack not exported yet' };
+    }
+    var undecided = ((LP.data && LP.data.slides) || []).filter(function (sl) {
+      return sl.state !== 'accepted' && sl.state !== 'rejected';
+    }).length;
+    return { label: 'Review ready',
+             detail: undecided
+               ? undecided + (undecided === 1 ? ' slide' : ' slides') + ' to keep or reject'
+               : 'Waiting for your review' };
   }
 
   /* Backend and IPC failures must never reach the student raw (N-2):
@@ -1094,8 +1137,6 @@
   function bulkGroup() {
     var ids = Object.keys(LP.state.selected);
     if (!ids.length) return;
-    // F-2: never stack a modal over the guided tour.
-    if (guidedTour.snapshot().active || guidedTour.snapshot().prompt) { toast('Finish or leave the guided tour first.'); return; }
     lpModal({
       title: 'Group ' + ids.length + (ids.length === 1 ? ' lecture' : ' lectures'),
       bodyHtml: '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px">Course / subject</label>' +
@@ -1125,12 +1166,17 @@
 
   function _jobCardHtml(j) {
     var ready = _jobIsReady(j);
+    var draggable = _jobIsDraggable(j);
     var displayStatus = ready ? 'ready' : j.status;
     var b = JOB_BADGES[displayStatus] || JOB_BADGES.done;
     var dot = '<span style="width:6px;height:6px;border-radius:50%;background:' + b.dot + (b.blink ? ';animation:lpblink 1s infinite' : '') + '"></span>';
     var badge = '<span class="lp-state" data-state="' + (JOB_STATE_MAP[displayStatus] || 'idle') + '" style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:' + b.bg + ';color:' + b.fg + ';border-radius:6px;padding:3px 8px">' + dot + b.label + '</span>';
-    var menu = j.id ? '<div style="position:absolute;top:9px;left:9px;display:flex;gap:6px">' +
-      _jobBtn('group', j.id, TAG_SVG, 'Set group') + _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
+    var subject = jobGroup(j) || 'General';
+    var subjectBadge = '<button type="button" class="lp-subject-badge" data-jobid="' + esc(j.id) + '" data-subject="' + esc(subject) + '" title="Click to rename subject">' +
+      '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/></svg>' +
+      '<span>' + esc(subject) + '</span></button>';
+    var menu = j.id ? '<div style="position:absolute;top:9px;left:9px;display:flex;align-items:center;gap:6px">' +
+      subjectBadge + _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
     var body;
     if (j.status === 'running') {
       body = '<div data-job-title title="Double-click to rename" style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(j.name) + '</div>' +
@@ -1172,7 +1218,9 @@
         '</span>'
       : '';
     var border = chosen ? 'var(--blue)' : 'var(--border)';
-    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + 'data-status="' + esc(displayStatus) + '" style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer">' +
+    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + (draggable ? 'draggable="true" data-existing-job-drag="true" ' : '') +
+      (_jobIsReprocessable(j) ? 'data-reprocess="true" title="Drag to Process to run this lecture again" ' : '') +
+      'data-status="' + esc(displayStatus) + '" style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:' + (draggable ? 'grab' : 'pointer') + '">' +
       '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + (selecting ? selbox : menu) + badge + '</div>' +
       '<div style="padding:14px 16px">' + body + '</div></div>';
   }
@@ -1264,34 +1312,85 @@
     });
   }
 
+  function positionDownloadsPanel() {
+    var indicator = $('downloads-indicator'), panel = $('downloads-panel');
+    if (!indicator || !panel || panel.hidden) return;
+    var r = indicator.getBoundingClientRect(), width = panel.offsetWidth || 390, pad = 10;
+    var left = Math.max(pad, Math.min(r.right - width, window.innerWidth - width - pad));
+    panel.style.left = Math.round(left) + 'px';
+    panel.style.top = Math.round(r.bottom + 8) + 'px';
+    panel.style.right = 'auto';
+  }
+
+  function downloadId(item) {
+    var value = item && item.download_id != null ? item.download_id : item && item.id;
+    return value == null ? '' : String(value);
+  }
+  function normalizedDownloadStatus(item) {
+    var status = String(item && item.status || '').trim().toLowerCase();
+    if (status === 'waiting' || status === 'running' || status === 'completed' || status === 'failed') return status;
+    // Older bridges exposed their vocabulary as status; newer bridges keep it
+    // under legacy_status while the normalized status remains authoritative.
+    var legacy = String(item && item.legacy_status || '').trim().toLowerCase();
+    if (status === 'downloading' || legacy === 'downloading') return 'running';
+    if (status === 'complete' || legacy === 'complete') return 'completed';
+    if (status === 'cancelled' || legacy === 'cancelled') return 'failed';
+    return 'waiting';
+  }
+  function downloadPercent(item) {
+    var raw = item && item.pct != null ? item.pct : item && item.progress;
+    var pct = Number(raw);
+    if (!isFinite(pct)) pct = 0;
+    if (item && item.pct == null && pct >= 0 && pct <= 1) pct *= 100;
+    return Math.max(0, Math.min(100, pct));
+  }
+  function downloadEta(item) {
+    var raw = item && item.eta_seconds != null ? item.eta_seconds : item && item.eta;
+    var eta = Number(raw);
+    return isFinite(eta) && eta >= 0 ? eta : null;
+  }
   function renderDownloads() {
     var items = mediaLink.downloads || [];
     var indicator = $('downloads-indicator'), panel = $('downloads-panel'), list = $('downloads-list');
     if (!indicator || !panel || !list) return;
-    var active = items.filter(function (item) { return item.status === 'downloading'; })[0];
-    var waiting = items.filter(function (item) { return item.status === 'waiting'; }).length;
-    var unfinished = items.filter(function (item) { return item.status === 'downloading' || item.status === 'waiting'; }).length;
-    indicator.hidden = items.length === 0;
-    $('downloads-indicator-label').textContent = active
-      ? ('Downloading ' + (active.title || 'lecture') + ' · ' + (active.pct || 0) + '%' + (waiting ? ' · ' + waiting + ' waiting' : ''))
-      : (unfinished ? ('↓ ' + unfinished + ' downloads') : 'Downloads');
-    if (!items.length) { panel.hidden = true; return; }
-    list.innerHTML = items.map(function (item) {
-      var status = item.status || 'waiting';
-      var progress = status === 'downloading'
-        ? '<div style="height:6px;border-radius:4px;background:var(--sunk);overflow:hidden;margin:7px 0 4px"><div class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(' + Math.max(0, Math.min(1, (item.pct || 0) / 100)) + ')"></div></div>'
+    var rows = items.map(function (item) {
+      return { item: item, id: downloadId(item), status: normalizedDownloadStatus(item) };
+    });
+    var active = rows.filter(function (row) { return row.status === 'running'; })[0];
+    var waiting = rows.filter(function (row) { return row.status === 'waiting'; }).length;
+    var unfinished = rows.filter(function (row) { return row.status === 'running' || row.status === 'waiting'; }).length;
+    indicator.hidden = false;
+    var count = $('downloads-indicator-count'), label = $('downloads-indicator-label');
+    if (count) { count.hidden = !unfinished; count.textContent = unfinished ? String(unfinished) : ''; }
+    if (label) label.textContent = active ? (downloadPercent(active.item) + '%') : 'Downloads';
+    indicator.setAttribute('aria-label', active
+      ? ('Downloads: ' + downloadPercent(active.item) + '% in progress' + (waiting ? ', ' + waiting + ' waiting' : ''))
+      : 'Open downloads');
+    if (!items.length) {
+      list.innerHTML = '<div style="padding:18px 10px;text-align:center;font:500 12px \'Space Grotesk\';color:var(--muted)">No downloads yet.</div>';
+      return;
+    }
+    list.innerHTML = rows.map(function (row) {
+      var item = row.item, status = row.status, pct = downloadPercent(item), eta = downloadEta(item);
+      var progress = status === 'running'
+        ? '<div style="height:6px;border-radius:4px;background:var(--sunk);overflow:hidden;margin:7px 0 4px"><div class="lp-fill" style="width:100%;height:100%;background:var(--orange);transform:scaleX(' + (pct / 100) + ')"></div></div>'
         : '';
-      var meta = status === 'downloading'
-        ? ((item.pct || 0) + '%' + (item.speed ? ' · ' + fmtBytes(item.speed) + '/s' : '') + (item.eta ? ' · ~' + fmtDuration(item.eta) + ' left' : ''))
-        : status.charAt(0).toUpperCase() + status.slice(1);
-      var action = status === 'downloading'
-        ? '<button data-download-act="cancel" data-download-id="' + esc(item.id) + '">Cancel</button>'
-        : status === 'waiting'
-          ? '<button data-download-act="remove" data-download-id="' + esc(item.id) + '">Remove</button>'
-          : status === 'failed' || status === 'cancelled'
-            ? '<button data-download-act="retry" data-download-id="' + esc(item.id) + '">Retry</button>' : '';
+      var meta = status === 'running'
+        ? (pct + '%' + (item.speed ? ' · ' + fmtBytes(item.speed) + '/s' : '') + (eta != null ? ' · ~' + fmtDuration(eta) + ' left' : ''))
+        : status === 'completed'
+          ? 'Completed'
+          : status === 'failed'
+            ? (String(item.legacy_status || '').toLowerCase() === 'cancelled' ? 'Cancelled' : 'Failed')
+            : 'Waiting';
+      var action = row.id && status === 'running'
+        ? '<button data-download-act="cancel" data-download-id="' + esc(row.id) + '">Cancel</button>'
+        : row.id && status === 'waiting'
+          ? '<button data-download-act="remove" data-download-id="' + esc(row.id) + '">Remove</button>'
+          : row.id && status === 'failed'
+            ? '<button data-download-act="retry" data-download-id="' + esc(row.id) + '">Retry</button>' : '';
       return '<div style="padding:10px;border-radius:9px;background:var(--panel2);margin-bottom:6px"><div style="display:flex;gap:9px;align-items:start"><div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(item.title || 'Lecture download') + '</div>' + progress + '<div style="font:500 10px \'JetBrains Mono\';color:' + (status === 'failed' ? 'var(--red)' : 'var(--muted)') + '">' + esc(meta) + '</div>' + (item.error ? '<details style="font-size:11px;color:var(--muted);margin-top:5px"><summary>Details</summary><div style="overflow-wrap:anywhere">' + esc(item.error) + '</div></details>' : '') + '</div><div class="lp-download-action">' + action + '</div></div></div>';
     }).join('');
+    positionDownloadsPanel();
   }
 
   // "YYYY-MM-DDTHH:MM" for *local* time -- toISOString() would return UTC and
@@ -1340,9 +1439,38 @@
       actions: [{ label: 'Cancel' }, { label: 'Delete', danger: true, onClick: function () { if (lpBridge.connected()) lpBridge.call('delete_job', job.id); else toast('Preview mode — not deleted'); } }]
     });
   }
+  function confirmResetLecturePack() {
+    var status = $('reset-lecturepack-status'), modal;
+    modal = lpModal({
+      title: 'Reset LecturePack?',
+      bodyHtml: 'This will permanently remove LecturePack jobs, Study progress, downloaded LecturePack media, settings, and app history.<br><br>Original lecture/video files outside LecturePack will not be deleted.',
+      actions: [
+        { label: 'Cancel' },
+        { label: 'Reset LecturePack', danger: true, onClick: function () {
+          if (!lpBridge.connected()) {
+            toast('Reset needs the LecturePack desktop app.');
+            return false;
+          }
+          if (status) status.textContent = 'Waiting for reset confirmation…';
+          lpBridge.call('reset_lecturepack').then(function (value) {
+            var result = parseBridgeResult(value);
+            if (!result || result.ok !== true) {
+              if (status) status.textContent = (result && result.error) || 'Reset is unavailable in this build.';
+              toast((result && result.error) || 'Reset is unavailable in this build.');
+              return;
+            }
+            if (status) status.textContent = 'LecturePack is restarting…';
+            modal.close();
+          }, function () {
+            if (status) status.textContent = 'Reset could not be started.';
+            toast('Reset could not be started.');
+          });
+          return true;
+        } }
+      ]
+    });
+  }
   function setJobGroup(job) {
-    // F-2: never stack the Group lecture modal over the guided tour.
-    if (guidedTour.snapshot().active || guidedTour.snapshot().prompt) { toast('Finish or leave the guided tour first.'); return; }
     lpModal({
       title: 'Group lecture',
       bodyHtml: '<label style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px">Course / subject</label>' +
@@ -1381,6 +1509,244 @@
   }
   function jobGroup(job) {
     return (job && job.group) || inferredJobGroup(job && (job.name || job.title));
+  }
+
+  function lectureProgressPct(job) {
+    if (!job) return 0;
+    if (job.status !== 'done') return Math.max(0, Math.min(100, Number(job.pct) || 0));
+    var studyData = (typeof studyV2 !== 'undefined' && studyV2.progress && studyV2.viewJobId === job.id) ? studyV2.progress : null;
+    if (!studyData && job.study_summary && typeof job.study_summary.progress_percent === 'number') {
+      return Math.max(0, Math.min(100, Math.round(job.study_summary.progress_percent)));
+    }
+    if (studyData && studyData.concepts) {
+      var cids = Object.keys(studyData.concepts);
+      if (cids.length > 0) {
+        var scoreSum = 0;
+        cids.forEach(function (cid) {
+          var state = studyData.concepts[cid];
+          if (typeof state === 'object' && state !== null) state = state.mastery;
+          if (state === 'MASTERED' || state === 'mastered') scoreSum += 1.0;
+          else if (state === 'LEARNING' || state === 'learning' || state === 'MEDIUM' || state === 'medium') scoreSum += 0.5;
+          else if (state === 'NEEDS_REVIEW' || state === 'needs_review' || state === 'LOW' || state === 'low') scoreSum += 0.2;
+        });
+        return Math.max(0, Math.min(100, Math.round((scoreSum / cids.length) * 100)));
+      }
+    }
+    return 100; // Processed and ready for study
+  }
+
+  function groupCoveragePct(jobs) {
+    if (!jobs || !jobs.length) return 0;
+    var sum = 0;
+    jobs.forEach(function (j) { sum += lectureProgressPct(j); });
+    return Math.round(sum / jobs.length);
+  }
+
+  function renderCoverageBarHtml(pct, label) {
+    var p = Math.max(0, Math.min(100, Number(pct) || 0));
+    var color = p >= 80 ? 'var(--green)' : p >= 40 ? 'var(--orange)' : 'var(--blue)';
+    return '<div class="lp-coverage-bar" title="' + esc(label || (p + '% coverage')) + '">' +
+      '<div class="lp-coverage-track"><div class="lp-coverage-fill" style="width:' + p + '%;background:' + color + '"></div></div>' +
+      '<span class="lp-coverage-pct">' + p + '%</span></div>';
+  }
+
+  var subjectFilterQuery = '';
+
+  function renderSubjects() {
+    var grid = $('subjects-grid'), empty = $('subjects-empty'), countLabel = $('subjects-summary-count');
+    if (!grid) return;
+    var allJobs = (typeof LP !== 'undefined' && LP.data && LP.data.jobs) || [];
+    var groupsMap = {};
+    allJobs.forEach(function (j) {
+      var grp = jobGroup(j) || 'General';
+      if (!groupsMap[grp]) groupsMap[grp] = [];
+      groupsMap[grp].push(j);
+    });
+    var groupNames = Object.keys(groupsMap).sort();
+    if (subjectFilterQuery) {
+      var q = subjectFilterQuery.toLowerCase().trim();
+      groupNames = groupNames.filter(function (name) {
+        if (name.toLowerCase().indexOf(q) >= 0) return true;
+        return groupsMap[name].some(function (j) { return ((j && (j.name || j.title)) || '').toLowerCase().indexOf(q) >= 0; });
+      });
+    }
+    if (countLabel) countLabel.textContent = groupNames.length + (groupNames.length === 1 ? ' Subject' : ' Subjects');
+    if (!groupNames.length) {
+      grid.innerHTML = '';
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+
+    grid.innerHTML = groupNames.map(function (grpName) {
+      var members = groupsMap[grpName];
+      var cov = groupCoveragePct(members);
+      var doneCount = members.filter(function (m) { return m.status === 'done'; }).length;
+      var memberListHtml = members.map(function (m) {
+        var mPct = lectureProgressPct(m);
+        var isViewing = typeof LP !== 'undefined' && LP.state && m.id === LP.state.jobId;
+        var r = getJobReadiness(m);
+        var mName = m.name || m.title || m.filename || 'Lecture';
+        return '<div class="subject-member-row' + (isViewing ? ' active' : '') + '" data-jobid="' + esc(m.id) + '">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="subject-member-name" title="' + esc(mName) + '">' + esc(mName) + '</div>' +
+            '<div class="subject-member-meta">' + esc(r.label + (m.duration ? ' · ' + m.duration : '')) + '</div>' +
+          '</div>' +
+          '<div style="width:70px;flex:none">' + renderCoverageBarHtml(mPct, mName + ': ' + mPct + '%') + '</div>' +
+          '<button type="button" class="lp-hit subject-member-open" data-jobid="' + esc(m.id) + '" title="Open lecture">Open</button>' +
+        '</div>';
+      }).join('');
+
+      return '<div class="subject-card lp-card" data-group="' + esc(grpName) + '">' +
+        '<div class="subject-card-head">' +
+          '<div style="flex:1 1 12rem;min-width:0">' +
+            '<div class="subject-card-title-wrap">' +
+              '<span class="subject-card-title" data-group="' + esc(grpName) + '" title="' + esc(grpName) + '\nClick to rename">' + esc(grpName) + '</span>' +
+              '<button type="button" class="subject-rename-btn" data-group="' + esc(grpName) + '" title="Rename subject group"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>' +
+            '</div>' +
+            '<div class="subject-card-meta">' + members.length + (members.length === 1 ? ' lecture' : ' lectures') + ' · ' + doneCount + ' ready</div>' +
+          '</div>' +
+          '<button type="button" class="lp-hit lp-press-sm subject-study-btn" data-group="' + esc(grpName) + '" title="Study entire subject">' +
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Study Subject' +
+          '</button>' +
+        '</div>' +
+        '<div class="subject-coverage-section">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px \'JetBrains Mono\';color:var(--muted);margin-bottom:6px">' +
+            '<span>SUBJECT MASTERY</span>' +
+          '</div>' +
+          renderCoverageBarHtml(cov, 'Overall subject mastery: ' + cov + '%') +
+        '</div>' +
+        '<div class="subject-members-list">' + memberListHtml + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function wireSubjectEvents() {
+    var searchInput = $('subjects-filter-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        subjectFilterQuery = this.value;
+        renderSubjects();
+      });
+    }
+
+    var grid = $('subjects-grid');
+    if (grid) {
+      grid.addEventListener('click', function (e) {
+        var openBtn = e.target.closest('.subject-member-open');
+        if (openBtn) {
+          var jid = openBtn.dataset.jobid;
+          if (jid) selectJob(jid, { screen: 'review' });
+          return;
+        }
+        var studyBtn = e.target.closest('.subject-study-btn');
+        if (studyBtn) {
+          var grp = studyBtn.dataset.group;
+          if (grp) studySubjectGroup(grp);
+          return;
+        }
+        var renameBtn = e.target.closest('.subject-rename-btn') || e.target.closest('.subject-card-title');
+        if (renameBtn) {
+          var groupName = renameBtn.dataset.group;
+          if (groupName) handleSubjectCardRename(renameBtn.closest('.subject-card'), groupName);
+          return;
+        }
+      });
+    }
+
+    var jobsContainer = $('jobs-grid') || document.body;
+    jobsContainer.addEventListener('click', function (e) {
+      var badge = e.target.closest('.lp-subject-badge');
+      if (badge && !badge.querySelector('input')) {
+        e.stopPropagation();
+        handleHomeBadgeInlineRename(badge);
+      }
+    });
+  }
+
+  function handleHomeBadgeInlineRename(badgeEl) {
+    var jobId = badgeEl.dataset.jobid;
+    var currentVal = badgeEl.dataset.subject || '';
+    badgeEl.innerHTML = '<input class="lp-subject-inline-input" type="text" value="' + esc(currentVal) + '" data-prev="' + esc(currentVal) + '" style="font:700 11px \'JetBrains Mono\';width:80px;padding:2px 4px;border:1.5px solid var(--blue);border-radius:4px;background:var(--panel);color:var(--ink)">';
+    var input = badgeEl.querySelector('input');
+    if (!input) return;
+    input.focus();
+    input.select();
+    var committed = false;
+    function commit() {
+      if (committed) return;
+      committed = true;
+      var nextVal = input.value.trim();
+      if (nextVal && nextVal !== currentVal) {
+        if (lpBridge.connected()) lpBridge.call('set_job_group', jobId, nextVal);
+        var job = _jobById(jobId);
+        if (job) job.group = nextVal;
+        toast('Subject updated to ' + nextVal);
+      }
+      renderJobs();
+      if (typeof LP !== 'undefined' && LP.state && LP.state.screen === 'subjects') renderSubjects();
+    }
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { e.preventDefault(); committed = true; renderJobs(); }
+    });
+    input.addEventListener('blur', function () { commit(); });
+  }
+
+  function handleSubjectCardRename(cardEl, oldGroup) {
+    var titleEl = cardEl.querySelector('.subject-card-title');
+    if (!titleEl) return;
+    titleEl.innerHTML = '<input class="subject-card-title-input" type="text" value="' + esc(oldGroup) + '" style="font:700 18px \'Space Grotesk\';padding:3px 8px;border:2px solid var(--blue);border-radius:6px;background:var(--panel);color:var(--ink);width:100%">';
+    var input = titleEl.querySelector('input');
+    if (!input) return;
+    input.focus();
+    input.select();
+    var committed = false;
+    function commit() {
+      if (committed) return;
+      committed = true;
+      var nextGroup = input.value.trim();
+      if (nextGroup && nextGroup !== oldGroup) {
+        var allJobs = (typeof LP !== 'undefined' && LP.data && LP.data.jobs) || [];
+        var memberIds = allJobs.filter(function (j) { return (jobGroup(j) || 'General') === oldGroup; }).map(function (j) { return j.id; });
+        if (memberIds.length) {
+          if (lpBridge.connected()) lpBridge.call('set_jobs_group', JSON.stringify(memberIds), nextGroup);
+          allJobs.forEach(function (j) {
+            if (memberIds.indexOf(j.id) >= 0) j.group = nextGroup;
+          });
+          toast('Renamed subject to ' + nextGroup + ' (' + memberIds.length + ' lectures updated)');
+        }
+      }
+      renderSubjects();
+      renderJobs();
+    }
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { e.preventDefault(); committed = true; renderSubjects(); }
+    });
+    input.addEventListener('blur', function () { commit(); });
+  }
+
+  function studySubjectGroup(groupName) {
+    openGroupStudy(groupName, { jobId: 'all' });
+  }
+
+  /* Collapsed groups, remembered by group NAME rather than by job id: the
+     student collapses "CL100", not a set of lectures, so adding a lecture to a
+     collapsed course must not silently reopen it. Survives restart. */
+  var COLLAPSED_GROUPS_KEY = 'lecturepack.home.collapsedGroups';
+  function collapsedGroups() {
+    try {
+      var raw = JSON.parse(browserStorage().getItem(COLLAPSED_GROUPS_KEY) || '{}');
+      return raw && typeof raw === 'object' ? raw : {};
+    } catch (e) { return {}; }
+  }
+  function toggleGroupCollapsed(name) {
+    if (!name) return;
+    var state = collapsedGroups();
+    if (state[name]) delete state[name]; else state[name] = true;
+    try { browserStorage().setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(state)); } catch (e) {}
+    renderJobs();
   }
   function _jobById(id) {
     return (LP.data.jobs || []).filter(function (j) { return j && j.id === id; })[0] || null;
@@ -1505,6 +1871,85 @@
   function _jobIsReady(j) {
     return !!j && j.status === 'queued' && !_jobInQueue(j.id) && j.status !== 'running';
   }
+  // A lecture that has already finished (or failed, or was cancelled) can be
+  // put back through the pipeline. This is deliberately SEPARATE from
+  // _jobIsReady, which means "imported but never processed" and still governs
+  // the Start/Options/Remove buttons -- widening that would have put a Start
+  // button on every finished lecture. Only dragging consults this.
+  var REPROCESSABLE_STATUSES = { done: true, failed: true, cancelled: true, interrupted: true };
+  function _jobIsReprocessable(j) {
+    return !!j && !!j.id && REPROCESSABLE_STATUSES[j.status] === true && !_jobInQueue(j.id);
+  }
+  function _jobIsDraggable(j) {
+    return _jobIsReady(j) || _jobIsReprocessable(j);
+  }
+  function internalDragIdsFor(sourceId) {
+    var selected = LP.state.selecting && LP.state.selected[sourceId];
+    var ids = [];
+    (LP.data.jobs || []).forEach(function (job) {
+      if (!job || !job.id || !(_jobIsDraggable(job) && (!LP.state.selecting || !selected || LP.state.selected[job.id]))) return;
+      if (!selected && job.id !== sourceId) return;
+      if (ids.indexOf(job.id) < 0) ids.push(job.id);
+    });
+    return ids;
+  }
+  function readInternalJobDrag(event) {
+    var transfer = event && event.dataTransfer;
+    if (!transfer) return [];
+    var raw = '';
+    try { raw = transfer.getData(INTERNAL_JOB_DRAG_MIME); } catch (e) {}
+    if (!raw) return internalJobDragIds.slice();
+    try {
+      var ids = JSON.parse(raw);
+      return Array.isArray(ids) ? ids.filter(function (id, index) { return typeof id === 'string' && id && ids.indexOf(id) === index; }) : [];
+    } catch (e) { return []; }
+  }
+  function createInternalDragGhost(count) {
+    var ghost = document.createElement('div');
+    ghost.className = 'lp-drag-ghost';
+    ghost.textContent = count + ' lecture' + (count === 1 ? '' : 's');
+    document.body.appendChild(ghost);
+    return ghost;
+  }
+  // Dropping finished lectures on Process re-runs them, which REPLACES their
+  // slides, transcript and Study pack. That is not something to discover after
+  // the fact, so the confirm names what is about to be overwritten and the
+  // reprocess flag only reaches the sidecar once the student has agreed.
+  function confirmReprocess(ids) {
+    var again = ids.map(_jobById).filter(_jobIsReprocessable);
+    if (!again.length) return Promise.resolve(false);
+    var names = again.map(function (j) { return '<li>' + esc(j.name || 'Untitled lecture') + '</li>'; }).join('');
+    return new Promise(function (resolve) {
+      lpModal({
+        title: again.length === 1 ? 'Process this lecture again?' : 'Process ' + again.length + ' lectures again?',
+        bodyHtml: '<div>Running these again replaces their existing slides, transcript and Study pack:</div>' +
+          '<ul style="margin:10px 0 0;padding-left:20px">' + names + '</ul>',
+        actions: [
+          { label: 'Cancel', onClick: function () { resolve(false); } },
+          { label: 'Process again', danger: true, onClick: function () { resolve(true); } }
+        ]
+      });
+    });
+  }
+  function queueExistingJobIds(ids, opts) {
+    var unique = ids.filter(function (id, index) { return id && ids.indexOf(id) === index; });
+    if (!unique.length) return Promise.resolve(null);
+    if (!lpBridge.connected()) { toast('Preview mode — existing lectures were not queued.'); return Promise.resolve(null); }
+    var request = { job_ids: unique };
+    if (opts && opts.reprocess) request.reprocess = true;
+    return lpBridge.call('queue_jobs', request).then(function (result) {
+      // Older desktop bridges expose the same normal queue one job at a time.
+      // This fallback still sends each existing ID exactly once and never
+      // routes an internal drag through file import.
+      if (result !== null && result !== undefined) return result;
+      return unique.reduce(function (chain, id) {
+        return chain.then(function () { return lpBridge.call('enqueue_job', id); });
+      }, Promise.resolve(null));
+    }).then(function (result) {
+      renderJobs(); renderQueue(); renderProcessingStrip();
+      return result;
+    });
+  }
   // Display labels for the per-job processing options (chosen before start and
   // locked for that run). The backend stores preset balanced/detailed and
   // product_mode study_pack/transcript_only/slides_only.
@@ -1546,8 +1991,18 @@
       studyV2.quickSummary = null;
       studyV2.askStreaming = false;
       studyV2.askAnswer = null;
+      studyV2.teachConceptId = '';
+      studyV2.teachResult = null;
+      studyV2.teachLoading = false;
+      studyV2.teachGrade = null;
+      studyV2.quizGrading = false;
+      studyV2.quizGrades = {};
+      studyV2.quizGradingQuestionId = '';
       studyV2.viewJobId = '';
-      if (LP.state.screen === 'study') renderStudyV2Overview();
+      if (LP.state.screen === 'study') {
+        renderStudyGenerationState();
+        renderStudyV2Overview();
+      }
     }
     if (lpBridge.connected() && !opts.silent) {
       try { lpBridge.call('view_job', jobId); } catch (err) { /* cached data already shown */ }
@@ -1675,23 +2130,29 @@
       list.innerHTML = '<div style="font:500 12px \'JetBrains Mono\';color:var(--muted);padding:12px 2px">No jobs waiting.</div>';
       return;
     }
+    // The queue was one full-width row per job, so five queued lectures filled
+    // the viewport in a straight line. It is now the same auto-filling grid the
+    // library uses. A wrapping grid only keeps its order if the order is
+    // written down, so the position moves onto the thumbnail as a badge and
+    // reading order stays row-major.
     list.innerHTML = q.map(function (row, i) {
       var job = _jobById(row.id) || { id: row.id, preset: 'balanced', product_mode: 'study_pack' };
-      var qbtn = function (act, label, disabled) {
-        return '<button class="lp-hit" data-queueact="' + act + '" data-queueid="' + esc(row.id) + '"' +
-          (disabled ? ' disabled style="opacity:.4;' : ' style="') +
-          'font:600 11px \'Space Grotesk\';border-radius:7px;padding:6px 10px;cursor:pointer;background:var(--panel);border:1.5px solid var(--border);color:var(--ink)">' + label + '</button>';
+      var qbtn = function (act, glyph, label, disabled) {
+        return '<button class="lp-hit' + (act === 'remove' ? ' q-rm' : '') + '" data-queueact="' + act +
+          '" data-queueid="' + esc(row.id) + '" title="' + esc(label) + '" aria-label="' + esc(label) + '"' +
+          (disabled ? ' disabled' : '') + '>' + glyph + '</button>';
       };
-      return '<div class="lp-anim-in" style="display:flex;align-items:center;gap:12px;background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px">' +
-        '<span style="font:700 12px \'JetBrains Mono\';color:var(--muted);min-width:22px">' + (i + 1) + '</span>' +
-        '<div style="width:96px;height:54px;flex:none;background:var(--sunk);border:1.5px solid var(--line);border-radius:8px;position:relative;overflow:hidden">' + posterHtml(job) + '</div>' +
-        '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13.5px;margin-bottom:2px">' + esc(_jobName(row.id)) + '</div>' +
-        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(_optionsLabel(job)) + ' · Queued</div></div>' +
-        '<div style="display:flex;gap:6px">' +
-          qbtn('up', 'Move up', i === 0) +
-          qbtn('down', 'Move down', i === q.length - 1) +
-          qbtn('remove', 'Remove', false) +
-        '</div></div>';
+      return '<div class="q-card">' +
+        '<div class="q-thumb">' + posterHtml(job) +
+        '<span class="q-pos" aria-hidden="true">' + (i + 1) + '</span></div>' +
+        '<div class="q-body">' +
+        '<div class="q-title">' + esc(_jobName(row.id)) + '</div>' +
+        '<div class="q-meta">' + esc(_optionsLabel(job)) + ' · Queued</div>' +
+        '<div class="q-actions">' +
+          qbtn('up', '&#8593;', 'Move up', i === 0) +
+          qbtn('down', '&#8595;', 'Move down', i === q.length - 1) +
+          qbtn('remove', '&#10005;', 'Remove from queue', false) +
+        '</div></div></div>';
     }).join('');
   }
   function renderScheduled() {
@@ -1724,25 +2185,68 @@
       var selectBar = $('jobs-selectbar');
       if (selectBar) selectBar.hidden = true;
     }
-    g.style.display = 'flex'; g.style.flexDirection = 'column'; g.style.gap = '26px';
+    g.style.display = 'flex'; g.style.flexDirection = 'column'; g.style.gap = '16px';
     g.style.gridTemplateColumns = 'none';
+    // A group only earns a container when it actually groups something.
+    // jobGroup() falls back to inferredJobGroup(), which slices a prefix off
+    // the title -- so a library of separately-named lectures produced one
+    // "group" per lecture, and containerising those gave seven boxes of one
+    // card each: noisier than no grouping at all. An EXPLICIT group (set by
+    // the student) always gets its own box, even alone; an INFERRED one only
+    // when two or more lectures share it. The rest pool into Ungrouped.
+    var counts = {};
+    LP.data.jobs.forEach(function (j) {
+      var k = jobGroup(j);
+      counts[k] = (counts[k] || 0) + 1;
+    });
     var groups = {}, order = [];
     LP.data.jobs.forEach(function (j) {
       var k = jobGroup(j);
+      if (!(j && j.group) && counts[k] < 2) k = 'Ungrouped';
       if (!groups[k]) { groups[k] = []; order.push(k); }
       groups[k].push(j);
     });
-    order.sort(function (a, b) { return String(a).localeCompare(String(b)); });
-    var single = order.length <= 1;
+    // Ungrouped is a remainder, not a category, so it sorts last.
+    order.sort(function (a, b) {
+      if (a === 'Ungrouped') return 1;
+      if (b === 'Ungrouped') return -1;
+      return String(a).localeCompare(String(b));
+    });
+    // Every group is a bordered container with a persistent header. The old
+    // build suppressed the header whenever there was only one group, which is
+    // the common case -- so grouping was invisible exactly when a student was
+    // first learning that lectures HAVE groups. The card grid auto-fills
+    // instead of being pinned to three columns at every window width.
+    var collapsed = collapsedGroups();
     g.innerHTML = order.map(function (k) {
-      var cards = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px">' +
-        groups[k].map(_jobCardHtml).join('') + '</div>';
-      var header = single ? '' :
-        '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px"><span style="font:700 14px \'Space Grotesk\'">' + esc(k) + '</span><span style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + groups[k].length + '</span></div>';
-      return '<div>' + header + cards + '</div>';
+      var count = groups[k].length;
+      var shut = collapsed[k] === true;
+      // Collapsed groups render their header only. Dropping the cards from the
+      // DOM (rather than hiding them) is the point of collapsing a library
+      // that has grown too tall to scan.
+      return '<section class="lib-group" aria-label="' + esc(k) + '" data-group="' + esc(k) + '"' +
+        (shut ? ' data-collapsed="true"' : '') + '>' +
+        '<div class="lib-group-head">' +
+        '<button type="button" class="lp-hit lib-group-toggle" data-group-toggle="' + esc(k) + '"' +
+        ' aria-expanded="' + (shut ? 'false' : 'true') + '"' +
+        ' title="' + (shut ? 'Expand' : 'Collapse') + ' ' + esc(k) + '"' +
+        ' aria-label="' + (shut ? 'Expand' : 'Collapse') + ' ' + esc(k) + '">' +
+        (shut ? '&#43;' : '&#8722;') + '</button>' +
+        '<span class="lib-group-code">' + esc(k) + '</span>' +
+        '<span class="lib-group-count">' + count +
+        (count === 1 ? ' lecture' : ' lectures') + '</span></div>' +
+        (shut ? '' : '<div class="lib-grid">' + groups[k].map(_jobCardHtml).join('') + '</div>') +
+        '</section>';
     }).join('');
+    Array.prototype.forEach.call(g.querySelectorAll('[data-group-toggle]'), function (button) {
+      button.addEventListener('click', function (e) {
+        e.stopPropagation();
+        toggleGroupCollapsed(button.getAttribute('data-group-toggle'));
+      });
+    });
     $('jobs-count').textContent = LP.data.jobs.length;
     renderContinueCard();
+    if (typeof LP !== 'undefined' && LP.state && LP.state.screen === 'subjects') renderSubjects();
   }
 
   // Live progress updates land on the matching Home card BY JOB ID, never only
@@ -1808,6 +2312,11 @@
    var pipelineRenderDirty = false, statusRenderDirty = false;
    var pendingProcessingStatus = {};
    var lastPipelineRenderKey = null, lastStatusRenderKey = null;
+   // Processing temporarily replaces the footer's backend identity with a
+   // stage label. Keep the last authoritative backend label so returning to
+   // a no-lecture state cannot pair "Idle" with stale work such as
+   // "Detecting slides".
+   var runtimeBackendLabel = (($('status-right') || {}).textContent || '').trim();
 
    function processingRaf(fn) {
      return (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(fn);
@@ -1879,10 +2388,6 @@
       logEl.innerHTML = logHtml;
       if (stick) logEl.scrollTop = logEl.scrollHeight;
     }
-    // The guided-tour processing spotlight is measured before the live stage
-    // list fills in. Re-measure after that DOM growth so the border and arrow
-    // continue to describe the actual target instead of the initial skeleton.
-    if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') scheduleTourGeometry();
   }
 
    function pipelineStageNode() {
@@ -2017,7 +2522,6 @@
      while (stagesEl.children.length < stages.length) stagesEl.appendChild(pipelineStageNode());
       stages.forEach(function (st, index) { applyPipelineStage(stagesEl.children[index], st); });
       renderPipelineLog($('proc-log'), logs);
-      if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') scheduleTourGeometry();
       refreshControlStates();
    }
 
@@ -2026,9 +2530,18 @@
      var key = JSON.stringify(s);
      if (key === lastStatusRenderKey) return;
      lastStatusRenderKey = key;
-      if (s.label !== undefined) $('status-label').textContent = friendlyProcessingLabel(s.label) || 'Idle';
+      var hold = s.label !== undefined ? waitingHandoff(s.label) : null;
+      var footer = $('status-footer');
+      if (footer) footer.dataset.status = hold ? 'waiting' : '';
+      if (s.label !== undefined) {
+        $('status-state').textContent = hold ? hold.label : (friendlyProcessingLabel(s.label) || 'Idle');
+      }
+      // The real percentage, always -- the bar changes MATERIAL when parked,
+      // it never lies about magnitude.
       if (s.pct !== undefined) setFill('status-bar', s.pct);
-      if (s.detail !== undefined) $('status-pct').textContent = friendlyProcessingLabel(s.detail) || s.detail;
+      if (s.detail !== undefined) {
+        $('status-detail').textContent = hold ? hold.detail : (friendlyProcessingLabel(s.detail) || s.detail);
+      }
       if (s.right !== undefined) $('status-right').textContent = friendlyProcessingLabel(s.right) || s.right;
       if (s.job !== undefined && LP.state.jobId) {
         var jobName = friendlyJobName(s.job);
@@ -2077,7 +2590,7 @@
       stages are actually active; afterwards the stage text reads Ready. */
    function settleTerminalStatus(kind) {
      var hasJob = !!LP.state.jobId;
-     var label = $('status-label'), pct = $('status-pct'), right = $('status-right');
+     var label = $('status-state'), pct = $('status-detail'), right = $('status-right');
      if (pct) pct.textContent = '';
      if (right) right.textContent = 'Ready';
      if (kind === 'complete') {
@@ -2255,80 +2768,104 @@
     return { show: show, refit: refit };
   })();
 
-  /* Slide review has two genuinely different jobs, so it gets two layouts.
-     GRID = image tiles, for scanning a deck fast and spotting the slide you
-     want. LIST = compact rows with timecode + status, for working through
-     judgements precisely. Before this the Grid/List control was inert markup
-     (two <span>s, no handler anywhere) while the only layout that existed was
-     the row one -- so it also mislabelled itself as "Grid". */
-  /* Grid tiles animate their entrance ONLY when the user enters grid view, not
-     on every render. renderSlides() rebuilds innerHTML on every slide click,
-     Next/Prev, and now every Keep/Reject (which auto-advances), so an
-     unconditional .lp-anim-in made the whole grid re-play its 140ms slide-up on
-     every single interaction -- a full-grid flash per judgement click. The list
-     branch never carried the class, which is why only grid regressed. */
-  var _gridEntrance = true;   // true so the first paint still animates
+  /* Review has one narrow working rail and one deliberate deck overview.
+     A "Grid/List" toggle inside a 250px rail could never produce a useful grid:
+     its auto-fill expression resolved to one 246px column. The rail is now
+     always a list with density control; visual deck scanning lives in the
+     full-window All Slides dialog where 168px cards can actually form a grid. */
+  function slideReviewState(slide) {
+    return slide && slide.state === 'rejected' ? 'rejected' : 'accepted';
+  }
+
+  function slideCheckHtml(selected) {
+    return '<span class="lp-slide-check" data-checked="' + (selected ? 'true' : 'false') +
+      '" aria-hidden="true">' + (selected ? '&#10003;' : '') + '</span>';
+  }
+
+  function slideRailCardHtml(slide, index, viewing) {
+    var state = slideReviewState(slide), selected = state !== 'rejected' && slide.sel === true;
+    var label = state === 'rejected' ? 'Rejected' : (viewing ? 'Viewing' : 'Kept');
+    var image = slideImg(slide.thumb || slide.img, '', 16, state === 'rejected' ? 'var(--red)' : 'var(--muted)');
+    // A 16:9 thumbnail across the full rail width. The old row put it at
+    // 60x38 (82x52 "roomy"), at which a lecture slide is an unreadable smear
+    // -- and telling two bullet slides apart is the entire job of this screen.
+    return '<button type="button" class="lp-hit lp-slide-card lp-slide-rail-card" data-slide="' + index +
+      '" data-state="' + state + '" data-viewing="' + (viewing ? 'true' : 'false') +
+      '" data-selected="' + (selected ? 'true' : 'false') + '" aria-label="Slide ' + (index + 1) +
+      ', ' + esc(slide.time || '') + ', ' + label.toLowerCase() + '">' +
+      '<span class="lp-slide-card-thumb">' + image + '</span>' +
+      '<span class="lp-slide-card-meta"><span class="lp-slide-card-time">' + esc(slide.time) + '</span>' +
+      '<span class="lp-slide-card-status">' + label + '</span>' +
+      '<span class="lp-slide-card-idx">' + (index + 1) + '</span></span>' +
+      slideCheckHtml(selected) + '</button>';
+  }
+
+  function allSlidesCardHtml(slide, index, viewing) {
+    var state = slideReviewState(slide), selected = state !== 'rejected' && slide.sel === true;
+    var label = state === 'rejected' ? 'Rejected' : (viewing ? 'Viewing' : 'Kept');
+    var image = slideImg(slide.thumb || slide.img, '', 22, state === 'rejected' ? 'var(--red)' : 'var(--muted)');
+    return '<button type="button" class="lp-hit lp-all-slide-card" data-slide="' + index +
+      '" data-state="' + state + '" data-viewing="' + (viewing ? 'true' : 'false') +
+      '" data-selected="' + (selected ? 'true' : 'false') + '" aria-label="Open slide ' + (index + 1) +
+      ', ' + esc(slide.time || '') + ', ' + label.toLowerCase() + '">' +
+      '<span class="lp-all-slide-image">' + image + '</span>' +
+      '<span class="lp-all-slide-meta"><span><strong>Slide ' + (index + 1) + '</strong><time>' +
+      esc(slide.time) + '</time></span><span class="lp-all-slide-state">' + label + '</span>' +
+      slideCheckHtml(selected) + '</span></button>';
+  }
+
+  function renderAllSlides() {
+    var grid = $('all-slides-grid'), count = $('all-slides-count');
+    if (!grid) return;
+    grid.dataset.size = LP.state.slideSize;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-slide-size]'), function (button) {
+      button.setAttribute('aria-pressed',
+        button.dataset.slideSize === LP.state.slideSize ? 'true' : 'false');
+    });
+    var viewing = LP.state.viewingSlide;
+    grid.innerHTML = LP.data.slides.map(function (slide, index) {
+      return allSlidesCardHtml(slide, index, index === viewing);
+    }).join('');
+    if (count) {
+      var kept = LP.data.slides.filter(function (slide) { return slideReviewState(slide) === 'accepted'; }).length;
+      count.textContent = LP.data.slides.length + ' slides · ' + kept + ' kept';
+    }
+  }
+
+  var allSlidesReturnFocus = null;
+  function openAllSlides() {
+    var overlay = $('all-slides-overlay');
+    if (!overlay || !LP.data.slides.length) return;
+    allSlidesReturnFocus = document.activeElement;
+    renderAllSlides();
+    overlay.hidden = false;
+    focusFirst(overlay);
+  }
+
+  function closeAllSlides(restoreFocus) {
+    var overlay = $('all-slides-overlay');
+    if (!overlay || overlay.hidden) return;
+    overlay.hidden = true;
+    if (restoreFocus !== false && allSlidesReturnFocus && allSlidesReturnFocus.isConnected) {
+      allSlidesReturnFocus.focus();
+    }
+    allSlidesReturnFocus = null;
+  }
+
   function renderSlides() {
     var v = LP.state.viewingSlide;
     var list = $('slide-list');
     updateExportPdfDescription();
-    var grid = LP.state.slidesView === 'grid';
-    // the container is a flex column for list, an auto-fill grid for tiles
-    list.style.display = grid ? 'grid' : 'flex';
-    list.style.gridTemplateColumns = grid ? 'repeat(auto-fill,minmax(104px,1fr))' : '';
-    list.style.alignContent = grid ? 'start' : '';
-    list.style.gap = grid ? '8px' : '9px';
-    if (grid) {
-      var entrance = _gridEntrance ? ' lp-anim-in' : '';
-      _gridEntrance = false;
-      list.innerHTML = LP.data.slides.map(function (s, i) {
-        var viewing = i === v, bd, tint = 'var(--panel)', label, labelColor;
-        if (viewing) { bd = 'var(--orange)'; tint = 'var(--orange-soft)'; label = s.sel ? 'viewing · sel' : 'viewing'; labelColor = 'var(--orange-ink)'; }
-        else if (s.sel) { bd = 'var(--blue)'; tint = 'var(--blue-tint)'; label = 'selected'; labelColor = 'var(--blue-ink)'; }
-        else if (s.state === 'rejected') { bd = 'var(--red)'; tint = 'var(--red-soft)'; label = 'rejected'; labelColor = 'var(--red)'; }
-        else { bd = 'var(--border)'; label = 'accepted'; labelColor = 'var(--blue-ink)'; }
-        var img = slideImg(s.thumb || s.img, 'width:100%;height:100%;object-fit:cover;display:block', 18, labelColor);
-        return '<div class="lp-hit' + entrance + '" data-slide="' + i + '" style="display:flex;flex-direction:column;gap:5px;' +
-          'background:' + tint + ';border:2px solid ' + bd + ';border-radius:10px;padding:5px;cursor:pointer">' +
-          '<div style="aspect-ratio:16/10;overflow:hidden;background:var(--sunk);border-radius:6px;display:flex;' +
-          'align-items:center;justify-content:center">' + img + '</div>' +
-          '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:4px">' +
-          '<span style="font:700 11px \'JetBrains Mono\'">' + esc(s.time) + '</span>' +
-          '<span style="font:700 8.5px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</span>' +
-          '</div></div>';
-      }).join('');
-      finishSlides(v);
-      return;
-    }
-    list.innerHTML = LP.data.slides.map(function (s, i) {
-      var viewing = i === v;
-      var wrap, thumbBd = 'var(--line)', icon = 'var(--muted)', label, labelColor;
-      if (viewing) {
-        wrap = 'background:var(--orange-soft);border:2px solid var(--orange);border-radius:11px;padding:7px;cursor:pointer;box-shadow:var(--shadow-soft)';
-        thumbBd = 'var(--orange)'; icon = 'var(--orange-ink)';
-        label = s.sel ? 'viewing · sel' : 'viewing'; labelColor = 'var(--orange-ink)';
-      } else if (s.sel) {
-        wrap = 'background:var(--blue-tint);border:2px solid var(--blue);border-radius:11px;padding:7px;cursor:pointer;box-shadow:var(--shadow-soft)';
-        thumbBd = 'var(--blue)'; icon = 'var(--blue-ink)';
-        label = 'selected'; labelColor = 'var(--blue-ink)';
-      } else if (s.state === 'rejected') {
-        wrap = 'background:var(--red-soft);border:1.5px solid var(--line);border-radius:11px;padding:8px;cursor:pointer';
-        label = 'rejected'; labelColor = 'var(--red)';
-      } else {
-        wrap = 'background:var(--panel);border:1.5px solid var(--line);border-left:5px solid var(--blue);border-radius:11px;padding:8px;cursor:pointer';
-        label = 'accepted'; labelColor = 'var(--blue-ink)';
-      }
-      var thumbImg = slideImg(s.thumb || s.img, 'width:100%;height:100%;object-fit:cover;border-radius:5px;display:block', 16, icon);
-      return '<div class="lp-hit" data-slide="' + i + '" style="display:flex;align-items:center;gap:11px;' + wrap + '">' +
-        '<div style="width:60px;height:38px;flex:none;overflow:hidden;background:var(--sunk);border:1.5px solid ' + thumbBd + ';border-radius:6px;display:flex;align-items:center;justify-content:center">' + thumbImg + '</div>' +
-        '<div><div style="font:700 13px \'JetBrains Mono\'">' + esc(s.time) + '</div><div style="font:700 10px \'JetBrains Mono\';text-transform:uppercase;color:' + labelColor + '">' + label + '</div></div></div>';
+    list.innerHTML = LP.data.slides.map(function (slide, index) {
+      return slideRailCardHtml(slide, index, index === v);
     }).join('');
+    if (!$('all-slides-overlay').hidden) renderAllSlides();
     finishSlides(v);
   }
 
   function finishSlides(v) {
     var selCount = LP.data.slides.filter(function (s) { return s.sel; }).length;
-    $('slides-sel').textContent = '· ' + selCount + ' sel';
+    $('slides-sel').textContent = '· ' + selCount + ' kept';
     var cur = LP.data.slides[v];
     previewCtl.show(cur);
     $('slide-frame-meta').innerHTML = cur
@@ -2819,16 +3356,17 @@
 
   /* ======================= screen switching / chrome ======================= */
 
-  var CRUMBS = { home: 'Home', process: 'Process', review: 'Review', transcript: 'Transcript', study: 'Study', exports: 'Exports', settings: 'Settings' };
+  var CRUMBS = { home: 'Home', subjects: 'Subjects', process: 'Process', review: 'Review', transcript: 'Transcript', study: 'Study', exports: 'Exports', settings: 'Settings' };
 
   function setScreen(name) {
     if (LP.state.screen === name) return;
+    if (name !== 'review') closeAllSlides(false);
     // Home's Continue card must reflect the screen the student just left in
     // this same session, not only state captured during a job switch or app
     // shutdown. Capture before changing LP.state.screen so the saved target
     // remains Review/Transcript/Study/Process rather than Home.
     if (name === 'home' && LP.state.jobId &&
-        /^(process|review|transcript|study|exports)$/.test(LP.state.screen || '')) {
+        /^(process|review|transcript|study|exports|subjects)$/.test(LP.state.screen || '')) {
       if (typeof captureResumeState === 'function') captureResumeState(LP.state.jobId);
     }
     LP.motion.nav(function () {
@@ -2857,12 +3395,15 @@
       if (name === 'review') {
         requestAnimationFrame(function () { previewCtl.refit(); });
       }
+      if (name === 'subjects') {
+        renderSubjects();
+      }
       if (name === 'process') renderSlideDetectionPreset();
       if (name === 'exports') updateExportPdfDescription();
       if (name === 'study') {
         studyV2Load();   // load grounded Study V2 content + progress
       }
-      if ((name === 'study' || name === 'settings') && lpBridge.connected()) {
+      if (name === 'settings' && lpBridge.connected()) {
         lpBridge.call('smart_study_status');
       }
       if (name === 'settings' && lpBridge.connected()) {
@@ -2876,15 +3417,6 @@
     });
     // N-5: transient toasts do not survive a screen change.
     dismissToast();
-    // N-8: the tour follows the student, not the script. If they manually
-    // reach the next expected screen, the tour advances to match; otherwise
-    // re-measure so the spotlight never glows around empty space.
-    if (guidedTour.snapshot().active) {
-      var phaseNow = demoFlowPhase();
-      if (phaseNow === 'review' && name === 'study') { guidedDemoFlow.reviewDecision(); renderGuidedTour(); }
-      else if (phaseNow === 'study' && name === 'exports') { guidedDemoFlow.next(); renderGuidedTour(); }
-      else scheduleTourGeometry();
-    }
     if (typeof saveAppSession === 'function') saveAppSession();
     if (name === 'home' && typeof renderContinueCard === 'function') renderContinueCard();
   }
@@ -2986,7 +3518,7 @@
   // Highest-z-index open overlay, or null when none is open.
   function topOverlay() {
     var open = [];
-    ['runtime-setup-overlay', 'onb-overlay', 'whatsnew-overlay',
+    ['runtime-setup-overlay', 'all-slides-overlay', 'onb-overlay', 'whatsnew-overlay',
       'batch-overlay', 'search-overlay', 'palette-overlay'].forEach(function (id) {
       var el = $(id);
       if (el && !el.hidden) open.push(el);
@@ -3060,6 +3592,19 @@
     var state = 'gate', returnState = 'gate', retryPending = false, cancelPending = false;
     var activeOperation = null, terminal = false, offer = null, bootstrapPending = true, healthy = false;
     var validationPath = null, acknowledged = false, checklist = [], checkProgress = {}, startupFailure = null;
+    var REQUIRED_CHECK_IDS = ['windows_version', 'ffmpeg_ffprobe', 'whisper_runtime', 'bundled_model', 'data_directory'];
+    function waitForChecklist() {
+      state = 'checking';
+      checkProgress = {};
+      REQUIRED_CHECK_IDS.forEach(function (id) { checkProgress[id] = 'pending'; });
+      return snapshot();
+    }
+    function requiredChecklistReady(items) {
+      if (!Array.isArray(items) || items.length !== REQUIRED_CHECK_IDS.length) return false;
+      return REQUIRED_CHECK_IDS.every(function (id) {
+        return items.some(function (item) { return item && item.id === id && item.verdict === 'ready'; });
+      });
+    }
     function valid(value) {
       return !!(value && value.operation_id === activeOperation && value.app_version && value.source &&
         value.affected_components && Number.isSafeInteger(value.download_size_bytes) && value.download_size_bytes >= 0);
@@ -3067,7 +3612,7 @@
     function snapshot() {
       return { state: state, returnState: returnState, retryPending: retryPending, cancelPending: cancelPending,
         activeOperation: activeOperation, terminal: terminal, offer: offer, bootstrapPending: bootstrapPending, healthy: healthy,
-        validationPath: validationPath, acknowledged: acknowledged, checklist: checklist, checkProgress: checkProgress,
+        validationPath: validationPath, acknowledged: acknowledged, checklist: checklist, checklistReady: requiredChecklistReady(checklist), checkProgress: checkProgress,
         startupFailure: startupFailure };
     }
     function accept(event) { return !!(event && event.operation_id === activeOperation && !terminal); }
@@ -3108,9 +3653,7 @@
           // An in-flight repair operation is never hijacked by a pending
           // bootstrap arriving mid-repair.
           if (validationPath === 'full' && !activeOperation) {
-            state = 'checking';
-            checkProgress = {};
-            FIRST_RUN_ROWS.forEach(function (row) { checkProgress[row.id] = 'pending'; });
+            waitForChecklist();
           }
           return snapshot();
         }
@@ -3121,11 +3664,11 @@
           healthy = true;
           if (activeOperation && !terminal) this.event({ operation_id: activeOperation, kind: 'admitted' });
           else if (!activeOperation && !acknowledged) {
-            // D-12: a first-ever healthy admission always shows the
-            // checklist; an already-acknowledged admission leaves the state
-            // exactly where the pre-01-07 reducer left it, so the
-            // controller's existing close path still closes the overlay.
-            state = 'checklist';
+            // A healthy result without the authoritative five-row checklist
+            // is still incomplete. Keep the existing checking panel visible
+            // until the backend result can support a real checklist frame.
+            if (requiredChecklistReady(checklist)) state = 'checklist';
+            else waitForChecklist();
           }
         }
         return snapshot();
@@ -3170,9 +3713,13 @@
          is not the only future caller, so the healthy/unacknowledged guard
          lives here rather than at each call site. */
       toChecklist: function () {
-        if (healthy && !acknowledged) state = 'checklist';
+        if (healthy && !acknowledged) {
+          if (requiredChecklistReady(checklist)) state = 'checklist';
+          else waitForChecklist();
+        }
         return snapshot();
       },
+      waitForChecklist: waitForChecklist,
       event: function (event) {
         if (!accept(event)) return snapshot();
         if (event.kind === 'metadata_ready') return this.offer(event.offer || event);
@@ -3352,31 +3899,29 @@
       if (bar) bar.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
       text('runtime-checking-counter', resolvedCount + ' of ' + total + ' checked');
     }
-    // btn-runtime-continue and btn-runtime-skip are byte-identical in effect
-    // (UI-SPEC "Continue vs Skip effect", owner-resolved) and share one
-    // acknowledge() handler wired to both in wire().
-    var CHECKLIST_WINDOWS_ADVISORY = "Your Windows version isn't fully tested with LecturePack. Everything checked above works, so you can continue — reliability on this exact version isn't guaranteed.";
+    // The checklist is a rendering of the backend's five canonical verdicts.
+    // It never infers health from a detail string or from a partial payload.
     function renderChecklist() {
-      var host = $('runtime-checklist-rows'), empty = $('runtime-checklist-empty');
+      var host = $('runtime-checklist-rows'), empty = $('runtime-checklist-empty'), done = $('btn-runtime-done');
       if (!host || !empty) return;
-      // Read only id/verdict/detail -- no health arithmetic of our own on
-      // component evidence (backend decides, UI renders).
-      var items = eventModel.snapshot().checklist;
-      var complete = Array.isArray(items) && items.length === FIRST_RUN_ROWS.length;
-      empty.hidden = complete;
-      if (!complete) {
-        while (host.firstElementChild) host.firstElementChild.remove();
-        return;
-      }
+      var view = eventModel.snapshot();
+      var items = Array.isArray(view.checklist) ? view.checklist : [];
+      var byId = {};
+      items.forEach(function (item) { if (item && item.id) byId[item.id] = item; });
+      var ready = !!view.checklistReady;
+      // A checklist frame is meaningful only when all five authoritative
+      // records are present and green. If a malformed/partial payload reaches
+      // this renderer boundary, keep its waiting copy visible and keep Done
+      // hidden instead of presenting a false readiness state.
+      empty.hidden = ready;
+      if (done) { done.disabled = !ready; done.hidden = !ready; }
       var rowIndex = 0;
-      items.forEach(function (item) {
-        var meta = null;
-        for (var i = 0; i < FIRST_RUN_ROWS.length; i++) { if (FIRST_RUN_ROWS[i].id === item.id) { meta = FIRST_RUN_ROWS[i]; break; } }
-        var label = meta ? meta.label : String(item.id);
+      FIRST_RUN_ROWS.forEach(function (row) {
+        var item = byId[row.id] || { id: row.id, verdict: 'pending', detail: '' };
         var dataState = FIRST_RUN_VERDICT_STATES[item.verdict] || null;
-        var badgeText = item.verdict === 'needs_attention' ? 'Needs Attention' : 'Ready';
-        updateFirstRunRow(host, rowIndex++, item.id, label, badgeText, dataState,
-          item.verdict === 'needs_attention' ? CHECKLIST_WINDOWS_ADVISORY : '');
+        var badgeText = item.verdict === 'needs_attention' ? 'Needs Attention' : item.verdict === 'ready' ? 'Ready' : 'Pending';
+        var advisory = item.detail || (item.verdict === 'needs_attention' ? 'This required check needs attention.' : '');
+        updateFirstRunRow(host, rowIndex++, row.id, row.label, badgeText, dataState, advisory);
       });
       while (host.children.length > rowIndex) host.lastElementChild.remove();
     }
@@ -3410,7 +3955,11 @@
       return Number(bytes).toLocaleString('en-US') + ' bytes';
     }
     function render(dataChanged, forceCheckingOpen) {
-      var view = eventModel.snapshot(), next = view.state;
+      var view = eventModel.snapshot();
+      // Defensive DOM-boundary guard: no malformed bootstrap or stale event
+      // may expose the checklist heading before the five green records exist.
+      if (view.state === 'checklist' && !view.checklistReady) view = eventModel.waitForChecklist();
+      var next = view.state;
       if (STATES.indexOf(next) < 0) return;
       var el = overlay(); if (!el) return;
       if (closeInFlight) return;
@@ -3425,27 +3974,14 @@
         Array.prototype.forEach.call(el.querySelectorAll('[data-runtime-state]'), function (panel) { panel.hidden = panel.dataset.runtimeState !== next; });
       }
       renderComponents(); renderOffer(); renderChecking(); renderChecklist(); renderStartupFailure();
-      // Per the UI-SPEC nav contract, checklist is the one state in this
-      // overlay with no Exit affordance -- Continue and Skip already cover
-      // the low-commitment path; every other state (including checking)
-      // restores it. The focus helper already filters out zero-size
-      // elements, so hiding Exit here removes it from the trap cleanly and
-      // Continue/Skip remain the two focusable controls in checklist.
-      if (stateChanged) {
-        var exitButton = $('btn-runtime-exit');
-        if (exitButton) exitButton.hidden = next === 'checklist';
-      }
+      // Runtime Setup is a blocking gate. It has no renderer-side exit or
+      // bypass path; the only checklist action is Done after green verdicts.
       // runtime-checking-heading and runtime-checklist-heading carry
-      // tabindex="-1" for markup consistency with every other overlay
-      // heading, but per the UI-SPEC Focal Point rule neither is this
-      // state's initial focus target below -- checking focuses the Exit
-      // control (nothing else competes for attention) and checklist
-      // focuses Continue (the single focal action). runtime-checklist-body
-      // is likewise never rewritten by JS: the Ready-only and Mixed
-      // fixtures must render byte-identical heading/body copy, differing
-      // only in one row's badge.
+      // tabindex="-1" keeps the state headings available as stable focus
+      // targets while the backend remains authoritative for every verdict.
       var targets = { gate: 'btn-runtime-repair', confirm: 'btn-runtime-confirm', repairing: 'btn-runtime-cancel', offline: 'btn-runtime-offline-retry', failed: 'btn-runtime-failed-retry', diagnostics: 'runtime-diagnostics-heading', ready: 'runtime-ready-heading',
-        checking: 'btn-runtime-exit', checklist: 'btn-runtime-continue', startup_failed: 'btn-startup-retry' };
+        checking: 'runtime-checking-heading', checklist: 'runtime-checklist-heading', startup_failed: 'btn-startup-retry' };
+      if (next === 'checklist' && view.checklistReady) targets.checklist = 'btn-runtime-done';
       if (stateChanged) {
         var target = $(targets[next]); if (target) target.focus();
       }
@@ -3502,8 +4038,10 @@
       // the demo offer (D-17), so skipping it here would silently drop the
       // demo offer for the users with the roughest install.
       if (snap.healthy && !snap.acknowledged) {
-        eventModel.toChecklist();
-        announce('runtime-live-assertive', "You're ready to go.");
+        var view = eventModel.toChecklist();
+        announce('runtime-live-assertive', view.state === 'checklist'
+          ? "You're ready to go."
+          : 'LecturePack is still checking the required runtime components.');
         render();
         return;
       }
@@ -3535,9 +4073,6 @@
       return row ? row.checking : '';
     }
     function admit(bootstrap) {
-      if (bootstrap && Object.prototype.hasOwnProperty.call(bootstrap, 'tour_trace_enabled')) {
-        setTourTraceEnabled(bootstrap.tour_trace_enabled === true);
-      }
       bootstrapSnapshot = bootstrap && bootstrap.setup_required || bootstrap || bootstrapSnapshot;
       var before = eventModel.snapshot(), view = eventModel.bootstrap(bootstrap);
       if (before.state === 'checking' && view.state !== 'checking') clearCheckingTimers();
@@ -3555,27 +4090,31 @@
       if (view.state === 'ready') ready();
     }
     var acknowledgeInFlight = false;
-    // Continue and Skip are byte-identical in effect (UI-SPEC "Continue vs
-    // Skip effect", owner-resolved) -- both call this one handler.
     function acknowledge() {
       var snap = eventModel.snapshot();
-      if (snap.state !== 'checklist' || acknowledgeInFlight) return; // idempotent
+      if (snap.state !== 'checklist' || !snap.checklistReady || acknowledgeInFlight) return; // idempotent and green-only
       acknowledgeInFlight = true;
-      var continueBtn = $('btn-runtime-continue'), skipBtn = $('btn-runtime-skip');
-      if (continueBtn) continueBtn.disabled = true;
-      if (skipBtn) skipBtn.disabled = true;
+      var doneBtn = $('btn-runtime-done');
+      if (doneBtn) doneBtn.disabled = true;
       lpBridge.call('acknowledge_setup').then(function (json) {
-        var refreshed = null;
-        // A bridge hiccup (json resolves empty/null) must not trap the user
-        // behind a modal: the reducer's acknowledge() transition advances
-        // the flag locally even when the payload is empty.
-        if (json) { try { refreshed = JSON.parse(json); } catch (e) { refreshed = null; } }
+        var refreshed = parseBridgeResult(json);
+        // Done is an authoritative backend transition. An absent response or
+        // an explicit FEATURE_UNAVAILABLE/error envelope must leave the gate
+        // open instead of locally pretending setup was persisted.
+        if (!refreshed || refreshed.ok === false) {
+          if (doneBtn) { doneBtn.disabled = false; doneBtn.hidden = false; }
+          acknowledgeInFlight = false;
+          toast((refreshed && (refreshed.error || refreshed.message)) || 'LecturePack could not save setup completion. Try again.');
+          return;
+        }
         var view = eventModel.acknowledge(refreshed);
         syncDemoAdmission(view);
         closeOverlay();
-        if (continueBtn) continueBtn.disabled = false;
-        if (skipBtn) skipBtn.disabled = false;
         acknowledgeInFlight = false;
+      }, function () {
+        if (doneBtn) doneBtn.disabled = false;
+        acknowledgeInFlight = false;
+        toast('LecturePack could not save setup completion. Try again.');
       });
     }
     // Per-component checking progress (D-08/D-09). The reducer records the
@@ -3766,9 +4305,7 @@
       $('btn-runtime-offline-retry').addEventListener('click', beginNewRepair);
       $('btn-runtime-failed-retry').addEventListener('click', beginNewRepair);
       $('btn-runtime-cancel').addEventListener('click', cancel);
-      $('btn-runtime-exit').addEventListener('click', function () { lpBridge.call('exit_application'); window.close(); });
-      $('btn-runtime-continue').addEventListener('click', acknowledge);
-      $('btn-runtime-skip').addEventListener('click', acknowledge);
+      $('btn-runtime-done').addEventListener('click', acknowledge);
       Array.prototype.forEach.call(document.querySelectorAll('[data-runtime-diagnostics]'), function (button) { button.addEventListener('click', function () { diagnostics(button); }); });
       $('btn-runtime-diagnostics-back').addEventListener('click', back);
       function diagnosticFeedback(promise, ok, bad) { promise.then(function (json) { var r; try { r = JSON.parse(json); } catch (e) {} announce('runtime-live-polite', r && /copied|saved/.test(r.type || '') ? ok : bad); }, function () { announce('runtime-live-polite', bad); }); }
@@ -3821,8 +4358,9 @@
       var el = $(id);
       if (el) el.textContent = '';
     });
-    $('status-label').textContent = 'Idle';
-    $('status-pct').textContent = '';
+    $('status-state').textContent = 'Idle';
+    $('status-detail').textContent = '';
+    $('status-right').textContent = runtimeBackendLabel;
     setFill('status-bar', 0);
     renderSidePoster('');
     var w = $('storage-widget');
@@ -3832,6 +4370,9 @@
   // ------------------------------------------------------------------ //
   // Study V2: grounded concepts, mastery, flashcards, quiz, quick study
   // ------------------------------------------------------------------ //
+  // 'all' first: indexOf(...) > 0 is the "is a real difficulty" test.
+  var QUIZ_DIFFICULTIES = ['all', 'easy', 'medium', 'hard'];
+  var QUIZ_LENGTHS = ['all', '5', '10', '20'];
   var studyV2 = {
     content: null,
     progress: null,
@@ -3845,6 +4386,12 @@
     quizPicks: {},
     quizCorrect: 0,
     quizAsked: [],
+    quizGrades: {},
+    // How the student wants THIS run shaped. Applied locally to the generated
+    // pack: no AI request, works offline, and takes effect instantly.
+    quizDifficulty: 'all',
+    quizLength: 'all',
+    flashDifficulty: 'all',
     quickSession: null,
     quickIndex: 0,
     quickCorrect: 0,
@@ -3858,11 +4405,406 @@
     flashFilterIds: null,
     askStreaming: false,
     askAnswer: null,
+    quickMinutes: '5',
+    teachConceptId: '',
+    teachResult: null,
+    teachLoading: false,
+    teachGrade: null,
+    quizGrading: false,
+    quizGradingQuestionId: '',
+    loadError: '',
     viewJobId: '',
     restoredView: false,
     resumeMode: 'flashcards',
-    restoredQuickActive: false
+    restoredQuickActive: false,
+    // --- Group Scope State ---
+    scope: {
+      type: 'lecture', // 'lecture' | 'group'
+      groupName: '',
+      selectedJobId: 'all', // 'all' | '<job_id>'
+      groupAnalysis: null,
+      members: [],
+      loading: false,
+      status: 'idle', // 'idle' | 'preparing' | 'ready' | 'failed'
+      stage: '',
+      error: '',
+      reason: ''
+    }
   };
+
+  function studyGroupSlug(name) {
+    var s = String(name || '').trim().toLowerCase();
+    var h = 0;
+    for (var i = 0; i < s.length; i++) {
+      h = ((h << 5) - h) + s.charCodeAt(i);
+      h |= 0;
+    }
+    return 'g_' + Math.abs(h).toString(16);
+  }
+
+  function studyGroupStorageKey(groupName) {
+    return groupName ? 'lecturepack.study.v2.group.' + studyGroupSlug(groupName) : '';
+  }
+
+  function studyV2PersistGroupView() {
+    var groupName = studyV2.scope && studyV2.scope.groupName;
+    var key = studyGroupStorageKey(groupName);
+    if (!key || !localStorage) return;
+    try {
+      localStorage.setItem(key, JSON.stringify({
+        selectedJobId: studyV2.scope.selectedJobId,
+        lastMode: studyV2.mode,
+        resumeMode: studyV2.resumeMode,
+        quizDifficulty: studyV2.quizDifficulty,
+        flashDifficulty: studyV2.flashDifficulty
+      }));
+    } catch (e) {}
+  }
+
+  function studyV2RestoreGroupView(groupName) {
+    var key = studyGroupStorageKey(groupName);
+    if (!key || !localStorage) return false;
+    try {
+      var saved = JSON.parse(localStorage.getItem(key) || 'null');
+      if (!saved || typeof saved !== 'object') return false;
+      if (saved.selectedJobId) studyV2.scope.selectedJobId = saved.selectedJobId;
+      if (['overview', 'flashcards', 'quiz', 'ask', 'quick', 'teach'].indexOf(saved.lastMode) >= 0) {
+        studyV2.mode = saved.lastMode;
+      }
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function getJobReadiness(job) {
+    if (!job) return { status: 'queued', label: 'Queued', icon: '⏸', ready: false };
+    if (job.status === 'running') {
+      return { status: 'processing', label: 'Processing ' + (job.progress || job.pct || 0) + '%', icon: '⏳', ready: false };
+    }
+    if (job.status === 'queued') {
+      return { status: 'queued', label: 'Queued', icon: '⏸', ready: false };
+    }
+    if (job.status === 'failed' || job.status === 'interrupted') {
+      return { status: 'failed', label: 'Needs Attention', icon: '⚠', ready: false };
+    }
+    if (job.study_status === 'preparing') {
+      return { status: 'preparing', label: 'Preparing Study', icon: '⏳', ready: false };
+    }
+    if (job.study_status === 'failed') {
+      return { status: 'failed', label: 'Needs Attention', icon: '⚠', ready: false };
+    }
+    if (job.study_status === 'basic') {
+      return { status: 'basic', label: 'Basic', icon: '✓', ready: true };
+    }
+    if (job.study_status === 'ready' || job.status === 'done') {
+      return { status: 'ready', label: 'Ready', icon: '✓', ready: true };
+    }
+    return { status: 'ready', label: 'Ready', icon: '✓', ready: true };
+  }
+
+  function openGroupStudy(groupName, opts) {
+    opts = opts || {};
+    groupName = String(groupName || '').trim();
+    if (!groupName) return;
+    studyV2.scope.type = 'group';
+    studyV2.scope.groupName = groupName;
+    studyV2.scope.selectedJobId = opts.jobId || 'all';
+    studyV2RestoreGroupView(groupName);
+    setScreen('study');
+    studyV2GroupLoad(groupName, opts);
+  }
+
+  function studyV2GroupLoad(groupName, opts) {
+    opts = opts || {};
+    if (!lpBridge.connected()) return;
+    groupName = String(groupName || (studyV2.scope && studyV2.scope.groupName) || '').trim();
+    if (!groupName) return;
+
+    studyV2.scope.type = 'group';
+    studyV2.scope.groupName = groupName;
+    studyV2.scope.loading = true;
+    studyV2.scope.status = 'preparing';
+    studyV2.scope.stage = 'Collecting member lectures';
+    studyV2.scope.error = '';
+    studyV2.scope.reason = '';
+
+    renderStudyScopeHeader();
+    renderStudyGenerationState();
+
+    lpBridge.call('study_v2_group_prepare', { group: groupName, force: !!opts.force })
+      .then(function (res) {
+        if (!res) return;
+        if (studyV2.scope.groupName.toLowerCase() !== groupName.toLowerCase()) return;
+        studyV2.scope.loading = false;
+        if (res.ok) {
+          studyV2.scope.status = 'ready';
+          studyV2.scope.groupAnalysis = res.analysis || null;
+          studyV2.scope.members = Array.isArray(res.members) ? res.members : [];
+          studyV2.scope.reason = '';
+          studyV2.scope.error = '';
+
+          if (studyV2.scope.selectedJobId === 'all') {
+            studyV2.content = buildGroupStudyContent(studyV2.scope.groupAnalysis, studyV2.scope.members);
+            studyV2.summary = buildGroupStudySummary(studyV2.content, studyV2.scope.members);
+          }
+        } else {
+          studyV2.scope.status = 'failed';
+          studyV2.scope.reason = res.reason || 'prepare_failed';
+          studyV2.scope.error = res.error || (res.reason === 'no_ready_lectures' ? 'No ready lectures in this subject yet.' : 'Group study could not be prepared.');
+          studyV2.scope.members = Array.isArray(res.members) ? res.members : [];
+        }
+        renderStudyScopeHeader();
+        renderStudyGenerationState();
+        if (studyV2.scope.status === 'ready' && studyV2.scope.selectedJobId === 'all') {
+          renderStudyV2Overview();
+        }
+      })
+      .catch(function (err) {
+        if (studyV2.scope.groupName.toLowerCase() !== groupName.toLowerCase()) return;
+        studyV2.scope.loading = false;
+        studyV2.scope.status = 'failed';
+        studyV2.scope.reason = 'prepare_failed';
+        studyV2.scope.error = 'Group Study could not be prepared: ' + (err && err.message ? err.message : String(err));
+        renderStudyScopeHeader();
+        renderStudyGenerationState();
+      });
+  }
+
+  function buildGroupStudyContent(analysis, members) {
+    analysis = analysis || {};
+    members = members || [];
+    var memberMap = {};
+    members.forEach(function (m) { memberMap[m.job_id] = m; });
+
+    var concepts = (analysis.concepts || []).map(function (c) {
+      var sources = [];
+      (c.job_ids || []).forEach(function (jid) {
+        var member = memberMap[jid];
+        if (!member) return;
+        (member.concepts || []).forEach(function (mc) {
+          if ((c.source_concept_ids || []).indexOf(mc.id) >= 0 || (mc.title && mc.title.toLowerCase() === c.title.toLowerCase())) {
+            (mc.lecture_sources || mc.sources || []).forEach(function (s) {
+              sources.push({
+                job_id: jid,
+                lecture_title: member.title,
+                segment_id: s.segment_id,
+                start_ms: s.start_ms,
+                slide_id: s.slide_id
+              });
+            });
+          }
+        });
+      });
+      return {
+        id: c.id,
+        title: c.title,
+        explanation: c.explanation,
+        importance: c.importance,
+        coverage: c.coverage,
+        job_ids: c.job_ids || [],
+        sources: sources,
+        lecture_sources: sources
+      };
+    });
+
+    var studyGuide = [];
+    (analysis.through_lines || []).forEach(function (tl) {
+      studyGuide.push({
+        heading: 'Through-line: ' + tl.title,
+        body: tl.body,
+        job_ids: tl.job_ids || [],
+        concept_ids: tl.concept_ids || []
+      });
+    });
+    (analysis.gaps || []).forEach(function (gap) {
+      studyGuide.push({
+        heading: 'Knowledge Gap: ' + gap.title,
+        body: gap.body,
+        concept_ids: gap.concept_ids || []
+      });
+    });
+
+    return {
+      study_status: 'ready',
+      lecture_summary: analysis.group_summary || '',
+      study_guide: studyGuide,
+      concepts: concepts,
+      flashcards: [],
+      quiz: [],
+      relationships: analysis.relationships || []
+    };
+  }
+
+  function buildGroupStudySummary(content, members) {
+    content = content || { concepts: [] };
+    var totalConcepts = (content.concepts || []).length;
+    var mastered = 0, learning = 0, needsReview = 0;
+    (content.concepts || []).forEach(function (c) {
+      var m = conceptMastery(c.id);
+      if (m === 'MASTERED') mastered++;
+      else if (m === 'LEARNING') learning++;
+      else if (m === 'NEEDS_REVIEW') needsReview++;
+    });
+    var pct = totalConcepts ? Math.round((mastered / totalConcepts) * 100) : 0;
+    return {
+      progress_percent: pct,
+      mastered: mastered,
+      learning: learning,
+      needs_review: needsReview,
+      cards_completed: 0,
+      quiz_correct: 0
+    };
+  }
+
+  function renderStudyScopeHeader() {
+    var header = $('study-scope-header');
+    var progBanner = $('study-group-progressive-banner');
+    var emptyPanel = $('study-group-empty-panel');
+    if (!header) return;
+
+    var isGroup = studyV2.scope && studyV2.scope.type === 'group' && !!studyV2.scope.groupName;
+    header.hidden = !isGroup;
+    if (!isGroup) {
+      if (progBanner) progBanner.hidden = true;
+      if (emptyPanel) emptyPanel.hidden = true;
+      return;
+    }
+
+    var groupName = studyV2.scope.groupName;
+    var badge = $('study-scope-subject-badge');
+    var title = $('study-scope-title');
+    var summary = $('study-scope-summary');
+    if (badge) badge.textContent = groupName;
+
+    var groupJobs = ((typeof LP !== 'undefined' && LP.data && LP.data.jobs) || []).filter(function (j) {
+      return (jobGroup(j) || '').trim().toLowerCase() === groupName.toLowerCase();
+    });
+
+    var readyJobs = groupJobs.filter(function (j) { return getJobReadiness(j).ready; });
+    var procJobs = groupJobs.filter(function (j) { return getJobReadiness(j).status === 'processing'; });
+
+    if (title) {
+      if (studyV2.scope.selectedJobId === 'all') {
+        // The badge immediately to the left already names the subject, and the
+        // page heading names it again below. Say what the scope IS here rather
+        // than printing the subject name three times in one header.
+        title.textContent = 'Subject overview';
+      } else {
+        var curJob = _jobById(studyV2.scope.selectedJobId);
+        title.textContent = curJob ? (curJob.name || curJob.title || curJob.filename || 'Lecture') : 'Lecture View';
+      }
+    }
+
+    if (summary) {
+      var total = groupJobs.length;
+      var readyCount = readyJobs.length;
+      var procCount = procJobs.length;
+      summary.textContent = total + (total === 1 ? ' lecture' : ' lectures') + ' · ' +
+        readyCount + ' ready' + (procCount ? ', ' + procCount + ' processing' : '');
+    }
+
+    // Populate In-Study Lecture Switcher
+    var select = $('study-scope-lecture-select');
+    if (select) {
+      var optionsHtml = '<option value="all"' + (studyV2.scope.selectedJobId === 'all' ? ' selected' : '') + '>All lectures in this subject</option>';
+      groupJobs.forEach(function (job) {
+        var r = getJobReadiness(job);
+        var jobTitle = job.name || job.title || job.filename || 'Lecture';
+        var disabled = !r.ready ? ' disabled' : '';
+        var selected = studyV2.scope.selectedJobId === job.id ? ' selected' : '';
+        optionsHtml += '<option value="' + esc(job.id) + '"' + disabled + selected + '>' +
+          r.icon + ' ' + esc(jobTitle) + ' (' + r.label + ')' + '</option>';
+      });
+      select.innerHTML = optionsHtml;
+    }
+
+    // Progressive Unlocking Banner
+    if (progBanner) {
+      var showProg = readyJobs.length > 0 && readyJobs.length < groupJobs.length;
+      progBanner.hidden = !showProg;
+      if (showProg) {
+        var cnt = $('study-progressive-count');
+        var subj = $('study-progressive-subject');
+        if (cnt) cnt.textContent = readyJobs.length + ' of ' + groupJobs.length + ' lectures ready';
+        if (subj) subj.textContent = groupName;
+      }
+    }
+
+    // Empty / Failure Panel
+    if (emptyPanel) {
+      var isEmpty = studyV2.scope.status === 'failed' && studyV2.scope.reason === 'no_ready_lectures';
+      var isFailed = studyV2.scope.status === 'failed' && studyV2.scope.reason !== 'no_ready_lectures';
+      emptyPanel.hidden = !(isEmpty || isFailed);
+      if (isEmpty) {
+        var emptyTitle = $('study-group-empty-title');
+        var emptyDetail = $('study-group-empty-detail');
+        if (emptyTitle) emptyTitle.textContent = 'No ready lectures in ' + groupName + ' yet';
+        if (emptyDetail) emptyDetail.textContent = 'None of the lectures in this subject have finished processing. Once at least one lecture is ready, group study materials will be generated automatically.';
+      } else if (isFailed) {
+        var emptyTitle = $('study-group-empty-title');
+        var emptyDetail = $('study-group-empty-detail');
+        if (emptyTitle) emptyTitle.textContent = 'Group Study could not be prepared';
+        if (emptyDetail) emptyDetail.textContent = studyV2.scope.error || 'The AI Gateway was unable to synthesize cross-lecture material for this subject.';
+      }
+    }
+  }
+
+  function bindStudyScopeControls() {
+    var select = $('study-scope-lecture-select');
+    if (select) {
+      select.addEventListener('change', function () {
+        var val = select.value;
+        if (val === 'all') {
+          studyV2.scope.selectedJobId = 'all';
+          studyV2PersistGroupView();
+          if (studyV2.scope.groupAnalysis) {
+            studyV2.content = buildGroupStudyContent(studyV2.scope.groupAnalysis, studyV2.scope.members);
+            studyV2.summary = buildGroupStudySummary(studyV2.content, studyV2.scope.members);
+            renderStudyScopeHeader();
+            renderStudyGenerationState();
+            renderStudyV2Overview();
+          } else {
+            studyV2GroupLoad(studyV2.scope.groupName);
+          }
+        } else {
+          studyV2.scope.selectedJobId = val;
+          studyV2PersistGroupView();
+          selectJob(val, { screen: 'study' });
+          renderStudyScopeHeader();
+        }
+      });
+    }
+
+    var btnRebuild = $('btn-study-rebuild-map');
+    if (btnRebuild) {
+      btnRebuild.addEventListener('click', function () {
+        if (studyV2.scope && studyV2.scope.groupName) {
+          toast('Rebuilding cross-lecture map…');
+          studyV2GroupLoad(studyV2.scope.groupName, { force: true });
+        }
+      });
+    }
+
+    var btnManage = $('btn-study-manage-subject');
+    if (btnManage) {
+      btnManage.addEventListener('click', function () {
+        setScreen('subjects');
+      });
+    }
+
+    var btnEmptyProc = $('btn-study-empty-process');
+    if (btnEmptyProc) {
+      btnEmptyProc.addEventListener('click', function () {
+        setScreen('process');
+      });
+    }
+
+    var btnEmptyHome = $('btn-study-empty-home');
+    if (btnEmptyHome) {
+      btnEmptyHome.addEventListener('click', function () {
+        setScreen('home');
+      });
+    }
+  }
 
   function studyV2StorageKey() {
     var jobId = typeof LP !== 'undefined' && LP.state && LP.state.jobId;
@@ -3884,12 +4826,18 @@
         quizCorrect: studyV2.quizCorrect,
         quizAnswers: studyV2.quizAnswers,
         quizPicks: studyV2.quizPicks,
+        quizGrades: studyV2.quizGrades,
+        quizDifficulty: studyV2.quizDifficulty,
+        quizLength: studyV2.quizLength,
+        flashDifficulty: studyV2.flashDifficulty,
         quickIndex: studyV2.quickIndex,
         quickCorrect: studyV2.quickCorrect,
         quickTotal: studyV2.quickTotal,
         quickMissed: studyV2.quickMissed,
         quickActive: !!studyV2.quickSession,
         quickSummary: studyV2.quickSummary,
+        quickMinutes: studyV2.quickMinutes,
+        teachConceptId: studyV2.teachConceptId,
         reviewOnly: !!studyV2.reviewOnly
       }));
     } catch (e) { /* browser storage is a convenience, not a dependency */ }
@@ -3901,9 +4849,9 @@
     try {
       var saved = JSON.parse(localStorage.getItem(key) || 'null');
       if (!saved || typeof saved !== 'object') return false;
-      if (saved.lastMode === 'overview' || saved.lastMode === 'flashcards' || saved.lastMode === 'quiz' || saved.lastMode === 'ask') studyV2.mode = saved.lastMode;
-      if (saved.resumeMode === 'flashcards' || saved.resumeMode === 'quiz' || saved.resumeMode === 'ask') studyV2.resumeMode = saved.resumeMode;
-      else if (saved.lastMode === 'flashcards' || saved.lastMode === 'quiz' || saved.lastMode === 'ask') studyV2.resumeMode = saved.lastMode;
+      if (['overview', 'flashcards', 'quiz', 'ask', 'quick', 'teach'].indexOf(saved.lastMode) >= 0) studyV2.mode = saved.lastMode;
+      if (['flashcards', 'quiz', 'ask', 'quick', 'teach'].indexOf(saved.resumeMode) >= 0) studyV2.resumeMode = saved.resumeMode;
+      else if (['flashcards', 'quiz', 'ask', 'quick', 'teach'].indexOf(saved.lastMode) >= 0) studyV2.resumeMode = saved.lastMode;
       studyV2.flashIndex = Math.max(0, Number(saved.flashIndex) || 0);
       studyV2.flashResults = {
         got: Math.max(0, Number(saved.flashGot) || 0),
@@ -3914,11 +4862,17 @@
       studyV2.quizCorrect = Math.max(0, Number(saved.quizCorrect) || 0);
       studyV2.quizAnswers = Array.isArray(saved.quizAnswers) ? saved.quizAnswers : [];
       studyV2.quizPicks = saved.quizPicks && typeof saved.quizPicks === 'object' ? saved.quizPicks : {};
+      studyV2.quizGrades = saved.quizGrades && typeof saved.quizGrades === 'object' ? saved.quizGrades : {};
+      studyV2.quizDifficulty = QUIZ_DIFFICULTIES.indexOf(String(saved.quizDifficulty)) >= 0 ? String(saved.quizDifficulty) : 'all';
+      studyV2.quizLength = QUIZ_LENGTHS.indexOf(String(saved.quizLength)) >= 0 ? String(saved.quizLength) : 'all';
+      studyV2.flashDifficulty = QUIZ_DIFFICULTIES.indexOf(String(saved.flashDifficulty)) >= 0 ? String(saved.flashDifficulty) : 'all';
       studyV2.quickIndex = Math.max(0, Number(saved.quickIndex) || 0);
       studyV2.quickCorrect = Math.max(0, Number(saved.quickCorrect) || 0);
       studyV2.quickTotal = Math.max(0, Number(saved.quickTotal) || 0);
       studyV2.quickMissed = Array.isArray(saved.quickMissed) ? saved.quickMissed : [];
       studyV2.quickSummary = saved.quickSummary || null;
+      studyV2.quickMinutes = ['5', '10', '20', 'full'].indexOf(String(saved.quickMinutes)) >= 0 ? String(saved.quickMinutes) : '5';
+      studyV2.teachConceptId = String(saved.teachConceptId || '');
       studyV2.reviewOnly = !!saved.reviewOnly;
       studyV2.restoredQuickActive = !!saved.quickActive;
       return true;
@@ -3939,10 +4893,16 @@
   }
 
   function studyV2Load() {
+    if (studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all' && studyV2.scope.groupName) {
+      renderStudyScopeHeader();
+      studyV2GroupLoad(studyV2.scope.groupName);
+      return;
+    }
     if (!lpBridge.connected()) return;
     var requestedJobId = LP.state.jobId || '';
     if (!requestedJobId) return;
     lpBridge.call('study_v2_status', { job_id: requestedJobId }).then(function (res) {
+      if (studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all') return;
       if (!res || !res.content) return;
       // A response for the lecture that was viewed when the request started
       // must never repaint a different lecture selected while it was in flight.
@@ -3956,19 +4916,245 @@
       studyV2.content = res.content;
       studyV2.progress = res.progress || { concepts: {}, flashcard_results: {}, quiz_attempts: [] };
       studyV2.summary = res.summary || {};
+      studyV2.loadError = '';
       if (studyV2.quickSession == null && studyV2.progress.quick_study &&
           studyV2.progress.quick_study.items && studyV2.progress.quick_study.items.length &&
           (studyV2.quickIndex > 0 || studyV2.restoredQuickActive)) {
         studyV2.quickSession = studyV2.progress.quick_study;
       }
       studyV2.restoredQuickActive = false;
+      renderStudyScopeHeader();
+      renderStudyGenerationState();
       renderStudyV2Overview();
       if (restoreMode && studyV2.mode !== 'overview') {
         setStudyV2Mode(studyV2.mode, !!studyV2.quickSession);
       } else if (studyV2.mode === 'flashcards' && studyV2.quickSession) renderQuickStudy();
       else if (studyV2.mode === 'flashcards') renderStudyFlashcards();
       else if (studyV2.mode === 'quiz') renderStudyQuiz();
-    }).catch(function () {});
+      else if (studyV2.mode === 'quick') renderQuickStudy();
+      else if (studyV2.mode === 'teach') renderStudyTeach();
+    }).catch(function () {
+      if (LP.state.jobId !== requestedJobId) return;
+      studyV2.loadError = 'Study data could not be loaded. Retry, or use Basic Study.';
+      renderStudyScopeHeader();
+      renderStudyGenerationState();
+    });
+  }
+
+  /* ---- AI Study preparation: surface the stages the backend already sends ----
+     ai_study_service.py emits seven named stages with real percentages. The
+     old panel put the current stage in a small title, showed one bar, and
+     discarded the rest -- so a run that was working fine read as frozen. This
+     renders the whole sequence, marking each stage complete as the run passes
+     it, plus an elapsed clock. Nothing here is invented reassurance: every
+     value shown comes from the backend or from the wall clock.
+
+     Static only, per AD-20: the only things that move are TEXT and step-wise
+     fill widths. No keyframes, no transitions, no will-change. */
+  var STUDY_PREP_STAGES = [
+    /* The sidecar emits this BEFORE the worker starts. It was missing from
+       this list, so during the queued phase nothing matched and every row
+       rendered idle -- which reads exactly like "stuck at 0%". */
+    {match: /queued for study ai/i,             label: 'Queued for Study AI',         note: 'Waiting for a slot'},
+    {match: /preparing lecture evidence/i,      label: 'Gathering your lecture',      note: 'Collecting transcript and slide text'},
+    {match: /understanding the lecture/i,       label: 'Reading the transcript',      note: 'The longest step on a long lecture'},
+    {match: /connecting lecture sections/i,     label: 'Connecting the sections',     note: 'Linking related ideas across the lecture'},
+    {match: /reading selected lecture slides/i, label: 'Reading your slides',         note: 'Looking at the slides that carry the most meaning'},
+    {match: /checking optional public context/i,label: 'Checking public sources',     note: 'Optional', net: true},
+    {match: /building the study system/i,       label: 'Building your study material',note: 'Study guide, flashcards and quiz'},
+    {match: /validating sources and saving/i,   label: 'Checking sources and saving', note: 'Making sure every claim traces to your lecture'}
+  ];
+  var studyPrepStartedAt = 0, studyPrepTimer = null, studyPrepLastStage = '';
+
+  function studyPrepIndex(stage) {
+    var text = String(stage || '');
+    for (var i = 0; i < STUDY_PREP_STAGES.length; i++) {
+      if (STUDY_PREP_STAGES[i].match.test(text)) return i;
+    }
+    return -1;
+  }
+
+  function studyPrepStage(stage) {
+    var index = studyPrepIndex(stage);
+    return index >= 0 ? STUDY_PREP_STAGES[index] : null;
+  }
+
+  function formatElapsed(ms) {
+    var total = Math.max(0, Math.round(ms / 1000));
+    var mins = Math.floor(total / 60), secs = total % 60;
+    return mins + ':' + (secs < 10 ? '0' : '') + secs + ' elapsed';
+  }
+
+  function renderStudyPrepElapsed() {
+    var el = $('study-prep-elapsed');
+    if (!el || !studyPrepStartedAt) return;
+    el.textContent = formatElapsed(Date.now() - studyPrepStartedAt);
+  }
+
+  function stopStudyPrepClock() {
+    if (studyPrepTimer) { clearInterval(studyPrepTimer); studyPrepTimer = null; }
+    studyPrepStartedAt = 0;
+    studyPrepLastStage = '';
+  }
+
+  function renderStudyPrepStages(metadata) {
+    var host = $('study-prep-stages'), meta = $('study-prep-meta'), inputs = $('study-prep-inputs');
+    if (!host) return;
+    var stage = metadata.stage || '';
+    var pct = Math.max(0, Math.min(99, Number(metadata.progress_percent) || 0));
+    var active = studyPrepIndex(stage);
+
+    // `study_status: preparing` exists as soon as a lecture is imported. It
+    // does NOT prove that Study AI has started: while the local transcript and
+    // slides are still being built, generation_metadata.stage is deliberately
+    // empty. Rendering the full AI checklist at 0% in that state made healthy
+    // lecture processing look like a two-minute AI hang. Show the dependency,
+    // not eight idle tasks, and do not start the Study wait clock early.
+    if (!stage) {
+      stopStudyPrepClock();
+      var waitingForLecture = LP.state.pipelineRunning === true;
+      host.innerHTML = '<div class="lp-prep-stage" data-state="waiting">' +
+        '<span class="lp-prep-marker"></span>' +
+        '<span class="lp-prep-text"><span class="lp-prep-label">' +
+        (waitingForLecture ? 'Waiting for lecture processing to finish' : 'Starting Study AI') +
+        '</span><span class="lp-prep-note">' +
+        (waitingForLecture ? 'Study starts after the transcript and slides are ready' : 'Joining the Study AI queue') +
+        '</span></span></div>';
+      host.hidden = false;
+      if (meta) meta.hidden = true;
+      if (inputs) { inputs.textContent = ''; inputs.hidden = true; }
+      return;
+    }
+
+    // The clock starts with the panel, not with each stage: it measures how
+    // long the student has been waiting for Study AI, not time spent in the
+    // prerequisite local lecture pipeline.
+    if (!studyPrepStartedAt) {
+      studyPrepStartedAt = Date.now();
+      if (studyPrepTimer) clearInterval(studyPrepTimer);
+      studyPrepTimer = setInterval(renderStudyPrepElapsed, 1000);
+    }
+    studyPrepLastStage = stage;
+
+    var rows = STUDY_PREP_STAGES.map(function (s, i) {
+      var state = active < 0 ? 'idle'
+        : i < active ? 'complete'
+        : i === active ? 'running' : 'idle';
+      return '<div class="lp-prep-stage" data-state="' + state + '"' +
+        (s.net ? ' data-net="true"' : '') + '>' +
+        '<span class="lp-prep-marker"></span>' +
+        '<span class="lp-prep-text"><span class="lp-prep-label">' + esc(s.label) + '</span>' +
+        '<span class="lp-prep-note">' + esc(s.note) + '</span></span></div>';
+    });
+    // A stage name we do not recognise must still show as work in progress.
+    // Rendering every row idle is indistinguishable from a hang, and a new
+    // backend stage should never make a working run look broken.
+    if (active < 0 && stage) {
+      rows.unshift('<div class="lp-prep-stage" data-state="running">' +
+        '<span class="lp-prep-marker"></span>' +
+        '<span class="lp-prep-text"><span class="lp-prep-label">' + esc(stage) + '</span>' +
+        '<span class="lp-prep-note">Working</span></span></div>');
+    }
+    host.innerHTML = rows.join('');
+    host.hidden = false;
+
+    if (meta) {
+      meta.hidden = false;
+      $('study-prep-pct').textContent = pct + '%';
+      renderStudyPrepElapsed();
+    }
+    // What it is actually working from -- the question a privacy-minded
+    // student is really asking while they wait.
+    if (inputs) {
+      var slides = (LP.data.slides || []).length;
+      var segments = (LP.data.transcript || []).length;
+      var parts = [];
+      if (slides) parts.push(slides + (slides === 1 ? ' slide' : ' slides'));
+      if (segments) parts.push(segments + ' transcript segment' + (segments === 1 ? '' : 's'));
+      inputs.textContent = parts.length ? 'Working from ' + parts.join(' · ') : '';
+      inputs.hidden = !parts.length;
+    }
+  }
+
+  function hideStudyPrepStages() {
+    stopStudyPrepClock();
+    ['study-prep-stages', 'study-prep-meta', 'study-prep-inputs'].forEach(function (id) {
+      var el = $(id);
+      if (el) el.hidden = true;
+    });
+  }
+
+  function renderStudyGenerationState() {
+    var panel = $('study-generation-panel');
+    if (!panel) return;
+    var content = studyV2.content || {};
+    var metadata = content.generation_metadata || {};
+    var status = studyV2.loadError ? 'failed' : String(content.study_status || 'preparing');
+    var usable = status === 'ready' || status === 'basic';
+    var badge = $('study-generation-badge');
+    var title = $('study-generation-title');
+    var detail = $('study-generation-detail');
+    var progressWrap = $('study-generation-progress-wrap');
+    var progressBar = $('study-generation-progress-bar');
+    var actions = $('study-generation-actions');
+    var retry = $('btn-study-ai-retry');
+    var copy = $('btn-study-copy-diagnostics');
+    var basic = $('btn-study-use-basic');
+    var readyBadge = $('study-ready-status-badge');
+    panel.dataset.studyStatus = status;
+    panel.hidden = status === 'ready';
+    if (status === 'ready') hideStudyPrepStages();
+    badge.textContent = status === 'failed' ? 'Needs attention' : status === 'basic' ? 'Basic' : 'Preparing';
+    if (status === 'preparing') {
+      var stage = String(metadata.stage || '');
+      var stageInfo = studyPrepStage(stage);
+      var waitingForLecture = !stage && LP.state.pipelineRunning === true;
+      // The stage name is the headline: it is the thing that actually changes.
+      // An empty stage is a dependency state, not 0% AI progress.
+      title.textContent = stage
+        ? (stageInfo ? stageInfo.label : stage)
+        : (waitingForLecture ? 'Waiting for lecture processing' : 'Starting Study AI');
+      detail.textContent = stage
+        ? (stageInfo ? stageInfo.note : 'Working on your grounded study material')
+        : (waitingForLecture
+          ? 'Study AI starts automatically when the transcript and slides are ready.'
+          : 'Your lecture is ready. Study AI is joining the queue.');
+      progressWrap.hidden = !stage;
+      progressBar.style.transform = 'scaleX(' + (Math.max(0, Math.min(99, Number(metadata.progress_percent) || 0)) / 100) + ')';
+      renderStudyPrepStages(metadata);
+      actions.hidden = true;
+    } else if (status === 'failed') {
+      var lastError = metadata.last_error || {};
+      hideStudyPrepStages();
+      title.textContent = 'Study AI needs attention';
+      detail.textContent = studyV2.loadError || lastError.message || 'Study AI could not finish. Retry, or continue with Basic Study.';
+      progressWrap.hidden = true;
+      actions.hidden = false;
+      retry.hidden = false;
+      copy.hidden = false;
+      basic.hidden = false;
+    } else if (status === 'basic') {
+      hideStudyPrepStages();
+      title.textContent = 'Basic Study is active';
+      detail.textContent = 'This lecture is using deterministic study material. Your sources and mastery still work.';
+      progressWrap.hidden = true;
+      actions.hidden = false;
+      retry.hidden = false;
+      copy.hidden = true;
+      basic.hidden = true;
+    }
+    if (readyBadge) {
+      readyBadge.hidden = status !== 'basic';
+      readyBadge.textContent = 'Basic';
+    }
+    document.querySelectorAll('.study-mode-tab').forEach(function (button) {
+      button.disabled = !usable && button.dataset.studyMode !== 'overview';
+    });
+    var readyPanel = $('study-ready-panel');
+    var overviewContent = $('study-overview-content');
+    if (readyPanel) readyPanel.hidden = !usable;
+    if (overviewContent) overviewContent.hidden = !usable;
+    if (!usable && studyV2.mode !== 'overview') setStudyV2Mode('overview');
   }
 
   function conceptMastery(cid) {
@@ -3979,38 +5165,63 @@
   function renderStudyV2Overview() {
     var content = studyV2.content || { concepts: [], flashcards: [], quiz: [] };
     var summary = studyV2.summary || {};
-    var studyJob = _jobById(LP.state.jobId) || LP.data.job || {};
-    var title = studyJob.title ||
-      (studyJob.name && studyJob.name !== 'Lecture' ? studyJob.name : '') ||
-      studyJob.filename || studyJob.source_name || studyJob.file || 'Lecture';
-    title = String(title).replace(/\.[^.]+$/, '');
+    var isGroup = studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all';
+    var title;
+    if (isGroup) {
+      title = (studyV2.scope.groupName || 'Subject') + ' Subject Overview';
+    } else {
+      var studyJob = _jobById(LP.state.jobId) || LP.data.job || {};
+      title = studyJob.title ||
+        (studyJob.name && studyJob.name !== 'Lecture' ? studyJob.name : '') ||
+        studyJob.filename || studyJob.source_name || studyJob.file || 'Lecture';
+      title = String(title).replace(/\.[^.]+$/, '');
+    }
     $('study-ready-title').textContent = title;
-    $('study-ready-meta').textContent = content.concepts.length + ' concepts · ' + content.flashcards.length + ' cards · ' + content.quiz.length + ' questions';
+    $('study-ready-meta').textContent = (content.concepts || []).length + ' concepts · ' + (content.flashcards || []).length + ' cards · ' + (content.quiz || []).length + ' questions';
     var pct = summary.progress_percent || 0;
     $('study-progress-pct').textContent = pct + '%';
     $('study-progress-bar').style.transform = 'scaleX(' + (pct / 100) + ')';
     var needsReview = summary.needs_review || 0;
-    $('study-needs-review-line').textContent = needsReview + ' concepts left to review';
+    // "0 concepts left to review" next to "0% progress" reads as finished when
+    // nothing has been started. Only claim a remaining count once there is one.
+    $('study-needs-review-line').textContent = needsReview
+      ? needsReview + ' concepts left to review'
+      : (pct ? 'No concepts left to review' : 'Start studying to build your review queue');
+
+    var guideHtml = content.lecture_summary ?
+      '<div class="study-guide-section"><h3>' + (isGroup ? 'Subject summary' : 'Lecture summary') + '</h3><p>' + escText(content.lecture_summary) + '</p></div>' : '';
+    (content.study_guide || []).forEach(function (section) {
+      guideHtml += '<div class="study-guide-section"><h3>' + escText(section.heading || 'Key idea') + '</h3><p>' + escText(section.body || '') + '</p>' +
+        (studyItemSourcesHtml(section) ? '<div class="study-provenance-row" style="margin-top:9px">' + studyItemSourcesHtml(section) + '</div>' : '') + '</div>';
+    });
+    [['Key terms', content.key_terms], ['People', content.people], ['Dates', content.dates], ['Common misconceptions', content.misconceptions]].forEach(function (group) {
+      if (!Array.isArray(group[1]) || !group[1].length) return;
+      var rows = group[1].map(function (item) {
+        return '<div style="padding:8px 0;border-top:1px solid var(--line)"><div style="font-weight:700;font-size:13px">' + escText(item.label || '') + '</div><div style="font-size:12px;line-height:1.5;color:var(--secondary-text)">' + escText(item.detail || '') + '</div>' +
+          (studyItemSourcesHtml(item) ? '<div class="study-provenance-row" style="margin-top:6px">' + studyItemSourcesHtml(item) + '</div>' : '') + '</div>';
+      }).join('');
+      guideHtml += '<div class="study-guide-section"><h3>' + escText(group[0]) + '</h3>' + rows + '</div>';
+    });
+    $('study-guide-root').innerHTML = guideHtml || '<div style="font:500 12px JetBrains Mono;color:var(--muted)">The study guide will appear when lecture analysis is ready.</div>';
 
     // Key concepts
     var conceptsHtml = '';
     (content.concepts || []).forEach(function (c) {
       var mastery = conceptMastery(c.id);
       var masteryLabel = { NEW: 'New', LEARNING: 'Learning', MASTERED: 'Mastered', NEEDS_REVIEW: 'Needs review' }[mastery] || 'New';
-      var sources = (c.sources || []).map(function (s) {
-        var parts = [];
-        if (s.segment_id != null) parts.push('<button class="lp-hit study-source study-source-time" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
-        if (s.slide_id != null) parts.push('<button class="lp-hit study-source study-source-slide" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
-        return parts.join(' ');
-      }).join('');
+      var sources = studyItemSourcesHtml(c);
       var emphasisBadge = c.emphasis ? '<span style="font:600 9px JetBrains Mono;color:var(--orange-ink);background:var(--orange-soft);border:1.5px solid var(--orange);border-radius:5px;padding:2px 6px;text-transform:uppercase">Emphasized</span>' : '';
       conceptsHtml += '<div class="study-concept" style="background:var(--sunk);border:1.5px solid var(--line);border-radius:10px;padding:14px 16px">' +
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-weight:700;font-size:14px;flex:1">' + escText(c.title) + '</span>' + emphasisBadge + '<span style="font:600 10px JetBrains Mono;color:var(--muted)">' + masteryLabel + '</span></div>' +
         '<div style="font-size:13px;color:var(--secondary-text);line-height:1.55;margin-bottom:8px">' + escText(c.explanation) + '</div>' +
-        (sources ? '<div style="display:flex;gap:6px;flex-wrap:wrap">' + sources + '</div>' : '') +
+        (sources ? '<div class="study-provenance-row">' + sources + '</div>' : '') +
         '<div style="display:flex;gap:6px;margin-top:8px"><button class="lp-hit study-explain" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--ink)">Explain</button>' +
         '<button class="lp-hit study-edit" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--muted)">Edit</button>' +
-        '<button class="lp-hit study-delete" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--red)">Delete</button></div></div>';
+        '<button class="lp-hit study-regenerate" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--muted)">Regenerate</button>' +
+        '<button class="lp-hit study-delete" data-kind="concept" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--red)">Delete</button>' +
+        '<select class="study-mastery-select" data-concept-id="' + escText(c.id) + '" aria-label="Mastery for ' + escText(c.title) + '">' +
+        ['NEW', 'LEARNING', 'MASTERED', 'NEEDS_REVIEW'].map(function (value) { return '<option value="' + value + '"' + (value === mastery ? ' selected' : '') + '>' + ({ NEW: 'New', LEARNING: 'Learning', MASTERED: 'Mastered', NEEDS_REVIEW: 'Needs review' }[value]) + '</option>'; }).join('') +
+        '</select></div></div>';
     });
     $('study-concepts-list').innerHTML = conceptsHtml || '<div style="font:500 12px JetBrains Mono;color:var(--muted)">No concepts yet. Process a lecture to build Study content.</div>';
 
@@ -4021,7 +5232,12 @@
         needsReviewHtml += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px"><span style="font-weight:600">' + escText(c.title) + '</span></div>';
       }
     });
-    $('study-needs-review-list').innerHTML = needsReviewHtml || '<div style="font:500 12px JetBrains Mono;color:var(--muted)">Nothing to review — nice work.</div>';
+    // "Nice work" is only true if there was something to do. Nothing studied
+    // yet and nothing due are different states and must not read the same.
+    var reviewEmptyCopy = (summary.reviewed_count || summary.progress_percent)
+      ? 'Nothing to review right now. Nice work.'
+      : 'Nothing due yet. Review appears here once you have studied some concepts.';
+    $('study-needs-review-list').innerHTML = needsReviewHtml || '<div style="font:500 12px JetBrains Mono;color:var(--muted);line-height:1.5">' + reviewEmptyCopy + '</div>';
 
     // Study stats
     $('study-stats-v2').innerHTML =
@@ -4045,8 +5261,89 @@
     return idx || '?';
   }
 
+  function studyItemSourcesHtml(item, opts) {
+    item = item || {};
+    opts = opts || {};
+    var isGroup = (typeof studyV2 !== 'undefined' && studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all') || opts.isGroup;
+    var lecture = item.lecture_sources || item.sources || [];
+    var web = item.web_sources || [];
+
+    if (!lecture.length && !web.length && !item.provenance) return '';
+
+    // Check if citations span multiple distinct lectures
+    var byJob = {};
+    var distinctJobs = [];
+    lecture.forEach(function (source) {
+      var jid = source.job_id || (typeof LP !== 'undefined' && LP.state && LP.state.jobId) || 'default';
+      if (!byJob[jid]) {
+        byJob[jid] = [];
+        distinctJobs.push(jid);
+      }
+      byJob[jid].push(source);
+    });
+
+    if (isGroup && distinctJobs.length > 1) {
+      var groupRows = distinctJobs.map(function (jid) {
+        var memberJob = _jobById(jid);
+        var title = (memberJob && (memberJob.name || memberJob.title || memberJob.filename)) || (byJob[jid][0] && byJob[jid][0].lecture_title) || 'Lecture';
+        var btns = byJob[jid].map(function (source) {
+          var parts = [];
+          if (source.segment_id != null) {
+            parts.push('<button class="lp-hit study-source study-source-time" data-job="' + escText(jid) + '" data-segment="' + escText(source.segment_id) + '" data-ms="' + (source.start_ms || 0) + '">Transcript ' + fmtTime(source.start_ms) + '</button>');
+          }
+          if (source.slide_id != null) {
+            parts.push('<button class="lp-hit study-source study-source-slide" data-job="' + escText(jid) + '" data-slide="' + escText(source.slide_id) + '">Slide ' + escText(studySlideLabel(source.slide_id)) + '</button>');
+          }
+          return parts.join(' ');
+        }).join(' ');
+        return '<div class="study-citation-group">' +
+          '<span class="study-citation-lecture-name">' + escText(title) + '</span>' +
+          '<div class="study-citation-buttons">' + btns + '</div>' +
+          '</div>';
+      }).join('');
+      return '<div class="study-cross-lecture-citations">' + groupRows + '</div>';
+    }
+
+    var parts = [];
+    if (lecture.length) {
+      parts.push('<span class="study-provenance-badge" data-provenance="lecture">From lecture</span>');
+    }
+    if (item.provenance === 'extra_context') {
+      parts.push('<span class="study-provenance-badge" data-provenance="context">Extra context</span>');
+    }
+    if (web.length) {
+      parts.push('<span class="study-provenance-badge" data-provenance="web">Web verified</span>');
+    }
+
+    lecture.forEach(function (source) {
+      var jid = source.job_id || (typeof LP !== 'undefined' && LP.state && LP.state.jobId) || '';
+      var jobObj = jid ? _jobById(jid) : null;
+      var prefix = (isGroup && (jobObj || source.lecture_title)) ? ((jobObj ? (jobObj.name || jobObj.title || jobObj.filename) : source.lecture_title) + ' · ') : '';
+      if (source.segment_id != null) {
+        parts.push('<button class="lp-hit study-source study-source-time"' + (jid ? ' data-job="' + escText(jid) + '"' : '') + ' data-segment="' + escText(source.segment_id) + '" data-ms="' + (source.start_ms || 0) + '">' + escText(prefix) + 'Transcript ' + fmtTime(source.start_ms) + '</button>');
+      }
+      if (source.slide_id != null) {
+        parts.push('<button class="lp-hit study-source study-source-slide"' + (jid ? ' data-job="' + escText(jid) + '"' : '') + ' data-slide="' + escText(source.slide_id) + '">' + escText(prefix) + 'Slide ' + escText(studySlideLabel(source.slide_id)) + '</button>');
+      }
+    });
+
+    web.forEach(function (source) {
+      if (!source || !source.url) return;
+      parts.push('<a class="study-web-source" href="' + escText(source.url) + '" target="_blank" rel="noopener noreferrer">' + escText(source.title || 'Web source') + '</a>');
+    });
+
+    return parts.join(' ');
+  }
+
   function studyV2FlashcardList() {
     var cards = (studyV2.content && studyV2.content.flashcards) || [];
+    // Difficulty is the student's standing preference, so it composes with the
+    // "missed cards" and "needs review" filters rather than replacing them.
+    if (studyV2.flashDifficulty && studyV2.flashDifficulty !== 'all') {
+      cards = cards.filter(function (card) {
+        return quizDifficultyOf(card) === studyV2.flashDifficulty;
+      });
+    }
     if (studyV2.flashFilterIds && studyV2.flashFilterIds.length) {
       return cards.filter(function (card) {
         return studyV2.flashFilterIds.indexOf(card.id) >= 0;
@@ -4063,13 +5360,36 @@
   }
 
   function renderStudyFlashcards() {
-    if (studyV2.quickSession) { renderQuickStudy(); return; }
     var cards = studyV2FlashcardList();
     var root = $('study-flashcards-root');
+    var hasAnyCard = ((studyV2.content && studyV2.content.flashcards) || []).length > 0;
     if (!cards.length) {
-      root.innerHTML = '<div class="study-empty-state" style="text-align:center;padding:56px 24px;color:var(--muted)">' +
-        '<div style="font:700 18px Space Grotesk;color:var(--ink);margin-bottom:8px">Nothing needs another look</div>' +
-        '<div style="font:500 13px JetBrains Mono;margin-bottom:18px">You have cleared the current weak areas.</div>' +
+      var filteredOut = hasAnyCard && studyV2.flashDifficulty !== 'all';
+      // Three different situations were collapsed into two. With no deck at
+      // all -- which is every subject-level scope, because the cross-lecture
+      // map produces concepts rather than cards -- the "you have cleared the
+      // weak areas" copy congratulated a student who had not studied anything
+      // yet. An empty deck is not a finished deck; say which one this is.
+      var isGroupScope = !!(studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.groupName);
+      var emptyTitle, emptyBody;
+      if (filteredOut) {
+        emptyTitle = 'No cards at this difficulty';
+        emptyBody = 'Choose Any to see the whole deck.';
+      } else if (!hasAnyCard) {
+        emptyTitle = 'No flashcards here yet';
+        emptyBody = isGroupScope
+          ? 'Studying a subject builds the cross-lecture map. Flashcards belong to individual lectures, so open one from the Scope menu above to practise them.'
+          : 'This lecture has no flashcards yet.';
+      } else {
+        emptyTitle = 'Nothing needs another look';
+        emptyBody = 'You have cleared the current weak areas.';
+      }
+      root.innerHTML = (hasAnyCard ? flashShapeControlsHtml() : '') +
+        '<div class="study-empty-state" style="text-align:center;padding:56px 24px;color:var(--muted)">' +
+        '<div style="font:700 18px Space Grotesk;color:var(--ink);margin-bottom:8px">' +
+        emptyTitle + '</div>' +
+        '<div style="font:500 13px JetBrains Mono;margin-bottom:18px;max-width:52ch;margin-left:auto;margin-right:auto;line-height:1.55">' +
+        emptyBody + '</div>' +
         (studyV2.reviewOnly ? '<button id="btn-study-review-all" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:8px;padding:9px 15px;cursor:pointer;color:var(--ink)">Study all cards</button>' : '') +
         '</div>';
       var all = $('btn-study-review-all');
@@ -4077,40 +5397,41 @@
         studyV2.reviewOnly = false; studyV2.flashFilterIds = null; studyV2.flashIndex = 0;
         studyV2PersistView(); renderStudyFlashcards();
       });
+      bindQuizShapeControls(root);
       return;
     }
     var card = cards[studyV2.flashIndex];
     if (!card) {
       // Session complete
-      root.innerHTML = '<div style="text-align:center;padding:40px">' +
+      root.innerHTML = flashShapeControlsHtml() +
+        '<div style="text-align:center;padding:40px">' +
         '<div style="font-weight:700;font-size:20px;margin-bottom:8px">Cards reviewed</div>' +
         '<div style="font:500 13px JetBrains Mono;color:var(--muted);margin-bottom:20px">' + cards.length + ' cards · ' + studyV2.flashResults.got + ' got it · ' + studyV2.flashResults.missed + ' need review</div>' +
         (studyV2.flashResults.missed ? '<button id="btn-study-review-missed" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer">Review the ' + studyV2.flashResults.missed + ' I missed</button>' : '') +
         '<button id="btn-study-flash-restart" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;color:var(--ink);margin-left:8px">Start over</button></div>';
       bindStudyFlashcardSessionButtons();
+      bindQuizShapeControls(root);
       return;
     }
-    var sources = (card.sources || []).map(function (s) {
-      var parts = [];
-      if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
-      if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
-      return parts.join(' ');
-    }).join('');
+    var sources = studyItemSourcesHtml(card);
     var progress = 'Card ' + (studyV2.flashIndex + 1) + ' of ' + cards.length;
-    root.innerHTML = '<div class="study-focus-content" style="max-width:620px;margin:0 auto">' +
+    root.innerHTML = flashShapeControlsHtml() +
+      '<div class="study-focus-content" style="max-width:620px;margin:0 auto">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>' + progress + '</span><span>Space to reveal</span></div>' +
       '<div style="height:4px;border-radius:3px;background:var(--sunk);overflow:hidden;margin-bottom:22px"><div style="width:' + (((studyV2.flashIndex + 1) / cards.length) * 100) + '%;height:100%;background:var(--orange)"></div></div>' +
       '<div id="study-flash-card" class="lp-card study-focus-card" style="background:var(--panel);border:1.5px solid var(--border);border-radius:14px;box-shadow:var(--shadow-soft);padding:40px 34px;min-height:220px;display:flex;flex-direction:column;justify-content:center;text-align:center">' +
       '<div style="font-size:22px;font-weight:700;line-height:1.4;margin-bottom:18px">' + escText(card.front) + '</div>' +
       (studyV2.flashRevealed ? '<div style="border-top:1.5px solid var(--line);padding-top:18px;font-size:16px;color:var(--ink);line-height:1.55">' + escText(card.back) + '</div>' : '<button id="btn-study-flash-show" class="lp-hit lp-press" style="font:700 14px Space Grotesk;background:var(--orange);color:var(--on-signal);border:1.5px solid var(--orange-ink);border-radius:9px;padding:11px 20px;cursor:pointer;margin:0 auto">Show answer</button>') +
       '</div>' +
-      (sources ? '<div style="display:flex;justify-content:center;gap:6px;margin-top:14px">' + sources + '</div>' : '') +
+      (sources ? '<div class="study-provenance-row" style="justify-content:center;margin-top:14px">' + sources + '</div>' : '') +
+      '<div style="display:flex;justify-content:center;gap:7px;margin-top:12px"><button class="lp-hit study-edit" data-kind="flashcard" data-id="' + escText(card.id) + '">Edit</button><button class="lp-hit study-regenerate" data-kind="flashcard" data-id="' + escText(card.id) + '">Regenerate</button><button class="lp-hit study-delete" data-kind="flashcard" data-id="' + escText(card.id) + '">Delete</button></div>' +
       (studyV2.flashRevealed ?
         '<div style="display:flex;justify-content:center;gap:10px;margin-top:20px">' +
         '<button id="btn-study-flash-again" class="lp-hit" style="font:600 13px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:9px;padding:10px 18px;cursor:pointer;color:var(--ink)">Review again</button>' +
         '<button id="btn-study-flash-got" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--green-fill);color:var(--on-signal);border:1.5px solid var(--green);border-radius:9px;padding:10px 18px;cursor:pointer">Got it</button></div>' : '') +
       '</div>';
     bindStudyFlashcardButtons();
+    bindQuizShapeControls(root);
   }
 
   function bindStudyFlashcardButtons() {
@@ -4151,19 +5472,21 @@
     return null;
   }
 
-  function quickStudySources(sources) {
-    return (sources || []).map(function (s) {
-      var parts = [];
-      if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
-      if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
-      return parts.join(' ');
-    }).join('');
+  function quickStudySources(item) {
+    return studyItemSourcesHtml(item || {});
   }
 
   function renderQuickStudy() {
-    var root = $('study-flashcards-root');
+    var root = $('study-quick-root');
     var session = studyV2.quickSession;
-    if (!root || !session) return;
+    if (!root) return;
+    document.querySelectorAll('.study-duration').forEach(function (button) {
+      button.classList.toggle('active', String(button.dataset.studyMinutes) === String(studyV2.quickMinutes));
+    });
+    if (!session) {
+      root.innerHTML = '<div style="max-width:620px;margin:0 auto;text-align:center;padding:52px 24px"><div style="font:700 21px Space Grotesk;margin-bottom:8px">Ready for a focused review?</div><div style="font:500 13px JetBrains Mono;color:var(--muted);line-height:1.6">Choose 5, 10, 20 minutes, or the full set above. Starting a different length rebuilds the session locally without another AI call.</div></div>';
+      return;
+    }
     var items = session.items || [];
     if (studyV2.quickIndex >= items.length) {
       studyV2.quickSummary = {
@@ -4188,7 +5511,7 @@
     var header = '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>Quick Study</span><span>' + (studyV2.quickIndex + 1) + ' of ' + items.length + '</span></div>' +
       '<div style="height:4px;border-radius:3px;background:var(--sunk);overflow:hidden;margin-bottom:24px"><div style="width:' + (((studyV2.quickIndex + 1) / items.length) * 100) + '%;height:100%;background:var(--orange)"></div></div>';
     var body = '';
-    var sources = quickStudySources(data.sources);
+    var sources = quickStudySources(data);
     if (item.kind === 'quiz') {
       var options = (data.options || []).map(function (option, idx) {
         var selected = studyV2.quickSelected === idx;
@@ -4259,17 +5582,150 @@
     });
   }
 
+  /* ---- shaping the quiz -----------------------------------------------
+     "Make it harder / easier / longer / shorter" is answered from the pack
+     that is already generated: filtering is instant, costs no AI request and
+     works offline, where regenerating for every adjustment would be slow and
+     could fail. The generator is told to spread difficulty across the pack so
+     there is something real to filter. Whatever the model wrote is normalised
+     here -- an item with an unrecognised difficulty counts as medium rather
+     than vanishing from every view. */
+  /* The grader returns a null score when its own verdict and number
+     contradicted each other (see ai_study_service.grade_short_answer). Showing
+     nothing beats showing "Keep working · 0%", which reads as a harsher grade
+     than the student actually got. */
+  function studyScoreSuffix(score) {
+    var value = Number(score);
+    if (score === null || score === undefined || !isFinite(value)) return '';
+    return ' · ' + Math.round(value * 100) + '%';
+  }
+
+  function quizDifficultyOf(item) {
+    var raw = String((item && item.difficulty) || '').trim().toLowerCase();
+    return QUIZ_DIFFICULTIES.indexOf(raw) > 0 ? raw : 'medium';
+  }
+
+  function quizPool() {
+    var all = (studyV2.content && studyV2.content.quiz) || [];
+    var picked = studyV2.quizDifficulty === 'all' ? all.slice() : all.filter(function (q) {
+      return quizDifficultyOf(q) === studyV2.quizDifficulty;
+    });
+    var limit = Number(studyV2.quizLength);
+    return studyV2.quizLength === 'all' || !limit ? picked : picked.slice(0, limit);
+  }
+
+  function quizDifficultyCounts() {
+    var counts = { all: 0, easy: 0, medium: 0, hard: 0 };
+    ((studyV2.content && studyV2.content.quiz) || []).forEach(function (q) {
+      counts.all += 1;
+      counts[quizDifficultyOf(q)] += 1;
+    });
+    return counts;
+  }
+
+  function setQuizShape(key, value) {
+    if (key === 'difficulty') {
+      if (studyV2.quizDifficulty === value) return;
+      studyV2.quizDifficulty = value;
+    } else {
+      if (studyV2.quizLength === value) return;
+      studyV2.quizLength = value;
+    }
+    // Reshaping changes which questions exist, so a part-finished run cannot
+    // be carried over -- its index and score would refer to a different set.
+    studyV2.quizIndex = 0;
+    studyV2.quizCorrect = 0;
+    studyV2.quizAnswers = [];
+    studyV2.quizPicks = {};
+    studyV2PersistView();
+    renderStudyQuiz();
+  }
+
+  /* One shaping row, shared by Quiz and Flashcards. `groups` is
+     [{label, key, selected, options:[{value,label,disabled,title}]}]. */
+  function studyShapeRowHtml(groups, countText) {
+    return '<div class="lp-study-shape">' + groups.map(function (g) {
+      return '<div class="lp-study-shape-group"><span class="lp-study-shape-label">' + escText(g.label) + '</span>' +
+        g.options.map(function (opt) {
+          var on = String(g.selected) === String(opt.value);
+          return '<button class="lp-hit lp-study-shape-btn" data-shape="' + escText(g.key) + '" data-value="' + escText(String(opt.value)) + '"' +
+            ' aria-pressed="' + (on ? 'true' : 'false') + '"' + (opt.disabled ? ' disabled' : '') +
+            (opt.title ? ' title="' + escText(opt.title) + '"' : '') + '>' + escText(opt.label) + '</button>';
+        }).join('') + '</div>';
+    }).join('') + '<span class="lp-study-shape-count">' + escText(countText) + '</span></div>';
+  }
+
+  function difficultyOptions(counts, noun) {
+    return [{ value: 'all', label: 'Any' }].concat(
+      [['easy', 'Easier'], ['medium', 'Medium'], ['hard', 'Harder']].map(function (pair) {
+        var n = counts[pair[0]];
+        return {
+          value: pair[0], label: pair[1], disabled: !n,
+          title: n ? n + ' ' + noun + (n === 1 ? '' : 's') : 'No ' + pair[0] + ' ' + noun + 's in this pack'
+        };
+      }));
+  }
+
+  function quizShapeControlsHtml() {
+    var total = quizPool().length;
+    return studyShapeRowHtml([
+      { label: 'Difficulty', key: 'difficulty', selected: studyV2.quizDifficulty,
+        options: difficultyOptions(quizDifficultyCounts(), 'question') },
+      { label: 'Length', key: 'length', selected: studyV2.quizLength, options: [
+        { value: '5', label: '5' }, { value: '10', label: '10' },
+        { value: '20', label: '20' }, { value: 'all', label: 'All' }] }
+    ], total + (total === 1 ? ' question' : ' questions'));
+  }
+
+  function flashDifficultyCounts() {
+    var counts = { all: 0, easy: 0, medium: 0, hard: 0 };
+    ((studyV2.content && studyV2.content.flashcards) || []).forEach(function (card) {
+      counts.all += 1;
+      counts[quizDifficultyOf(card)] += 1;
+    });
+    return counts;
+  }
+
+  function flashShapeControlsHtml() {
+    var total = studyV2FlashcardList().length;
+    return studyShapeRowHtml([
+      { label: 'Difficulty', key: 'flash-difficulty', selected: studyV2.flashDifficulty,
+        options: difficultyOptions(flashDifficultyCounts(), 'card') }
+    ], total + (total === 1 ? ' card' : ' cards'));
+  }
+
+  function setFlashDifficulty(value) {
+    if (studyV2.flashDifficulty === value) return;
+    studyV2.flashDifficulty = value;
+    // Same reasoning as the quiz: flashIndex points into the shaped deck.
+    studyV2.flashIndex = 0;
+    studyV2.flashResults = { got: 0, missed: 0, missedIds: [] };
+    studyV2PersistView();
+    renderStudyFlashcards();
+  }
+
   function renderStudyQuiz() {
-    var questions = (studyV2.content && studyV2.content.quiz) || [];
+    var all = (studyV2.content && studyV2.content.quiz) || [];
+    var questions = quizPool();
     var root = $('study-quiz-root');
-    if (!questions.length) {
+    if (!all.length) {
       root.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font:500 13px JetBrains Mono">No quiz questions yet.</div>';
+      return;
+    }
+    if (!questions.length) {
+      // Reachable only if the pack has questions but none match the shape;
+      // offer the way back rather than an empty screen.
+      root.innerHTML = quizShapeControlsHtml() +
+        '<div style="text-align:center;padding:40px;color:var(--muted);font:500 13px JetBrains Mono">' +
+        'No questions at this difficulty. Choose <strong>Any</strong> to see all ' + all.length + '.</div>';
+      bindQuizShapeControls(root);
       return;
     }
     var q = questions[studyV2.quizIndex];
     if (!q) {
       // Quiz complete
-      root.innerHTML = '<div style="text-align:center;padding:40px">' +
+      root.innerHTML = quizShapeControlsHtml() +
+        '<div style="text-align:center;padding:40px">' +
         '<div style="font-weight:700;font-size:20px;margin-bottom:8px">Quiz complete</div>' +
         '<div style="font:500 13px JetBrains Mono;color:var(--muted);margin-bottom:20px">' + studyV2.quizCorrect + ' / ' + questions.length + ' correct</div>' +
         '<button id="btn-study-quiz-restart" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer">Take again</button></div>';
@@ -4279,32 +5735,47 @@
         studyV2PersistView();
         renderStudyQuiz();
       });
+      bindQuizShapeControls(root);
       return;
     }
     var savedPick = Object.prototype.hasOwnProperty.call(studyV2.quizPicks, studyV2.quizIndex) ? Number(studyV2.quizPicks[studyV2.quizIndex]) : null;
-    var answered = savedPick !== null && !Number.isNaN(savedPick);
-    var optionsHtml = (q.options || []).map(function (opt, i) {
-      var color = answered ? (i === q.correct_index ? 'var(--green)' : i === savedPick ? 'var(--red)' : 'var(--border)') : 'var(--border)';
-      return '<button class="lp-hit study-quiz-opt" data-opt="' + i + '" style="display:block;width:100%;text-align:left;font:600 14px Space Grotesk;background:var(--sunk);border:1.5px solid ' + color + ';border-radius:9px;padding:11px 14px;cursor:pointer;color:var(--ink);margin-bottom:8px"' + (answered ? ' disabled' : '') + '>' + escText(opt) + '</button>';
-    }).join('');
-    root.innerHTML = '<div class="study-focus-content" style="max-width:680px;margin:0 auto">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>Question ' + (studyV2.quizIndex + 1) + ' of ' + questions.length + '</span><span>Choose one</span></div>' +
+    var isShortAnswer = q.qtype === 'short_answer';
+    var grade = studyV2.quizGrades[q.id] || null;
+    var answered = isShortAnswer ? !!grade : savedPick !== null && !Number.isNaN(savedPick);
+    var optionsHtml = isShortAnswer ?
+      '<textarea id="study-quiz-short-answer" class="study-short-answer" placeholder="Answer in your own words"' + (answered || studyV2.quizGrading ? ' disabled' : '') + '></textarea>' +
+      '<button id="btn-study-grade-short-answer" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;margin-top:10px"' + (answered || studyV2.quizGrading ? ' disabled' : '') + '>' + (studyV2.quizGrading ? 'Grading…' : 'Grade answer') + '</button>' :
+      (q.options || []).map(function (opt, i) {
+        var color = answered ? (i === q.correct_index ? 'var(--green)' : i === savedPick ? 'var(--red)' : 'var(--border)') : 'var(--border)';
+        return '<button class="lp-hit study-quiz-opt" data-opt="' + i + '" style="display:block;width:100%;text-align:left;font:600 14px Space Grotesk;background:var(--sunk);border:1.5px solid ' + color + ';border-radius:9px;padding:11px 14px;cursor:pointer;color:var(--ink);margin-bottom:8px"' + (answered ? ' disabled' : '') + '>' + escText(opt) + '</button>';
+      }).join('');
+    root.innerHTML = quizShapeControlsHtml() +
+      '<div class="study-focus-content" style="max-width:680px;margin:0 auto">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px JetBrains Mono;color:var(--muted);margin-bottom:12px"><span>Question ' + (studyV2.quizIndex + 1) + ' of ' + questions.length + '</span><span>' + (isShortAnswer ? 'Short answer' : q.qtype === 'true_false' ? 'True or false' : 'Choose one') + '</span></div>' +
       '<div style="height:4px;border-radius:3px;background:var(--sunk);overflow:hidden;margin-bottom:24px"><div style="width:' + (((studyV2.quizIndex + 1) / questions.length) * 100) + '%;height:100%;background:var(--orange)"></div></div>' +
       '<div style="font-size:18px;font-weight:700;line-height:1.4;margin-bottom:18px;text-align:center">' + escText(q.question) + '</div>' +
       optionsHtml +
-      '<div id="study-quiz-feedback" style="margin-top:14px"></div></div>';
+      '<div id="study-quiz-feedback" style="margin-top:14px"></div>' +
+      '<div style="display:flex;gap:7px;justify-content:center;margin-top:16px"><button class="lp-hit study-edit" data-kind="quiz" data-id="' + escText(q.id) + '">Edit</button><button class="lp-hit study-regenerate" data-kind="quiz" data-id="' + escText(q.id) + '">Regenerate</button><button class="lp-hit study-delete" data-kind="quiz" data-id="' + escText(q.id) + '">Delete</button></div></div>';
     bindStudyQuizButtons();
-    if (answered) renderStudyQuizFeedback(q, savedPick);
+    bindQuizShapeControls(root);
+    if (answered && isShortAnswer) renderStudyShortAnswerFeedback(q, grade);
+    else if (answered) renderStudyQuizFeedback(q, savedPick);
+  }
+
+  function bindQuizShapeControls(root) {
+    if (!root) return;
+    Array.prototype.forEach.call(root.querySelectorAll('.lp-study-shape-btn'), function (button) {
+      button.addEventListener('click', function () {
+        if (button.dataset.shape === 'flash-difficulty') setFlashDifficulty(button.dataset.value);
+        else setQuizShape(button.dataset.shape, button.dataset.value);
+      });
+    });
   }
 
   function renderStudyQuizFeedback(q, selectedIndex) {
     var correct = (q.correct_index === selectedIndex);
-    var srcHtml = (q.sources || []).map(function (s) {
-      var parts = [];
-      if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
-      if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
-      return parts.join(' ');
-    }).join('');
+    var srcHtml = studyItemSourcesHtml(q);
     var fb = $('study-quiz-feedback');
     if (!fb) return;
     fb.innerHTML = (correct ? '<div style="color:var(--green);font-weight:700;font-size:15px;margin-bottom:6px">âœ“ Correct</div>' : '<div style="color:var(--red);font-weight:700;font-size:15px;margin-bottom:6px">âœ• Not quite</div>') +
@@ -4318,12 +5789,31 @@
     });
   }
 
+  function renderStudyShortAnswerFeedback(q, result) {
+    var fb = $('study-quiz-feedback');
+    if (!fb || !result) return;
+    var sourceHtml = studyItemSourcesHtml(result) || studyItemSourcesHtml(q);
+    fb.innerHTML = '<div style="padding:14px 16px;background:var(--panel2);border-radius:9px">' +
+      '<div style="font-weight:700;color:' + (result.correct ? 'var(--green)' : 'var(--red)') + ';margin-bottom:6px">' + (result.correct ? 'Correct' : 'Keep working') + studyScoreSuffix(result.score) + '</div>' +
+      '<div style="font-size:13px;line-height:1.55;color:var(--secondary-text)">' + escText(result.feedback || '') + '</div>' +
+      (result.ideal_answer ? '<div style="font-size:13px;line-height:1.55;margin-top:9px"><strong>Strong answer:</strong> ' + escText(result.ideal_answer) + '</div>' : '') +
+      (sourceHtml ? '<div class="study-provenance-row" style="margin-top:10px">' + sourceHtml + '</div>' : '') +
+      '<button id="btn-study-quiz-next" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;margin-top:12px">Next</button></div>';
+    var next = $('btn-study-quiz-next');
+    if (next) next.addEventListener('click', function () {
+      studyV2.quizIndex++; studyV2PersistView(); renderStudyQuiz();
+    });
+  }
+
   function bindStudyQuizButtons() {
     var opts = document.querySelectorAll('.study-quiz-opt');
     opts.forEach(function (btn) {
       btn.addEventListener('click', function () {
         var idx = Number(btn.dataset.opt);
-        var questions = (studyV2.content && studyV2.content.quiz) || [];
+        // Same pool the question was drawn from -- quizIndex is an index INTO
+        // the shaped run, so reading the full pack would answer a different
+        // question than the one on screen.
+        var questions = quizPool();
         var q = questions[studyV2.quizIndex];
         if (!q || studyV2.quizAnswers.indexOf(studyV2.quizIndex) >= 0) return;
         var correct = (q.correct_index === idx);
@@ -4339,12 +5829,7 @@
           }).then(function () { studyV2Load(); }).catch(function () {});
         }
         studyV2PersistView();
-        var srcHtml = (q.sources || []).map(function (s) {
-          var parts = [];
-          if (s.segment_id != null) parts.push('<button class="lp-hit study-source" data-segment="' + escText(s.segment_id) + '" data-ms="' + (s.start_ms || 0) + '" style="font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer">' + fmtTime(s.start_ms) + '</button>');
-          if (s.slide_id != null) parts.push('<button class="lp-hit study-source" data-slide="' + escText(s.slide_id) + '" style="font:600 11px JetBrains Mono;background:var(--green-soft);color:var(--green);border:1.5px solid var(--green);border-radius:6px;padding:3px 8px;cursor:pointer">Slide ' + escText(studySlideLabel(s.slide_id)) + '</button>');
-          return parts.join(' ');
-        }).join('');
+        var srcHtml = studyItemSourcesHtml(q);
         var fb = $('study-quiz-feedback');
         fb.innerHTML = (correct ? '<div style="color:var(--green);font-weight:700;font-size:15px;margin-bottom:6px">✓ Correct</div>' : '<div style="color:var(--red);font-weight:700;font-size:15px;margin-bottom:6px">✕ Not quite</div>') +
           (q.explanation ? '<div style="font-size:13px;color:var(--secondary-text);line-height:1.5;margin-bottom:8px">' + escText(q.explanation) + '</div>' : '') +
@@ -4355,6 +5840,37 @@
         if (next) next.addEventListener('click', function () {
           studyV2.quizIndex++; studyV2PersistView(); renderStudyQuiz();
         });
+      });
+    });
+    var grade = $('btn-study-grade-short-answer');
+    if (grade) grade.addEventListener('click', function () {
+      var questions = quizPool();
+      var q = questions[studyV2.quizIndex];
+      var input = $('study-quiz-short-answer');
+      var answer = input && input.value.trim();
+      if (!q || !answer || !lpBridge.connected() || studyV2.quizGrading) return;
+      studyV2.quizGrading = true;
+      studyV2.quizGradingQuestionId = q.id;
+      renderStudyQuiz();
+      lpBridge.call('study_v2_grade_short_answer', {
+        job_id: LP.state.jobId,
+        question_id: q.id,
+        question: q.question,
+        answer: answer,
+        rubric: q.rubric || q.explanation || '',
+        concept_ids: q.concept_ids || []
+      }).then(function (result) {
+        if (!result || result.ok === false) {
+          studyV2.quizGrading = false;
+          studyV2.quizGradingQuestionId = '';
+          toast((result && result.error) || 'This answer could not be graded.');
+          renderStudyQuiz();
+        }
+      }).catch(function () {
+        studyV2.quizGrading = false;
+        studyV2.quizGradingQuestionId = '';
+        toast('This answer could not be graded.');
+        renderStudyQuiz();
       });
     });
   }
@@ -4368,6 +5884,48 @@
       '<button class="lp-hit study-ask-chip" data-q="What are the key concepts?" style="font:600 12px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;color:var(--ink)">Key concepts</button>' +
       '<button class="lp-hit study-ask-chip" data-q="Quiz me on this" style="font:600 12px Space Grotesk;background:var(--panel);border:2px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;color:var(--ink)">Quiz me</button>' +
       '</div>';
+  }
+
+  function renderStudyTeach() {
+    var select = $('study-teach-concept');
+    var root = $('study-teach-root');
+    if (!select || !root) return;
+    var concepts = (studyV2.content && studyV2.content.concepts) || [];
+    if (!concepts.length) {
+      select.innerHTML = '<option value="">No concepts available</option>';
+      root.innerHTML = '<div style="text-align:center;padding:52px 24px;font:500 13px JetBrains Mono;color:var(--muted)">Teach Me will be ready when lecture concepts are available.</div>';
+      return;
+    }
+    if (!studyV2.teachConceptId || !concepts.some(function (concept) { return concept.id === studyV2.teachConceptId; })) {
+      studyV2.teachConceptId = concepts[0].id;
+    }
+    select.innerHTML = concepts.map(function (concept) {
+      return '<option value="' + escText(concept.id) + '"' + (concept.id === studyV2.teachConceptId ? ' selected' : '') + '>' + escText(concept.title) + '</option>';
+    }).join('');
+    if (studyV2.teachLoading) {
+      root.innerHTML = '<div style="text-align:center;padding:52px 24px"><div style="font:700 19px Space Grotesk;margin-bottom:7px">Building your explanation…</div><div style="font:500 13px JetBrains Mono;color:var(--muted)">Grounding the lesson in this lecture.</div></div>';
+      return;
+    }
+    var result = studyV2.teachResult;
+    if (!result || result.concept_ids && result.concept_ids.indexOf(studyV2.teachConceptId) < 0) {
+      var foundation = ((studyV2.content && studyV2.content.teach_me_foundations) || []).find(function (item) {
+        return item.concept_id === studyV2.teachConceptId;
+      });
+      root.innerHTML = '<div style="max-width:680px;margin:0 auto;text-align:center;padding:46px 24px"><div style="font:700 20px Space Grotesk;margin-bottom:8px">Learn one idea step by step</div><div style="font-size:14px;line-height:1.6;color:var(--secondary-text)">' + escText(foundation && foundation.explanation || 'Choose a concept and LecturePack will teach it using the lecture evidence.') + '</div>' +
+        (foundation && studyItemSourcesHtml(foundation) ? '<div class="study-provenance-row" style="justify-content:center;margin-top:13px">' + studyItemSourcesHtml(foundation) + '</div>' : '') + '</div>';
+      return;
+    }
+    var concept = concepts.find(function (item) { return item.id === studyV2.teachConceptId; }) || {};
+    var grade = studyV2.teachGrade;
+    root.innerHTML = '<div class="study-teach-card">' +
+      '<div><div style="font:700 22px Space Grotesk;margin-bottom:8px">' + escText(concept.title || 'Concept') + '</div><div style="font-size:15px;line-height:1.65;color:var(--secondary-text)">' + escText(result.explanation || '') + '</div></div>' +
+      (result.analogy ? '<div class="study-guide-section"><h3>Try this analogy</h3><p>' + escText(result.analogy) + '</p></div>' : '') +
+      (studyItemSourcesHtml(result) ? '<div class="study-provenance-row">' + studyItemSourcesHtml(result) + '</div>' : '') +
+      '<div class="study-guide-section"><h3>Check your understanding</h3><p style="margin-bottom:10px">' + escText(result.check_question || '') + '</p>' +
+      '<textarea id="study-teach-answer" class="study-short-answer" placeholder="Explain it in your own words"' + (grade ? ' disabled' : '') + '></textarea>' +
+      '<button id="btn-study-teach-grade" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;margin-top:10px"' + (grade ? ' disabled' : '') + '>Check answer</button>' +
+      (grade ? '<div style="margin-top:13px;padding:12px 14px;background:var(--panel);border-radius:8px"><div style="font-weight:700;color:' + (grade.correct ? 'var(--green)' : 'var(--red)') + '">' + (grade.correct ? 'You have it' : 'Keep working') + studyScoreSuffix(grade.score) + '</div><div style="font-size:13px;line-height:1.55;color:var(--secondary-text);margin-top:5px">' + escText(grade.feedback || '') + '</div></div>' : '') +
+      '</div></div>';
   }
 
   function studyAskSend() {
@@ -4412,48 +5970,100 @@
     feed.scrollTop = feed.scrollHeight;
   }
 
-  function appendStudyAskSources(sources) {
-    if (!studyV2.askAnswer || !Array.isArray(sources) || !sources.length) return;
+  function appendStudyAskSources(sources, provenance) {
+    if (!studyV2.askAnswer || !Array.isArray(sources)) return;
+    // Ask may answer a question about the lecture's subject that the lecture
+    // itself never covers (a date, who someone was). That answer honestly has
+    // no lecture source, so it arrives with an empty list. Say where it came
+    // from rather than rendering nothing -- and never borrow a lecture chip.
+    var beyond = !sources.length && String(provenance || '') === 'extra_context';
+    if (!sources.length && !beyond) return;
     var feed = $('study-ask-feed');
     var answers = feed && feed.querySelectorAll('.study-ask-answer');
     var answer = answers && answers.length ? answers[answers.length - 1] : null;
     if (!answer) return;
     var wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-top:9px';
+    if (beyond) {
+      var note = document.createElement('span');
+      note.className = 'study-source-beyond';
+      note.textContent = 'Beyond this lecture · general knowledge';
+      note.title = 'This lecture does not cover it, so this answer is not cited to a slide or transcript line.';
+      wrap.appendChild(note);
+    }
     sources.forEach(function (source) {
+      if (source && (source.kind === 'web' || source.url)) {
+        var link = document.createElement('a');
+        link.className = 'study-web-source';
+        link.href = source.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Web verified · ' + (source.title || 'Source');
+        wrap.appendChild(link);
+        return;
+      }
       var button = document.createElement('button');
-      button.className = 'lp-hit study-source';
-      button.dataset.segment = source.segment_id == null ? '' : source.segment_id;
-      button.dataset.ms = source.start_ms || 0;
-      button.textContent = source.start_ms != null ? 'Transcript ' + fmtTime(source.start_ms) : 'Transcript source';
-      button.style.cssText = 'font:600 11px JetBrains Mono;background:var(--blue-soft);color:var(--blue-ink);border:1.5px solid var(--blue);border-radius:6px;padding:3px 8px;cursor:pointer';
+      button.className = 'lp-hit study-source' + (source.slide_id != null ? ' study-source-slide' : '');
+      if (source.slide_id != null) {
+        button.dataset.slide = source.slide_id;
+        button.textContent = 'From lecture · Slide ' + studySlideLabel(source.slide_id);
+      } else {
+        button.dataset.segment = source.segment_id;
+        button.dataset.ms = source.start_ms || 0;
+        button.textContent = 'From lecture · ' + (source.start_ms != null ? 'Transcript ' + fmtTime(source.start_ms) : 'Transcript source');
+      }
       wrap.appendChild(button);
     });
     answer.parentNode.appendChild(wrap);
   }
 
   function setStudyV2Mode(mode, keepQuick) {
-    if (mode === 'flashcards' && !keepQuick && studyV2.quickSession) {
-      studyV2.quickSession = null;
-      studyV2.quickSummary = null;
-      studyV2.quickIndex = 0;
-      studyV2.quickCorrect = 0;
-      studyV2.quickTotal = 0;
-      studyV2.quickMissed = [];
-    }
+    if (['overview', 'flashcards', 'quiz', 'ask', 'quick', 'teach'].indexOf(mode) < 0) mode = 'overview';
     studyV2.mode = mode;
     if (mode !== 'overview') studyV2.resumeMode = mode;
     studyV2PersistView();
     document.querySelectorAll('.study-mode-tab').forEach(function (btn) {
       var active = btn.dataset.studyMode === mode;
       btn.className = 'lp-hit lp-tab study-mode-tab' + (active ? ' active' : '');
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
-    ['overview', 'flashcards', 'quiz', 'ask'].forEach(function (m) {
+    ['overview', 'flashcards', 'quiz', 'ask', 'quick', 'teach'].forEach(function (m) {
       $('study-mode-' + m).hidden = mode !== m;
     });
     if (mode === 'flashcards') renderStudyFlashcards();
     if (mode === 'quiz') renderStudyQuiz();
     if (mode === 'ask') renderStudyAsk();
+    if (mode === 'quick') renderQuickStudy();
+    if (mode === 'teach') renderStudyTeach();
+  }
+
+  function startQuickStudy(minutes) {
+    if (!lpBridge.connected()) return;
+    studyV2.quickMinutes = String(minutes || '5');
+    var requestedJobId = LP.state.jobId || '';
+    setStudyV2Mode('quick');
+    var root = $('study-quick-root');
+    if (root) root.innerHTML = '<div style="text-align:center;padding:52px 24px;font:500 13px JetBrains Mono;color:var(--muted)">Building your focused session…</div>';
+    lpBridge.call('study_v2_quick_study', {
+      job_id: requestedJobId,
+      minutes: studyV2.quickMinutes
+    }).then(function (res) {
+      if (LP.state.jobId !== requestedJobId || (res && res.job_id && res.job_id !== requestedJobId)) return;
+      if (!res || !res.session) {
+        toast('Quick Study could not be prepared.');
+        renderQuickStudy();
+        return;
+      }
+      studyV2.quickSession = res.session;
+      studyV2.quickIndex = 0; studyV2.quickCorrect = 0; studyV2.quickTotal = 0;
+      studyV2.quickMissed = []; studyV2.quickRevealed = false;
+      studyV2.quickAnswered = false; studyV2.quickSelected = null; studyV2.quickSummary = null;
+      studyV2PersistView();
+      renderQuickStudy();
+    }).catch(function () {
+      toast('Quick Study could not be prepared.');
+      renderQuickStudy();
+    });
   }
 
   function bindStudyV2Events() {
@@ -4475,23 +6085,17 @@
     });
     var quick = $('btn-study-quick');
     if (quick) quick.addEventListener('click', function () {
-      if (!lpBridge.connected()) return;
-      var requestedJobId = LP.state.jobId || '';
-      lpBridge.call('study_v2_quick_study', { job_id: requestedJobId }).then(function (res) {
-        if (LP.state.jobId !== requestedJobId || (res && res.job_id && res.job_id !== requestedJobId)) return;
-        if (res && res.session) {
-          studyV2.quickSession = res.session;
-          studyV2.quickIndex = 0; studyV2.quickCorrect = 0; studyV2.quickTotal = 0;
-          studyV2.quickMissed = []; studyV2.quickRevealed = false;
-          studyV2.quickAnswered = false; studyV2.quickSelected = null; studyV2.quickSummary = null;
-          setStudyV2Mode('flashcards', true);
-        }
-      }).catch(function () {});
+      startQuickStudy('10');
+    });
+    document.querySelectorAll('.study-duration').forEach(function (button) {
+      button.addEventListener('click', function () {
+        startQuickStudy(button.dataset.studyMinutes || '5');
+      });
     });
     var cont = $('btn-study-continue');
     if (cont) cont.addEventListener('click', function () {
       if (studyV2.quickSession && studyV2.quickIndex < (studyV2.quickSession.items || []).length) {
-        setStudyV2Mode('flashcards', true); return;
+        setStudyV2Mode('quick', true); return;
       }
       var needsReview = (studyV2.summary && studyV2.summary.needs_review > 0);
       if (needsReview) {
@@ -4506,11 +6110,76 @@
       studyV2.reviewOnly = true; studyV2.flashFilterIds = null; studyV2.flashIndex = 0;
       setStudyV2Mode('flashcards');
     });
+    var retryAi = $('btn-study-ai-retry');
+    if (retryAi) retryAi.addEventListener('click', function () {
+      if (!lpBridge.connected()) return;
+      retryAi.disabled = true;
+      lpBridge.call('study_v2_retry', { job_id: LP.state.jobId }).then(function (result) {
+        retryAi.disabled = false;
+        if (result && result.content) studyV2.content = result.content;
+        renderStudyGenerationState();
+        if (!result || result.ok === false) toast((result && result.error) || 'Study AI could not be retried.');
+      }).catch(function () {
+        retryAi.disabled = false;
+        toast('Study AI could not be retried.');
+      });
+    });
+    var useBasic = $('btn-study-use-basic');
+    if (useBasic) useBasic.addEventListener('click', function () {
+      if (!lpBridge.connected()) return;
+      lpBridge.call('study_v2_use_basic', { job_id: LP.state.jobId }).then(function (result) {
+        if (result && result.content) {
+          studyV2.content = result.content;
+          renderStudyGenerationState();
+          studyV2Load();
+        } else toast((result && result.error) || 'Basic Study could not be prepared.');
+      }).catch(function () { toast('Basic Study could not be prepared.'); });
+    });
+    var copyDiagnostics = $('btn-study-copy-diagnostics');
+    if (copyDiagnostics) copyDiagnostics.addEventListener('click', function () {
+      if (!lpBridge.connected()) return;
+      lpBridge.call('study_v2_copy_diagnostics', { job_id: LP.state.jobId }).then(function (result) {
+        var text = JSON.stringify((result && result.diagnostics) || {}, null, 2);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () { toast('Diagnostics copied.'); }).catch(function () { toast('Diagnostics could not be copied.'); });
+        }
+      }).catch(function () { toast('Diagnostics could not be copied.'); });
+    });
     var send = $('btn-study-ask-send');
     if (send) send.addEventListener('click', studyAskSend);
     var askInput = $('study-ask-input');
     if (askInput) askInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); studyAskSend(); }
+    });
+    var teachSelect = $('study-teach-concept');
+    if (teachSelect) teachSelect.addEventListener('change', function () {
+      studyV2.teachConceptId = teachSelect.value;
+      studyV2.teachResult = null;
+      studyV2.teachGrade = null;
+      studyV2PersistView();
+      renderStudyTeach();
+    });
+    var teachStart = $('btn-study-teach-start');
+    if (teachStart) teachStart.addEventListener('click', function () {
+      if (!lpBridge.connected() || !studyV2.teachConceptId || studyV2.teachLoading) return;
+      studyV2.teachLoading = true;
+      studyV2.teachResult = null;
+      studyV2.teachGrade = null;
+      renderStudyTeach();
+      lpBridge.call('study_v2_teach_me', {
+        job_id: LP.state.jobId,
+        concept_id: studyV2.teachConceptId
+      }).then(function (result) {
+        if (!result || result.ok === false) {
+          studyV2.teachLoading = false;
+          toast((result && result.error) || 'Teach Me could not start.');
+          renderStudyTeach();
+        }
+      }).catch(function () {
+        studyV2.teachLoading = false;
+        toast('Teach Me could not start.');
+        renderStudyTeach();
+      });
     });
     // Source navigation + edit/delete/explain (delegated)
     var concepts = $('study-concepts-list');
@@ -4521,11 +6190,40 @@
       if (edit) { studyV2EditItem(edit.dataset.kind, edit.dataset.id); return; }
       var del = e.target.closest('.study-delete');
       if (del) { studyV2DeleteItem(del.dataset.kind, del.dataset.id); return; }
+      var regenerate = e.target.closest('.study-regenerate');
+      if (regenerate) { studyV2RegenerateItem(regenerate.dataset.kind, regenerate.dataset.id); return; }
       var explain = e.target.closest('.study-explain');
       if (explain) { studyV2ExplainItem(explain.dataset.id); }
     });
+    if (concepts) concepts.addEventListener('change', function (e) {
+      var select = e.target.closest('.study-mastery-select');
+      if (!select || !lpBridge.connected()) return;
+      lpBridge.call('study_v2_set_mastery', {
+        job_id: LP.state.jobId,
+        concept_id: select.dataset.conceptId,
+        mastery: select.value
+      }).then(function () { studyV2Load(); }).catch(function () {
+        toast('Mastery could not be updated.');
+      });
+    });
+    var guideRoot = $('study-guide-root');
+    if (guideRoot) guideRoot.addEventListener('click', function (e) {
+      var source = e.target.closest('.study-source');
+      if (source) navigateStudySource(source);
+    });
     var flashRoot = $('study-flashcards-root');
     if (flashRoot) flashRoot.addEventListener('click', function (e) {
+      var t = e.target.closest('.study-source');
+      if (t) navigateStudySource(t);
+      var edit = e.target.closest('.study-edit');
+      if (edit) studyV2EditItem(edit.dataset.kind, edit.dataset.id);
+      var regenerate = e.target.closest('.study-regenerate');
+      if (regenerate) studyV2RegenerateItem(regenerate.dataset.kind, regenerate.dataset.id);
+      var del = e.target.closest('.study-delete');
+      if (del) studyV2DeleteItem(del.dataset.kind, del.dataset.id);
+    });
+    var quickRoot = $('study-quick-root');
+    if (quickRoot) quickRoot.addEventListener('click', function (e) {
       var t = e.target.closest('.study-source');
       if (t) navigateStudySource(t);
       var quickAction = e.target.closest('[data-quick-action]');
@@ -4548,11 +6246,19 @@
       var quickOpt = e.target.closest('[data-quick-opt]');
       if (quickOpt) quickStudySelectQuiz(Number(quickOpt.dataset.quickOpt));
     });
+    if (quickRoot) {
+      quickRoot.tabIndex = 0;
+      quickRoot.addEventListener('keydown', function (e) {
+        if (e.code !== 'Space' || studyV2.mode !== 'quick') return;
+        var action = quickRoot.querySelector('[data-quick-action="reveal"]');
+        if (action) { e.preventDefault(); action.click(); }
+      });
+    }
     if (flashRoot) {
       flashRoot.tabIndex = 0;
       flashRoot.addEventListener('keydown', function (e) {
         if (e.code !== 'Space' || studyV2.mode !== 'flashcards') return;
-        var action = flashRoot.querySelector('[data-quick-action="reveal"], #btn-study-flash-show');
+        var action = flashRoot.querySelector('#btn-study-flash-show');
         if (action) { e.preventDefault(); action.click(); }
       });
     }
@@ -4560,6 +6266,12 @@
     if (quizRoot) quizRoot.addEventListener('click', function (e) {
       var t = e.target.closest('.study-source');
       if (t) navigateStudySource(t);
+      var edit = e.target.closest('.study-edit');
+      if (edit) studyV2EditItem(edit.dataset.kind, edit.dataset.id);
+      var regenerate = e.target.closest('.study-regenerate');
+      if (regenerate) studyV2RegenerateItem(regenerate.dataset.kind, regenerate.dataset.id);
+      var del = e.target.closest('.study-delete');
+      if (del) studyV2DeleteItem(del.dataset.kind, del.dataset.id);
     });
     var askFeed = $('study-ask-feed');
     if (askFeed) askFeed.addEventListener('click', function (e) {
@@ -4571,6 +6283,35 @@
       }
       var t = e.target.closest('.study-source');
       if (t) navigateStudySource(t);
+    });
+    var teachRoot = $('study-teach-root');
+    if (teachRoot) teachRoot.addEventListener('click', function (e) {
+      var source = e.target.closest('.study-source');
+      if (source) { navigateStudySource(source); return; }
+      var gradeButton = e.target.closest('#btn-study-teach-grade');
+      if (!gradeButton || !studyV2.teachResult || !lpBridge.connected()) return;
+      var answer = (($('study-teach-answer') || {}).value || '').trim();
+      if (!answer) return;
+      gradeButton.disabled = true;
+      gradeButton.textContent = 'Checking…';
+      lpBridge.call('study_v2_grade_short_answer', {
+        job_id: LP.state.jobId,
+        question_id: 'teach:' + studyV2.teachConceptId,
+        question: studyV2.teachResult.check_question,
+        answer: answer,
+        rubric: studyV2.teachResult.rubric || '',
+        concept_ids: [studyV2.teachConceptId]
+      }).then(function (result) {
+        if (!result || result.ok === false) {
+          gradeButton.disabled = false;
+          gradeButton.textContent = 'Check answer';
+          toast((result && result.error) || 'This answer could not be checked.');
+        }
+      }).catch(function () {
+        gradeButton.disabled = false;
+        gradeButton.textContent = 'Check answer';
+        toast('This answer could not be checked.');
+      });
     });
   }
 
@@ -4626,6 +6367,23 @@
     });
   }
 
+  function studyV2RegenerateItem(kind, id) {
+    if (!kind || !id || !lpBridge.connected()) return;
+    lpBridge.call('study_v2_regenerate', {
+      job_id: LP.state.jobId,
+      kind: kind,
+      id: id
+    }).then(function (result) {
+      if (!result || result.ok === false) {
+        toast((result && result.error) || 'This Study item could not be regenerated.');
+        return;
+      }
+      toast('Refreshing only the connected Study items…');
+    }).catch(function () {
+      toast('This Study item could not be regenerated.');
+    });
+  }
+
   function studyV2ExplainItem(id) {
     if (!id || !lpBridge.connected()) return;
     var content = studyV2.content || { concepts: [] };
@@ -4638,9 +6396,44 @@
   }
 
   function navigateStudySource(el) {
+    var targetJobId = el.dataset.job || '';
     var segment = el.dataset.segment;
     var ms = Number(el.dataset.ms || 0);
     var slide = el.dataset.slide;
+
+    if (targetJobId && typeof LP !== 'undefined' && LP.state && targetJobId !== LP.state.jobId) {
+      selectJob(targetJobId, { screen: slide != null ? 'review' : 'transcript' });
+      if (slide != null) {
+        setTimeout(function () {
+          var slides = LP.data.slides || [];
+          var idx = slides.findIndex(function (s) { return String(s.image_filename) === String(slide) || String(s.index) === String(slide); });
+          if (idx >= 0) {
+            LP.state.viewingSlide = idx;
+            renderSlides();
+          }
+        }, 150);
+      } else if (segment != null) {
+        setTimeout(function () {
+          var blocks = document.querySelectorAll('#transcript-blocks [data-transcript-time], #transcript-blocks [data-start]');
+          var target = null;
+          blocks.forEach(function (b) {
+            var raw = b.dataset.start;
+            if (raw == null) {
+              var parts = String(b.dataset.transcriptTime || '').split(':').map(Number);
+              raw = parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : (parts.length === 2 ? parts[0] * 60 + parts[1] : Number(parts[0] || 0));
+            }
+            if (Number(raw) <= ms / 1000) target = b;
+          });
+          if (target) {
+            target.scrollIntoView({ block: 'center' });
+            target.classList.add('transcript-target-highlight');
+            setTimeout(function () { target.classList.remove('transcript-target-highlight'); }, 2000);
+          }
+        }, 220);
+      }
+      return;
+    }
+
     if (slide != null) {
       // Navigate to the slides/review source.
       setScreen('review');
@@ -4662,7 +6455,7 @@
           var raw = b.dataset.start;
           if (raw == null) {
             var parts = String(b.dataset.transcriptTime || '').split(':').map(Number);
-            raw = parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : Number(parts[0] || 0);
+            raw = parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : (parts.length === 2 ? parts[0] * 60 + parts[1] : Number(parts[0] || 0));
           }
           if (Number(raw) <= ms / 1000) target = b;
         });
@@ -4708,163 +6501,93 @@
     renderDemoHomeAvailability();
   }
 
-  /* ======================= guided tour / demo ======================= */
-  var TOUR_STORAGE_KEY = 'lecturepack.guided-tour.seen.v1';
-  var browserStorage = function () { return window.localStorage; };
+  /* ======================= guided demo lifecycle =======================
+     The walkthrough is a self-contained screen. This block owns only the
+     durable eligibility state and the optional real bundled-lecture run; it
+     performs no live-screen measurement, spotlighting, or geometry work. */
   var DEMO_DRAG_MIME = 'application/x-lecturepack-demo';
-  var TOUR_PHASES = {
-    import: { screen: 'home', target: '#dropzone', title: 'Add the demo video', copy: 'Drag the Polar Bears demo into this lecture area, or click the tile to use it.', next: 'Add demo to continue' },
-    processing: { screen: 'process', target: '#pipeline-stages', title: 'Watch real processing', copy: 'This is the live local pipeline. It advances only as each step actually completes.', next: 'Processing safely…' },
-    review: { screen: 'review', target: '#demo-review-actions', title: 'Make one review choice', copy: 'Use Keep or Reject on the existing review controls to continue.', next: 'Make a review choice' },
-    study: { screen: 'study', target: '#demo-study-actions', title: 'Ask about the lecture', copy: 'The study workspace is ready. Try the chat box, then continue when you are ready.', next: 'Next' },
-    exports: { screen: 'exports', target: '#btn-export-all', title: 'See export options', copy: 'Exporting unlocks for your own processed lecture. This temporary demo only shows where those options live.', next: 'Finish' }
-  };
-  function tourSeen() {
-    try { return browserStorage().getItem(TOUR_STORAGE_KEY) === '1'; } catch (e) { return false; }
-  }
-  function markTourSeen() {
-    try { browserStorage().setItem(TOUR_STORAGE_KEY, '1'); } catch (e) {}
-  }
-  var tourTraceEnabled = false;
-  var tourTraceQueue = [], tourTraceFlushTimer = null, tourTraceFrame = null;
-  var tourTraceObserver = null;
+  var INTERNAL_JOB_DRAG_MIME = 'application/x-lecturepack-job-ids';
+  var internalJobDragIds = [];
 
-  function flushTourTrace() {
-    tourTraceFlushTimer = null;
-    if (!tourTraceQueue.length || !lpBridge.connected()) return;
-    var batch = tourTraceQueue.splice(0, tourTraceQueue.length);
-    lpBridge.call('log_tour_trace', JSON.stringify(batch));
-  }
-
-  function traceTour(kind, detail) {
-    if (!tourTraceEnabled) return;
-    var flow = guidedDemoFlow.snapshot();
-    var record = {
-      event: kind,
-      at: performance.now(),
-      guidedTour: guidedTour.snapshot(),
-      demoPhase: flow.phase,
-      demoAdmissionAvailable: demoAdmissionAvailable
-    };
-    if (detail) record.detail = detail;
-    tourTraceQueue.push(record);
-    if (tourTraceFlushTimer === null) tourTraceFlushTimer = setTimeout(flushTourTrace, 100);
-  }
-
-  function traceTourFrame(timestamp) {
-    tourTraceFrame = null;
-    if (!tourTraceEnabled) return;
-    traceTour('requestAnimationFrame', { timestamp: timestamp });
-    tourTraceFrame = requestAnimationFrame(traceTourFrame);
-  }
-
-  function installTourTraceObserver() {
-    var overlay = $('guided-tour-overlay');
-    if (!tourTraceEnabled || !overlay || tourTraceObserver) return;
-    tourTraceObserver = new MutationObserver(function (mutations) {
-      mutations.forEach(function (mutation) {
-        traceTour('mutation', {
-          type: mutation.type,
-          attributeName: mutation.attributeName,
-          oldValue: mutation.oldValue,
-          addedNodes: mutation.addedNodes.length,
-          removedNodes: mutation.removedNodes.length
-        });
-      });
-    });
-    tourTraceObserver.observe(overlay, {
-      attributes: true,
-      childList: true,
-      attributeOldValue: true
+  function persistGuidedTourState(status) {
+    if (!status || !lpBridge.connected()) return Promise.resolve(null);
+    return lpBridge.call('set_guided_tour_state', { status: status }).then(function (value) {
+      var result = parseBridgeResult(value);
+      if (!result || result.ok !== true) {
+        toast('LecturePack could not save the demo state.');
+        return result;
+      }
+      if (result.guided_tour) applyGuidedTourEligibility(result);
+      return result;
+    }, function () {
+      toast('LecturePack could not save the demo state.');
+      return null;
     });
   }
 
-  function setTourTraceEnabled(enabled) {
-    var next = enabled === true;
-    if (next === tourTraceEnabled) {
-      if (next) installTourTraceObserver();
-      return;
-    }
-    tourTraceEnabled = next;
-    if (!next) {
-      if (tourTraceObserver) tourTraceObserver.disconnect();
-      tourTraceObserver = null;
-      if (tourTraceFrame !== null) cancelAnimationFrame(tourTraceFrame);
-      tourTraceFrame = null;
-      if (tourTraceFlushTimer !== null) clearTimeout(tourTraceFlushTimer);
-      tourTraceFlushTimer = null;
-      tourTraceQueue = [];
-      return;
-    }
-    installTourTraceObserver();
-    tourTraceFrame = requestAnimationFrame(traceTourFrame);
-  }
-
-  function setTourOverlayHidden(next) {
-    var overlay = $('guided-tour-overlay');
-    if (!overlay) return;
-    var previous = overlay.hidden;
-    overlay.hidden = !!next;
-    traceTour('overlay.hidden', { previous: previous, next: overlay.hidden });
-  }
-
-  var guidedTour = GuidedTourModel(tourSeen());
   var guidedDemo = GuidedDemoSessionModel();
-  var guidedDemoFlow = GuidedDemoFlowModel();
   var slideDetectionPreset = SlideDetectionPresetModel();
   var demoAdmissionAvailable = false;
-  var demoHomeDismissed = tourSeen();
-  var tourRuntimeHealthy = false;
+  var guidedTourEligibility = null;
+  var demoCleanupRequested = false;
+  var demoCleanupConfirmed = false;
+
+  function applyGuidedTourEligibility(payload) {
+    var source = payload && (payload.guided_tour || payload.guided_tour_state || payload.tour);
+    if (!source && payload && typeof payload.tour_eligible === 'boolean') source = payload;
+    if (!source || typeof source !== 'object') return false;
+    var eligible = source.eligible === true;
+    if (source.eligible === undefined) eligible = source.completed !== true && source.skipped !== true;
+    if (source.completed === true || source.skipped === true) eligible = false;
+    guidedTourEligibility = {
+      version: String(source.version || source.current_version || ''),
+      eligible: eligible,
+      completed: source.completed === true,
+      skipped: source.skipped === true
+    };
+    renderDemoHomeAvailability();
+    return true;
+  }
+
+  function tourEligibilityAllowsOffer() {
+    if (demoCompleted()) return false;
+    if (guidedTourEligibility) return guidedTourEligibility.eligible === true;
+    return !lpBridge.connected();
+  }
 
   function setDemoAdmissionAvailable(available) {
-    var next = available === true, wasAvailable = demoAdmissionAvailable;
+    var next = available === true;
     demoAdmissionAvailable = next;
-    tourRuntimeHealthy = next;
     var onboarding = $('settings-onboarding'), replay = $('btn-replay-tour');
-    renderDemoHomeAvailability();
     if (onboarding) onboarding.hidden = !next;
     if (replay) replay.disabled = !next;
+    renderDemoHomeAvailability();
     if (!next) {
-      // A repair/reset may arrive while a tour is open. Hide every entry point
-      // immediately; a late bridge callback cannot re-open it without a new
-      // healthy admission from RuntimeSetupGate.
-      guidedTour.exit(); guidedDemoFlow.exit(); renderGuidedTour();
-      setDemoTourInteraction(false);
+      if (LP.state.screen === 'demo') setScreen('home');
       renderSlideDetectionPreset();
-      if (guidedDemo.snapshot().active) endGuidedDemo('runtime_unavailable');
+      endGuidedDemo('runtime_unavailable', true);
       renderDemoCard();
       return;
     }
     renderDemoCard();
-    if (!wasAvailable) offerGuidedTour();
   }
+
   function renderDemoHomeAvailability() {
     var demoHome = $('home-demo');
-    var firstRun = !!(LP.data && LP.data.jobs && LP.data.jobs.length === 0);
-    // The empty workspace is the first-run entry point, even when a prior
-    // tour dismissal is still present in the browser profile.  A zero-job
-    // launch must always expose the demo alongside the import guidance.
-    if (demoHome) demoHome.hidden = !firstRun &&
-      ((!demoAdmissionAvailable) || (demoHomeDismissed && !guidedTour.snapshot().active));
+    if (demoHome) demoHome.hidden = !(demoAdmissionAvailable && tourEligibilityAllowsOffer());
   }
 
   function stageLabel(name) {
     var labels = { prepare: 'Preparing demo', inspect: 'Inspecting video', extract_audio: 'Extracting audio', transcribe: 'Transcribing audio', detect_slides: 'Detecting slides', align: 'Aligning notes', review_ready: 'Preparing review', export: 'Building Study Pack', complete: 'Complete' };
     return labels[name] || friendlyProcessingLabel(name) || 'Preparing demo';
   }
+
   function guidedDemoSensitivityLocked() {
-    return guidedTour.snapshot().active && demoFlowPhase() !== 'idle';
+    return guidedDemo.snapshot().active;
   }
-  // D-08: the sensitivity preset must also be locked during NORMAL (non-demo)
-  // processing, not just the guided demo -- otherwise a user can click a
-  // different preset while a job runs, see it render "active", but the
-  // already-running job silently ignores it because its preset was
-  // snapshotted at start_processing() time. LP.state.pipelineRunning is the
-  // sibling flag for that case (set/cleared via the pipeline_changed and
-  // status_changed handlers). Output mode has no Process-screen control at
-  // all (onboarding sets LP.state.onbMode once; start_processing reads it
-  // once), so it is already non-editable mid-run by omission -- no code
-  // change needed for that half of D-08.
+
+  // Processing settings are snapshotted at start. Lock them for both the
+  // bundled demo and normal jobs so a visible mid-run change never lies.
   function renderSlideDetectionPreset() {
     var group = $('proc-sensitivity'), note = $('proc-sensitivity-note');
     if (!group) return;
@@ -4876,7 +6599,7 @@
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
       button.disabled = locked;
-      button.title = demoLocked ? 'Guided demo uses its fixed reliable setting.' :
+      button.title = demoLocked ? 'Demo processing uses its fixed reliable setting.' :
         (locked ? 'Setting is locked while processing runs.' : '');
       button.style.fontWeight = active ? '700' : '500';
       button.style.borderColor = active ? 'var(--secondary-border)' : 'transparent';
@@ -4886,88 +6609,56 @@
     });
     if (note) note.hidden = !locked;
   }
+
   function setSlideDetectionPreset(label) {
     if (guidedDemoSensitivityLocked() || LP.state.pipelineRunning) return;
     var state = slideDetectionPreset.select(label);
     renderSlideDetectionPreset();
     lpBridge.call('set_setting', 'slide_detection_preset', state.preset);
   }
+
   function renderDemoCard() {
     var card = $('glowing-demo-card'), status = $('demo-card-status'), action = $('demo-card-action');
     if (!card || !status || !action) return;
     var d = guidedDemo.snapshot();
-    var firstRunUnavailable = !demoAdmissionAvailable && LP.state.jobsEmpty;
+    var firstRunUnavailable = !demoAdmissionAvailable;
     card.disabled = firstRunUnavailable || d.status === 'starting' || d.status === 'cancelling';
     card.setAttribute('aria-disabled', card.disabled ? 'true' : 'false');
-    card.title = firstRunUnavailable ? 'Complete runtime setup before starting the guided demo.' : '';
+    card.title = firstRunUnavailable ? 'Complete runtime setup before opening the demo.' : '';
     card.dataset.demoState = d.status === 'failed' || d.status === 'error' ? 'error' : (d.active ? 'running' : 'idle');
     if (firstRunUnavailable) {
-      status.textContent = 'Guided demo will be available after runtime setup is ready.';
+      status.textContent = 'The demo will be available after runtime setup is ready.';
       action.textContent = 'Runtime setup required';
       return;
     }
     if (d.status === 'error' || d.status === 'failed') {
-      status.textContent = d.error || 'The guided demo could not start.'; action.textContent = 'Try again'; return;
+      status.textContent = d.error || 'The demo lecture could not start.';
+      action.textContent = 'Try again';
+      return;
     }
     if (d.active) {
       status.textContent = stageLabel(d.stage) + ' · ' + Math.round(d.progress) + '%';
-      action.textContent = d.status === 'starting' ? 'Starting…' : d.status === 'cancelling' ? 'Stopping…' : 'End demo'; return;
+      action.textContent = d.status === 'starting' ? 'Starting…' : d.status === 'cancelling' ? 'Stopping…' : 'End demo';
+      return;
     }
-    // §6: the demo's outputs stay fully explorable after it ends, so the card
-    // must not claim its files were removed while they are still open.
-    if (d.status === 'ended') { status.textContent = 'Demo complete — its slides, transcript, and study pack stay available to explore.'; action.textContent = 'Run demo again'; return; }
-    status.textContent = 'Move this demo video into the lecture drop area, or click to use it.';
-    action.textContent = 'Use demo video';
+    var idleAction = demoCompleted() ? 'Use demo video' : 'Take the 60-second tour';
+    if (d.status === 'ended') {
+      status.textContent = 'Demo cleaned up.';
+      action.textContent = idleAction;
+      return;
+    }
+    status.textContent = demoCompleted()
+      ? 'Process this real 10-second lecture again.'
+      : 'See real LecturePack output from a 10-second lecture. No processing yet.';
+    action.textContent = idleAction;
     refreshControlStates();
   }
-  function demoFlowPhase() { return guidedDemoFlow.snapshot().phase; }
-  function currentTourPhase() { return TOUR_PHASES[demoFlowPhase()] || null; }
-  var liftedDemoCardPlaceholder = null, liftedDemoCardStyle = null;
-  function positionLiftedDemoCard() {
-    var card = $('glowing-demo-card');
-    if (!card || !liftedDemoCardPlaceholder) return;
-    var r = liftedDemoCardPlaceholder.getBoundingClientRect();
-    card.style.left = Math.round(r.left) + 'px';
-    card.style.top = Math.round(r.top) + 'px';
-    card.style.width = Math.round(r.width) + 'px';
-    card.style.height = Math.round(r.height) + 'px';
-  }
-  function liftDemoCardAboveTourScrim() {
-    var card = $('glowing-demo-card'), overlay = $('guided-tour-overlay');
-    if (!card || !overlay) return;
-    if (!liftedDemoCardPlaceholder) {
-      var r = card.getBoundingClientRect(), placeholder = document.createElement('div');
-      placeholder.id = 'guided-demo-card-placeholder';
-      placeholder.setAttribute('aria-hidden', 'true');
-      placeholder.style.cssText = 'display:block;width:' + Math.round(r.width) + 'px;height:' + Math.round(r.height) + 'px';
-      liftedDemoCardStyle = card.getAttribute('style');
-      card.parentNode.insertBefore(placeholder, card);
-      liftedDemoCardPlaceholder = placeholder;
-      overlay.appendChild(card);
-      card.classList.add('lp-demo-tour-lifted');
-    }
-    positionLiftedDemoCard();
-  }
-  function restoreDemoCardBelowTourScrim() {
-    var card = $('glowing-demo-card');
-    if (!card || !liftedDemoCardPlaceholder) return;
-    liftedDemoCardPlaceholder.parentNode.insertBefore(card, liftedDemoCardPlaceholder);
-    liftedDemoCardPlaceholder.remove(); liftedDemoCardPlaceholder = null;
-    card.classList.remove('lp-demo-tour-lifted');
-    if (liftedDemoCardStyle === null) card.removeAttribute('style');
-    else card.setAttribute('style', liftedDemoCardStyle);
-    liftedDemoCardStyle = null;
-  }
-  function setDemoTourInteraction(active) {
-    var card = $('glowing-demo-card'), dropzone = $('dropzone');
-    if (active) liftDemoCardAboveTourScrim(); else restoreDemoCardBelowTourScrim();
-    if (card) card.classList.toggle('lp-demo-tour-active', !!active);
-    if (dropzone) dropzone.classList.toggle('lp-demo-tour-active', !!active);
-  }
+
   function hideModelTooltip() {
     var tooltip = $('ai-model-tooltip');
     if (tooltip) tooltip.hidden = true;
   }
+
   function showModelTooltip() {
     var value = $('ai-model-name'), tooltip = $('ai-model-tooltip');
     if (!value || !tooltip || !value.textContent || value.textContent === '—') { hideModelTooltip(); return; }
@@ -4980,6 +6671,7 @@
       tooltip.style.top = Math.max(inset, Math.min(rect.bottom + inset, window.innerHeight - height - inset)) + 'px';
     });
   }
+
   function setModelValue(value) {
     var model = $('ai-model-name');
     if (!model) return;
@@ -4998,6 +6690,7 @@
     var friendly = /base\.en/i.test(file) ? 'Whisper Base English model' : 'Whisper model · ' + file;
     name.textContent = friendly;
   }
+
   function wireModelTooltip() {
     var model = $('ai-model-name');
     if (!model) return;
@@ -5006,157 +6699,7 @@
     model.addEventListener('focus', showModelTooltip);
     model.addEventListener('blur', hideModelTooltip);
   }
-  function tourFocusable() {
-    var card = $('guided-tour-card'), tourTarget = currentTourTarget(), items = card ? visibleFocusable(card) : [];
-    if (tourTarget && tourTarget.matches('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')) items.unshift(tourTarget);
-    else if (tourTarget) items = items.concat(visibleFocusable(tourTarget));
-    return items.filter(function (item, index) { return items.indexOf(item) === index && ((!card || card.contains(item)) || (tourTarget && tourTarget.contains(item))); });
-  }
-  function trapTourFocus(e) {
-    var items = tourFocusable();
-    if (!items.length) { e.preventDefault(); return; }
-    var first = items[0], last = items[items.length - 1], active = document.activeElement;
-    if (items.indexOf(active) === -1) { e.preventDefault(); first.focus(); return; }
-    if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
-    else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
-  }
-  var tourGeometryFrame = null;
-  function currentTourTarget() {
-    var phase = currentTourPhase();
-    return phase && document.querySelector(phase.target);
-  }
-  function scheduleTourGeometry() {
-    if (tourGeometryFrame !== null) return;
-    tourGeometryFrame = requestAnimationFrame(function () {
-      tourGeometryFrame = null;
-      positionTourSpotlight();
-    });
-  }
-  function positionTourSpotlight() {
-    var state = guidedTour.snapshot(), box = $('tour-spotlight-box'), arrow = $('tour-arrow');
-    if (!state.active || !box || !arrow) return;
-    var target = currentTourTarget();
-    // N-8: never leave a glow around empty space. A target that is unmounted,
-    // inside a hidden screen, or absent after navigation collapses the
-    // spotlight instead of drawing the fallback box at the viewport corner.
-    if (!target || !target.isConnected || target.closest('[hidden]') || demoFlowPhase() === 'finished') {
-      box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true; return;
-    }
-    var before = target.getBoundingClientRect();
-    if (before.width === 0 && before.height === 0) {
-      // Mounted but currently unmeasurable (its screen is still painting):
-      // hide rather than point at (0,0), and re-check shortly.
-      box.style.width = '0px'; box.style.height = '0px'; arrow.hidden = true;
-      setTimeout(function () { scheduleTourGeometry(); }, 200);
-      return;
-    }
-    if (before.top < 0 || before.left < 0 || before.bottom > window.innerHeight || before.right > window.innerWidth) {
-      target.scrollIntoView({block: 'nearest', inline: 'nearest'});
-    }
-    var r = target.getBoundingClientRect(), pad = 7;
-    // PC polish: keep the guided-demo glow visible after navigating to a new
-    // screen. Some targets (e.g. #pipeline-stages before the first pipeline
-    // event) legitimately have zero height; collapsing the box to 0x0 made the
-    // overlay disappear for the rest of the demo. Use a fallback minimum box
-    // so the active step stays emphasised, and re-measure on the next frame.
-    var minW = 120, minH = 40;
-    var effW = Math.max(minW, r.width), effH = Math.max(minH, r.height);
-    var left = Math.max(6, Math.min(Math.round(r.left - pad), window.innerWidth - Math.round(effW + pad * 2) - 6));
-    var top = Math.max(6, Math.min(Math.round(r.top - pad), window.innerHeight - Math.round(effH + pad * 2) - 6));
-    var width = Math.max(0, Math.min(Math.round(effW + pad * 2), window.innerWidth - left - 6));
-    var height = Math.max(0, Math.min(Math.round(effH + pad * 2), window.innerHeight - top - 6));
-    box.style.left = left + 'px';
-    box.style.top = top + 'px';
-    box.style.width = width + 'px';
-    box.style.height = height + 'px';
-    arrow.hidden = false;
-    arrow.style.left = Math.round(r.left + Math.min(Math.max(r.width, minW) - 18, 24)) + 'px';
-    arrow.style.top = Math.max(8, Math.round(r.top - 19)) + 'px';
-    var self = this;
-    if (r.width === 0 || r.height === 0) {
-      setTimeout(function () { scheduleTourGeometry(); }, 200);
-    }
-    positionLiftedDemoCard();
-  }
-  function renderGuidedTour() {
-    var state = guidedTour.snapshot(), overlay = $('guided-tour-overlay');
-    if (!overlay) return;
-    installTourTraceObserver();
-    setTourOverlayHidden(!demoAdmissionAvailable || (!state.active && !state.prompt));
-    if (overlay.hidden) { setDemoTourInteraction(false); return; }
-    var isPrompt = state.prompt, flow = guidedDemoFlow.snapshot();
-    // §6: the tour ends on a celebration, not an anticlimax. The exports
-    // step's Finish advances to a completion card with two real destinations.
-    var finished = state.active && flow.phase === 'finished';
-    var phase = state.active && !finished ? currentTourPhase() : null;
-    $('tour-step-label').textContent = isPrompt ? 'WELCOME' : finished ? 'DEMO · COMPLETE' : 'DEMO · ' + flow.phase.toUpperCase();
-    $('tour-title').textContent = isPrompt ? 'A quick look around' : finished ? 'Your first study pack is ready' : phase.title;
-    $('tour-copy').textContent = isPrompt ? 'Want a short, user-controlled tour of the main parts of LecturePack?' :
-      finished ? 'The demo lecture produced real slides, a transcript, and a study pack — all of it stays available to explore.' : phase.copy;
-    $('tour-prompt-actions').hidden = !isPrompt;
-    $('tour-step-actions').hidden = !state.active || finished;
-    $('tour-finish-actions').hidden = !finished;
-    if (!finished) {
-      $('btn-tour-back').disabled = !state.active || !flow.backEnabled;
-      $('btn-tour-next').disabled = !state.active || !flow.nextEnabled;
-      $('btn-tour-next').textContent = state.active ? phase.next : 'Next';
-    }
-    $('tour-progress').innerHTML = isPrompt ? '' : Object.keys(TOUR_PHASES).map(function (name) { return '<span class="' + ((finished || name === flow.phase) ? 'active' : '') + '"></span>'; }).join('');
-    $('tour-spotlight-box').style.display = state.active && !finished ? 'block' : 'none';
-    $('tour-arrow').style.display = state.active && !finished ? 'block' : 'none';
-    setDemoTourInteraction(state.active && flow.phase === 'import');
-    // Geometry stays scheduled whenever the tour is active (PC polish contract);
-    // positionTourSpotlight itself collapses the glow during the finished phase.
-    if (state.active) scheduleTourGeometry();
-  }
-  function offerGuidedTour() {
-    if (!demoAdmissionAvailable || !tourRuntimeHealthy) return;
-    closeAllModals();           // the tour never shares the screen with a modal (F-2)
-    guidedTour.offer(); renderGuidedTour();
-  }
-  function startGuidedTour(replay) {
-    if (!demoAdmissionAvailable) return;
-    closeAllModals();           // the tour never shares the screen with a modal (F-2)
-    if (replay) guidedTour.replay(); else guidedTour.start();
-    guidedDemoFlow.start();
-    renderDemoHomeAvailability();
-    var phase = currentTourPhase();
-    if (phase) setScreen(phase.screen);
-    renderGuidedTour();
-  }
-  function exitGuidedTour() {
-    guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen(); demoHomeDismissed = true;
-    renderDemoHomeAvailability(); renderGuidedTour();
-    renderSlideDetectionPreset();
-    setScreen('home');
-    endGuidedDemo('tour_exit');
-  }
-  function moveGuidedTour(direction) {
-    var before = guidedTour.snapshot();
-    if (!before.active) return;
-    var flow = guidedDemoFlow.snapshot();
-    if (direction > 0 && !flow.nextEnabled) return;
-    // Finish on the exports step advances to the completion card (§6) instead
-    // of dropping the student back at Home with no next move.
-    if (direction > 0 && flow.phase === 'exports') { guidedDemoFlow.next(); renderGuidedTour(); return; }
-    if (direction > 0) guidedDemoFlow.next(); else guidedDemoFlow.back();
-    var phase = currentTourPhase();
-    if (phase) setScreen(phase.screen);
-    renderGuidedTour();
-  }
-  // The completion card's two destinations. Both end the tour like a normal
-  // exit (seen-marked, demo settled) and then land somewhere useful.
-  function finishGuidedTour(destination) {
-    guidedTour.exit(); guidedDemoFlow.exit(); markTourSeen(); demoHomeDismissed = true;
-    renderDemoHomeAvailability(); renderGuidedTour();
-    renderSlideDetectionPreset();
-    endGuidedDemo('tour_complete');
-    if (destination === 'pack') setScreen('exports');
-    else if (destination === 'import') {
-      setScreen('home');
-      if (lpBridge.connected()) lpBridge.call('browse_video');
-    }
-  }
+
   function parseBridgeResult(value) {
     if (typeof value === 'string') { try { return JSON.parse(value); } catch (e) { return null; } }
     return value && typeof value === 'object' ? value : null;
@@ -5164,9 +6707,6 @@
 
   function applyAppVersion(value) {
     var version = String(value == null ? '' : value).trim();
-    // Settings payloads from older sidecars may carry their neutral
-    // 0.0.0 placeholder. Never let that overwrite Electron's packaged
-    // metadata version supplied through preload.
     if (!version || version === '0.0.0') return;
     LP.data.version = version;
     var target = $('app-version');
@@ -5177,116 +6717,98 @@
     var electron = window.lecturePackElectron;
     if (!electron || typeof electron.getAppVersion !== 'function') return;
     try {
-      Promise.resolve(electron.getAppVersion()).then(applyAppVersion, function () {
-        // Keep the neutral placeholder; never display a fabricated version.
-      });
-    } catch (e) { /* browser preview or an older preload */ }
+      Promise.resolve(electron.getAppVersion()).then(applyAppVersion, function () {});
+    } catch (e) {}
   }
 
-  function startGuidedDemo() {
-    var current = guidedDemo.snapshot();
-    if (current.status === 'starting' || current.status === 'cancelling') return;
-    if (current.active) { endGuidedDemo('user_cancelled'); return; }
-    if (!demoAdmissionAvailable) return;
-    if (!lpBridge.connected()) { toast('Guided demo needs the LecturePack desktop app.'); return; }
-    if (!guidedTour.snapshot().active) startGuidedTour(true);
-    // A retry after clean-up (or a failed start) is a new demo, not a
-    // continuation of whatever action-led screen the prior run last reached.
-    // Do not reset the current run: active attempts returned above.
-    if (demoFlowPhase() !== 'import') guidedDemoFlow.beginAttempt();
-    guidedDemoFlow.imported(); guidedDemoFlow.running();
-    // PC polish: once the demo job is queued/running, the initial new-job
-    // setup card must not remain visible over the active processing screen.
-    setOnb(null);
-    setScreen('process'); renderGuidedTour();
-    var startedAttempt = guidedDemo.starting().attempt;
-    renderDemoCard();
-    lpBridge.startDemoJob().then(function (value) {
-      if (!guidedDemo.isCurrentAttempt(startedAttempt)) return;
+  function replayDemoScreen() {
+    function begin() {
+      demoSave({ seen: false, completed: false, chapter: 1 });
+      if (guidedTourEligibility) {
+        guidedTourEligibility.eligible = true;
+        guidedTourEligibility.completed = false;
+        guidedTourEligibility.skipped = false;
+      }
+      renderDemoHomeAvailability();
+      openDemo(1);
+      return true;
+    }
+    if (!demoAdmissionAvailable) return Promise.resolve(false);
+    if (!lpBridge.connected()) return Promise.resolve(begin());
+    return lpBridge.call('replay_guided_tour').then(function (value) {
       var result = parseBridgeResult(value);
-      var state = guidedDemo.started(result, startedAttempt);
-      renderDemoCard();
-      // A start completion can arrive after an idempotent end acknowledgement.
-      // Only navigate when it still represents the currently active identity.
-      if (result && result.ok && state.active && !state.terminal &&
-          state.operationId === result.operation_id && state.sessionId === result.session_id) setScreen('process');
-      else if (result && result.error) toast(result.error);
-      else if (!result || result.ok !== true) toast(state.error || 'Could not start the guided demo.');
-    }, function (error) {
-      if (!guidedDemo.isCurrentAttempt(startedAttempt)) return;
-      var message = error && error.message ? error.message : 'Could not start the guided demo.';
-      var state = guidedDemo.started({ ok: false, error: message }, startedAttempt);
-      renderDemoCard();
-      toast(state.error || message);
+      if (!result || result.ok !== true || result.ready_to_start !== true) {
+        toast((result && result.error) || 'Could not replay the demo.');
+        return false;
+      }
+      if (result.guided_tour) applyGuidedTourEligibility(result);
+      return begin();
+    }, function () {
+      toast('Could not replay the demo.');
+      return false;
     });
   }
-  function endGuidedDemo(reason) {
+
+  function endGuidedDemo(reason, force) {
     var current = guidedDemo.snapshot();
-    if (!current.active) return;
+    force = force === true || reason === 'tour_exit' || reason === 'tour_complete';
+    if (!force && !current.active) return;
+    if (demoCleanupConfirmed || demoCleanupRequested) return;
     var endingAttempt = current.attempt, endingOperationId = current.operationId, endingSessionId = current.sessionId;
-    guidedDemo.cancelling(); renderDemoCard();
+    demoCleanupRequested = true;
+    if (current.active) { guidedDemo.cancelling(); renderDemoCard(); }
     if (!lpBridge.connected()) {
-      guidedDemo.settleEndResult({ ok: false, error: 'Guided demo needs the LecturePack desktop app to stop safely.' }, endingAttempt, endingOperationId, endingSessionId);
-      renderDemoCard(); return;
+      if (current.active) guidedDemo.settleEndResult({ ok: false, error: 'The demo needs the LecturePack desktop app to stop safely.' }, endingAttempt, endingOperationId, endingSessionId);
+      demoCleanupRequested = false;
+      renderDemoCard();
+      return;
     }
     lpBridge.endDemoJob(reason || 'ended').then(function (value) {
-      if (!guidedDemo.isCurrentAttempt(endingAttempt, endingOperationId, endingSessionId)) return;
-      guidedDemo.settleEndResult(parseBridgeResult(value), endingAttempt, endingOperationId, endingSessionId);
+      var result = parseBridgeResult(value);
+      if (result && result.ok === true) demoCleanupConfirmed = true;
+      else demoCleanupRequested = false;
+      if (current.active && !guidedDemo.isCurrentAttempt(endingAttempt, endingOperationId, endingSessionId)) return;
+      if (current.active) guidedDemo.settleEndResult(result, endingAttempt, endingOperationId, endingSessionId);
       renderDemoCard();
     }, function () {
-      if (!guidedDemo.isCurrentAttempt(endingAttempt, endingOperationId, endingSessionId)) return;
-      guidedDemo.settleEndResult({ ok: false, error: 'Could not confirm that the demo stopped. Try again.' }, endingAttempt, endingOperationId, endingSessionId);
+      demoCleanupRequested = false;
+      if (current.active && !guidedDemo.isCurrentAttempt(endingAttempt, endingOperationId, endingSessionId)) return;
+      if (current.active) guidedDemo.settleEndResult({ ok: false, error: 'Could not confirm that the demo stopped. Try again.' }, endingAttempt, endingOperationId, endingSessionId);
       renderDemoCard();
     });
   }
+
   function receiveDemoEvent(value) {
     var event = parseBridgeResult(value);
     if (!event) return;
-    // A start signal can legitimately arrive before the slot return reaches JS.
-    // Adopt only that first live identity; every later mismatched/stale event is
-    // rejected by the model, so another demo cannot repaint this card.
     var before = guidedDemo.snapshot();
-    if (!before.operationId && before.status === 'starting' && event.status === 'started') guidedDemo.started({ ok: true, operation_id: event.operation_id, session_id: event.session_id }, before.attempt);
+    if (!before.operationId && before.status === 'starting' && event.status === 'started') {
+      guidedDemo.started({ ok: true, operation_id: event.operation_id, session_id: event.session_id }, before.attempt);
+    }
     var handled = guidedDemo.event(event);
     if (!handled.accepted) return;
-    var eventStage = String(event.stage || '').toLowerCase().replace(/[\s-]+/g, '_');
-    if (eventStage === 'review_ready') {
-      // A late or duplicate review-ready signal must not yank the student back
-      // once they already made their review choice: the tour follows the
-      // student, not the event stream. Only the processing -> review
-      // transition auto-navigates.
-      var awaitingReview = demoFlowPhase() === 'processing';
-      guidedDemoFlow.reviewReady();
-      if (awaitingReview && guidedTour.snapshot().active) { setScreen('review'); renderGuidedTour(); }
-    } else if ((event.status === 'started' || event.status === 'running') && demoFlowPhase() === 'import') {
-      guidedDemoFlow.imported(); guidedDemoFlow.running();
+    if (event.status === 'cleaned' || event.status === 'failed') {
+      if (event.status === 'cleaned') demoCleanupConfirmed = true;
+      demoCleanupRequested = true;
     }
+    var eventStage = String(event.stage || '').toLowerCase().replace(/[\s-]+/g, '_');
+    if (eventStage === 'review_ready' && LP.state.screen === 'process') setScreen('review');
     renderDemoCard();
-    if (event.status === 'failed') toast(event.error || 'Guided demo failed.');
+    renderSlideDetectionPreset();
+    if (event.status === 'failed') toast(event.error || 'Demo processing failed.');
   }
-  function isTourFormInput(target) {
-    if (!target || !target.matches) return false;
-    return target.matches('input, textarea, select, [contenteditable="true"]');
-  }
-  function wireGuidedTour() {
-    $('btn-tour-start').addEventListener('click', function () { startGuidedTour(false); });
-    $('btn-tour-skip').addEventListener('click', exitGuidedTour);
-    $('btn-tour-next').addEventListener('click', function () { moveGuidedTour(1); });
-    $('btn-tour-back').addEventListener('click', function () { moveGuidedTour(-1); });
-    $('btn-tour-exit').addEventListener('click', exitGuidedTour);
-    $('btn-tour-open-pack').addEventListener('click', function () { finishGuidedTour('pack'); });
-    $('btn-tour-import-own').addEventListener('click', function () { finishGuidedTour('import'); });
-    $('btn-replay-tour').addEventListener('click', function () { startGuidedTour(true); });
+
+  function wireDemoLifecycle() {
+    $('btn-replay-tour').addEventListener('click', replayDemoScreen);
     var demoCard = $('glowing-demo-card');
     demoCard.addEventListener('click', function () {
       if (demoCard.disabled) return;
-      if (guidedDemo.snapshot().active) { startGuidedDemo(); return; }
-      flyDemoTileToDropzone(startGuidedDemo);
+      if (guidedDemo.snapshot().active) { endGuidedDemo('user_cancelled'); return; }
+      if (!demoCompleted()) { openDemo(1); return; }
+      runDemoForReal();
     });
     demoCard.addEventListener('dragstart', function (e) {
       if (demoCard.disabled) { e.preventDefault(); return; }
-      // PC polish: only the video thumbnail is draggable. The card's title,
-      // metadata, status, and buttons must stay stationary.
       if (!e.target || e.target.tagName !== 'IMG') { e.preventDefault(); return; }
       if (!e.dataTransfer) return;
       e.dataTransfer.effectAllowed = 'copy';
@@ -5294,54 +6816,25 @@
       e.dataTransfer.setData('text/plain', 'Polar Bears 10s Demo.mp4');
     });
     demoCard.addEventListener('dragend', clearDemoDropState);
-    function markReviewDecision() {
-      if (!guidedTour.snapshot().active || demoFlowPhase() !== 'review') return;
-      guidedDemoFlow.reviewDecision();
-      setScreen('study');
-      renderGuidedTour();
-    }
-    // These listeners run after the existing review handlers, so this tour gate
-    // is advanced by the user's actual Keep/Reject action, never a timer.
-    $('btn-keep').addEventListener('click', markReviewDecision);
-    $('btn-reject').addEventListener('click', markReviewDecision);
-    document.addEventListener('keydown', function (e) {
-      if (!guidedTour.snapshot().active || isTourFormInput(e.target)) return;
-      if (e.key === 'ArrowRight') { e.preventDefault(); moveGuidedTour(1); }
-      else if (e.key === 'ArrowLeft') { e.preventDefault(); moveGuidedTour(-1); }
-    });
-    window.addEventListener('resize', scheduleTourGeometry);
-    window.addEventListener('scroll', scheduleTourGeometry, true);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', scheduleTourGeometry);
-      window.visualViewport.addEventListener('scroll', scheduleTourGeometry);
-    }
   }
-  function flyDemoTileToDropzone(done) {
-    var card = $('glowing-demo-card'), target = $('dropzone');
-    if (!card || !target) { done(); return; }
-    if (LP.motion && LP.motion.reduced && LP.motion.reduced()) { done(); return; }
-    var from = card.getBoundingClientRect(), to = target.getBoundingClientRect();
-    card.style.setProperty('--demo-fly-x', Math.round(to.left - from.left) + 'px');
-    card.style.setProperty('--demo-fly-y', Math.round(to.top - from.top) + 'px');
-    function finish() {
-      card.removeEventListener('animationend', finish);
-      card.classList.remove('lp-demo-fly');
-      card.style.removeProperty('--demo-fly-x'); card.style.removeProperty('--demo-fly-y');
-      done();
-    }
-    card.addEventListener('animationend', finish);
-    card.classList.add('lp-demo-fly');
-  }
+
   function hasDemoDrag(e) {
     var types = e.dataTransfer && e.dataTransfer.types;
     return !!types && Array.prototype.indexOf.call(types, DEMO_DRAG_MIME) !== -1;
   }
-  function clearDemoDropState() { var dz = $('dropzone'); if (dz) dz.classList.remove('lp-demo-drop-hover'); }
+
+  function clearDemoDropState() {
+    var dz = $('dropzone');
+    if (dz) dz.classList.remove('lp-demo-drop-hover');
+  }
+
   function useDroppedDemo() {
     if (!demoAdmissionAvailable) return;
-    if (!guidedTour.snapshot().active) startGuidedTour(true);
-    if (demoFlowPhase() === 'idle') guidedDemoFlow.start();
-    guidedDemoFlow.imported(); renderGuidedTour(); startGuidedDemo();
+    if (guidedDemo.snapshot().active) {
+      setScreen('process');
+      return;
+    }
+    runDemoForReal();
   }
 
   /* ======================= Smart Study ======================= */
@@ -5500,16 +6993,25 @@
     if (pv) pv.style.display = 'none';
   }
 
-  function onScrub(e) {
+  function bestTimelineSlide(e) {
     var strip = $('timeline-strip');
-    if (!strip || !LP.data.slides.length) return;
+    if (!strip || !LP.data.slides.length || !e) return null;
     var r = strip.getBoundingClientRect();
+    if (!r.width) return null;
     var pct = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100));
-    var best = LP.data.slides[0], bd = 1e9;
+    var best = LP.data.slides[0], bd = Infinity, bestIndex = 0;
     LP.data.slides.forEach(function (s, i) {
       var d = Math.abs(s.pct - pct);
-      if (d < bd) { bd = d; best = s; best._i = i; }
+      if (d < bd) { bd = d; best = s; bestIndex = i; }
     });
+    best._i = bestIndex;
+    return { slide: best, rect: r };
+  }
+
+  function onScrub(e) {
+    var nearest = bestTimelineSlide(e);
+    if (!nearest) return;
+    var strip = $('timeline-strip'), best = nearest.slide, r = nearest.rect;
 
     // Needle stays inside the strip.
     $('scrub-wrap').hidden = false;
@@ -5538,6 +7040,39 @@
     }
     pv.style.left = left + 'px';
     pv.style.top = top + 'px';
+  }
+
+  var timelinePointerDrag = { active: false, pointerId: null };
+  function beginTimelinePointerDrag(e) {
+    if (!LP.data.slides.length || e.button !== undefined && e.button !== 0) return;
+    timelinePointerDrag.active = true;
+    timelinePointerDrag.pointerId = e.pointerId;
+    e.preventDefault();
+    var strip = $('timeline-strip');
+    if (strip && strip.setPointerCapture && e.pointerId !== undefined) {
+      try { strip.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+    onScrub(e);
+  }
+  function moveTimelinePointerDrag(e) {
+    if (!timelinePointerDrag.active || (e.pointerId !== undefined && e.pointerId !== timelinePointerDrag.pointerId)) return;
+    e.preventDefault();
+    onScrub(e);
+  }
+  function endTimelinePointerDrag(e) {
+    if (!timelinePointerDrag.active || (e.pointerId !== undefined && e.pointerId !== timelinePointerDrag.pointerId)) return;
+    var nearest = bestTimelineSlide(e);
+    timelinePointerDrag.active = false;
+    timelinePointerDrag.pointerId = null;
+    var strip = $('timeline-strip');
+    if (strip && strip.releasePointerCapture && e.pointerId !== undefined) {
+      try { strip.releasePointerCapture(e.pointerId); } catch (err) {}
+    }
+    if (!nearest) { hideScrub(); return; }
+    // The preview above is renderer-only. Commit one viewed-slide change on
+    // release so a drag never reloads the backend once per pixel.
+    LP.state.viewingSlide = nearest.slide._i;
+    renderSlides();
   }
 
   /* ======================= export ======================= */
@@ -5839,6 +7374,7 @@
       }
     });
     var updateCheckToken = 0;
+    $('btn-reset-lecturepack').addEventListener('click', confirmResetLecturePack);
     $('btn-check-updates').addEventListener('click', function () {
       var token = ++updateCheckToken, button = $('btn-check-updates'), status = $('update-status');
       if (status) status.textContent = 'Checking…';
@@ -5952,6 +7488,7 @@
       var panel = $('downloads-panel');
       panel.hidden = !panel.hidden;
       this.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+      if (!panel.hidden) { renderDownloads(); positionDownloadsPanel(); }
     });
     $('downloads-close').addEventListener('click', function () {
       $('downloads-panel').hidden = true;
@@ -5966,6 +7503,13 @@
       else if (button.dataset.downloadAct === 'remove') lpBridge.call('remove_media_download', payload);
       else if (button.dataset.downloadAct === 'retry') lpBridge.call('retry_media_download', payload);
     });
+    document.addEventListener('pointerdown', function (e) {
+      var panel = $('downloads-panel'), indicator = $('downloads-indicator');
+      if (!panel || panel.hidden || panel.contains(e.target) || indicator.contains(e.target)) return;
+      panel.hidden = true;
+      indicator.setAttribute('aria-expanded', 'false');
+    });
+    window.addEventListener('resize', positionDownloadsPanel);
 
     // ---- Home multi-select ----
     $('btn-select-mode').addEventListener('click', function (e) {
@@ -5992,8 +7536,22 @@
     $('btn-bulk-group').addEventListener('click', function (e) {
       e.stopPropagation(); bulkGroup();
     });
+    /* dragenter MUST be cancelled or no drop ever arrives.
+       This is the whole "drag and drop doesn't work anywhere" bug. Chromium
+       decides whether an element is a valid drop target from the dragenter /
+       dragover pair; cancelling only dragover leaves the ENTER unhandled, so
+       the page is rejected as a target and `drop` is never dispatched at all.
+       The handlers below were therefore correct and simply never ran.
+       Verified over CDP against the packaged app with a real file drag:
+         without this listener -> dragenter, dragover, dragenter ... no drop
+         with it               -> drop fires, 1 file, full path resolved
+       Registered on window (capture) so it covers every screen, not just the
+       dropzone -- the app advertises "Drop a lecture video anywhere". */
+    window.addEventListener('dragenter', function (e) { e.preventDefault(); }, true);
+    dz.addEventListener('dragenter', function (e) { e.preventDefault(); });
     dz.addEventListener('dragover', function (e) {
       e.preventDefault();
+      if (readInternalJobDrag(e).length || internalJobDragIds.length) { e.stopPropagation(); return; }
       if (hasDemoDrag(e)) { dz.classList.add('lp-demo-drop-hover'); return; }
       if (LP.state.onb !== 'detected') setOnb('drop');
     });
@@ -6002,6 +7560,7 @@
     });
     dz.addEventListener('drop', function (e) {
       e.preventDefault();
+      if (readInternalJobDrag(e).length || internalJobDragIds.length) { e.stopPropagation(); return; }
       if (hasDemoDrag(e)) { clearDemoDropState(); useDroppedDemo(); return; }
       importDroppedFiles(e.dataTransfer && e.dataTransfer.files);
     });
@@ -6009,6 +7568,7 @@
     // because its handler already imported the first file and the event bubbles.
     window.addEventListener('dragover', function (e) {
       e.preventDefault();
+      if (readInternalJobDrag(e).length || internalJobDragIds.length) return;
       if (hasDemoDrag(e)) return;
       var types = e.dataTransfer && e.dataTransfer.types;
       var hasFiles = false;
@@ -6021,20 +7581,55 @@
     });
     window.addEventListener('drop', function (e) {
       e.preventDefault();
+      if (readInternalJobDrag(e).length || internalJobDragIds.length) return;
       setOnb(null);
       if (e.target && e.target.closest && e.target.closest('#dropzone')) return;
       importDroppedFiles(e.dataTransfer && e.dataTransfer.files);
     });
 
+    var processQueueTargets = [$('process-queue-target'), document.querySelector('[data-nav="process"]')].filter(Boolean);
+    processQueueTargets.forEach(function (processQueueTarget) {
+      processQueueTarget.addEventListener('dragover', function (e) {
+        if (!readInternalJobDrag(e).length && !internalJobDragIds.length) return;
+        e.preventDefault(); e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        processQueueTarget.classList.add('lp-existing-drop-hover');
+      });
+      processQueueTarget.addEventListener('dragleave', function (e) {
+        if (!processQueueTarget.contains(e.relatedTarget)) processQueueTarget.classList.remove('lp-existing-drop-hover');
+      });
+      processQueueTarget.addEventListener('drop', function (e) {
+        var ids = readInternalJobDrag(e);
+        if (!ids.length && internalJobDragIds.length) ids = internalJobDragIds.slice();
+        if (!ids.length) return;
+        e.preventDefault(); e.stopPropagation();
+        processQueueTarget.classList.remove('lp-existing-drop-hover');
+        internalJobDragIds = [];
+        if (processQueueTarget.dataset.nav === 'process') setScreen('process');
+        var again = ids.map(_jobById).filter(_jobIsReprocessable).length > 0;
+        (again ? confirmReprocess(ids) : Promise.resolve(false)).then(function (agreed) {
+          if (again && !agreed) return;
+          return queueExistingJobIds(ids, { reprocess: again }).then(function (result) {
+            var count = result && Number.isFinite(result.count) ? result.count : ids.length;
+            toast(count + ' lecture' + (count === 1 ? '' : 's') + ' queued');
+          }, function () { toast('The selected lectures could not be queued.'); });
+        });
+      });
+    });
+
     $('btn-show-empty').addEventListener('click', function () { setJobsEmpty(true); });
-    // "Try the demo lecture" (N-3): the empty-state recovery action runs the
-    // existing guided demo -- a real bundled lecture through the real
-    // pipeline, with the tour attached -- instead of a dead sample-library
+    // "Try the demo lecture" (N-3): the empty-state recovery action opens the
+    // self-contained walkthrough. The real bundled lecture runs only after the
+    // student's explicit final-chapter action, instead of a dead sample-library
     // button that seeded nothing.
     $('btn-load-jobs').addEventListener('click', function () {
       if (!demoAdmissionAvailable) { toast('The demo will be available once setup finishes.'); return; }
-      if (guidedDemo.snapshot().active) { startGuidedDemo(); return; }
-      flyDemoTileToDropzone(startGuidedDemo);
+      if (guidedDemo.snapshot().active) { setScreen('process'); return; }
+      var savedDemo = demoState();
+      // An interrupted walkthrough resumes where the student left it. Once it
+      // has been completed, the explicitly named "Try the demo" action starts
+      // a fresh walkthrough instead of reopening on the final export page.
+      openDemo(savedDemo.completed === true ? 1 : (savedDemo.chapter || 1));
     });
 
     // Home grid: per-card menu buttons (delete / set group) take priority,
@@ -6128,6 +7723,29 @@
       // running, failed, cancelled) opens Process with its final/live state.
       selectJob(jobId, { screen: cardJob && cardJob.status === 'done' ? 'review' : 'process' });
     });
+    $('jobs-grid').addEventListener('dragstart', function (e) {
+      var card = e.target.closest('.lp-card[data-existing-job-drag="true"]');
+      if (!card || !e.dataTransfer) return;
+      var ids = internalDragIdsFor(card.dataset.job);
+      if (!ids.length) { e.preventDefault(); return; }
+      internalJobDragIds = ids.slice();
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData(INTERNAL_JOB_DRAG_MIME, JSON.stringify(ids));
+      e.dataTransfer.setData('text/plain', ids.length + ' LecturePack lecture' + (ids.length === 1 ? '' : 's'));
+      var ghost = createInternalDragGhost(ids.length);
+      try { e.dataTransfer.setDragImage(ghost, 18, 18); } catch (err) {}
+      setTimeout(function () { if (ghost.parentNode) ghost.remove(); }, 0);
+      card.classList.add('lp-dragging');
+    });
+    $('jobs-grid').addEventListener('dragend', function (e) {
+      var card = e.target.closest('.lp-card[data-existing-job-drag="true"]');
+      if (card) card.classList.remove('lp-dragging');
+      internalJobDragIds = [];
+      Array.prototype.forEach.call(document.querySelectorAll('[data-existing-job-drop-target], [data-nav="process"]'), function (target) {
+        target.classList.remove('lp-existing-drop-hover');
+      });
+    });
+
     $('jobs-grid').addEventListener('dblclick', function (e) {
       var title = e.target.closest('.lp-card[data-job] [data-job-title]');
       if (!title) return;
@@ -6303,6 +7921,13 @@
     var scrubPv = $('scrub-preview');
     if (scrubPv && scrubPv.parentNode !== document.body) document.body.appendChild(scrubPv);
     strip.addEventListener('mousemove', onScrub);
+    strip.addEventListener('pointerdown', beginTimelinePointerDrag);
+    strip.addEventListener('pointermove', function (e) {
+      if (timelinePointerDrag.active) moveTimelinePointerDrag(e);
+      else onScrub(e);
+    });
+    strip.addEventListener('pointerup', endTimelinePointerDrag);
+    strip.addEventListener('pointercancel', endTimelinePointerDrag);
     strip.addEventListener('mouseleave', hideScrub);
     // Position is stale once the layout shifts — hide on scroll/resize.
     window.addEventListener('resize', hideScrub);
@@ -6315,17 +7940,22 @@
       var item = e.target.closest('[data-slide]');
       if (item) { LP.state.viewingSlide = +item.dataset.slide; renderSlides(); }
     });
-    // Grid / List view toggle. Was inert markup with no handler at all.
-    Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (b) {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-slide-size]'), function (b) {
       b.addEventListener('click', function () {
-        if (LP.state.slidesView === b.dataset.view) return;
-        LP.state.slidesView = b.dataset.view;
-        if (LP.state.slidesView === 'grid') _gridEntrance = true;
-        Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (o) {
-          o.classList.toggle('active', o.dataset.view === LP.state.slidesView);
-        });
-        renderSlides();
+        if (LP.state.slideSize === b.dataset.slideSize) return;
+        LP.state.slideSize = b.dataset.slideSize;
+        try { browserStorage().setItem('lecturepack.slideSize', LP.state.slideSize); } catch (e) {}
+        renderAllSlides();
       });
+    });
+    $('btn-all-slides').addEventListener('click', openAllSlides);
+    $('btn-all-slides-close').addEventListener('click', function () { closeAllSlides(true); });
+    $('all-slides-grid').addEventListener('click', function (e) {
+      var item = e.target.closest('[data-slide]');
+      if (!item) return;
+      LP.state.viewingSlide = +item.dataset.slide;
+      renderSlides();
+      closeAllSlides(true);
     });
     $('btn-prev-slide').addEventListener('click', function () {
       if (!LP.data.slides.length) return;   // N-1: nothing to page through
@@ -6340,7 +7970,7 @@
     $('btn-keep').addEventListener('click', function () {
       var s = LP.data.slides[LP.state.viewingSlide];
       if (!s) return;   // N-1: no slide selected / no lecture loaded
-      s.state = 'accepted';
+      s.state = 'accepted'; s.sel = true;
       lpBridge.call('set_slide_state', LP.state.viewingSlide, 'accepted');
       // Advance after judging: the user is working THROUGH the deck, so keeping
       // or rejecting is implicitly "done with this one". Wraps like the next
@@ -6557,8 +8187,8 @@
       });
     }
 
-    // Processing strip: click selects the active job and opens Process.
-    var procStrip = $('proc-strip');
+    // Footer job button: click selects the active job and opens Process.
+    var procStrip = $('status-job');
     if (procStrip) procStrip.addEventListener('click', function () {
       if (LP.state.activeJobId) selectJob(LP.state.activeJobId, { screen: 'process' });
       else {
@@ -6621,6 +8251,7 @@
       }
       // Escape closes the palette / search / batch overlays.
       if (e.key === 'Escape') {
+        if ($('all-slides-overlay') && !$('all-slides-overlay').hidden) { closeAllSlides(true); return; }
         if (paletteOverlayEl && !paletteOverlayEl.hidden) { closePalette(); return; }
         if ($('search-overlay') && !$('search-overlay').hidden) { closeGlobalSearch(); return; }
         if (batchOverlay && !batchOverlay.hidden) { closeBatchImport(); return; }
@@ -6636,20 +8267,11 @@
       if (e.key === 'Escape') {
         setFocus(false); setOnb(null);
         if (!$('whatsnew-overlay').hidden) hideWhatsNew();
-        // N-7: the guided tour dismisses on Esc exactly like the modals. An
-        // open lpModal owns Esc first (it closes itself), so the tour only
-        // exits when no modal is on top.
-        if (!anyModalOpen()) {
-          var tourSnap = guidedTour.snapshot();
-          if (tourSnap.active) exitGuidedTour();
-          else if (tourSnap.prompt) { guidedTour.exit(); markTourSeen(); demoHomeDismissed = true; renderGuidedTour(); renderDemoHomeAvailability(); }
-        }
         return;
       }
       var overlay = topOverlay();
       if (overlay) {
         if (e.key === 'Tab') trapFocus(overlay, e);
-        if (e.key === 'Tab' && guidedTour.snapshot().active) trapTourFocus(e);
         return;
       }
       if (editing) return;
@@ -6721,6 +8343,7 @@
     lpBridge.on('bootstrap_complete', function (json) {
       var b = parseBridgePayload(json, null);
       if (!b) return;
+      applyGuidedTourEligibility(b);
       // One routing implementation, not two: completion routes through the
       // same admit() the initial bootstrap uses.
       RuntimeSetupGate.admit(b);
@@ -6818,6 +8441,21 @@
         (kind === 'quiz' ? renderQuiz : renderCard)();
       }
     });
+
+    lpBridge.on('group_study_progress', function (json) {
+      var p = parseBridgePayload(json, null);
+      if (!p || typeof p !== 'object') return;
+      if (studyV2.scope && studyV2.scope.type === 'group' &&
+          studyV2.scope.groupName.toLowerCase() === String(p.group || '').toLowerCase()) {
+        studyV2.scope.status = p.status || studyV2.scope.status;
+        if (p.stage) studyV2.scope.stage = p.stage;
+        if (p.error) studyV2.scope.error = p.error;
+        if (p.reason) studyV2.scope.reason = p.reason;
+        renderStudyScopeHeader();
+        renderStudyGenerationState();
+      }
+    });
+
     lpBridge.on('pause_state', function (json) {
       var pauseState = parseBridgePayload(json, null);
       if (!pauseState || typeof pauseState !== 'object') return;
@@ -6888,15 +8526,22 @@
     lpBridge.on('jobs_changed', function (json) {
       var jobs = parseBridgePayload(json, null);
       if (!Array.isArray(jobs)) return;
+      var alive = {};
+      jobs.forEach(function (job) { if (job && job.id) alive[job.id] = true; });
       LP.data.jobs = jobs;
-      // Forget selections whose job is gone, else the count lies.
+      // Prune selection state before any job-removal navigation. Keeping this
+      // adjacent to the received summary array makes the data-shape boundary
+      // explicit and prevents a stale selection count during that navigation.
       if (LP.state.selecting) {
-        var alive = {};
-        LP.data.jobs.forEach(function (j) { if (j.id) alive[j.id] = true; });
         Object.keys(LP.state.selected).forEach(function (id) {
           if (!alive[id]) delete LP.state.selected[id];
         });
         renderSelCount();
+      }
+      var viewedJobRemoved = !!(LP.state.jobId && !_jobById(LP.state.jobId));
+      if (viewedJobRemoved) {
+        setActiveJob('', '');
+        setScreen('home');
       }
       renderJobs();           // poster URLs are stable, so loaded ones stay cached
       restoreAppSessionOnce();
@@ -6961,9 +8606,10 @@
     lpBridge.on('media_progress', function (json) {
       try {
         var update = parseBridgePayload(json || '{}', {});
-        var item = mediaLink.downloads.filter(function (candidate) { return candidate.id === update.download_id; })[0];
+        var updateId = update.download_id != null ? String(update.download_id) : String(update.id || '');
+        var item = mediaLink.downloads.filter(function (candidate) { return downloadId(candidate) === updateId; })[0];
         if (item) {
-          ['status', 'pct', 'eta', 'speed', 'downloaded', 'total'].forEach(function (key) {
+          ['status', 'legacy_status', 'progress', 'pct', 'eta', 'eta_seconds', 'speed', 'downloaded', 'total'].forEach(function (key) {
             if (update[key] !== undefined) item[key] = update[key];
           });
           renderDownloads();
@@ -7172,9 +8818,9 @@
           // when no job is actively processing.
           pendingProcessingStatus = {};
           lastStatusRenderKey = null;
-          var statusLabel = $('status-label');
+          var statusLabel = $('status-state');
           if (statusLabel) statusLabel.textContent = 'Idle';
-          var statusPct = $('status-pct');
+          var statusPct = $('status-detail');
           if (statusPct) statusPct.textContent = '';
           setFill('status-bar', 0);
           renderSlideDetectionPreset();
@@ -7312,7 +8958,71 @@
     lpBridge.on('ai_sources', function (json) {
       var payload = parseBridgePayload(json, null);
       if (payload && payload.job && payload.job !== LP.state.jobId) return;
-      appendStudyAskSources(payload && payload.sources ? payload.sources : []);
+      appendStudyAskSources(payload && payload.sources ? payload.sources : [],
+        payload ? payload.provenance : '');
+    });
+    lpBridge.on('study_generation', function (json) {
+      var payload = parseBridgePayload(json, null);
+      if (!payload || (payload.job && payload.job !== LP.state.jobId)) return;
+      studyV2.content = studyV2.content || { concepts: [], flashcards: [], quiz: [] };
+      studyV2.content.study_status = payload.status || studyV2.content.study_status || 'preparing';
+      studyV2.content.generation_metadata = studyV2.content.generation_metadata || {};
+      if (payload.stage) studyV2.content.generation_metadata.stage = payload.stage;
+      if (payload.progress_percent != null) studyV2.content.generation_metadata.progress_percent = payload.progress_percent;
+      if (payload.error) studyV2.content.generation_metadata.last_error = { message: payload.error };
+      renderStudyGenerationState();
+      // A refresh that failed must correct the optimistic "Refreshing…" toast
+      // the click put on screen, otherwise Regenerate reads as a dead button.
+      if (payload.refresh_status === 'failed') {
+        toast(payload.error || 'Those Study items could not be refreshed.');
+      }
+      if (payload.status === 'ready' || payload.status === 'basic' || payload.status === 'failed' || payload.refresh_status === 'ready') {
+        studyV2Load();
+      }
+    });
+    lpBridge.on('study_teach_ready', function (json) {
+      var payload = parseBridgePayload(json, null);
+      if (!payload || (payload.job && payload.job !== LP.state.jobId)) return;
+      studyV2.teachLoading = false;
+      if (payload.ok && payload.result) {
+        studyV2.teachConceptId = payload.concept_id || studyV2.teachConceptId;
+        studyV2.teachResult = payload.result;
+        studyV2.teachGrade = null;
+      } else {
+        toast(payload.error || 'Teach Me could not prepare this lesson.');
+      }
+      renderStudyTeach();
+    });
+    lpBridge.on('study_short_answer_graded', function (json) {
+      var payload = parseBridgePayload(json, null);
+      if (!payload || (payload.job && payload.job !== LP.state.jobId)) return;
+      var questionId = String(payload.question_id || '');
+      if (!payload.ok || !payload.result) {
+        studyV2.quizGrading = false;
+        studyV2.quizGradingQuestionId = '';
+        toast(payload.error || 'This answer could not be graded.');
+        if (questionId.indexOf('teach:') === 0) renderStudyTeach();
+        else renderStudyQuiz();
+        return;
+      }
+      if (payload.progress) studyV2.progress = payload.progress;
+      if (payload.summary) studyV2.summary = payload.summary;
+      if (questionId.indexOf('teach:') === 0) {
+        studyV2.teachGrade = payload.result;
+        renderStudyTeach();
+      } else {
+        studyV2.quizGrades[questionId] = payload.result;
+        studyV2.quizGrading = false;
+        studyV2.quizGradingQuestionId = '';
+        var questions = quizPool();
+        var index = questions.findIndex(function (question) { return question.id === questionId; });
+        if (index >= 0 && studyV2.quizAnswers.indexOf(index) < 0) {
+          studyV2.quizAnswers.push(index);
+          if (payload.result.correct) studyV2.quizCorrect++;
+        }
+        studyV2PersistView();
+        renderStudyQuiz();
+      }
     });
     lpBridge.on('groq_status', function (json) {
       var d = parseBridgePayload(json, null), el = $('groq-status');
@@ -7475,7 +9185,10 @@
         var msel = $('ai-model-select');
         if (msel && msel.querySelector('option[value="' + s.ollama_model + '"]')) msel.value = s.ollama_model;
       }
-      if (s.actual_backend) $('status-right').textContent = friendlyProcessingLabel(s.actual_backend) || s.actual_backend;
+      if (s.actual_backend) {
+        runtimeBackendLabel = friendlyProcessingLabel(s.actual_backend) || s.actual_backend;
+        $('status-right').textContent = runtimeBackendLabel;
+      }
       if (s.export_dir) $('export-dir').textContent = s.export_dir;
       if (s.update_status) $('update-status').textContent = s.update_status;
     });
@@ -7508,6 +9221,7 @@
             var b = JSON.parse(json);
             if (b.theme) applyTheme(b.theme, false);
             if (b.version) applyAppVersion(b.version);
+            applyGuidedTourEligibility(b);
             RuntimeSetupGate.admit(b);
             // Gate on bootstrap_pending, never on a runtime_health_state
             // string comparison (that string legitimately reads "PENDING"
@@ -7552,14 +9266,24 @@
   })();
 
   function importDroppedFiles(files) {
-    if (!files || !files.length || importingFile) return;
+    if (importingFile) return;
+    // A drop that carries NO file at all used to return in silence, so the
+    // window simply swallowed it and the feature read as completely broken.
+    // Windows delivers nothing when the drag starts from a virtual shell view
+    // -- Explorer's Home/Recent list, "Gallery", or a cloud placeholder that is
+    // not downloaded -- because those entries have no real path to hand over.
+    // Say so, and name the way out.
+    if (!files || !files.length) {
+      toast('That drop did not include a file. Dragging from Explorer’s Home or Recent list often sends nothing — open the real folder, or use Browse for video.');
+      return;
+    }
     var paths = [];
     for (var i = 0; i < files.length; i++) {
       var path = lpBridge.pathForFile ? lpBridge.pathForFile(files[i]) : '';
       if (path) paths.push(path);
     }
     if (!paths.length) {
-      toast('LecturePack could not access those files. Try Browse for video.');
+      toast('LecturePack could not read a path for those files. If they came from Explorer’s Home or Recent list, open the real folder instead, or use Browse for video.');
       return;
     }
     if (!lpBridge.connected()) {
@@ -7694,27 +9418,39 @@
     if (!state || !state.seconds || state.lastPct < 8) return '';
     return '~' + Math.max(1, Math.round(state.seconds / 60)) + ' min left';
   }
+  /* Formerly #proc-strip, a second full-width bar stacked above the footer
+     showing the SAME job at a different width, with the same stage text the
+     footer already had. It is now the footer's single job button: one bar,
+     34px of chrome instead of 68px, and the stage name appears exactly once. */
   function renderProcessingStrip() {
-    var strip = $('proc-strip');
-    if (!strip) return;
+    var job = $('status-job');
+    if (!job) return;
     var running = LP.data.jobs.filter(function (j) { return j && j.status === 'running'; })[0];
     if (!running) {
-      strip.hidden = true;
+      job.hidden = true;
       renderProcessWorkload();
       return;
     }
-    strip.hidden = false;
-    $('proc-strip-name').textContent = running.name || 'Processing';
+    job.hidden = false;
+    var name = running.name || 'Processing';
+    $('status-job-name').textContent = name;
+    // Announce the ACTION, not the raw progress readout.
+    job.setAttribute('aria-label', 'Open ' + name);
     var pct = running.pct || 0;
-    setFill('proc-strip-bar', pct);
+    setFill('status-bar', pct);
     var stage = running.stage || '';
     var parts = [friendlyProcessingLabel(stage || 'Processing')];
     if (pct > 0) parts.push(pct + '%');
     var eta = etaLabel(running);
     if (eta) parts.push(eta);
-    $('proc-strip-meta').textContent = parts.join(' · ');
+    $('status-detail').textContent = parts.join(' · ');
     var waiting = (LP.data.queue && LP.data.queue.queue) ? LP.data.queue.queue.length : 0;
-    $('proc-strip-waiting').textContent = waiting > 0 ? (waiting + ' queued') : '';
+    var queued = $('status-queued');
+    queued.textContent = waiting > 0 ? ('+' + waiting + ' queued') : '';
+    queued.hidden = waiting <= 0;
+    var footer = $('status-footer');
+    if (footer && footer.dataset.status !== 'waiting') footer.dataset.status = 'processing';
+    $('status-state').textContent = 'Processing';
     renderProcessWorkload();
   }
 
@@ -7764,6 +9500,13 @@
   }
   var pendingTranscriptJump = null;
 
+  function transcriptTimestampSeconds(value) {
+    var parts = String(value || '').split(':').map(Number);
+    if (parts.some(function (part) { return !isFinite(part); })) return 0;
+    return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] :
+      parts.length === 2 ? parts[0] * 60 + parts[1] : Number(parts[0] || 0);
+  }
+
   function transcriptScrollHost() {
     return document.querySelector('main [data-screen="transcript"]');
   }
@@ -7772,11 +9515,15 @@
     if (!pendingTranscriptJump || pendingTranscriptJump.jobId !== LP.state.jobId) return;
     var wanted = pendingTranscriptJump.timestamp;
     var rows = document.querySelectorAll('#transcript-blocks [data-transcript-time]');
-    var target = null;
+    var target = null, wantedSeconds = transcriptTimestampSeconds(wanted), nearest = null, nearestDistance = Infinity;
     Array.prototype.some.call(rows, function (row) {
-      if (row.dataset.transcriptTime === wanted) { target = row; return true; }
+      var value = row.dataset.transcriptTime || row.dataset.start || '';
+      var distance = Math.abs(transcriptTimestampSeconds(value) - wantedSeconds);
+      if (distance < nearestDistance) { nearestDistance = distance; nearest = row; }
+      if (value === wanted) { target = row; return true; }
       return false;
     });
+    if (!target) target = nearest;
     if (!target) return; // keep the request until transcript_changed supplies the block
     pendingTranscriptJump = null;
     setTimeout(function () {
@@ -7871,7 +9618,17 @@
     // Only restore the screen when it is a workspace screen and no explicit
     // navigation overrides it (search result / Process for active job).
     if (pendingTranscriptJump && pendingTranscriptJump.jobId === jobId) return;
-    if (state.screen && state.screen !== 'home' && state.screen !== 'settings') {
+    // ...and only when the student is NOT already working in a lecture screen.
+    // Switching lecture from the header switcher passes no explicit screen, so
+    // this used to drop them wherever the INCOMING lecture was last left: ask a
+    // question in Study, change lecture, and you land in Review. Changing which
+    // lecture you are looking at should not change what you are looking at.
+    // Home and Settings are not workspace screens, so opening a lecture from
+    // there still resumes where that lecture left off.
+    var current = LP.state.screen;
+    var alreadyInWorkspace = current && current !== 'home' && current !== 'settings';
+    if (!alreadyInWorkspace
+        && state.screen && state.screen !== 'home' && state.screen !== 'settings') {
       setScreen(state.screen);
     }
     if (state.studyTab) setStudyTab(state.studyTab);
@@ -8026,6 +9783,189 @@
 
   /* ======================= boot ======================= */
 
+  /* ===================== guided demo (self-contained) =====================
+     A screen, not an overlay. It measures nothing in the live UI, mutates
+     nothing outside its own section, and shows PRE-BAKED REAL output of the
+     bundled Polar Bears lecture (app/assets/demo/demo.json + slide PNGs).
+
+     Why baked rather than processed live: the demo is the first impression and
+     must work every time. Running the pipeline needs ffprobe and a Whisper
+     model, takes tens of seconds, and can fail -- and when it fails it reads as
+     the PRODUCT failing. The real pipeline now runs AFTER the walkthrough, from
+     an explicit "Process this lecture for real" button, once the student knows
+     what the stages mean. See docs/DECISIONS.md AD-48. */
+  var DEMO_KEY = 'lecturepack.demo.v2';
+  var DEMO_CHAPTERS = 5;
+  var DEMO_NEXT = ['See what it found', 'And the words', 'Now study it', 'Take it with you', ''];
+  var demoChapter = 1, demoData = null;
+
+  function demoState() {
+    try { return JSON.parse(browserStorage().getItem(DEMO_KEY)) || {}; } catch (e) { return {}; }
+  }
+  function demoSave(patch) {
+    var next = demoState(), k;
+    for (k in patch) if (Object.prototype.hasOwnProperty.call(patch, k)) next[k] = patch[k];
+    try { browserStorage().setItem(DEMO_KEY, JSON.stringify(next)); } catch (e) {}
+  }
+  function demoCompleted() { return demoState().completed === true; }
+
+  function demoFallback(host, message) {
+    if (host) host.innerHTML = '<div class="lp-demo-fallback">' + esc(message) + '</div>';
+  }
+
+  function renderDemoChapter(n) {
+    demoChapter = Math.max(1, Math.min(DEMO_CHAPTERS, n));
+    var all = document.querySelectorAll('[data-screen="demo"] .lp-demo-ch'), i;
+    for (i = 0; i < all.length; i++) {
+      all[i].hidden = parseInt(all[i].getAttribute('data-ch'), 10) !== demoChapter;
+    }
+    $('btn-demo-back').hidden = demoChapter === 1;
+    $('btn-demo-next').hidden = demoChapter === DEMO_CHAPTERS;
+    $('btn-demo-next').textContent = DEMO_NEXT[demoChapter - 1];
+    var dots = '', k;
+    for (k = 1; k <= DEMO_CHAPTERS; k++) {
+      dots += '<span data-on="' + (k <= demoChapter ? 'true' : 'false') + '"></span>';
+    }
+    $('demo-dots').innerHTML = dots;
+    demoSave({ seen: true, chapter: demoChapter });
+  }
+
+  function paintDemo() {
+    if (!demoData) {
+      // Degraded, never blank: the copy is the payload and the artifact only
+      // illustrates it, so every chapter still teaches and both CTAs still work.
+      demoFallback($('demo-slides'), 'Slide previews unavailable - LecturePack still detects them from your lecture.');
+      demoFallback($('demo-transcript'), 'Transcript preview unavailable.');
+      demoFallback(document.querySelector('.lp-demo-study'), 'Study preview unavailable.');
+      return;
+    }
+    var src = demoData.source || {};
+    if (src.name) {
+      $('demo-src-name').textContent = src.name + ' · ' + (src.duration || '');
+      $('demo-hero-cap').textContent = src.name + ' · ' + (src.duration || '') +
+        (src.resolution ? ' · ' + src.resolution : '');
+    }
+    $('demo-slides').innerHTML = (demoData.slides || []).map(function (s) {
+      return '<figure class="lp-demo-slide">' +
+        '<img src="../assets/demo/' + encodeURIComponent(s.img) + '" alt="' + esc(s.title || '') + '">' +
+        '<figcaption><span>' + esc(s.t || '') + '</span>' +
+        '<span class="lp-demo-flag">kept</span></figcaption></figure>';
+    }).join('');
+    $('demo-transcript').innerHTML = (demoData.lines || []).map(function (l) {
+      return '<div class="lp-demo-line" data-active="' + (l.active ? 'true' : 'false') + '">' +
+        '<time>' + esc(l.t || '') + '</time><span>' + esc(l.text || '') + '</span></div>';
+    }).join('');
+    var card = demoData.card || {}, quiz = demoData.quiz || {};
+    $('demo-card-tag').textContent = 'Question';
+    $('demo-card-face').textContent = card.q || '';
+    $('demo-quiz-q').textContent = quiz.q || '';
+    // The answer is NOT revealed up front -- a pre-highlighted correct option
+    // spoils the question and makes the quiz look decorative rather than real.
+    $('demo-quiz-opts').innerHTML = (quiz.options || []).map(function (o, i) {
+      return '<li><button type="button" class="lp-demo-opt" data-i="' + i + '" aria-pressed="false">' +
+        esc(o) + '</button></li>';
+    }).join('');
+    var quizFeedback = $('demo-quiz-feedback');
+    if (quizFeedback) {
+      quizFeedback.hidden = true;
+      quizFeedback.textContent = '';
+      quizFeedback.removeAttribute('data-state');
+    }
+  }
+
+  function openDemo(startAt) {
+    setScreen('demo');
+    var hero = $('demo-hero');
+    if (hero && !hero.getAttribute('src')) {
+      hero.onerror = function () { hero.style.display = 'none'; };
+      hero.setAttribute('src', '../assets/demo/hero.png');
+    }
+    // Data arrives as a plain global from ../assets/demo/demo.data.js. The
+    // renderer runs over file://, where fetch() of a sibling file is blocked
+    // by web security -- an earlier fetch() version silently degraded to the
+    // fallback on EVERY launch, including the packaged app.
+    if (!demoData) demoData = window.LP_DEMO_DATA || null;
+    paintDemo();
+    renderDemoChapter(startAt || 1);
+  }
+
+  function closeDemo(screen, status) {
+    demoSave({ seen: true, completed: true, chapter: demoChapter });
+    if (guidedTourEligibility) {
+      guidedTourEligibility.eligible = false;
+      guidedTourEligibility.completed = status !== 'skipped';
+      guidedTourEligibility.skipped = status === 'skipped';
+    }
+    persistGuidedTourState(status || 'completed');
+    renderDemoHomeAvailability();
+    renderDemoCard();
+    setScreen(screen || 'home');
+  }
+
+  /* The real pipeline runs, on purpose, only AFTER the walkthrough. */
+  function runDemoForReal() {
+    if (!demoAdmissionAvailable) { toast('The demo lecture will be available once setup finishes.'); return; }
+    if (!lpBridge.connected()) { toast('Processing needs the LecturePack desktop app.'); return; }
+    var current = guidedDemo.snapshot();
+    if (current.status === 'starting' || current.active) { closeDemo('process'); return; }
+    closeDemo('process');
+    setOnb(null);
+    // Terminal cleanup belongs to the prior attempt. Without resetting these
+    // guards, a second demo run could start normally but endGuidedDemo() would
+    // reject its stop request as though cleanup had already completed.
+    demoCleanupRequested = false;
+    demoCleanupConfirmed = false;
+    var attempt = guidedDemo.starting().attempt;
+    renderDemoCard();
+    lpBridge.startDemoJob().then(function (value) {
+      if (!guidedDemo.isCurrentAttempt(attempt)) return;
+      var result = parseBridgeResult(value);
+      guidedDemo.started(result, attempt);
+      renderDemoCard();
+      if (!result || result.ok !== true) toast((result && result.error) || 'Could not start the demo lecture.');
+    }, function (error) {
+      if (!guidedDemo.isCurrentAttempt(attempt)) return;
+      var message = error && error.message ? error.message : 'Could not start the demo lecture.';
+      guidedDemo.started({ ok: false, error: message }, attempt);
+      renderDemoCard();
+      toast(message);
+    });
+  }
+
+  function bindDemoScreen() {
+    $('btn-demo-next').addEventListener('click', function () { renderDemoChapter(demoChapter + 1); });
+    $('btn-demo-back').addEventListener('click', function () { renderDemoChapter(demoChapter - 1); });
+    $('btn-demo-skip').addEventListener('click', function () { closeDemo('home', 'skipped'); });
+    $('btn-demo-own').addEventListener('click', function () { closeDemo('home', 'completed'); beginBrowseImport(); });
+    $('btn-demo-run').addEventListener('click', runDemoForReal);
+    $('demo-quiz-opts').addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('.lp-demo-opt') : null;
+      if (!btn || !demoData || !demoData.quiz) return;
+      var chosen = parseInt(btn.getAttribute('data-i'), 10);
+      var answer = demoData.quiz.answer;
+      Array.prototype.forEach.call($('demo-quiz-opts').querySelectorAll('.lp-demo-opt'), function (b, i) {
+        b.setAttribute('data-state', i === answer ? 'correct' : (i === chosen ? 'wrong' : 'idle'));
+        b.setAttribute('aria-pressed', i === chosen ? 'true' : 'false');
+        var outcome = i === answer ? ', correct answer' : (i === chosen ? ', incorrect' : '');
+        b.setAttribute('aria-label', b.textContent.trim() + outcome);
+      });
+      var feedback = $('demo-quiz-feedback');
+      if (feedback) {
+        var correct = chosen === answer;
+        feedback.hidden = false;
+        feedback.setAttribute('data-state', correct ? 'correct' : 'wrong');
+        feedback.textContent = correct ? 'Correct.' :
+          'Not quite. Correct answer: ' + String(demoData.quiz.options[answer] || '');
+      }
+    });
+    $('demo-card').addEventListener('click', function () {
+      if (!demoData || !demoData.card) return;
+      var showingQuestion = $('demo-card-tag').textContent === 'Question';
+      $('demo-card-tag').textContent = showingQuestion ? 'Answer' : 'Question';
+      $('demo-card-face').textContent = showingQuestion ? demoData.card.a : demoData.card.q;
+    });
+  }
+
   function boot() {
     // BUG-15: gating only `LP.data.jobs` behind ?preview=1 was not enough. The
     // pipeline/slides/reviewSegments/transcript/study literals are ALSO
@@ -8076,10 +10016,13 @@
     RuntimeSetupGate.wire();
     RuntimeSetupGate.beginBootstrap();
     wire();
-    wireGuidedTour();
+    wireDemoLifecycle();
     wireModelTooltip();
     wireBridge();
+    wireSubjectEvents();
     bindStudyV2Events();
+    bindStudyScopeControls();
+    bindDemoScreen();
     renderStudyV2Overview();
     window.addEventListener('resize', function () { LP.motion.indicator(); });
   }

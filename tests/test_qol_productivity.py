@@ -90,10 +90,11 @@ def test_palette_opens_completed_lectures_in_review() -> None:
     assert "'done' in { id: true }" not in app
 
 
-def test_new_batch_controls_and_processing_strip_are_keyboard_native() -> None:
+def test_new_batch_controls_and_consolidated_status_job_are_keyboard_native() -> None:
     html = _source(HTML)
 
-    assert '<button id="proc-strip" type="button"' in html
+    assert '<button id="status-job" type="button"' in html
+    assert 'id="proc-strip"' not in html
     assert '<button type="button" data-bq="balanced"' in html
     assert '<button type="button" data-bo="study"' in html
     assert 'aria-labelledby="batch-title"' in html

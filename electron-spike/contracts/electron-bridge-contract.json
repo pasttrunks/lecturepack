@@ -7,13 +7,18 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "acknowledge_setup",
-      "notes": "First-run setup acknowledgement is deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Persists acknowledgement only after the latest packaged health result passes; a failed/currently missing runtime cannot be acknowledged.",
+      "phase8": "runtime health authority",
+      "production_core": true,
       "request_fields": [],
-      "request_id_required": false,
-      "response_fields": [],
-      "status": "DEFERRED"
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "runtime_health_state",
+        "setup_acknowledged",
+        "setup_complete"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -96,6 +101,86 @@
       "response_fields": [
         "sources"
       ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "status",
+        "stage",
+        "progress_percent",
+        "refresh_status",
+        "error"
+      ],
+      "mapped_to": "",
+      "name": "study_generation",
+      "notes": "Reports job-scoped background Study AI generation and targeted refresh state without provider details.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "concept_id",
+        "ok",
+        "result",
+        "error"
+      ],
+      "mapped_to": "",
+      "name": "study_teach_ready",
+      "notes": "Returns one concept-scoped Teach Me lesson and comprehension check.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "job",
+        "question_id",
+        "ok",
+        "result",
+        "progress",
+        "summary",
+        "error"
+      ],
+      "mapped_to": "",
+      "name": "study_short_answer_graded",
+      "notes": "Returns semantic grading feedback for a short-answer quiz or Teach Me check.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "group",
+        "status"
+      ],
+      "mapped_to": "",
+      "name": "group_study_progress",
+      "notes": "Reports progress during cross-lecture group map preparation.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
       "status": "IMPLEMENTED"
     },
     {
@@ -465,13 +550,13 @@
       ],
       "mapped_to": "",
       "name": "demo_event",
-      "notes": "Guided demo events are deferred.",
-      "phase8": "",
-      "production_core": false,
+      "notes": "Carries an explicitly identified temporary guided-demo session; unrelated real-job events cannot advance it.",
+      "phase8": "guided demo lifecycle",
+      "production_core": true,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -494,15 +579,23 @@
     {
       "direction": "command",
       "event_fields": [],
-      "mapped_to": "cancel_job",
+      "mapped_to": "end_demo_job",
       "name": "end_demo_job",
-      "notes": "The guided demo end maps to cancel_job but is out of the Phase 8 core.",
-      "phase8": "",
-      "production_core": false,
-      "request_fields": [],
-      "request_id_required": false,
-      "response_fields": [],
-      "status": "DEFERRED"
+      "notes": "Stops and removes only the explicitly marked temporary demo job/session; it never cancels the current real lecture.",
+      "phase8": "guided demo lifecycle",
+      "production_core": true,
+      "request_fields": [
+        "job_id",
+        "reason"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "status",
+        "session_id",
+        "job_id"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -753,15 +846,23 @@
     {
       "direction": "command",
       "event_fields": [],
-      "mapped_to": "health_check+list_jobs",
+      "mapped_to": "Electron host bootstrap snapshot",
       "name": "get_bootstrap",
-      "notes": "app.js requests initial state via get_bootstrap; Electron intercepts as a noop and drives bootstrap via ready + host bootstrap.",
+      "notes": "Returns the latest host bootstrap snapshot, including the same durable guided_tour object sent by bootstrap_complete.",
       "phase8": "bootstrap/runtime readiness",
       "production_core": true,
       "request_fields": [],
       "request_id_required": false,
-      "response_fields": [],
-      "status": "PARTIAL"
+      "response_fields": [
+        "bootstrap_pending",
+        "runtime_health_state",
+        "setup_acknowledged",
+        "setup_complete",
+        "healthy",
+        "guided_tour",
+        "checklist"
+      ],
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -953,6 +1054,9 @@
         "event",
         "healthy",
         "ok",
+        "runtime_health_state",
+        "setup_acknowledged",
+        "setup_complete",
         "paths",
         "qt_application",
         "response_to"
@@ -1224,7 +1328,7 @@
       ],
       "mapped_to": "",
       "name": "downloads_changed",
-      "notes": "Snapshot of active, waiting, completed, failed, and cancelled background downloads.",
+      "notes": "Snapshot of background downloads independent of popover visibility. Each row contains download_id, title, progress/pct, eta/eta_seconds, and normalized status waiting/running/completed/failed (with legacy_status for cancellation/retry compatibility).",
       "phase8": "",
       "production_core": true,
       "request_fields": [],
@@ -1237,6 +1341,11 @@
       "event_fields": [
         "event",
         "ok",
+        "download_id",
+        "status",
+        "progress",
+        "eta_seconds",
+        "title",
         "path",
         "name",
         "cancelled",
@@ -1313,12 +1422,15 @@
       "direction": "event",
       "event_fields": [
         "event",
+        "download_id",
         "status",
+        "progress",
         "pct",
         "downloaded",
         "total",
         "speed",
-        "eta"
+        "eta",
+        "eta_seconds"
       ],
       "mapped_to": "",
       "name": "media_progress",
@@ -2119,7 +2231,7 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "study_v2_status",
-      "notes": "Returns the full Study V2 snapshot: content, progress, summary, and Rust core diagnostic. Ensures Study V2 content exists (old-job migration) before returning.",
+      "notes": "Returns the full Study snapshot and automatically starts AI migration for eligible old jobs.",
       "phase8": "",
       "production_core": true,
       "request_fields": [
@@ -2131,7 +2243,84 @@
         "content",
         "progress",
         "summary",
-        "core_info"
+        "core_info",
+        "worker_running"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_retry",
+      "notes": "Explicitly retries the canonical two-pass Study AI build.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "started",
+        "content"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_use_basic",
+      "notes": "Makes the explicit per-job Basic Study choice and prevents a running AI build from replacing it.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "content"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_copy_diagnostics",
+      "notes": "Returns a compact, secret-free diagnostics object for user-authorized clipboard copy.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "diagnostics"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_set_mastery",
+      "notes": "Sets an explicit mastery state for one concept.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id",
+        "concept_id",
+        "mastery"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "progress",
+        "summary"
       ],
       "status": "IMPLEMENTED"
     },
@@ -2181,17 +2370,62 @@
       "direction": "command",
       "event_fields": [],
       "mapped_to": "",
+      "name": "study_v2_grade_short_answer",
+      "notes": "Starts semantic grading for a short-answer quiz or Teach Me comprehension check.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id",
+        "question_id",
+        "question",
+        "answer",
+        "rubric",
+        "concept_ids"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "started",
+        "question_id"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
       "name": "study_v2_quick_study",
       "notes": "Builds a Quick Study session using the Rust core, prioritizing weak/unlearned content.",
       "phase8": "",
       "production_core": true,
       "request_fields": [
-        "job_id"
+        "job_id",
+        "minutes"
       ],
       "request_id_required": true,
       "response_fields": [
         "ok",
         "session"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_teach_me",
+      "notes": "Starts a concept-scoped Teach Me lesson through the server-routed Study path.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "job_id",
+        "concept_id"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "started",
+        "concept_id"
       ],
       "status": "IMPLEMENTED"
     },
@@ -2264,7 +2498,31 @@
       "request_id_required": true,
       "response_fields": [
         "ok",
-        "content"
+        "started",
+        "concept_ids"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_group_prepare",
+      "notes": "Prepares or retrieves cached cross-lecture map for a subject group.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "group",
+        "force"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "group",
+        "cached",
+        "analysis",
+        "members",
+        "reason"
       ],
       "status": "IMPLEMENTED"
     },
@@ -3054,16 +3312,20 @@
       "event_fields": [],
       "mapped_to": "queue_jobs",
       "name": "queue_jobs",
-      "notes": "Queues a batch of jobs for processing.",
-      "phase8": "qol multi-import",
-      "production_core": false,
+      "notes": "Queues existing job IDs through the authoritative JobQueue, preserving order, preventing duplicates, and returning queued_ids plus explicit skipped reasons.",
+      "phase8": "internal drag/drop queue",
+      "production_core": true,
       "request_fields": [
         "job_ids"
       ],
-      "request_id_required": false,
+      "request_id_required": true,
       "response_fields": [
         "ok",
-        "count"
+        "count",
+        "queued_ids",
+        "queued",
+        "positions",
+        "skipped"
       ],
       "status": "IMPLEMENTED"
     },
@@ -3203,6 +3465,125 @@
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "queue_existing_jobs",
+      "name": "queue_existing_jobs",
+      "notes": "Queues existing ready/paused job IDs through JobQueue, preserving request order and reporting duplicate, active, terminal, and missing IDs without re-importing media.",
+      "phase8": "internal drag/drop queue",
+      "production_core": true,
+      "request_fields": [
+        "job_ids"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "queued",
+        "positions",
+        "skipped",
+        "count"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "get_onboarding_state",
+      "name": "get_onboarding_state",
+      "notes": "Returns current/seen guided-tour versions, explicit status, and eligibility independent of job count.",
+      "phase8": "guided tour versioning",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "current_version",
+        "seen_version",
+        "status",
+        "eligible"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "current_version",
+        "seen_version",
+        "version",
+        "status",
+        "completed",
+        "skipped",
+        "eligible"
+      ],
+      "mapped_to": "onboarding_state",
+      "name": "onboarding_state",
+      "notes": "Durable guided-tour state update for existing-user offers, replay, skip, and completion.",
+      "phase8": "guided tour versioning",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": true,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "set_guided_tour_state",
+      "name": "set_guided_tour_state",
+      "notes": "Persists not_seen, skipped, or completed without using renderer localStorage as the authority.",
+      "phase8": "guided tour versioning",
+      "production_core": true,
+      "request_fields": [
+        "status"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "current_version",
+        "seen_version",
+        "status",
+        "eligible"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "replay_guided_tour",
+      "name": "replay_guided_tour",
+      "notes": "Resets only the durable tour offer and returns a ready-to-start state; the subsequent start creates a fresh marked demo session.",
+      "phase8": "guided tour replay",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "ready_to_start",
+        "guided_tour"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "reset_lecturepack",
+      "name": "reset_lecturepack",
+      "notes": "Stops sidecar work, clears known app-owned data-root state with containment checks, clears Electron session storage, and schedules a clean relaunch while preserving bundled runtimes/models and external source files.",
+      "phase8": "safe production reset",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "reset",
+        "user_data",
+        "renderer_session",
+        "relaunch_scheduled"
+      ],
       "status": "IMPLEMENTED"
     }
   ],

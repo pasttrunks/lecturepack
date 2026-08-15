@@ -52,6 +52,7 @@ Thumbs.db
 # Local agent/MCP tooling (machine-specific; not part of the project)
 .claude/
 .mcp.json
+.wrangler/
 
 # Portable renderer-spike handoff artifact
 LecturePack-Renderer-Spike-Transfer/
@@ -64,3 +65,6 @@ electron-spike/dist/
 
 # Separate third-party promo-video project (not part of LecturePack)
 claude-promo-video/
+
+# Teamwork agent scratch state -- not part of the product
+.agents/

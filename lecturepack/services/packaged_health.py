@@ -12,7 +12,10 @@ from typing import Any, Callable
 
 from lecturepack.infrastructure.runtime_validation import RuntimeValidator
 from lecturepack.infrastructure.whisper_path_staging import WhisperPathStaging
-from lecturepack.services.first_run_checklist import data_directory_writable
+from lecturepack.services.first_run_checklist import (
+    build_first_run_checklist,
+    data_directory_writable,
+)
 
 
 CHECK_ORDER: tuple[str, ...] = (
@@ -38,6 +41,44 @@ _FATAL_AT_STARTUP = frozenset({
     "bundled_model",
     "controller",
 })
+
+
+def _first_run_checklist(checks: list[dict[str, Any]], data_dir: str | Path) -> list[dict[str, Any]]:
+    """Adapt packaged health evidence to the renderer's five-item contract.
+
+    ``run_packaged_health`` intentionally exposes the detailed release-health
+    checks as well.  The first-run gate must not consume that list directly:
+    it has separate ffmpeg/ffprobe and Whisper smoke records, plus optional
+    YouTube checks, while the gate has exactly five user-facing groups.  Feed
+    the canonical checklist service a small evidence mapping so the grouping
+    and verdict rules remain owned by one backend implementation.
+    """
+    by_id = {
+        str(check.get("id")): check
+        for check in checks
+        if isinstance(check, dict) and check.get("id")
+    }
+
+    def evidence(check_id: str) -> dict[str, Any]:
+        check = by_id.get(check_id)
+        if check is None:
+            return {"healthy": False, "reason": f"{check_id} health result missing"}
+        return {
+            "healthy": check.get("ok") is True,
+            "reason": str(check.get("detail") or f"{check_id} health check failed"),
+        }
+
+    # These names are canonical inventory names, not paths discovered from
+    # the host.  They let the existing service group the detailed probes into
+    # the exact five D-13 rows without exposing package internals to the UI.
+    components = {
+        "bin/ffmpeg.exe": evidence("ffmpeg"),
+        "bin/ffprobe.exe": evidence("ffprobe"),
+        "bin/whisper-cli.exe": evidence("whisper_runtime"),
+        "smoke/runtime-smoke.wav": evidence("whisper_smoke"),
+        "models/ggml-base.en.bin": evidence("bundled_model"),
+    }
+    return build_first_run_checklist(components, data_dir=data_dir)
 
 
 def _result(
@@ -302,4 +343,5 @@ def run_packaged_health(
         "passed": all(check["ok"] for check in checks if check["required"]),
         "startup_ok": all(check["ok"] for check in checks if check["fatal_at_startup"]),
         "checks": checks,
+        "checklist": _first_run_checklist(checks, data_dir),
     }

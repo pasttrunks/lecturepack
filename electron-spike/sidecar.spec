@@ -2,6 +2,7 @@ from pathlib import Path
 import hashlib
 import importlib.util
 import os
+import sys
 
 from PyInstaller.building.build_main import Analysis, COLLECT, EXE, PYZ
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
@@ -9,6 +10,11 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 SPIKE_ROOT = Path(SPECPATH).resolve()
 REPO_ROOT = SPIKE_ROOT.parent
+# PyInstaller is invoked with the locked canonical virtualenv, which also has
+# an installed `lecturepack` package. Put this checkout first so the frozen
+# sidecar contains the exact source revision being packaged rather than a
+# stale site-packages copy from another worktree/release.
+sys.path.insert(0, str(REPO_ROOT))
 RUNTIME_ROOT = Path(os.environ.get("LECTUREPACK_RUNTIME_ROOT", str(REPO_ROOT))).expanduser().resolve()
 OUT_NAME = "LecturePackSidecar"
 OFFICIAL_BUILD = os.environ.get("LECTUREPACK_OFFICIAL_BUILD") == "1"
@@ -108,7 +114,20 @@ hiddenimports = [
     "lecturepack.services.transcript_formats",
     "lecturepack.services.study_service",
     "lecturepack.services.study_v2",
+    "lecturepack.services.ai_gateway",
+    "lecturepack.services.ai_study_service",
     "lecturepack.services.packaged_health",
+    # Belt-and-braces. PyInstaller's modulegraph does follow function-level
+    # imports, and the build xref confirms it already collects this one, so the
+    # entry is not load-bearing today. It is declared anyway because the caption
+    # pass swallows every exception: were the module ever to go missing, the
+    # only symptom would be downloaded lectures quietly transcribing from
+    # scratch, with nothing in any log to say the feature had stopped working.
+    "lecturepack.services.source_captions",
+    # Same reasoning: the demo Study cache is imported inside a function whose
+    # failure path is "build the pack the slow way", so a missing module would
+    # show up only as the guided demo taking minutes again.
+    "lecturepack.services.demo_study_cache",
     "lecturepack.infrastructure.whisper_detector",
     "lecturepack.infrastructure.whisper_path_staging",
 ]

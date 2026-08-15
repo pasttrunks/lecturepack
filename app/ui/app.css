@@ -262,7 +262,7 @@ main [data-screen]:not([hidden]){
    the text around them as digits swap. Tabular figures keep every digit the
    same advance width. Applied to the live/numeric surfaces only -- not to
    body copy, where proportional figures read better. */
-.lp-num,#status-label,.lp-badge,[id$="-pct"],[id$="-count"],[id$="-time"]{
+.lp-num,#status-detail,.lp-badge,[id$="-pct"],[id$="-count"],[id$="-time"]{
   font-variant-numeric:tabular-nums}
 
 /* Headings balance across lines instead of leaving one orphaned word; body
@@ -343,7 +343,12 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   .lp-review-row > .lp-review-col{
     width:auto !important;min-width:0 !important;flex:none !important}
   /* give each stacked panel a workable height instead of collapsing to nothing */
-  .lp-review-row > .lp-review-col-slides{max-height:230px}
+  /* A DEFINITE height, not max-height. '#slide-list' is flex:1 with basis 0
+     inside this column; against an auto-height container that resolves to
+     ZERO, so the stacked layout showed the Keep/Reject row with no thumbnails
+     above it at all -- nothing to review. max-height does not make a height
+     definite; height does. */
+  .lp-review-row > .lp-review-col-slides{height:230px}
   .lp-review-row > .lp-review-col-main{min-height:340px}
   .lp-review-row > .lp-review-col-transcript{min-height:300px}
 }
@@ -365,14 +370,28 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 @media (max-width:1080px){
   #btn-global-search .lp-global-search-label{display:none}
   #btn-global-search{padding-left:9px !important;padding-right:9px !important}
-  #proc-strip-name{max-width:160px !important}
+  #status-job-name{max-width:160px !important}
 }
 @media (max-width:760px){
-  #proc-strip-waiting{display:none}
-  #proc-strip-name{max-width:110px !important}
+  #status-queued{display:none}
+  #status-job-name{max-width:110px !important}
+  #status-detail{display:none}
 }
 @media (max-width:700px){
   header .lp-breadcrumb{display:none !important}
+  /* Review's timeline header contains its title, counts, a three-item legend,
+     and the shared lecture switcher.  At the supported 640px window minimum
+     the main pane is only 400px beside the sidebar; the old one-line flex row
+     silently overflowed by 144px into main's clipped x-axis.  Wrap the
+     metadata/legend and reserve a full final row for the switcher so every
+     control remains visible without a horizontal scrollbar. */
+  .lp-review-timeline{padding:12px !important}
+  .lp-review-timeline-head{flex-wrap:wrap;gap:8px 10px !important;min-width:0}
+  .lp-review-timeline-head>*{min-width:0}
+  .lp-review-timeline-spacer{display:none}
+  .lp-review-timeline-head .lp-jsw{
+    width:100%;margin-left:0 !important;justify-content:flex-end;overflow:hidden}
+  .lp-review-timeline-head .lp-jsw-name{max-width:calc(100% - 66px)}
 }
 
 /* ============ MOTION SYSTEM v2 -- MECHANICAL (2026-07-27) ================
@@ -740,40 +759,235 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
    panel 70% visible at removal. */
 .lp-pop.out{animation:lppopout var(--motion-fast) var(--motion-ease-in) both}
 
-/* --- 3.8a guided tour -----------------------------------------------------
-   QtWebEngine on Windows can hit-test a full-viewport SVG mask even when its
-   parent says pointer-events:none.  The tour therefore uses one static,
-   pointer-transparent scrim plus separate fixed geometry for the border and
-   arrow.  Only the compact instruction card can receive input. */
-#guided-tour-overlay{position:fixed;inset:0;z-index:170;pointer-events:none;background:rgba(8,10,14,.65)}
-#tour-spotlight-box{position:fixed;left:0;top:0;width:0;height:0;border:2px solid var(--orange);border-radius:12px;pointer-events:none;background:transparent}
-#tour-arrow{position:fixed;width:13px;height:13px;border-right:3px solid var(--orange);border-bottom:3px solid var(--orange);transform:rotate(45deg);pointer-events:none}
-#guided-tour-card{position:fixed;right:24px;bottom:24px;z-index:2;width:min(360px,calc(100vw - 32px));box-sizing:border-box;background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hi);padding:18px;pointer-events:auto}
-#tour-step-label{font:600 10px 'JetBrains Mono';letter-spacing:.14em;color:var(--orange-ink);text-transform:uppercase;margin-bottom:7px}
-#tour-title{font:700 19px 'Space Grotesk';letter-spacing:-.02em;margin:0 0 7px}
-#tour-copy{font-size:13px;line-height:1.52;color:var(--muted);margin:0 0 14px}
-#tour-progress{display:flex;gap:5px;margin:0 0 15px}
-#tour-progress span{display:block;width:22px;height:4px;border-radius:3px;background:var(--line);transition:background-color var(--motion-fast) var(--motion-ease),transform var(--motion-fast) var(--motion-spring)}
-#tour-progress span.active{background:var(--orange);transform:translateY(-1px)}
-#tour-prompt-actions,#tour-step-actions,#tour-finish-actions{display:flex;align-items:center;gap:8px}
-#tour-prompt-actions button,#tour-step-actions button,#tour-finish-actions button{font:700 12px 'Space Grotesk';border-radius:8px;padding:9px 12px;cursor:pointer}
-#btn-tour-start,#btn-tour-next,#btn-tour-open-pack{background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink)}
-#btn-tour-skip,#btn-tour-back,#btn-tour-exit,#btn-tour-import-own{background:var(--panel);color:var(--ink);border:2px solid var(--border)}
-#btn-tour-exit{color:var(--red);border-color:var(--red)}
+/* --- guided demo tile ------------------------------------------------------
+   The walkthrough itself is a screen. The Home tile only exposes its honest
+   idle/running/error state and a drop target for the bundled lecture. */
 #glowing-demo-card{transition:border-color var(--motion-normal) var(--motion-ease),box-shadow var(--motion-normal) var(--motion-ease),transform var(--motion-normal) var(--motion-spring)}
 #glowing-demo-card:hover{box-shadow:var(--shadow-hard),0 0 22px rgba(255,122,0,.28)}
 #glowing-demo-card[data-demo-state="running"]{border-color:var(--blue);box-shadow:var(--shadow-hard),0 0 22px rgba(137,180,250,.24)}
 #glowing-demo-card[data-demo-state="error"]{border-color:var(--red)}
-#glowing-demo-card.lp-demo-tour-active,#dropzone.lp-demo-tour-active{position:relative;z-index:171}
-#glowing-demo-card.lp-demo-tour-lifted{position:fixed!important;z-index:1!important;pointer-events:auto!important}
-@keyframes lpdemoprompt{0%,100%{box-shadow:var(--shadow-hard),0 0 25px rgba(255,122,0,.6)}50%{box-shadow:var(--shadow-hard),0 0 32px rgba(255,122,0,.68)}}
-#glowing-demo-card.lp-demo-tour-active{border-color:var(--orange);box-shadow:var(--shadow-hard),0 0 25px rgba(255,122,0,.6);animation:lpdemoprompt 1.6s var(--motion-ease) infinite}
 #dropzone.lp-demo-drop-hover{border-color:var(--orange)!important;box-shadow:var(--shadow-hard),0 0 22px rgba(255,122,0,.32)!important}
-@keyframes lpdemofly{to{transform:translate(var(--demo-fly-x,0),var(--demo-fly-y,0));opacity:.72}}
-#glowing-demo-card.lp-demo-fly{animation:lpdemofly var(--motion-seat) var(--motion-spring) both;pointer-events:none}
+.lp-header-download{flex:none;min-width:0}
+.lp-download-count{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:var(--orange-soft);color:var(--orange-ink);font:700 10px 'JetBrains Mono'}
+#downloads-panel.lp-download-popover{position:fixed;z-index:49;top:64px;right:10px}
+#downloads-panel.lp-download-popover button{font:600 11px 'Space Grotesk';border:1.5px solid var(--border);border-radius:6px;padding:4px 7px;background:var(--panel);color:var(--ink);cursor:pointer}
+#downloads-panel.lp-download-popover button:hover{background:var(--panel2)}
+.lp-drag-ghost{position:fixed;left:-10000px;top:-10000px;z-index:300;padding:9px 12px;border:2px solid var(--orange);border-radius:9px;background:var(--panel);color:var(--ink);box-shadow:var(--shadow-hi);font:700 12px 'Space Grotesk';white-space:nowrap}
+.lp-card.lp-dragging{opacity:.58;cursor:grabbing}
+#process-queue-target.lp-existing-drop-hover,[data-nav="process"].lp-existing-drop-hover{outline:3px solid var(--orange);outline-offset:-6px;background:var(--orange-soft)}
+/* --- Home library: group containers + adaptive density ---------------------
+   Two complaints, one layout. Recent lectures were a hard-coded
+   `repeat(3,1fr)` regardless of window width, and the queue was one full-width
+   row per job, so a handful of lectures filled the screen "in a straight line".
+   Grouping was invisible because the group header was suppressed entirely
+   whenever there was only one group, leaving a bare run of cards.
+
+   A group is now a BOX, not a heading above a run: a 2px border, a filled
+   header bar, and a body ground (--panel2) beneath --panel cards. Two groups
+   always have both a border and a colour change between them. The queue is the
+   same container with an orange header, so it reads as part of one library.
+
+   AD-20 safe: no transition, animation, will-change or filter anywhere here. */
+.lib-group{border:2px solid var(--border);border-radius:10px;background:var(--panel2);overflow:hidden}
+.lib-group + .lib-group{margin-top:16px}
+.lib-group-head{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:10px;
+  padding:9px 12px;background:var(--sunk);border-bottom:2px solid var(--border)}
+/* The course code is ALWAYS rendered, including the single-group case the old
+   build hid -- that is what made grouping invisible in the common case. */
+.lib-group-code{font:700 11px 'JetBrains Mono';letter-spacing:.08em;padding:3px 7px;
+  border:1.5px solid var(--border);border-radius:6px;background:var(--panel);color:var(--ink)}
+.lib-group-count{font:500 11px 'JetBrains Mono';color:var(--muted);margin-left:auto;flex:none}
+/* Collapse toggle. A real button, first in the header and in the tab order, so
+   a stacked Home can be folded down by keyboard as well as by pointer. The
+   glyph carries the state and aria-expanded states it for screen readers, so
+   nothing here depends on colour. */
+.lib-group-toggle{flex:none;width:22px;height:22px;display:inline-flex;align-items:center;
+  justify-content:center;font:700 14px 'JetBrains Mono';line-height:1;
+  border:1.5px solid var(--border);border-radius:6px;background:var(--panel);
+  color:var(--ink);cursor:pointer;padding:0}
+.lib-group-toggle:hover{background:var(--sunk)}
+.lib-group-toggle:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+/* A collapsed group is a single bar: its header keeps the full border box, so
+   the row still reads as a container rather than a stray heading. */
+.lib-group[data-collapsed="true"] .lib-group-head{border-bottom:none}
+.lib-group[data-kind="queue"] .lib-group-head{background:var(--orange-soft);border-bottom-color:var(--orange)}
+.lib-group[data-kind="queue"] .lib-group-code{border-color:var(--orange);color:var(--orange-ink)}
+/* One adaptive rule for 640 -> 1920, no named modes. 200px is the floor at
+   which a 16:9 thumbnail still tells you what the lecture is; tracks stretch
+   past it via 1fr, so wide windows get MORE cards rather than bigger ones.
+   min(100%,...) is what prevents horizontal overflow at 640px.
+
+   Deliberately a fixed length, not a vw expression. A viewport-relative floor
+   was tried and measured backwards: this grid sits in a container capped near
+   1048px, so at 1920 the vw term inflated the minimum to 260px and produced
+   THREE columns, while a 1280 window produced four. Card size must follow the
+   container it is in, and 1fr already does that. Measured in Chromium, window
+   width -> container -> columns x card width:
+     1920/1600 -> 1048 -> 4 x 247    1280 -> 964 -> 4 x 226
+     1024      ->  708 -> 3 x 220     640 -> 388 -> 1 x 368
+   The container is capped near 1048px by the page shell, so 1920 and 1600 land
+   in the same place; widening that cap is the next lever if more columns are
+   wanted. */
+.lib-grid{--card:200px;display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--card)),1fr));
+  grid-auto-rows:max-content;gap:12px;padding:12px;align-content:start}
+/* Queue card: same track sizing as the library, so a card is the same size
+   wherever it appears. Order stays legible in a wrapping grid because the
+   position is written on the thumbnail; reading order is row-major. */
+.q-card{position:relative;min-width:0;display:flex;flex-direction:column;box-sizing:border-box;
+  border:2px solid var(--line);border-radius:8px;background:var(--panel);overflow:hidden}
+.q-thumb{position:relative;width:100%;aspect-ratio:16/9;flex:0 0 auto;overflow:hidden;
+  background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center}
+.q-thumb img{width:100%;height:100%;object-fit:contain;display:block}
+.q-pos{position:absolute;left:5px;top:5px;min-width:22px;height:22px;display:grid;place-items:center;
+  padding:0 5px;box-sizing:border-box;font:700 11px 'JetBrains Mono';border:1.5px solid var(--border);
+  /* --on-signal, not a hardcoded ink: the dark theme redefines it, so a
+     literal #1C1A16 would go illegible on the orange badge there. */
+  border-radius:6px;background:var(--orange);color:var(--on-signal)}
+.q-body{display:flex;flex-direction:column;gap:6px;padding:8px 9px 9px;flex:1 1 auto;min-width:0}
+.q-title{font:600 13px 'Space Grotesk';line-height:1.3;color:var(--ink);margin:0;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;min-height:2.6em}
+.q-meta{font:500 10px 'JetBrains Mono';color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Explicit reorder controls stay beside drag -- drag is never the only path --
+   and are disabled at the ends rather than hidden, so they never shift. */
+.q-actions{display:flex;align-items:center;gap:4px;margin-top:auto;padding-top:2px}
+.q-actions button{min-width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;
+  padding:0 7px;box-sizing:border-box;font:600 11px 'Space Grotesk';line-height:1;
+  border:1.5px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);cursor:pointer}
+.q-actions button:hover:not([disabled]){background:var(--sunk);border-color:var(--border)}
+/* Blue, matching the app-wide focus convention. Orange is a signal colour and
+   must not double as a focus ring, or focus and "queued" read the same. */
+.q-actions button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.q-actions button[disabled]{color:var(--muted);background:var(--panel2);cursor:default}
+.q-actions .q-rm{margin-left:auto}
+.q-actions .q-rm:hover{background:var(--red-soft);border-color:var(--red);color:var(--red)}
+@media (max-width:860px){
+  .lib-grid{gap:10px;padding:10px}
+  .lib-group-name{display:none}
+}
+
+.lp-slide-rail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}
+#btn-all-slides{font:600 10px 'JetBrains Mono';padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;background:var(--panel);color:var(--ink);cursor:pointer;white-space:nowrap}
+/* --- slide rail card -------------------------------------------------------
+   Was a 60x38 (or "roomy" 82x52) thumbnail in a horizontal row. At that size a
+   lecture slide is an unreadable smear, and telling two bullet slides apart is
+   the entire job of this screen -- so the thumbnail now spans the full rail
+   width at a true 16:9, roughly four times the linear size, and object-fit is
+   `contain` so nothing is cropped away.
+
+   The rail auto-fits one or two columns instead of offering two named density
+   modes that differed by 22px and looked identical. AD-20 safe throughout: no
+   transition, animation, will-change or filter -- state is colour, border,
+   background and opacity only. */
+.lp-slide-card{min-width:0;overflow:hidden}
+.lp-slide-rail-card{width:100%;box-sizing:border-box;display:flex;flex-direction:column;
+  padding:0;text-align:left;background:var(--panel);color:var(--ink);
+  border:1.5px solid var(--line);border-radius:10px;cursor:pointer;
+  /* 212 rows with no virtualisation: skip layout and paint offscreen. The
+     placeholder must match the real card height or the scrollbar drifts --
+     thumb (tile width x 9/16) + 30px caption + borders. Measured in a real
+     browser: 91px at 1280 wide and 94px at 640, so one value covers both. */
+  position:relative;
+  content-visibility:auto;contain-intrinsic-size:auto 92px}
+/* The card became a COLUMN, so the selection box -- a sibling of the caption,
+   not a child -- was laid out as a third row and hung below it. Float it over
+   the thumbnail instead: top-LEFT, because the rejected corner flag owns the
+   top-right, and on the image it reads as the checkbox it is.
+   ID-scoped so it outranks the rejected-state rule below, which sets
+   position:relative to anchor its own cross glyph -- absolute is equally a
+   containing block, so that glyph still works. An equal-specificity selector
+   silently lost to it and the box dropped back into flow on rejected cards. */
+#slide-list .lp-slide-rail-card .lp-slide-check{position:absolute;top:6px;left:6px;
+  z-index:1;margin-left:0;width:18px;height:18px;background:var(--panel);
+  border-color:var(--border);box-shadow:0 0 0 1.5px var(--panel)}
+.lp-slide-rail-card .lp-slide-card-thumb{width:100%;aspect-ratio:16/9;flex:0 0 auto;
+  overflow:hidden;background:var(--sunk);border:none;border-bottom:1.5px solid var(--line);
+  border-radius:0;display:flex;align-items:center;justify-content:center}
+.lp-slide-rail-card .lp-slide-card-thumb img{width:100%;height:100%;object-fit:contain;display:block}
+.lp-all-slide-image img{width:100%;height:100%;object-fit:contain;display:block}
+.lp-slide-card-meta{min-width:0;max-width:100%;box-sizing:border-box;display:flex;
+  align-items:center;gap:6px;flex:0 0 22px;height:22px;padding:0 6px;overflow:hidden}
+/* At a scanning size the caption only has room for the timestamp. State is
+   already carried by the checkbox glyph, the border and (for a rejection) the
+   struck-through time and corner flag -- four cues, none of them colour-only --
+   so the status word and index are redundant here and are dropped. */
+.lp-slide-rail-card .lp-slide-card-status,
+.lp-slide-rail-card .lp-slide-card-idx{display:none}
+.lp-slide-rail-card .lp-slide-card-time{font-size:10px}
+.lp-slide-card-time,.lp-slide-card-status{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lp-slide-card-idx{margin-left:auto;flex:none;font:500 10px 'JetBrains Mono';color:var(--muted);opacity:.7}
+.lp-slide-card-time{font:700 11px 'JetBrains Mono'}
+.lp-slide-card-status{font:700 9px 'JetBrains Mono';text-transform:uppercase;color:var(--muted)}
+.lp-slide-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:auto;border:1.5px solid var(--line);border-radius:4px;color:var(--green);font:800 11px 'Space Grotesk';background:var(--panel)}
+.lp-slide-check[data-checked="true"]{border-color:var(--green)}
+.lp-slide-card[data-viewing="true"]{border-color:var(--orange);box-shadow:inset 4px 0 0 var(--orange)}
+.lp-slide-card[data-viewing="true"] .lp-slide-card-status{color:var(--orange-ink)}
+.lp-slide-card[data-state="rejected"]{border:2px solid var(--red);background:var(--red-soft);position:relative}
+.lp-slide-card[data-state="rejected"] .lp-slide-card-status{color:var(--red)}
+/* Rejection is the state that changes the export, so it carries cues that
+   survive without colour: a struck-through timestamp, a dimmed thumbnail and a
+   corner flag. Dimming stays on the thumb WRAPPER only -- putting it on the
+   image too multiplies (.55 x .55 = .3) and you can no longer see what you
+   rejected, which is exactly what you need in order to undo it. */
+.lp-slide-rail-card[data-state="rejected"] .lp-slide-card-thumb{opacity:.55;border-bottom-color:var(--red)}
+.lp-slide-card[data-state="rejected"] .lp-slide-card-time{text-decoration:line-through;color:var(--red)}
+.lp-slide-card[data-state="rejected"]::after{content:"";position:absolute;top:0;right:0;
+  width:22px;height:22px;background:linear-gradient(225deg,var(--red) 0 50%,transparent 50%)}
+.lp-slide-card[data-state="rejected"] .lp-slide-check{border-color:var(--red);background:var(--red);position:relative}
+.lp-slide-card[data-state="rejected"] .lp-slide-check::before{content:'\00d7';color:var(--on-signal);font-size:13px}
+/* One adaptive layout, no named density modes. The rail is for SCANNING -- the
+   big slide frame beside it is where you actually judge a frame -- so the cards
+   are sized to fit several at once rather than to fill the rail. 112px keeps a
+   16:9 thumbnail comfortably readable at roughly three times the old 60x38
+   area, while showing about ten slides at a time instead of three. */
+#slide-list{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:4px;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));
+  gap:8px;align-content:start;grid-auto-rows:max-content}
+
+#all-slides-overlay{position:fixed;inset:0;z-index:72;background:var(--bg);padding:18px;box-sizing:border-box}
+#all-slides-overlay[hidden]{display:none}
+.lp-all-slides-shell{height:100%;display:flex;flex-direction:column;min-height:0;background:var(--panel);border:2px solid var(--border);border-radius:14px;box-shadow:var(--shadow-hard);overflow:hidden}
+.lp-all-slides-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 22px;border-bottom:2px solid var(--border)}
+.lp-all-slides-head h2{margin:2px 0 2px;font:700 24px 'Space Grotesk';color:var(--ink)}
+.lp-all-slides-head p{margin:0;font:500 11px 'JetBrains Mono';color:var(--muted)}
+.lp-all-slides-kicker{font:600 9px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--orange-ink)}
+#btn-all-slides-close{font:700 12px 'Space Grotesk';padding:8px 13px;border:2px solid var(--border);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}
+#slide-size{display:flex;align-items:center;gap:6px;margin-left:auto}
+#slide-size .lbl{font:500 10px 'JetBrains Mono';letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
+#slide-size button{width:30px;height:26px;font:700 11px 'Space Grotesk';border:1.5px solid var(--line);
+  border-radius:6px;background:var(--panel);color:var(--muted);cursor:pointer}
+#slide-size button[aria-pressed="true"]{border-color:var(--border);background:var(--sunk);color:var(--ink)}
+#slide-size button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+/* min(100%, var(--tile)) so a large tile never forces horizontal overflow in a
+   narrow window -- it degrades to one full-width column instead. */
+.lp-all-slides-grid{--tile:260px;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--tile)),1fr));
+  align-content:start;grid-auto-rows:max-content;gap:14px;padding:18px}
+.lp-all-slides-grid[data-size="s"]{--tile:168px;gap:10px}
+.lp-all-slides-grid[data-size="m"]{--tile:260px;gap:14px}
+.lp-all-slides-grid[data-size="l"]{--tile:380px;gap:18px}
+/* At S the caption has no room for the state word; the check glyph carries it. */
+.lp-all-slides-grid[data-size="s"] .lp-all-slide-state{display:none}
+.lp-all-slide-card{display:flex;flex-direction:column;min-width:0;padding:0;overflow:hidden;text-align:left;background:var(--panel);color:var(--ink);border:1.5px solid var(--line);border-radius:10px;cursor:pointer}
+/* 16:9, matching the source frames -- 16:10 letterboxed every slide slightly. */
+.lp-all-slide-image{display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:16/9;flex:0 0 auto;overflow:hidden;background:var(--sunk);border-bottom:1.5px solid var(--line)}
+.lp-all-slide-meta{display:flex;align-items:center;gap:8px;padding:9px 10px}
+.lp-all-slide-meta>span:first-child{display:flex;flex-direction:column;gap:1px;min-width:0}
+.lp-all-slide-meta strong{font:700 11px 'Space Grotesk'}
+.lp-all-slide-meta time{font:500 9px 'JetBrains Mono';color:var(--muted)}
+.lp-all-slide-state{margin-left:auto;font:700 9px 'JetBrains Mono';text-transform:uppercase;color:var(--muted)}
+.lp-all-slide-card .lp-slide-check{margin-left:0}
+.lp-all-slide-card[data-viewing="true"]{border-color:var(--orange);box-shadow:inset 0 4px 0 var(--orange)}
+.lp-all-slide-card[data-viewing="true"] .lp-all-slide-state{color:var(--orange-ink)}
+.lp-all-slide-card[data-state="rejected"]{border:2px solid var(--red);background:var(--red-soft)}
+.lp-all-slide-card[data-state="rejected"] .lp-all-slide-state{color:var(--red)}
+.lp-all-slide-card[data-state="rejected"] .lp-slide-check{border-color:var(--red);background:var(--red);position:relative}
+.lp-all-slide-card[data-state="rejected"] .lp-slide-check::before{content:'\00d7';color:var(--on-signal);font-size:13px}
+.lp-runtime-no-bypass{font:500 11px 'JetBrains Mono';color:var(--muted);white-space:nowrap}
+@media (max-width:1080px){#downloads-indicator-label{display:none}}
 .lp-model-value{display:block;min-width:0;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}
 .lp-model-tooltip{position:fixed;z-index:180;max-width:min(360px,calc(100vw - 32px));padding:6px 8px;border:2px solid var(--border);border-radius:7px;background:var(--panel);box-shadow:var(--shadow-hard-sm);color:var(--ink);font:600 12px/1.4 'JetBrains Mono';pointer-events:none;white-space:normal;overflow-wrap:anywhere}
-@media (max-width:640px){#guided-tour-card{left:16px;right:16px;bottom:16px;width:auto}#tour-prompt-actions,#tour-step-actions{flex-wrap:wrap}#tour-step-actions span{display:none}main,.lp-main{min-width:0;overflow-y:auto}.lp-row,.lp-actions{flex-direction:column;align-items:stretch}}
+@media (max-width:640px){main,.lp-main{min-width:0;overflow-y:auto}.lp-row,.lp-actions{flex-direction:column;align-items:stretch}}
 
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{
@@ -784,7 +998,6 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   }
   .lp-caret{animation:none !important;opacity:1 !important}
   .lp-stagger>*{animation:none !important}
-  #glowing-demo-card.lp-demo-tour-active{animation:none!important;box-shadow:var(--shadow-hard),0 0 25px rgba(255,122,0,.6)}
   [data-focus="true"] .lp-main{animation:none !important;transform:none !important}
   .lp-chrome,.lp-main{transition:none !important}
 
@@ -803,7 +1016,7 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
   .lp-anim-in,.lp-anim-in-fast,.lp-anim-fade,
   main [data-screen]:not([hidden]),
   .lp-scrim,.lp-pop,.lp-tip,.lp-toast,
-  .lp-reveal,.lp-reveal>*,#tour-spotlight-box,#tour-arrow{
+  .lp-reveal,.lp-reveal>*{
     animation:none !important;
   }
   /* animation:none alone is sufficient and is deliberately ALL that is done
@@ -913,8 +1126,676 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 /* The row clips nothing: give the offset shadows somewhere to land. */
 .study-mode-nav{padding-bottom:4px}
 
+/* AI-first Study states and the two additional first-class modes. */
+.study-generation-panel{
+  flex:none;display:flex;flex-direction:column;gap:13px;padding:17px 20px;
+  background:var(--panel);border:2px solid var(--border);border-radius:13px;
+  box-shadow:var(--shadow-soft)}
+.study-generation-panel[hidden]{display:none}
+.study-generation-panel[data-study-status="failed"]{border-color:var(--red)}
+.study-generation-panel[data-study-status="basic"]{border-color:var(--secondary-border)}
+.study-generation-heading{display:flex;align-items:flex-start;gap:12px}
+.study-generation-title{font:700 16px 'Space Grotesk';color:var(--ink);margin-bottom:3px}
+.study-generation-detail{font:500 12px 'JetBrains Mono';color:var(--muted);line-height:1.5}
+.study-status-badge{
+  flex:none;font:700 9px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;
+  color:var(--orange-ink);background:var(--orange-soft);border:1.5px solid var(--orange);
+  border-radius:6px;padding:4px 7px}
+.study-status-badge[hidden]{display:none}
+.study-generation-panel[data-study-status="failed"] .study-status-badge{
+  color:var(--red);background:var(--red-soft);border-color:var(--red)}
+.study-generation-panel[data-study-status="basic"] .study-status-badge,
+#study-ready-status-badge{
+  color:var(--secondary-text);background:var(--panel2);border-color:var(--secondary-border)}
+.study-generation-progress{height:7px;overflow:hidden;background:var(--sunk);border-radius:5px}
+.study-generation-progress[hidden]{display:none}
+.study-generation-progress-bar{height:100%;width:100%;background:var(--orange);transform:scaleX(0);transform-origin:left center}
+.study-generation-actions{display:flex;gap:9px;flex-wrap:wrap}
+.study-generation-actions[hidden]{display:none}
+.study-generation-actions button,.study-teach-picker button{
+  font:700 12px 'Space Grotesk';border:2px solid var(--border);border-radius:8px;
+  padding:8px 13px;background:var(--panel);color:var(--ink);cursor:pointer}
+.study-generation-actions #btn-study-ai-retry,.study-teach-picker #btn-study-teach-start{
+  background:var(--orange);color:var(--on-signal);border-color:var(--orange-ink)}
+.study-mode-tab:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.study-quick-toolbar,.study-teach-toolbar{
+  flex:none;display:flex;align-items:center;justify-content:space-between;gap:18px;
+  padding:15px 18px;background:var(--panel);border:2px solid var(--border);
+  border-radius:13px;box-shadow:var(--shadow-soft)}
+.study-mode-title{font:700 17px 'Space Grotesk';color:var(--ink)}
+.study-mode-subtitle{font:500 12px 'JetBrains Mono';color:var(--muted);margin-top:3px}
+.study-duration-options,.study-teach-picker{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.study-duration{
+  font:700 11px 'JetBrains Mono';padding:7px 11px;border:1.5px solid var(--border);
+  border-radius:7px;background:var(--panel);color:var(--ink);cursor:pointer}
+.study-duration.active{background:var(--orange-soft);border-color:var(--orange);color:var(--orange-ink)}
+.study-teach-picker select,.study-mastery-select{
+  max-width:310px;font:600 12px 'Space Grotesk';background:var(--sunk);color:var(--ink);
+  border:2px solid var(--border);border-radius:8px;padding:8px 10px}
+.study-provenance-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.study-source{
+  font:600 11px 'JetBrains Mono';border:1.5px solid var(--blue);border-radius:6px;
+  padding:3px 8px;cursor:pointer;color:var(--blue-ink);background:var(--blue-soft)}
+.study-source-slide{color:var(--green);background:var(--green-soft);border-color:var(--green)}
+.study-provenance-badge{
+  font:700 9px 'JetBrains Mono';letter-spacing:.04em;border:1.5px solid var(--line);
+  border-radius:5px;padding:3px 6px;color:var(--secondary-text);background:var(--panel)}
+.study-provenance-badge[data-provenance="lecture"]{color:var(--blue-ink);background:var(--blue-soft);border-color:var(--blue)}
+.study-provenance-badge[data-provenance="web"]{color:var(--green);background:var(--green-soft);border-color:var(--green)}
+.study-web-source{font:600 11px 'JetBrains Mono';color:var(--green);text-decoration:none;border-bottom:1px solid currentColor}
+/* Deliberately NOT blue/green: a background answer must not read as a lecture
+   or web citation at a glance. Muted and dashed says "real answer, no source
+   in your lecture" without dressing itself up as evidence. */
+.study-source-beyond{
+  font:600 11px 'JetBrains Mono';border:1.5px dashed var(--border);border-radius:6px;
+  padding:3px 8px;color:var(--muted);background:var(--panel)}
+/* --- study shaping row ------------------------------------------------------
+   "Harder / easier / longer / shorter", applied to the generated pack. Static
+   per AD-20: state changes are colour and border only, no transitions and no
+   animation on a surface that repaints on every question. Wraps rather than
+   scrolls so the whole row stays reachable in a 640px-wide window. */
+.lp-study-shape{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  margin:0 auto 18px;max-width:680px;padding-bottom:12px;
+  border-bottom:1.5px solid var(--line)}
+.lp-study-shape-group{display:flex;align-items:center;gap:5px}
+.lp-study-shape-label{font:600 10px 'JetBrains Mono';text-transform:uppercase;
+  letter-spacing:.05em;color:var(--muted);margin-right:3px}
+.lp-study-shape-btn{font:600 11px 'Space Grotesk';color:var(--muted);
+  background:transparent;border:1.5px solid transparent;border-radius:6px;
+  padding:4px 9px;cursor:pointer}
+.lp-study-shape-btn:hover:not(:disabled){background:var(--panel2);color:var(--ink)}
+.lp-study-shape-btn[aria-pressed="true"]{color:var(--secondary-text);
+  background:var(--secondary-surface);border-color:var(--secondary-border);font-weight:700}
+.lp-study-shape-btn:disabled{opacity:.4;cursor:not-allowed}
+.lp-study-shape-btn:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.lp-study-shape-count{margin-left:auto;font:500 11px 'JetBrains Mono';color:var(--muted)}
+
+.study-guide-section{background:var(--sunk);border:1.5px solid var(--line);border-radius:10px;padding:14px 16px}
+.study-guide-section h3{font-size:14px;margin:0 0 7px}
+.study-guide-section p{font-size:13px;line-height:1.55;color:var(--secondary-text);margin:0}
+.study-short-answer{width:100%;min-height:110px;box-sizing:border-box;resize:vertical;font:500 14px 'Space Grotesk';background:var(--sunk);color:var(--ink);border:2px solid var(--border);border-radius:9px;padding:11px 13px}
+.study-focus-root .study-edit,.study-focus-root .study-regenerate,.study-focus-root .study-delete{
+  font:600 11px 'Space Grotesk';background:var(--panel);color:var(--muted);
+  border:1.5px solid var(--border);border-radius:6px;padding:5px 9px;cursor:pointer}
+.study-focus-root .study-delete{color:var(--red)}
+.study-teach-card{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+
+@media (max-width:900px){
+  .study-quick-toolbar,.study-teach-toolbar{align-items:flex-start;flex-direction:column}
+  .study-teach-picker{width:100%}
+  .study-teach-picker select{flex:1;max-width:none}
+}
+
 @media (prefers-reduced-motion:reduce){
   .lp-tab.study-mode-tab,
   .lp-tab.study-mode-tab:not(:disabled):hover,
   .lp-tab.study-mode-tab:not(:disabled):active{transition:none;transform:none}
+}
+
+/* --- footer waiting state -------------------------------------------------
+   "Review ready" is not a stage in progress: the pipeline stopped and the next
+   move is the student's. A solid partial orange fill is this app's idiom for
+   WORK HAPPENING, so the parked state keeps the TRUE percentage and changes
+   the material instead -- a static hatch over the earned fill. Colour follows
+   the existing .lp-proc-waiting convention so "parked, your move" reads the
+   same everywhere. Static only: no animation, no will-change, no filters
+   (AD-20). */
+#status-bar{background-color:var(--orange)}
+#status-footer[data-status="waiting"] #status-bar{
+  background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.38) 0 3px,transparent 3px 6px)}
+#status-footer[data-status="waiting"] #status-dot{background:var(--secondary-border)}
+#status-footer[data-status="waiting"] #status-state{color:var(--secondary-text)}
+#status-footer[data-status="waiting"] #status-detail{color:var(--ink)}
+[data-theme="dark"] #status-footer[data-status="waiting"] #status-bar{
+  background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.34) 0 3px,transparent 3px 6px)}
+
+/* --- guided demo (self-contained screen) -----------------------------------
+   Its own surface, its own layout. It measures NOTHING in the live UI and
+   mutates nothing outside its own section, so there is no scrim, no spotlight,
+   no anchoring and no element measurement -- the entire bug class the overlay
+   tour kept reproducing cannot occur here. Chapters swap with [hidden]
+   (display:none!important, see top of this file): instant, no geometry
+   animation, AD-20 safe by construction rather than by discipline. */
+.lp-demo-shell{width:min(720px,100%);margin:0 auto;padding:30px 24px 40px;
+  display:flex;flex-direction:column;gap:16px;box-sizing:border-box}
+.lp-demo-bar{display:flex;align-items:center;gap:12px;padding:10px 14px;
+  background:var(--panel);border:2px solid var(--border);border-radius:12px;
+  box-shadow:var(--shadow-soft)}
+.lp-demo-brand{font:700 11px 'JetBrains Mono';letter-spacing:.14em;
+  text-transform:uppercase;color:var(--orange-ink);flex:none}
+.lp-demo-src{flex:1;font:500 11px 'JetBrains Mono';color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lp-demo-skip{font:600 11px 'JetBrains Mono';padding:6px 11px;flex:none;
+  border:2px solid var(--border);border-radius:8px;background:var(--panel);
+  color:var(--muted);cursor:pointer}
+
+.lp-demo-body{background:var(--panel);border:2px solid var(--border);
+  border-radius:14px;box-shadow:var(--shadow-soft);padding:26px 28px}
+.lp-demo-eyebrow{display:block;font:600 10px 'JetBrains Mono';letter-spacing:.16em;
+  text-transform:uppercase;color:var(--orange-ink);margin-bottom:10px}
+.lp-demo-h{font:700 25px/1.15 'Space Grotesk';letter-spacing:-.025em;
+  margin:0 0 10px;color:var(--ink);text-wrap:pretty}
+.lp-demo-p{font-size:14px;line-height:1.62;color:var(--muted);margin:0 0 20px;
+  text-wrap:pretty}
+
+.lp-demo-stage{margin:0}
+.lp-demo-hero{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;
+  background:var(--sunk);border:2px solid var(--border);border-radius:10px}
+.lp-demo-cap{display:block;font:500 11px 'JetBrains Mono';color:var(--muted);
+  margin-top:9px}
+
+.lp-demo-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.lp-demo-slide{margin:0;border:2px solid var(--border);border-radius:9px;
+  overflow:hidden;background:var(--panel2)}
+.lp-demo-slide img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;
+  background:var(--sunk)}
+.lp-demo-slide figcaption{display:flex;align-items:center;justify-content:space-between;
+  gap:6px;padding:7px 9px;font:600 10px 'JetBrains Mono';color:var(--muted)}
+.lp-demo-flag{color:var(--green)}
+
+.lp-demo-lines{border:2px solid var(--border);border-radius:10px;overflow:hidden}
+.lp-demo-line{display:flex;gap:12px;padding:11px 13px;border-bottom:1px solid var(--line);
+  font-size:13px;line-height:1.5;color:var(--ink)}
+.lp-demo-line:last-child{border-bottom:none}
+.lp-demo-line time{flex:none;width:56px;font:500 11px 'JetBrains Mono';color:var(--muted)}
+.lp-demo-line[data-active="true"]{background:var(--sunk)}
+
+.lp-demo-study{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.lp-demo-flash{display:flex;flex-direction:column;align-items:flex-start;gap:8px;
+  min-height:150px;padding:14px;text-align:left;cursor:pointer;font:inherit;
+  background:var(--panel2);border:2px solid var(--border);border-radius:11px;color:var(--ink)}
+.lp-demo-flash-tag{font:600 10px 'JetBrains Mono';letter-spacing:.12em;
+  text-transform:uppercase;color:var(--orange-ink)}
+.lp-demo-flash-face{flex:1;font:600 14px/1.45 'Space Grotesk'}
+.lp-demo-flash-hint{font:500 10px 'JetBrains Mono';color:var(--muted)}
+.lp-demo-quiz{padding:14px;background:var(--panel2);border:2px solid var(--border);
+  border-radius:11px}
+.lp-demo-q{font:600 14px/1.45 'Space Grotesk';margin:8px 0 12px}
+.lp-demo-opts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+.lp-demo-opts li{list-style:none}
+.lp-demo-opt{display:block;width:100%;text-align:left;font:500 13px 'Space Grotesk';
+  padding:9px 11px;background:var(--panel);border:2px solid var(--line);border-radius:8px;
+  color:var(--ink);cursor:pointer}
+.lp-demo-opt[data-state="correct"]{border-color:var(--green);background:var(--green-soft)}
+.lp-demo-opt[data-state="wrong"]{border-color:var(--red);background:var(--red-soft)}
+.lp-demo-quiz-feedback{margin:10px 0 0;padding:8px 10px;border-radius:8px;
+  font:600 12px/1.45 'Space Grotesk';color:var(--ink);border:2px solid var(--line)}
+.lp-demo-quiz-feedback[data-state="correct"]{border-color:var(--green);background:var(--green-soft)}
+.lp-demo-quiz-feedback[data-state="wrong"]{border-color:var(--red);background:var(--red-soft)}
+
+/* Keep the completed-tour fallback action in the opening viewport on the
+   common 1024x720 desktop size. The spacious vertical card remains the
+   default; short, wide windows use the same content in a compact grid. */
+@media (min-width:900px) and (max-height:760px) {
+  .lp-home-empty-card {
+    display:grid !important;
+    grid-template-columns:54px minmax(0,1fr) auto;
+    grid-template-rows:auto auto auto;
+    align-items:center !important;
+    gap:4px 18px;
+    padding:18px 22px !important;
+    text-align:left !important;
+  }
+  .lp-home-empty-icon {
+    grid-column:1;
+    grid-row:1 / 3;
+    width:50px !important;
+    height:50px !important;
+    margin:0 !important;
+  }
+  .lp-home-empty-title { grid-column:2;grid-row:1;margin:0 !important; }
+  .lp-home-empty-copy {
+    grid-column:2;
+    grid-row:2;
+    max-width:460px !important;
+    margin:0 !important;
+    line-height:1.4 !important;
+  }
+  #btn-load-jobs { grid-column:3;grid-row:1 / 3;margin:0 !important; }
+  .lp-home-empty-steps {
+    grid-column:1 / -1;
+    grid-row:3;
+    justify-self:center;
+    margin-top:10px;
+  }
+}
+
+.lp-demo-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px}
+.lp-demo-chip{font:600 11px 'JetBrains Mono';padding:7px 11px;background:var(--panel2);
+  border:2px solid var(--border);border-radius:8px;color:var(--ink)}
+.lp-demo-cta{display:flex;flex-wrap:wrap;gap:10px}
+.lp-demo-primary{font:700 14px 'Space Grotesk';padding:11px 20px;
+  border:2px solid var(--orange-ink);border-radius:10px;background:var(--orange);
+  color:var(--on-signal);cursor:pointer}
+.lp-demo-ghost{font:600 13px 'Space Grotesk';padding:10px 16px;
+  border:2px solid var(--border);border-radius:10px;background:var(--panel);
+  color:var(--ink);cursor:pointer}
+
+.lp-demo-nav{display:flex;align-items:center;gap:12px}
+.lp-demo-dots{flex:1;display:flex;justify-content:center;gap:6px}
+.lp-demo-dots span{width:22px;height:4px;border-radius:3px;background:var(--line)}
+.lp-demo-dots span[data-on="true"]{background:var(--orange)}
+
+/* Degraded chapter: a bundled asset did not load. The copy is the payload and
+   the artifact is only the illustration, so the chapter still teaches. */
+.lp-demo-fallback{display:flex;align-items:center;gap:10px;padding:12px 14px;
+  background:var(--panel2);border:2px dashed var(--line);border-radius:10px;
+  font:500 12px 'JetBrains Mono';color:var(--muted)}
+
+@media (max-width:720px){
+  .lp-demo-grid,.lp-demo-study{grid-template-columns:1fr}
+  .lp-demo-h{font-size:21px}
+}
+
+/* --- consolidated status bar ----------------------------------------------
+   ONE bar. #proc-strip is gone: it was a second full-width bar pinned directly
+   above this footer, showing the same job, the same stage text and a second
+   progress fill at a different width -- 68px of stacked chrome that read as
+   broken. Its identity and open-action are the single button here.
+
+   Fixed 34px in every state on purpose: a variable-height fixed footer reflows
+   the main scroll area, and this bar changes state constantly while processing.
+   Static only -- no transitions, no will-change, no filters (AD-20). */
+#status-footer{display:flex;align-items:center;gap:12px;height:34px;flex:none;
+  padding:0 18px;background:var(--panel);border-top:2px solid var(--border);
+  position:relative;z-index:5}
+.lp-status-gap{flex:1}
+#status-chip{display:flex;align-items:center;gap:7px;flex:none;
+  font:600 11px 'JetBrains Mono';text-transform:uppercase;color:var(--muted)}
+#status-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+
+/* The only interactive element in the footer, so its accessible name is exactly
+   "Open <job>" rather than the engine string a full-width button would sweep
+   in. Focus ring is inset -- an outset ring would overflow 34px of chrome. */
+#status-job{display:flex;align-items:center;gap:10px;height:24px;
+  max-width:min(62%,760px);padding:0 8px;border:none;border-radius:7px;
+  background:transparent;color:var(--ink);font:inherit;cursor:pointer;text-align:left}
+#status-job:hover{background:var(--panel2)}
+#status-job:active{background:var(--sunk)}
+#status-job:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+#status-job-name{font:700 12px 'Space Grotesk';white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;max-width:240px}
+#status-queued{flex:none;font:600 10px 'JetBrains Mono';padding:2px 6px;border-radius:5px;
+  background:var(--panel2);color:var(--muted)}
+.lp-status-track{flex:none;width:150px;height:7px;border-radius:5px;overflow:hidden;
+  background:var(--sunk)}
+#status-bar{display:block;width:100%;height:100%;background-color:var(--orange);
+  transform:scaleX(0);transform-origin:left center}
+#status-detail{font:500 11px 'JetBrains Mono';color:var(--muted);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+#status-job svg{flex:none;color:var(--muted)}
+#status-right{flex:none;font:500 11px 'JetBrains Mono';color:var(--muted)}
+
+#status-footer[data-status="processing"] #status-dot{background:var(--orange)}
+#status-footer[data-status="processing"] #status-state{color:var(--orange-ink)}
+#status-footer[data-status="failed"] #status-dot{background:var(--red)}
+#status-footer[data-status="failed"] #status-state{color:var(--red)}
+#status-footer[data-status="failed"] #status-bar{background-color:var(--red)}
+
+/* --- AI Study preparation stages -------------------------------------------
+   The backend already emits seven named stages with real percentages; the old
+   panel showed one in a small title and discarded the rest, so a healthy run
+   read as frozen. Nothing below is invented reassurance -- every value comes
+   from the backend or the wall clock.
+   Static only (AD-20): the only moving things are text and step-wise widths.
+   No keyframes, no transitions, no will-change, no filters. */
+.lp-prep-meta{display:flex;align-items:baseline;gap:12px;margin-top:9px}
+#study-prep-pct{font:700 12px 'JetBrains Mono';color:var(--ink)}
+#study-prep-elapsed{font:500 11px 'JetBrains Mono';color:var(--muted)}
+
+.lp-prep-stages{display:flex;flex-direction:column;gap:9px;margin-top:16px}
+.lp-prep-stage{display:flex;align-items:flex-start;gap:10px}
+.lp-prep-marker{flex:none;width:13px;height:13px;margin-top:2px;border-radius:50%;
+  border:2px solid var(--line);background:var(--panel);box-sizing:border-box}
+.lp-prep-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.lp-prep-label{font:600 13px 'Space Grotesk';color:var(--ink)}
+.lp-prep-note{font:500 10px 'JetBrains Mono';color:var(--muted)}
+
+.lp-prep-stage[data-state="idle"]{opacity:.45}
+.lp-prep-stage[data-state="waiting"] .lp-prep-marker{border-color:var(--secondary-border);
+  background:var(--secondary-surface)}
+.lp-prep-stage[data-state="waiting"] .lp-prep-label{color:var(--secondary-text)}
+.lp-prep-stage[data-state="running"] .lp-prep-label{font-weight:700;color:var(--orange-ink)}
+.lp-prep-stage[data-state="running"] .lp-prep-marker{border-color:var(--orange);
+  background:var(--orange-soft)}
+.lp-prep-stage[data-state="complete"] .lp-prep-marker{border-color:var(--green);
+  background:var(--green)}
+.lp-prep-stage[data-state="complete"] .lp-prep-label{color:var(--muted)}
+
+/* The one stage that leaves the machine gets the secondary (cyan) treatment.
+   Making it visually distinct is the point: it is the difference between "this
+   app does web lookups" and "this app is doing one right now". */
+.lp-prep-stage[data-net="true"] .lp-prep-label{color:var(--secondary-text)}
+.lp-prep-stage[data-net="true"][data-state="running"] .lp-prep-marker{
+  border-color:var(--secondary-border);background:var(--secondary-surface)}
+.lp-prep-stage[data-net="true"] .lp-prep-note{color:var(--secondary-text)}
+
+.lp-prep-inputs{margin-top:15px;padding-top:12px;border-top:1.5px solid var(--line);
+  font:500 11px 'JetBrains Mono';color:var(--muted)}
+
+/* ===== SUBJECTS MANAGEMENT SCREEN & COVERAGE BARS ===== */
+.lp-subjects-screen {
+  animation: lprail var(--motion-seat) var(--motion-spring) both;
+}
+
+.subjects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.subject-card {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-hard-sm);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.subject-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  /* The Study button and the subject name were competing for one row, which
+     left the name about 150px in a 320px card -- narrow enough that a single
+     ordinary word like "Microeconomics" was forced to break mid-word. Let the
+     button drop to its own line instead of crushing the name. */
+  flex-wrap: wrap;
+}
+
+.subject-card-title-wrap {
+  display: flex;
+  /* A long subject name wraps; the rename pencil belongs beside the first
+     line, not floating in the middle of the block. */
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.subject-card-title {
+  font: 700 18px 'Space Grotesk';
+  color: var(--ink);
+  cursor: pointer;
+  border-bottom: 1.5px dashed transparent;
+  transition: border-color var(--motion-fast) var(--motion-ease);
+  /* Two lines is enough to identify a subject. Without a cap, one long name
+     wraps to five lines and that single card sets the height of its whole
+     grid row. The full name stays available via the title attribute. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* break-word, not anywhere: `anywhere` offers a break opportunity inside
+     every word when the flex item is measured, which split "Microeconomics"
+     across two lines in a card it fits in comfortably. This breaks a word only
+     when the word itself cannot fit. */
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+
+.subject-card-title:hover {
+  border-bottom-color: var(--blue);
+}
+
+.subject-rename-btn {
+  background: transparent;
+  border: none;
+  padding: 3px;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.subject-rename-btn:hover {
+  color: var(--ink);
+  background: var(--panel2);
+}
+
+.subject-card-meta {
+  font: 500 11px 'JetBrains Mono';
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.subject-study-btn {
+  font: 700 12px 'Space Grotesk';
+  background: var(--orange);
+  color: var(--on-signal);
+  border: 1.5px solid var(--orange-ink);
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.subject-coverage-section {
+  background: var(--sunk);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+/* Coverage Bar Components */
+.lp-coverage-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.lp-coverage-track {
+  flex: 1;
+  height: 7px;
+  background: var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.lp-coverage-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width var(--motion-slow) var(--motion-ease);
+}
+
+.lp-coverage-pct {
+  font: 700 10px 'JetBrains Mono';
+  color: var(--ink);
+  min-width: 28px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subject Member Lecture Rows */
+.subject-members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.subject-member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: var(--panel2);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  transition: background var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease);
+}
+
+.subject-member-row:hover {
+  background: var(--sunk);
+  border-color: var(--border);
+}
+
+.subject-member-name {
+  font: 600 12.5px 'Space Grotesk';
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subject-member-meta {
+  font: 500 10px 'JetBrains Mono';
+  color: var(--muted);
+}
+
+.subject-member-open {
+  font: 600 11px 'Space Grotesk';
+  padding: 4px 8px;
+  background: var(--panel);
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  color: var(--ink);
+  cursor: pointer;
+  flex: none;
+}
+
+/* Card Subject Badge & Inline Editing */
+.lp-subject-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 700 10.5px 'JetBrains Mono';
+  letter-spacing: .04em;
+  padding: 3px 7px;
+  background: var(--blue-soft);
+  border: 1.5px solid var(--blue-strong);
+  border-radius: 6px;
+  color: var(--blue-ink);
+  cursor: pointer;
+  transition: transform var(--motion-fast) var(--motion-spring), box-shadow var(--motion-fast) var(--motion-ease);
+}
+
+.lp-subject-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--btn-edge-hover);
+}
+
+.lp-subject-inline-input {
+  font: 700 11px 'JetBrains Mono';
+  outline: 2px solid var(--blue);
+  outline-offset: 0;
+}
+
+/* --- Study Scope Header & Group Study Polish --- */
+.study-scope-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 16px;
+  box-shadow: var(--shadow-soft);
+  flex: none;
+  flex-wrap: wrap;
+}
+.study-scope-header[hidden] { display: none; }
+.study-scope-left { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+.study-scope-badge-wrap { display: flex; flex-direction: column; gap: 2px; }
+.study-scope-type-label { font: 700 9px 'JetBrains Mono'; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.study-scope-subject-badge {
+  font: 700 13px 'JetBrains Mono';
+  color: var(--orange-ink);
+  background: var(--orange-soft);
+  border: 1.5px solid var(--orange);
+  border-radius: 6px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.study-scope-info { display: flex; flex-direction: column; min-width: 0; }
+.study-scope-title { font: 700 15px 'Space Grotesk'; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.study-scope-summary, .study-scope-meta { font: 500 11px 'JetBrains Mono'; color: var(--muted); margin-top: 2px; }
+
+.study-scope-center { display: flex; align-items: center; gap: 8px; flex: none; }
+.study-scope-switcher-wrap { display: flex; align-items: center; gap: 7px; }
+.study-scope-switcher-label { font: 600 11px 'JetBrains Mono'; text-transform: uppercase; color: var(--muted); }
+.study-scope-select {
+  font: 600 12px 'Space Grotesk';
+  background: var(--sunk);
+  color: var(--ink);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  max-width: 280px;
+  cursor: pointer;
+}
+.study-scope-select option:disabled { color: var(--muted); background: var(--panel); }
+
+.study-scope-right { display: flex; align-items: center; gap: 8px; flex: none; }
+.study-scope-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 11px 'Space Grotesk';
+  background: var(--panel);
+  color: var(--ink);
+  border: 1.5px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.study-scope-btn:hover { background: var(--panel2); border-color: var(--secondary-border); }
+
+/* Progressive Unlocking Banner */
+.study-progressive-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--orange-soft);
+  border: 1.5px solid var(--orange);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: var(--ink);
+  flex: none;
+}
+.study-progressive-banner[hidden] { display: none; }
+.study-progressive-banner-icon { color: var(--orange-ink); display: flex; align-items: center; flex: none; }
+.study-progressive-banner-text { font: 500 12px 'Space Grotesk'; line-height: 1.45; flex: 1; }
+
+/* Cross-Lecture Citations */
+.study-cross-lecture-citations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  width: 100%;
+}
+.study-citation-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+.study-citation-lecture-name {
+  font: 700 11px 'JetBrains Mono';
+  color: var(--secondary-text);
+  letter-spacing: .02em;
+}
+.study-citation-buttons { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* Transcript jump highlight */
+.transcript-target-highlight {
+  outline: 2px solid var(--orange);
+  background: var(--orange-soft) !important;
 }

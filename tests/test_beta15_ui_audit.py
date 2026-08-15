@@ -38,17 +38,18 @@ def test_d01_zero_jobs_renders_all_first_run_surfaces() -> None:
     assert 'id="home-empty"' in html
     assert 'id="home-demo"' in html
     assert 'id="dropzone"' in html
-    assert "demoHome.hidden = !firstRun &&" in app
+    assert "demoHome.hidden = !(demoAdmissionAvailable && tourEligibilityAllowsOffer())" in app
     assert "#home-demo" not in production.split("const productionScope", 1)[1].split("</style>", 1)[0]
 
 
 def test_d02_demo_uses_repaired_command_and_is_click_idempotent() -> None:
     app = read(APP)
-    demo = block(app, "function startGuidedDemo()", "function endGuidedDemo")
+    demo = block(app, "function runDemoForReal()", "function bindDemoScreen")
     assert "lpBridge.startDemoJob()" in demo
-    assert "current.status === 'starting' || current.status === 'cancelling'" in demo
-    assert "Could not start the guided demo." in demo
-    assert "card.disabled =" in block(app, "function renderDemoCard()", "function demoFlowPhase")
+    assert "current.status === 'starting' || current.active" in demo
+    assert "Could not start the demo lecture." in demo
+    assert "guidedDemo.isCurrentAttempt(attempt)" in demo
+    assert "card.disabled =" in block(app, "function renderDemoCard()", "function hideModelTooltip")
 
 
 def test_d03_paste_link_restored_when_packaged_runtime_available() -> None:
@@ -153,7 +154,12 @@ def test_d13_zero_job_action_bar_is_hidden() -> None:
     html = read(HTML)
     assert 'id="jobs-actionbar"' in html
     assert "actionBar.hidden = !!empty;" in app
-    assert 'id="btn-archive"' in html and 'id="btn-restore"' in html
+    # Archive/Restore used to sit in this bar as permanently-disabled controls.
+    # They had no handler and no backend command, so they only advertised two
+    # dead buttons -- and their tooltips still said "Beta 15" in 2.0.1. The bar
+    # now carries only controls that do something.
+    assert 'id="btn-archive"' not in html and 'id="btn-restore"' not in html
+    assert 'id="btn-select-mode"' in html
 
 
 def test_d14_global_save_is_hidden_but_specific_save_remains() -> None:

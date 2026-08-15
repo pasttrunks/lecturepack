@@ -418,6 +418,33 @@ Pack, close, reopen, confirm restoration, and confirm no flicker, renderer
 crash, or orphaned Python/FFmpeg/whisper processes. This gate must pass before
 the candidate is called Beta 15 or the remaining migration work begins.
 
+### Current approved phase -- AI-first Study production upgrade
+
+Deliverables: a first-party server gateway with server-owned provider routing
+and secrets; anonymous installation authentication; automatic two-pass
+lecture analysis and study-material generation; persisted schema-3 Study
+content and mastery; grounded Ask, Teach Me, semantic grading, targeted
+regeneration, and 5/10/20/Full Quick Study; explicit Basic fallback; six equal
+student-facing Study modes; provider-free UI; focused gateway, Python,
+sidecar/bridge, renderer, persistence, and live-provider contracts.
+
+Permitted implementation scope: `ai-gateway/`, Study services under
+`lecturepack/services/`, the Electron sidecar/bridge/renderer and narrow
+packaging configuration, focused tests, and the related architecture,
+decision, and handoff documentation.
+
+Non-goals: accounts, payments, BYOK, bundled local models, vector databases,
+agent frameworks, cloud transcription, telemetry, release publication, stable
+tags, or changes to original lecture media.
+
+Acceptance gate: all non-live automated tests and packaged sidecar/app checks
+must pass from disposable `C:\LecturePackScratch` roots; a real deployed
+gateway must then pass the opt-in real-provider smoke/content-quality test on
+the Polar Bears lecture, with no secrets in desktop artifacts, no persisted
+gateway payloads, and no orphaned application/sidecar/provider processes.
+Deployment and the real-provider gate are external approval steps and are not
+implied by a passing local/mock suite.
+
 ---
 
 ## 6. Acceptance Criteria

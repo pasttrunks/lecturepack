@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -27,6 +28,22 @@ def _load_module():
 
 
 m = _load_module()
+
+
+def _load_ai_study_module():
+    script_path = ROOT / "scripts" / "ai_study_packaged_acceptance.py"
+    spec = importlib.util.spec_from_file_location("ai_study_packaged_acceptance", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.pop(0)
+    return module
+
+
+ai_study = _load_ai_study_module()
 
 
 def _passing_checks(**overrides) -> dict:
@@ -219,3 +236,12 @@ def test_result_json_deterministic_and_machine_readable():
     failing = m.score_result(_passing_checks(job_started=False))
     assert m.dump_result(failing) != m.dump_result(first)
     assert set(json.loads(m.dump_result(failing))) == set(m.ACCEPTANCE_KEYS)
+
+
+def test_ai_study_privacy_detector_distinguishes_https_from_windows_paths():
+    demo = r"c:\lecturepackscratch\demo-lecture.mp4"
+    web_payload = json.dumps({"url": "https://example.edu/study/source"}).casefold()
+    path_payload = json.dumps({"path": r"C:\Users\student\lecture.mp4"}).casefold()
+
+    assert ai_study.contains_local_path(web_payload, demo) is False
+    assert ai_study.contains_local_path(path_payload, demo) is True

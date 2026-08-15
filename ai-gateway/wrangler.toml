@@ -1,0 +1,83 @@
+name = "lecturepack-ai-gateway"
+main = "src/index.js"
+compatibility_date = "2026-08-12"
+workers_dev = true
+
+[ai]
+binding = "AI"
+
+# Production D1 binding. NVIDIA_API_KEY, OPENROUTER_API_KEY,
+# TOKEN_SIGNING_SECRET, and NETWORK_HASH_SECRET are Worker secrets, never
+# plaintext vars.
+[[d1_databases]]
+binding = "DB"
+database_name = "lecturepack-study-prod"
+database_id = "0ddaa845-8302-48d9-8fec-7d601f8be82c"
+migrations_dir = "migrations"
+
+# Fast, permissive edge protection. Durable per-install/day enforcement is
+# additionally backed by D1 because this binding is intentionally eventually
+# consistent and local to a Cloudflare location.
+[[ratelimits]]
+name = "INSTALL_LIMITER"
+namespace_id = "21001"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "NETWORK_LIMITER"
+namespace_id = "21002"
+simple = { limit = 180, period = 60 }
+
+[[ratelimits]]
+name = "REGISTRATION_LIMITER"
+namespace_id = "21003"
+simple = { limit = 20, period = 60 }
+
+[vars]
+MIN_APP_VERSION = "2.0.1"
+DAILY_INSTALL_LIMIT = "250"
+TOKEN_TTL_DAYS = "90"
+MAX_REQUEST_BYTES = "3500000"
+OWNER_ALERT_EMAIL = "discordsammy2@gmail.com"
+ALERT_FROM_EMAIL = ""
+ALERT_COOLDOWN_SECONDS = "3600"
+TELEMETRY_RETENTION_DAYS = "30"
+ROUTE_FAILURE_THRESHOLD = "2"
+ROUTE_FAILURE_COOLDOWN_SECONDS = "300"
+
+# Models and route order are intentionally server-controlled. Benchmarks on
+# the production Study schemas select NVIDIA-hosted Llama 3.1 8B for text and
+# Nemotron Nano 12B v2 VL for vision. Native Workers AI and OpenRouter remain
+# independent fallbacks. OpenRouter stays first only for web_enrichment, which
+# depends on its bounded search annotations. Duplicate identical routes are
+# removed by the Worker.
+NVIDIA_PRIMARY_MODEL = "meta/llama-3.1-8b-instruct"
+NVIDIA_INTERACTIVE_MODEL = "meta/llama-3.1-8b-instruct"
+NVIDIA_VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl"
+NVIDIA_FIRST_TASKS = "lecture_analysis,study_material_generation,ask,teach_me,grade_short_answer,regenerate_concept,expand_concept_material,vision_slide"
+OPENROUTER_PRIMARY_MODEL = "openrouter/free"
+OPENROUTER_ASK_MODEL = "openrouter/free"
+OPENROUTER_TEACH_ME_MODEL = "openrouter/free"
+OPENROUTER_GRADE_SHORT_ANSWER_MODEL = "openrouter/free"
+OPENROUTER_FALLBACK_MODEL = "openrouter/free"
+OPENROUTER_VISION_MODEL = "openrouter/free"
+OPENROUTER_VISION_FALLBACK_MODEL = "openrouter/free"
+# Group synthesis routes to a STRONGER model than everything else, and is the
+# only task that does. Merging ten lectures into one map -- deciding which
+# concepts are the same idea taught twice and which build on each other -- is
+# the hardest reasoning the app asks for, and an 8B model is the wrong tool for
+# it. Every other task keeps its measured route untouched.
+#
+# group_analysis is deliberately absent from NVIDIA_FIRST_TASKS so it takes the
+# default OpenRouter-first order: it runs once per group and is cached, so the
+# better answer is worth more than the faster one.
+OPENROUTER_GROUP_ANALYSIS_MODEL = "openrouter/free"
+OPENROUTER_GROUP_ANALYSIS_FALLBACK_MODEL = "openrouter/free"
+WORKERS_AI_PRIMARY_MODEL = "@cf/openai/gpt-oss-20b"
+WORKERS_AI_INTERACTIVE_MODEL = "@cf/openai/gpt-oss-20b"
+WORKERS_AI_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+WORKERS_AI_FIRST_TASKS = ""
+GEMINI_PRIMARY_MODEL = "gemini-3.5-flash"
+GEMINI_INTERACTIVE_MODEL = "gemini-3.5-flash"
+GEMINI_VISION_MODEL = "gemini-3.5-flash"
+GEMINI_FIRST_TASKS = "study_material_generation,vision_slide"

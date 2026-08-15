@@ -99,7 +99,10 @@ def test_idle_status_never_says_transcribing_without_active_job() -> None:
     app = read(APP)
     # The friendly label only maps a raw backend stage to "Transcribing audio";
     # the terminal-status path above clears it. The idle default is "Idle".
-    assert "status-label\">Idle" in read(HTML)
+    # #status-label became #status-state when the two bottom bars were merged:
+    # it carries the STATE WORD only now, and #status-detail owns the stage
+    # text. Both bars used to print the stage, which is what made them clash.
+    assert "status-state\">Idle" in read(HTML)
     assert "friendlyProcessingLabel(s.label) || 'Idle'" in app
 
 
@@ -131,10 +134,18 @@ def test_demo_card_drag_restricted_to_thumbnail() -> None:
     assert "e.preventDefault(); return;" in drag
 
 
-def test_job_cards_are_not_draggable() -> None:
+def test_only_queueable_job_cards_are_draggable() -> None:
+    """Draggable now means "the pipeline can run on this": never-processed
+    lectures AND finished ones (which re-run). A lecture that is running,
+    paused or already in the queue stays undraggable."""
     app = read(APP)
     card = block(app, "function _jobCardHtml", "/* ==================== import from a link")
-    assert "draggable" not in card
+    assert "draggable ? 'draggable=\"true\" data-existing-job-drag=\"true\" ' : ''" in card
+    assert "cursor:' + (draggable ? 'grab' : 'pointer')" in card
+    assert "var draggable = _jobIsDraggable(j);" in card
+    # The Start/Options button row must stay on _jobIsReady: a finished lecture
+    # becoming draggable must not also grow a Start button.
+    assert "if (j.id && ready) {" in card
 
 
 # --------------------------------------------------------------------------- #
@@ -162,20 +173,27 @@ def test_sidecar_bundles_yt_dlp_extractors() -> None:
 def test_media_fetch_uses_normal_import_path() -> None:
     sidecar = read(SIDECAR)
     assert "def _import_media_url" in sidecar
-    assert "self._import_video(None, \"import_media_url\"" in sidecar
+    # The call is wrapped across lines now that it also carries captions_dir,
+    # so assert the parts rather than one contiguous string.
+    assert "self._import_video(" in sidecar
+    assert '"import_media_url"' in sidecar
+    assert '"captions_dir": d' in sidecar, (
+        "only the download path may hand captions to the importer"
+    )
     assert "QTimer.singleShot(0, self._poll_timer" in sidecar
     assert "MediaFetchCancelled" in sidecar
     assert "cancel_check=cancel.is_set" in sidecar
 
 
 # --------------------------------------------------------------------------- #
-# 6. Demo "New Job" card hides when processing starts
+# 6. Demo processing closes onboarding before the real run
 # --------------------------------------------------------------------------- #
 def test_demo_start_hides_new_job_overlay() -> None:
     app = read(APP)
-    demo = block(app, "function startGuidedDemo()", "function endGuidedDemo")
+    demo = block(app, "function runDemoForReal()", "function bindDemoScreen")
     assert "setOnb(null);" in demo
-    assert "setScreen('process'); renderGuidedTour();" in demo
+    assert "closeDemo('process');" in demo
+    assert "lpBridge.startDemoJob()" in demo
 
 
 def test_demo_onboarding_event_does_not_restore_new_job_overlay() -> None:
@@ -193,22 +211,20 @@ def test_demo_onboarding_event_does_not_restore_new_job_overlay() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 7. Guided-demo glow stays visible after navigation
+# 7. The legacy live-screen spotlight cannot return
 # --------------------------------------------------------------------------- #
-def test_tour_spotlight_keeps_minimum_box_after_navigation() -> None:
+def test_demo_has_no_live_screen_spotlight_geometry() -> None:
     app = read(APP)
-    spot = block(app, "function positionTourSpotlight()", "function renderGuidedTour()")
-    assert "minW = 120, minH = 40" in spot
-    assert "Math.max(minW, r.width)" in spot
-    assert "Math.max(minH, r.height)" in spot
-    assert "setTimeout(function () { scheduleTourGeometry(); }, 200)" in spot
+    for token in ("positionTourSpotlight", "positionTourCard", "scheduleTourGeometry"):
+        assert token not in app
 
 
-def test_tour_overlay_remains_visible_across_screens() -> None:
+def test_demo_is_a_real_screen_in_normal_navigation() -> None:
     app = read(APP)
-    render = block(app, "function renderGuidedTour()", "function offerGuidedTour")
-    assert "setTourOverlayHidden(!demoAdmissionAvailable || (!state.active && !state.prompt));" in render
-    assert "if (state.active) scheduleTourGeometry();" in render
+    html = read(HTML)
+    assert '<section data-screen="demo"' in html
+    assert "function openDemo(startAt)" in app
+    assert "setScreen('demo');" in block(app, "function openDemo(startAt)", "function closeDemo")
 
 
 # --------------------------------------------------------------------------- #

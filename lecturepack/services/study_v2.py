@@ -19,9 +19,12 @@ filesystem or AI.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import re
+import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -32,9 +35,20 @@ from lecturepack.services import transcript_store
 _LOGGER = logging.getLogger(__name__)
 _RUST_CORE_LOAD_ERROR = ""
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 CONTENT_FILENAME = "study-content-v2.json"
 PROGRESS_FILENAME = "study-progress-v2.json"
+PROGRESS_BACKUP_SUFFIX = ".bak"
+
+STUDY_PREPARING = "preparing"
+STUDY_READY = "ready"
+STUDY_FAILED = "failed"
+STUDY_BASIC = "basic"
+_STUDY_STATUSES = {STUDY_PREPARING, STUDY_READY, STUDY_FAILED, STUDY_BASIC}
+_PROVENANCE = {"lecture", "extra_context", "web_verified", "mixed"}
+_MASTERY = {"NEW", "LEARNING", "MASTERED", "NEEDS_REVIEW"}
+_LOCKS_GUARD = threading.Lock()
+_JOB_LOCKS: dict[str, threading.RLock] = {}
 
 # Emphasis signals from the transcript (deterministic, conservative).
 _EMPHASIS_PATTERNS = [
@@ -127,6 +141,12 @@ _STUDY_DETAIL_TITLE_WORDS = {
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _job_lock(job) -> threading.RLock:
+    key = os.path.abspath(str(job.paths["root"]))
+    with _LOCKS_GUARD:
+        return _JOB_LOCKS.setdefault(key, threading.RLock())
 
 
 def _clock(seconds: float) -> str:
@@ -243,11 +263,33 @@ def validate_sources(refs: list, segments: list, slides: list) -> list[dict[str,
 def empty_content() -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
+        "study_status": STUDY_PREPARING,
+        "generation_metadata": {
+            "stage": "Waiting for lecture",
+            "progress_percent": 0,
+            "last_error": None,
+            "diagnostics": {},
+        },
+        "lecture_summary": "",
+        "lecture_analysis": {},
         "concepts": [],
+        "key_terms": [],
+        "people": [],
+        "dates": [],
+        "study_guide": [],
         "flashcards": [],
         "quiz": [],
+        "misconceptions": [],
+        "quick_study_material": {
+            "five_minute": [], "ten_minute": [],
+            "twenty_minute": [], "full": [],
+        },
+        "teach_me_foundations": [],
+        "slide_interpretations": [],
+        "enrichment": [],
+        "cached_responses": [],
         "generated_at": None,
-        "provider": "builtin",
+        "provider": None,
     }
 
 
@@ -266,21 +308,56 @@ def load_content(job) -> dict[str, Any]:
     if not isinstance(data, dict):
         return empty_content()
     result = dict(data)
-    result.setdefault("schema_version", SCHEMA_VERSION)
-    for key in ("concepts", "flashcards", "quiz"):
+    try:
+        original_schema = int(result.get("schema_version") or 0)
+    except (TypeError, ValueError):
+        original_schema = 0
+    result["schema_version"] = SCHEMA_VERSION
+    defaults = empty_content()
+    for key, value in defaults.items():
+        if key not in result:
+            result[key] = value
+    for key in (
+            "concepts", "key_terms", "people", "dates", "study_guide",
+            "flashcards", "quiz", "misconceptions", "teach_me_foundations",
+            "slide_interpretations", "enrichment", "cached_responses"):
         if not isinstance(result.get(key), list):
             result[key] = []
+    if not isinstance(result.get("lecture_analysis"), dict):
+        result["lecture_analysis"] = {}
+    if not isinstance(result.get("quick_study_material"), dict):
+        result["quick_study_material"] = dict(defaults["quick_study_material"])
+    if not isinstance(result.get("generation_metadata"), dict):
+        result["generation_metadata"] = dict(defaults["generation_metadata"])
+    if result.get("study_status") not in _STUDY_STATUSES:
+        if result.get("concepts"):
+            result["study_status"] = (
+                STUDY_BASIC if result.get("provider") == "builtin" else STUDY_READY)
+        else:
+            result["study_status"] = STUDY_PREPARING
+    # V2 deterministic packs predate explicit Basic selection. Mark them so
+    # the sidecar may migrate them to AI automatically; an explicit Basic
+    # selection records ``basic_reason=user_selected`` and is never overridden.
+    if original_schema < SCHEMA_VERSION and result.get("provider") == "builtin":
+        meta = result["generation_metadata"]
+        meta.setdefault("basic_reason", "legacy_migration")
     return result
 
 
 def save_content(job, data: dict[str, Any]) -> None:
     clean = dict(data)
     clean["schema_version"] = SCHEMA_VERSION
-    FileManager.write_json_atomic(content_path(job), clean)
+    with _job_lock(job):
+        FileManager.write_json_atomic(content_path(job), clean)
 
 
 def load_progress(job) -> dict[str, Any]:
-    data = FileManager.read_json_safe(progress_path(job), None)
+    path = progress_path(job)
+    data = FileManager.read_json_safe(path, None)
+    if not isinstance(data, dict):
+        data = FileManager.read_json_safe(path + PROGRESS_BACKUP_SUFFIX, None)
+        if isinstance(data, dict):
+            _LOGGER.warning("Recovered Study mastery progress from rolling backup")
     if not isinstance(data, dict):
         return empty_progress()
     result = dict(data)
@@ -294,10 +371,49 @@ def load_progress(job) -> dict[str, Any]:
     return result
 
 
+def _write_progress_json(path: str, data: dict[str, Any]) -> None:
+    """Durably replace one Study progress generation on the same volume."""
+    path = os.path.abspath(path)
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{os.path.basename(path)}.", suffix=".tmp", dir=directory,
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            json.dump(data, handle, indent=4, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if descriptor != -1:
+            os.close(descriptor)
+        if os.path.exists(temporary):
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
+
+
 def save_progress(job, data: dict[str, Any]) -> None:
     clean = dict(data)
     clean["schema_version"] = SCHEMA_VERSION
-    FileManager.write_json_atomic(progress_path(job), clean)
+    # The lock is this branch's; the rolling backup is the cherry-picked fix.
+    # Both are required: the lock keeps two Study writers from interleaving, and
+    # the backup keeps a last-known-good generation of irreplaceable mastery
+    # data if the primary is ever truncated or corrupted.
+    with _job_lock(job):
+        path = progress_path(job)
+        backup_path = path + PROGRESS_BACKUP_SUFFIX
+        previous = FileManager.read_json_safe(path, None)
+        if isinstance(previous, dict):
+            _write_progress_json(backup_path, previous)
+        elif not isinstance(FileManager.read_json_safe(backup_path, None), dict):
+            # The first successful generation is also recoverable if the primary
+            # is later damaged before the student records a second result.
+            _write_progress_json(backup_path, clean)
+        _write_progress_json(path, clean)
 
 
 # --------------------------------------------------------------------------- #
@@ -449,11 +565,26 @@ def rank_review_concepts(job) -> list[str]:
         return []
 
 
-def build_quick_study_session(job) -> dict[str, Any]:
-    """Build a Quick Study session using the Rust core."""
+def build_quick_study_session(job, minutes: int | str = 10) -> dict[str, Any]:
+    """Build a deterministic 5/10/20-minute or full Quick Study session.
+
+    The Rust core remains the first source of ranking/session order. Python
+    deterministically truncates or extends that order from already-generated
+    content; Quick Study never makes another AI request.
+    """
     core = _rust_core()
     progress = load_progress(job)
     content = load_content(job)
+    raw_duration = str(minutes).strip().lower()
+    duration: int | str
+    if raw_duration == "full":
+        duration = "full"
+    else:
+        try:
+            duration = min((5, 10, 20), key=lambda value: abs(value - int(float(raw_duration))))
+        except (TypeError, ValueError):
+            duration = 10
+    base_items: list[dict[str, Any]] = []
     if core is None:
         ranked = rank_review_concepts(job)
         items = []
@@ -465,17 +596,73 @@ def build_quick_study_session(job) -> dict[str, Any]:
         for q in content.get("quiz", [])[:3]:
             items.append({"kind": "quiz", "id": q.get("id", ""),
                           "concept_id": (q.get("concept_ids") or [""])[0]})
-        session = {"started_at": _now_iso(), "items": items, "index": 0,
-                   "correct": 0, "total": 0}
-        progress["quick_study"] = session
-        save_progress(job, progress)
-        return session
-    try:
-        session = json.loads(core.build_quick_study_session(
-            json.dumps(progress), json.dumps(content), _now_iso()))
-    except Exception:
-        session = {"started_at": _now_iso(), "items": [], "index": 0,
-                   "correct": 0, "total": 0}
+        base_items = items
+    else:
+        try:
+            base = json.loads(core.build_quick_study_session(
+                json.dumps(progress), json.dumps(content), _now_iso()))
+            base_items = list(base.get("items") or [])
+        except Exception:
+            base_items = []
+
+    ranked = rank_review_concepts(job)
+    key = {5: "five_minute", 10: "ten_minute", 20: "twenty_minute"}.get(
+        duration, "full")
+    planned = content.get("quick_study_material", {}).get(key, []) or []
+    concept_ids = []
+    for cid in list(ranked) + list(planned):
+        cid = str(cid or "")
+        if cid and cid not in concept_ids:
+            concept_ids.append(cid)
+    for concept in content.get("concepts", []):
+        cid = str(concept.get("id") or "")
+        if cid and cid not in concept_ids:
+            concept_ids.append(cid)
+
+    candidates = list(base_items)
+    candidates.extend({"kind": "concept", "id": cid, "concept_id": cid}
+                      for cid in concept_ids)
+    rank_index = {cid: index for index, cid in enumerate(concept_ids)}
+    cards = sorted(content.get("flashcards", []), key=lambda card: min(
+        (rank_index.get(str(cid), len(rank_index))
+         for cid in card.get("concept_ids", []) or [""]), default=len(rank_index)))
+    questions = sorted(content.get("quiz", []), key=lambda question: min(
+        (rank_index.get(str(cid), len(rank_index))
+         for cid in question.get("concept_ids", []) or [""]), default=len(rank_index)))
+    candidates.extend({
+        "kind": "flashcard", "id": str(card.get("id") or ""),
+        "concept_id": str((card.get("concept_ids") or [""])[0]),
+    } for card in cards)
+    candidates.extend({
+        "kind": "quiz", "id": str(question.get("id") or ""),
+        "concept_id": str((question.get("concept_ids") or [""])[0]),
+    } for question in questions)
+    items = []
+    seen = set()
+    quick_quiz_ids = {
+        str(question.get("id") or "") for question in questions
+        if str(question.get("qtype") or "multiple_choice") != "short_answer"
+    }
+    for item in candidates:
+        marker = (str(item.get("kind") or ""), str(item.get("id") or ""))
+        if not all(marker) or marker in seen:
+            continue
+        # Semantic short answers require a live grading request and therefore
+        # stay in Quiz. Quick Study is a zero-AI replay of saved material.
+        if marker[0] == "quiz" and marker[1] not in quick_quiz_ids:
+            continue
+        seen.add(marker)
+        items.append({
+            "kind": marker[0], "id": marker[1],
+            "concept_id": str(item.get("concept_id") or ""),
+        })
+    target = None if duration == "full" else {5: 5, 10: 10, 20: 20}[duration]
+    if target is not None:
+        items = items[:target]
+    session = {
+        "started_at": _now_iso(), "items": items, "index": 0,
+        "correct": 0, "total": 0, "duration_minutes": duration,
+    }
     progress["quick_study"] = session
     save_progress(job, progress)
     return session
@@ -1168,8 +1355,13 @@ def generate_deterministic_content(job) -> dict[str, Any]:
         concepts.append({
             "id": concept_id,
             "title": candidate["title"],
+            "importance": 5 if candidate["index"] in emphasized else 3,
             "explanation": _compact_study_text(text, 220),
+            "related_concept_ids": [],
             "sources": source_refs,
+            "lecture_sources": source_refs,
+            "web_sources": [],
+            "provenance": "lecture",
             "emphasis": "emphasized" if candidate["index"] in emphasized else None,
         })
 
@@ -1185,8 +1377,12 @@ def generate_deterministic_content(job) -> dict[str, Any]:
             "id": f"f{ci}",
             "front": front,
             "back": explanation,
+            "difficulty": "core",
             "concept_ids": [cid],
             "sources": concept["sources"],
+            "lecture_sources": concept["sources"],
+            "web_sources": [],
+            "provenance": "lecture",
         })
 
     # Build statement-based questions.  Distractors are other lecture claims,
@@ -1226,19 +1422,80 @@ def generate_deterministic_content(job) -> dict[str, Any]:
             "qtype": "multiple_choice",
             "options": options,
             "correct_index": correct_index,
+            "accepted_answers": [],
+            "rubric": "Select the statement that matches the cited lecture evidence.",
             "explanation": (
                 f"This matches the lecture's discussion of {title}; the other "
                 "choices describe different lecture concepts."
             ),
             "concept_ids": [cid],
             "sources": concept["sources"],
+            "lecture_sources": concept["sources"],
+            "web_sources": [],
+            "provenance": "lecture",
         })
 
+    all_concept_ids = [concept["id"] for concept in concepts]
+    lecture_summary = _compact_study_text(
+        " ".join(str(segment.get("text") or "") for segment in segments), 700)
+    study_guide = [{
+        "heading": concept["title"],
+        "body": concept["explanation"],
+        "concept_ids": [concept["id"]],
+        "sources": concept["sources"],
+        "lecture_sources": concept["sources"],
+        "web_sources": [],
+        "provenance": "lecture",
+    } for concept in concepts]
+    teach_me = [{
+        "concept_id": concept["id"],
+        "concept_ids": [concept["id"]],
+        "explanation": concept["explanation"],
+        "analogy": "Use the cited lecture explanation as the starting point, then compare it with a familiar example.",
+        "check_question": f"How would you explain {concept['title']} in your own words?",
+        "rubric": "The answer should capture the main claim supported by the cited lecture segment.",
+        "sources": concept["sources"],
+        "lecture_sources": concept["sources"],
+        "web_sources": [],
+        "provenance": "lecture",
+    } for concept in concepts]
     return {
         "schema_version": SCHEMA_VERSION,
+        "study_status": STUDY_BASIC,
+        "generation_metadata": {
+            "stage": "Basic Study ready",
+            "progress_percent": 100,
+            "last_error": None,
+            "diagnostics": {},
+            "basic_reason": "user_selected",
+        },
+        "lecture_summary": lecture_summary,
+        "lecture_analysis": {},
         "concepts": concepts,
+        "key_terms": [{
+            "label": term,
+            "detail": "A recurring term in the lecture transcript.",
+            "concept_ids": [],
+            "lecture_sources": [],
+            "web_sources": [],
+            "provenance": "lecture",
+        } for term in _key_terms(segments, limit=12)],
+        "people": [],
+        "dates": [],
+        "study_guide": study_guide,
         "flashcards": flashcards,
         "quiz": quiz,
+        "misconceptions": [],
+        "quick_study_material": {
+            "five_minute": all_concept_ids[:3],
+            "ten_minute": all_concept_ids[:6],
+            "twenty_minute": all_concept_ids[:10],
+            "full": all_concept_ids,
+        },
+        "teach_me_foundations": teach_me,
+        "slide_interpretations": [],
+        "enrichment": [],
+        "cached_responses": [],
         "generated_at": _now_iso(),
         "provider": "builtin",
     }
@@ -1262,8 +1519,214 @@ def ensure_study_v2(job) -> dict[str, Any]:
     if not segments:
         return existing
     content = generate_deterministic_content(job)
+    content["generation_metadata"]["basic_reason"] = "legacy_migration"
     save_content(job, content)
     return content
+
+
+def update_generation_state(job, *, stage: str, progress_percent: int,
+                            request_id: str = "",
+                            last_successful_stage: str = "") -> dict[str, Any]:
+    """Persist a compact background-generation state in the Study package."""
+    with _job_lock(job):
+        content = load_content(job)
+        content["study_status"] = STUDY_PREPARING
+        metadata = content.setdefault("generation_metadata", {})
+        metadata.update({
+            "stage": str(stage or "Preparing study materials")[:160],
+            "progress_percent": max(0, min(99, int(progress_percent))),
+            "last_error": None,
+            "updated_at": _now_iso(),
+        })
+        if request_id:
+            metadata["request_id"] = str(request_id)[:128]
+        if last_successful_stage:
+            metadata["last_successful_stage"] = str(last_successful_stage)[:160]
+        save_content(job, content)
+        return content
+
+
+def _clean_diagnostics(diagnostics: Any) -> dict[str, Any]:
+    # Keep one diagnostics allowlist at the desktop/gateway boundary. The
+    # local import avoids making the deterministic Study module depend on the
+    # gateway during module initialization.
+    from lecturepack.services.ai_gateway import sanitize_diagnostics
+
+    return sanitize_diagnostics(diagnostics)
+
+
+def mark_generation_failed(job, *, code: str, message: str,
+                           diagnostics: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Persist a safe failure without discarding existing Basic material."""
+    with _job_lock(job):
+        content = load_content(job)
+        metadata = content.setdefault("generation_metadata", {})
+        clean_diagnostics = _clean_diagnostics({
+            **(diagnostics or {}),
+            "error_category": str(code or "generation_failed")[:80],
+        })
+        metadata.update({
+            "stage": "Study AI needs attention",
+            "progress_percent": int(metadata.get("progress_percent") or 0),
+            "last_error": {
+                "code": str(code or "generation_failed")[:80],
+                "message": str(message or "Study AI could not prepare this lecture.")[:500],
+                "timestamp": _now_iso(),
+            },
+            "diagnostics": clean_diagnostics,
+            "updated_at": _now_iso(),
+        })
+        if content.get("study_status") != STUDY_BASIC:
+            content["study_status"] = STUDY_FAILED
+        save_content(job, content)
+        return content
+
+
+def preserve_mastery_for_replacement(job, old_content: dict[str, Any],
+                                     new_content: dict[str, Any]) -> dict[str, Any]:
+    """Map mastery to regenerated concepts by stable id, then normalized title.
+
+    Old entries remain in the history; regeneration never deletes attempts or
+    resets a mastered concept merely because an AI wording/id changed.
+    """
+    progress = load_progress(job)
+    entries = progress.setdefault("concepts", {})
+    old_by_title = {
+        re.sub(r"[^a-z0-9]+", " ", str(item.get("title") or "").casefold()).strip():
+        str(item.get("id") or "")
+        for item in old_content.get("concepts", [])
+        if item.get("id") and item.get("title")
+    }
+    changed = False
+    for concept in new_content.get("concepts", []):
+        concept_id = str(concept.get("id") or "")
+        if not concept_id or concept_id in entries:
+            continue
+        title_key = re.sub(
+            r"[^a-z0-9]+", " ", str(concept.get("title") or "").casefold()).strip()
+        old_id = old_by_title.get(title_key, "")
+        if old_id and old_id in entries:
+            entry = dict(entries[old_id])
+            entry["concept_id"] = concept_id
+            entry["migrated_from"] = old_id
+            entries[concept_id] = entry
+            changed = True
+    if changed:
+        save_progress(job, progress)
+    return progress
+
+
+def replace_ai_content(job, content: dict[str, Any], *,
+                       diagnostics: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Atomically install validated AI content while preserving user state."""
+    with _job_lock(job):
+        old = load_content(job)
+        clean = dict(content)
+        clean["schema_version"] = SCHEMA_VERSION
+        clean["study_status"] = STUDY_READY
+        clean["provider"] = "gateway"
+        clean["generated_at"] = _now_iso()
+        metadata = dict(clean.get("generation_metadata") or {})
+        metadata.update({
+            "stage": "Study materials ready",
+            "progress_percent": 100,
+            "last_error": None,
+            "diagnostics": _clean_diagnostics(diagnostics),
+            "updated_at": _now_iso(),
+        })
+        clean["generation_metadata"] = metadata
+        if not clean.get("cached_responses"):
+            clean["cached_responses"] = list(old.get("cached_responses") or [])[-24:]
+        preserve_mastery_for_replacement(job, old, clean)
+        save_content(job, clean)
+        return load_content(job)
+
+
+def use_basic_study(job) -> dict[str, Any]:
+    """Explicit, deterministic fallback. No network or provider is involved."""
+    old = load_content(job)
+    content = generate_deterministic_content(job)
+    content["generation_metadata"]["basic_reason"] = "user_selected"
+    content["cached_responses"] = list(old.get("cached_responses") or [])[-24:]
+    preserve_mastery_for_replacement(job, old, content)
+    save_content(job, content)
+    return load_content(job)
+
+
+def set_manual_mastery(job, concept_id: str, mastery: str) -> dict[str, Any]:
+    """Let the learner explicitly set one of the four canonical states."""
+    mastery = str(mastery or "").upper()
+    if mastery not in _MASTERY:
+        raise ValueError("invalid mastery state")
+    concept_id = str(concept_id or "")
+    if not concept_id or not any(
+            str(item.get("id") or "") == concept_id
+            for item in load_content(job).get("concepts", [])):
+        raise ValueError("concept not found")
+    with _job_lock(job):
+        progress = load_progress(job)
+        entry = progress.setdefault("concepts", {}).setdefault(concept_id, {
+            "concept_id": concept_id,
+            "attempts": 0,
+            "correct": 0,
+            "incorrect": 0,
+            "last_reviewed": None,
+            "next_review": None,
+            "mastery": "NEW",
+        })
+        entry["mastery"] = mastery
+        entry["manual"] = True
+        entry["last_reviewed"] = _now_iso()
+        save_progress(job, progress)
+        return progress
+
+
+def _prompt_key(kind: str, prompt: str, concept_ids: list[str]) -> str:
+    source = json.dumps({
+        "kind": str(kind),
+        "prompt": re.sub(r"\s+", " ", str(prompt or "").strip().casefold()),
+        "concept_ids": sorted(str(value) for value in concept_ids),
+    }, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def find_cached_response(job, kind: str, prompt: str,
+                         concept_ids: list[str]) -> dict[str, Any] | None:
+    if not concept_ids:
+        return None
+    key = _prompt_key(kind, prompt, concept_ids)
+    for item in reversed(load_content(job).get("cached_responses", [])):
+        if item.get("key") == key and isinstance(item.get("response"), dict):
+            return dict(item["response"])
+    return None
+
+
+def cache_concept_response(job, kind: str, prompt: str,
+                           concept_ids: list[str], response: dict[str, Any]) -> None:
+    """Cache bounded concept-linked responses; never keep generic chat logs."""
+    concept_ids = [str(value) for value in concept_ids if str(value)]
+    if not concept_ids or kind not in {"ask", "teach_me"} or not isinstance(response, dict):
+        return
+    try:
+        encoded = json.dumps(response, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return
+    if len(encoded) > 30000:
+        return
+    with _job_lock(job):
+        content = load_content(job)
+        key = _prompt_key(kind, prompt, concept_ids)
+        items = [item for item in content.get("cached_responses", [])
+                 if item.get("key") != key]
+        items.append({
+            "key": key,
+            "kind": kind,
+            "concept_ids": concept_ids[:6],
+            "response": response,
+            "updated_at": _now_iso(),
+        })
+        content["cached_responses"] = items[-24:]
+        save_content(job, content)
 
 
 # --------------------------------------------------------------------------- #
@@ -1314,19 +1777,55 @@ def update_concept(job, concept_id: str, *, title: str | None = None,
 
 
 def delete_concept(job, concept_id: str) -> bool:
-    """Delete one concept and its associated cards/questions."""
-    content = load_content(job)
-    before = len(content.get("concepts", []))
-    content["concepts"] = [c for c in content.get("concepts", [])
-                           if c.get("id") != concept_id]
-    content["flashcards"] = [f for f in content.get("flashcards", [])
-                             if concept_id not in (f.get("concept_ids") or [])]
-    content["quiz"] = [q for q in content.get("quiz", [])
-                       if concept_id not in (q.get("concept_ids") or [])]
-    if len(content["concepts"]) == before:
-        return False
-    save_content(job, content)
-    return True
+    """Delete one concept and every generated dependency, preserving history."""
+    concept_id = str(concept_id or "")
+    with _job_lock(job):
+        content = load_content(job)
+        before = len(content.get("concepts", []))
+        content["concepts"] = [c for c in content.get("concepts", [])
+                               if str(c.get("id") or "") != concept_id]
+        if len(content["concepts"]) == before:
+            return False
+
+        def without_dependency(items: Any) -> list[dict[str, Any]]:
+            return [item for item in items if isinstance(item, dict)
+                    and concept_id not in {
+                        str(value) for value in item.get("concept_ids", []) or []
+                    }]
+
+        for key in ("flashcards", "quiz", "study_guide", "teach_me_foundations",
+                    "key_terms", "people", "dates", "misconceptions"):
+            content[key] = without_dependency(content.get(key, []))
+        content["cached_responses"] = without_dependency(
+            content.get("cached_responses", []))
+        content["enrichment"] = [
+            item for item in content.get("enrichment", [])
+            if isinstance(item, dict) and str(item.get("concept_id") or "") != concept_id
+        ]
+        for key, values in list((content.get("quick_study_material") or {}).items()):
+            content["quick_study_material"][key] = [
+                value for value in values or [] if str(value) != concept_id
+            ]
+        analysis = content.get("lecture_analysis")
+        if isinstance(analysis, dict):
+            analysis["concepts"] = [
+                item for item in analysis.get("concepts", [])
+                if isinstance(item, dict) and str(item.get("id") or "") != concept_id
+            ]
+            analysis["relationships"] = [
+                item for item in analysis.get("relationships", [])
+                if isinstance(item, dict)
+                and str(item.get("from_concept_id") or "") != concept_id
+                and str(item.get("to_concept_id") or "") != concept_id
+            ]
+        for slide in content.get("slide_interpretations", []):
+            if isinstance(slide, dict):
+                slide["concept_ids"] = [
+                    value for value in slide.get("concept_ids", []) or []
+                    if str(value) != concept_id
+                ]
+        save_content(job, content)
+        return True
 
 
 def update_flashcard(job, card_id: str, *, front: str | None = None,

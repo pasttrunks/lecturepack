@@ -2,6 +2,307 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-53: Guided-demo output and its recovery UI are exact packaged contracts
+
+**Date:** 2026-08-12
+
+**Status:** Implemented and packaged-accepted
+
+**Context:** The guided tour worked from source and its five navigation steps
+passed the packaged acceptance gate, but the Windows package contained only the
+demo video and thumbnail. The renderer loads the prebuilt tour from
+`resources/assets/demo`; its data module, hero, and slide images instead lived
+under `app/assets/demo` and were never copied there. Every chapter silently
+fell back to “preview unavailable,” yet the gate remained green because it
+only tested navigation. Subsequent visual inspection also found three recovery
+states that functional checks missed: the completed-tour fallback action could
+sit below a 1024x720 viewport, quiz correctness was conveyed only by color, and
+demo cleanup could leave `Idle` beside a stale `Detecting slides` footer label.
+
+**Decision:** Treat the guided-demo output as release payload, not optional
+decoration:
+
+- The Electron packager copies the curated data module, hero, slides,
+  thumbnail, and provenance file to the renderer's exact
+  `resources/assets/demo` path. The separately packaged canonical demo video
+  is excluded from that copy.
+- Release validation fails before artifact publication if any required guided
+  asset is absent. Packaged acceptance requires the real data object, decoded
+  hero/slides (`naturalWidth > 0`), transcript rows, flashcard copy, quiz
+  options, and zero degraded fallbacks.
+- The responsive gate enters the tour through Settings' shipped Replay action,
+  never through a private renderer function. It covers Demo, Home, Review, and
+  Study at all three supported compact sizes.
+- A zero-job demo action must be visible at 1024x720 both on first run and
+  after tour completion. The completed-tour empty card switches to a compact
+  horizontal layout at short desktop heights.
+- Demo quiz choices expose pressed/correctness state and a textual live result.
+  Returning to an empty workspace restores the last authoritative runtime
+  backend label, clearing any stale processing stage.
+
+**Alternatives considered:**
+
+- Move the source assets into `electron-spike/assets`: rejected because the
+  curated demo belongs to the app and that would duplicate its ownership.
+- Keep graceful fallback as sufficient release behavior: rejected because a
+  fallback is useful for corruption recovery but is not the promised demo.
+- Call renderer internals from CDP to simplify the responsive gate: rejected
+  because those functions intentionally live inside an IIFE and users cannot
+  invoke them.
+- Make the empty state shorter by dropping explanatory content: rejected; the
+  compact grid keeps the same information and moves the action into view.
+
+**Acceptance record:** A rebuilt packaged candidate passed its native runtime
+self-test and the expanded stable gate with zero failures, 26 screenshots,
+complete prebuilt content (two decoded slides, two transcript rows, four quiz
+options, and no fallback), both 1024x720 zero-job action states, all 12
+responsive screen/size cases, cleanup finality, and zero orphan processes.
+
+## AD-52: Clean-machine acceptance uses a persisted job and always unwinds its install
+
+**Date:** 2026-08-12
+
+**Status:** Implemented and installer/portable-accepted
+
+**Context:** The clean-machine validator installed the exact 2.0.1 artifact and
+then imported its test media with `bundled_demo=true`. That flag correctly
+creates a temporary guided-demo session. Automatic export completes the demo
+and removes its job, so the validator's later transcript request addressed a
+job that was intentionally gone. The resulting assertion failure also exposed
+that an early validator exit could leave its disposable per-user installation,
+uninstall record, and Send To shortcut behind.
+
+**Decision:** Keep lifecycle ownership explicit between release gates. The
+packaged stable gate owns the guided-demo contract, including automatic final
+cleanup. Clean-machine acceptance imports the installed media as a normal job
+because it must inspect persisted transcript and export state after completion.
+The acceptance entry point wraps every run in a `finally` cleanup that invokes
+the exact test installation's uninstaller; the normal success path uses the
+same checked helper.
+
+**Alternatives considered:**
+
+- Disable guided-demo cleanup during validation: rejected because it would
+  prove behavior users never receive and weaken the cleanup contract.
+- Race transcript inspection before automatic cleanup: rejected because the
+  result would depend on scheduling and would not validate normal persistence.
+- Leave failed installs for manual diagnosis: rejected because release tests
+  must not pollute the user's registry, Send To menu, or installed programs.
+
+**Rationale:** A validator should test the intended lifecycle rather than rely
+on stale implementation timing, and failure evidence must not alter the host
+machine after the run ends.
+
+**Acceptance record:** The exact installer subsequently passed packaged
+self-test, a real normal lecture, Study data, all 13 exports, host launch and
+restore, clean sidecar exit, zero orphan processes, and uninstall exit 0. The
+install directory, uninstall registry entry, and Send To shortcut were absent
+afterward. A disposable extraction of the exact portable ZIP also passed all
+nine fault-injection scenarios with zero remaining processes. A separate run
+then forced an immediate active-job completion timeout: it exited nonzero as
+intended, killed the exact spawned sidecar tree, uninstalled, and again left no
+process, install directory, uninstall record, or Send To shortcut.
+
+## AD-51: Release visual evidence must prove unobscured minimum-width layouts
+
+**Date:** 2026-08-12
+
+**Status:** Implemented and packaged-accepted
+
+**Context:** The stable packaged gate exercised the real Electron host and
+captured screenshots, but its programmatic canonical import left the real batch
+setup dialog open. The functional assertions passed while that dialog obscured
+Review and Study in several screenshots. Once the dialog was closed, a new
+geometry probe found a separate product defect at the supported 640x480 window
+minimum: Review's timeline header was 544 pixels wide inside a 400-pixel main
+pane. The application's intentional `overflow-x:hidden` made the legend and job
+switcher unreachable without producing a page scrollbar.
+
+**Decision:** Treat unobscured screenshots and renderer geometry as one release
+contract:
+
+- The packaged harness closes the import dialog through its real visible Close
+  control before starting the explicit auto-export job, and records a failed
+  check if an unexpected modal remains over Process, Review, Transcript, or
+  Study.
+- The gate resizes the real BrowserWindow to 640x480, 820x600, and 1024x720.
+  At each size it visits Home, Review, and Study; captures a screenshot; and
+  rejects document, header, main, active-screen, or footer horizontal overflow,
+  clipped header controls, clipped screen controls, and unexpected dialogs.
+- Review's timeline header has named layout hooks. At 700 pixels and below its
+  metadata and legend wrap, its spacer is removed, and the shared lecture
+  switcher receives a full final row with an ellipsized name.
+- The Windows package contains the repository MIT `LICENSE` as an explicit
+  release resource and release hardening tests require it.
+
+**Alternatives considered:**
+
+- Rely on screenshots alone: rejected because clipped content can sit outside
+  the capture and an opaque modal can still look like a valid intentional UI.
+- Rely on `scrollWidth` alone: rejected because an overlay can obscure an
+  otherwise perfect layout and still produce equal client/scroll widths.
+- Raise Electron's minimum width: rejected because 640x480 is already a
+  supported product contract and the header, Home, and Study work at that size.
+- Hide the Review legend or lecture switcher: rejected because both retain
+  useful state/navigation value and fit when the header is allowed to wrap.
+
+**Rationale:** Release evidence now measures what the student can actually see
+and reach, not merely whether background operations completed. The minimum
+window remains supported without silently clipping controls, while larger
+layouts are unchanged.
+
+**Acceptance record:** The rebuilt 2.0.1 packaged candidate passed all 9 layout
+cases with exact main/active scroll equality, including 400/400 pixels for
+Review at 640x480. The full stable gate passed with 21 screenshots and no
+failures. The resulting unsigned artifacts are recorded in the current release
+handoff; signing remains an external credential gate.
+
+## AD-50: Asynchronous Study work uses per-job cancellation epochs
+
+**Date:** 2026-08-12
+
+**Status:** Implemented and packaged-accepted
+
+**Context:** Guided-demo cleanup could delete its temporary job while the
+background Study worker was still awaiting a provider. A late callback then
+persisted `study-content-v2.json` and recreated the deleted job directory. The
+same lifecycle risk applied to normal deletion, bulk deletion, reset, partial
+regeneration, and interactive Ask/Teach/grade work. Deleting the current files
+was therefore not a final state.
+
+**Decision:** The sidecar owns a monotonically increasing Study epoch for each
+job. Starting work captures the current epoch; demo cleanup, single/bulk
+deletion, and reset advance it. Full generation and partial regeneration check
+the cancellation predicate before provider work, after provider work, and
+before persistence. Interactive Study requests are tracked by job so their late
+completion can be discarded too. `AIStudyService` treats cancellation as a
+terminal non-error and does not persist a provider failure after the job has
+been cancelled.
+
+If a cancelled callback still creates a late directory, cleanup may remove only
+the exact safe `<data>/jobs/<job-id>` path and only when it is manifest-less. A
+directory containing a valid job manifest is never purged by this tombstone
+path.
+
+**Alternatives considered:**
+
+- Join every worker before deleting: rejected because provider/network calls
+  can outlive a UI action and would make deletion or reset block for minutes.
+- Use one global cancellation flag: rejected because deleting one lecture must
+  not cancel or invalidate Study work for another lecture.
+- Ignore late completion only in the renderer: rejected because the stale
+  worker would still recreate durable files and reappear after restart.
+- Delete any matching directory after a delay: rejected because a recreated
+  valid job with the same id must not be destroyed.
+
+**Rationale:** Epochs make deletion final without blocking the UI or depending
+on provider cancellation support. The persistence service and sidecar agree on
+the same cancellation boundary, and the manifest guard confines cleanup to the
+specific late-write tombstone case.
+
+**Acceptance record:** Regression tests force a delayed Study write after demo
+cleanup and a delayed provider failure after cancellation; neither can
+resurrect or mutate the deleted job. The stable packaged gate also waits until a
+normal Smart Study reaches ready before asserting that guided-demo cleanup is
+still final, well beyond the original resurrection window.
+
+## AD-47: Put full-schema benchmarked NVIDIA routes first and cool down unhealthy routes
+
+**Date:** 2026-08-12
+
+**Status:** Implemented, deployed, and live-accepted
+
+**Context:** The deployed AI-first Study gateway used OpenRouter first for most
+interactive tasks and native Workers AI first for long-form generation. Its
+payload-free D1 records showed frequent OpenRouter deadline failures and mean
+successful Workers AI latency around 4-7 seconds for interactive work,
+51 seconds for lecture analysis, and 28 seconds for material generation. The
+owner supplied an NVIDIA API key through the Windows user environment and asked
+for Study to use the fastest available AI. A tiny Ask response alone was not
+enough evidence because LecturePack requires large, strict JSON schemas for its
+two build passes and a real selected-slide image contract.
+
+**Decision:** Keep all provider selection server-side and add NVIDIA's hosted
+NIM endpoint as a third independent failure domain. Use
+`meta/llama-3.1-8b-instruct` for text and
+`nvidia/nemotron-nano-12b-v2-vl` for selected-slide vision. NVIDIA is first for
+analysis, material generation, Ask, Teach Me, grading, concept regeneration,
+and vision; native Workers AI and OpenRouter follow on independent hosts.
+OpenRouter remains first for `web_enrichment` because its bounded URL
+annotations are the only configured web-citation authority.
+
+The selection is based on live, schema-valid Polar Bears tests. NVIDIA-hosted
+Llama 3.1 8B completed Ask in about 0.7 seconds, lecture analysis in about
+7 seconds, and the full minimum Study system in about 22 seconds. The selected
+vision model completed the real bundled-slide schema in about 6.7 seconds.
+Every result passed the existing gateway validator, including two guide
+sections, two flashcards, all three quiz types, Teach Me content, and grounding
+fields. Faster-looking catalog entries that returned 400/404, malformed JSON,
+or exceeded the bounded full-schema timeout were rejected.
+
+Route IDs are provider-stable rather than position-based. Two consecutive
+failures within five minutes place a route behind healthy fallbacks while
+retaining it as the last recovery attempt. This circuit state uses the existing
+payload-free `provider_health` table. Per-provider route deadlines cap the
+three-route long-form worst case at 160 seconds, leaving room inside the
+desktop client's 175-second deadline.
+
+**Alternatives considered:**
+
+- Racing multiple providers and accepting the first response: rejected because
+  it sends the same lecture evidence to multiple providers, increases cost,
+  and conflicts with the payload-minimizing boundary.
+- Selecting from a one-line latency probe: rejected because several models
+  were fast on Ask but slow or invalid on the full Study schemas.
+- Using Nemotron 3.5 Lightning or Nemotron Nano 9B for all text work: rejected
+  because the measured full analysis/material paths were substantially slower,
+  including one 120-second timeout.
+- Changing models through the renderer or NVIDIA website at request time:
+  rejected because provider/model input remains forbidden in the desktop and
+  the saved key already had the required hosted-model access.
+
+**Rationale:** A measured sequential fastest-first chain materially reduces
+normal Study latency while preserving strict validation, three independent
+hosts, honest fallback behavior, and the existing privacy boundary. A short
+metadata-only cooldown prevents a repeatedly failing primary from adding the
+same timeout to every student request.
+
+**Official NVIDIA contracts checked 2026-08-12:**
+
+- NVIDIA NIM LLM API (`POST /v1/chat/completions`):
+  `https://docs.api.nvidia.com/nim/reference/llm-apis`
+- NVIDIA structured generation:
+  `https://docs.nvidia.com/nim/large-language-models/1.15.0/structured-generation.html`
+- NVIDIA-hosted Llama 3.1 8B:
+  `https://build.nvidia.com/meta/llama-3_1-8b-instruct?nim=hosted&section=deploy`
+- NVIDIA Nemotron Nano 12B v2 VL:
+  `https://build.nvidia.com/nvidia/nemotron-nano-12b-v2-vl`
+
+**Production deployment record (2026-08-12):** Worker version
+`d9e2dbcb-369b-4a4e-a895-e8ff75ea4fc5` is deployed at the existing production
+origin. The NVIDIA key is stored only as the `NVIDIA_API_KEY` Worker secret.
+All seven NVIDIA-first tasks passed through the public gateway on attempt one:
+analysis 3.5 seconds, complete materials 15.6 seconds, Ask 0.6 seconds,
+Teach Me 1.3 seconds, grading 0.9 seconds, concept regeneration 1.5 seconds,
+and selected-slide vision 4.1 seconds (provider latency rounded from D1).
+Normal success responses exposed no route/model identifier. The post-deploy
+health check reported 8/8 configured tasks, the existing real-provider pytest
+passed, the remote schema remained payload-free, and an exact-key scan of all
+776 tracked files found zero matches.
+
+**Release re-audit (2026-08-12):** Wrangler 4.122.0 confirmed production still
+runs version `d9e2dbcb-369b-4a4e-a895-e8ff75ea4fc5` at 100 percent. Its deployed
+bindings contain the exact seven-task NVIDIA-first list, the two documented
+model ids, and `NVIDIA_API_KEY` only as opaque `secret_text`. D1 has no pending
+migrations and `/v1/health` reports all 8 required tasks configured. Aggregate
+payload-free production telemetry for the audited window showed NVIDIA text at
+43/43 successes (about 5.0 seconds average, including long-form material),
+NVIDIA vision at 1/1 (about 4.1 seconds), native Workers AI at 20/21 (about
+19.7 seconds), and OpenRouter at 7/26 (about 16.3 seconds). NVIDIA was also the
+fastest healthy route per interactive task. The local Worker source passed all
+21 tests, syntax checks, and a Wrangler dry-run bundle with the same bindings.
+No production deployment was changed during this re-audit.
+
 ## AD-38: Study commands and bootstrap restore are scoped to the viewed lecture
 
 **Date:** 2026-08-09
@@ -103,6 +404,40 @@ timer, native-menu business-logic layer, new persistence service, downloader
 service, and general-purpose scheduler were rejected as duplicate architecture.
 Playlist expansion was not added because the current fetcher intentionally
 resolves one recording per URL; multi-line input provides explicit batch scope.
+
+## AD-54: Study mastery keeps an atomic last-known-good generation
+
+**Date:** 2026-08-09
+**Status:** Implemented. Authored 2026-08-09 on `codex/study-progress-backup`,
+cherry-picked onto the release line 2026-08-15 as the last unmerged work from
+`kimi/study-overhaul-v1`. Renumbered from AD-36, which was already taken.
+
+**Context:** `study-progress-v2.json` contains irreplaceable user mastery,
+attempt history, and Quick Study position. The shared JSON helper already wrote
+through a temporary file and `os.replace`, but it used one fixed temporary name,
+did not explicitly flush file contents before replacement, and retained no
+recoverable generation if the primary later became corrupt.
+
+**Decision:** Study progress persistence now writes through a unique temporary
+file in the destination directory, flushes and `fsync`s the complete JSON, and
+atomically replaces the destination. Before Study progress advances, a valid
+current primary is atomically persisted as `study-progress-v2.json.bak`.
+Loading falls back to that last-known-good generation when the primary is
+missing, truncated, or invalid. The first generation is written to both
+locations so it is covered before a second review occurs. An invalid primary
+is never promoted over a valid backup, and backup recovery emits a warning to
+the existing local log.
+
+**Alternatives considered:** Keeping only atomic replacement was rejected
+because it does not cover later filesystem corruption or a logically damaged
+primary. A database and multi-generation journal were rejected as unnecessary
+for the current single-writer, per-job persistence model.
+
+**Rationale:** The change protects the highest-value user-authored Study state
+without changing its schema or introducing a dependency. Unique temporary files
+also avoid collisions between overlapping Study progress saves.
+
+---
 
 ## AD-34: QOL batch actions are transactional, live progress has one authority, and Electron artifacts are explicit
 
@@ -1655,3 +1990,348 @@ after its packaged self-test, clean-install, negative-path, and updater gates.
 **Rationale:** One tag now maps to one validated desktop product. The retained
 runtime tooling cannot race or overwrite the Electron installer, while a future
 CI migration can replace the manual publication path as a separate decision.
+
+## AD-42: Keep 2.0.1 onboarding and reset state inside existing boundaries
+
+**Date:** 2026-08-11
+
+**Status:** Implemented for the v2.0.1 polish/integration candidate
+
+**Context:** The Electron sidecar already owns the persistent LecturePack data
+root and JobQueue, while Electron owns userData and WebEngine session storage.
+The renderer-only tour marker could hide a new tour from existing users, and a
+generic demo cancel could stop whichever real lecture happened to be active.
+Reset also needed to clear both persistence boundaries without following source
+paths stored in job manifests.
+
+**Decision:** Store the current/seen guided-tour versions and one of
+`not_seen`, `skipped`, or `completed` in the existing atomic `config.json`.
+Mark bundled demo jobs with `is_demo`, `bundled_demo`, and a generated
+`demo_session_id`, plus a data-root marker for crash reconciliation. Route demo
+cleanup through the explicit session/job identity and keep the existing
+`JobQueue` as the sole FIFO authority. Expose normalized download aliases while
+retaining the sidecar's existing internal state names. Implement reset as an
+explicit known-path removal under the canonical data root, followed by clearing
+known Electron userData files and WebEngine storage before relaunch.
+
+**Alternatives considered:**
+
+- Inferring tour/demo state from job count, title, or filename: rejected because
+  existing users and real lectures are not reliable onboarding markers.
+- Adding a second queue, database, or downloader state machine: rejected
+  because the current JobQueue and yt-dlp worker already own those lifecycles.
+- Deleting the whole data directory or Electron userData recursively: rejected
+  because it could remove bundled resources, installed models, or external
+  source files referenced by manifests.
+
+**Rationale:** The smallest additions make the current production seams
+identity-safe and restartable while preserving the selected local JSON/Qt/
+Electron architecture and the existing renderer contract.
+
+## AD-43: Let the sidecar own terminal guided-tour persistence
+
+**Date:** 2026-08-11
+
+**Status:** Implemented for the v2.0.1 polish/integration candidate
+
+**Context:** The merged renderer retains a legacy localStorage marker for the
+guided tour while the current renderer/backend contract requires durable
+eligibility. A renderer exit can also occur before a demo job exists, so a
+cleanup-only hook is insufficient.
+
+**Decision:** The sidecar records only explicit `tour_exit`/`tour_skip` and
+`tour_complete` reasons received through `end_demo_job`; operational
+cancellation and runtime failure remain retry-eligible. Starting the marked
+bundled demo resets only the durable tour offer to `not_seen`, which provides a
+safe replay boundary without changing real jobs.
+
+**Alternatives considered:**
+
+- Trusting renderer localStorage: rejected because reset, upgrade, and a
+  second profile can disagree with the authoritative persisted state.
+- Marking every demo cancellation as skipped: rejected because a failed or
+  interrupted demo must remain retryable.
+- Adding another tour database/state framework: rejected because the existing
+  atomic config and sidecar session marker already provide the needed boundary.
+
+**Rationale:** Explicit reasons preserve the small current command surface and
+make the sidecar authoritative even when the renderer's legacy marker is the
+only UI-side signal.
+
+## AD-44: Add a packaged state-contract gate beside processing acceptance
+
+**Date:** 2026-08-11
+
+**Status:** Implemented for the v2.0.1 polish/integration candidate
+
+**Context:** The existing packaged processing gate intentionally runs a
+bundled demo through completion and then inspects its artifacts. The 2.0.1
+demo contract removes that temporary job at its terminal boundary, so that
+gate cannot independently prove existing-user eligibility, replay identity,
+crash reconciliation, queue idempotency, or reset containment.
+
+**Decision:** Keep the existing processing gate unchanged as a separate
+runtime/export signal and add `scripts/polish_packaged_state_acceptance.py`.
+It drives the frozen sidecar over the production JSONL protocol with separate
+disposable fixtures, uses the real packaged Polar Bears media, records the
+external-source and packaged-model hashes, and fails on any state/identity
+regression or orphaned sidecar.
+
+**Alternatives considered:**
+
+- Treating the generic processing gate's demo artifact lookup as proof of demo
+  lifecycle: rejected because correct cleanup makes that lookup intentionally
+  empty.
+- Reusing the user's data directory for a richer fixture: rejected by the
+  repository safety rules and because it would make reset evidence unsafe.
+- Adding a second runtime/queue implementation to make the gate easier:
+  rejected; the gate speaks to the existing packaged sidecar contract.
+
+**Rationale:** Separate gates make each acceptance claim observable without
+weakening cleanup or contaminating real user state.
+
+## AD-45: Keep packaged readiness and the first-run checklist on one contract
+
+**Date:** 2026-08-11
+
+**Status:** Implemented for the v2.0.1 polish/integration candidate
+
+**Context:** The packaged sidecar returned detailed release-health checks to
+the Electron host. That list contains separate ffmpeg/ffprobe and Whisper
+smoke records, as well as optional checks, while the renderer's first-run gate
+expects exactly five canonical checklist records. The host therefore marked
+the runtime healthy and opened the checklist before its rows could receive
+their verdicts, leaving the user-facing "You're ready to go" copy above
+Pending rows.
+
+**Decision:** Adapt packaged health evidence through the existing backend
+`build_first_run_checklist` service, forward the resulting five
+`{id, verdict, detail}` records through the sidecar, and consume that field in
+both production bootstrap paths. The bridge also groups older raw health
+envelopes into the same five records as a compatibility fallback. The waiting
+state remains the existing honest checking panel with per-component progress,
+a determinate counter, and the existing slower-Whisper notice; no fabricated
+percentage or long-running animation is added.
+
+**Alternatives considered:**
+
+- Making the renderer infer groups from raw health checks: rejected because
+  backend health ownership already exists and would duplicate verdict logic in
+  the UI.
+- Showing the checklist heading while verdicts are pending: rejected because
+  it communicates readiness before the actionable Done control is valid.
+- Adding an indeterminate or decorative progress animation: rejected because
+  the startup checks already expose real milestones and an honest count.
+
+**Rationale:** One authoritative checklist reaches the renderer only after
+the same checks that establish packaged startup health have completed. The
+heading, Ready rows, and Done action therefore appear together, while the
+existing progress treatment makes the short local validation wait legible.
+
+## AD-46: Route AI-first Study through a payload-minimizing server gateway
+
+**Date:** 2026-08-12
+
+**Status:** Implemented, deployed, and live-accepted
+
+**Context:** Production Study needs higher-quality lecture analysis, grounded
+materials, Ask, Teach Me, and semantic short-answer grading without exposing
+provider credentials or provider/model choices in the desktop application.
+The approved AI-first Study assignment explicitly introduces this narrow
+network boundary; it is an exception to the earlier local-only Study policy,
+not a general authorization for telemetry or unrelated network access.
+
+**Decision:** Keep the Electron renderer and Python sidecar provider-neutral.
+The desktop sends only task-scoped lecture evidence to the first-party HTTPS
+gateway, authenticated by an anonymous installation token. The gateway owns a
+fixed task allowlist, server-selected two-to-three-route provider chains,
+schema validation, rate limits, safe errors, and payload-free owner alerts.
+Its D1 records contain operational metadata only; transcript text, prompts,
+responses, and slide images are never persisted by the gateway. The primary
+Study build is a two-pass analysis/material flow. Deterministic Basic Study is
+available only after an explicit failure or user choice, and never silently
+replaces the AI path.
+
+Provider credentials and route selection remain server-side. Provider/model
+identifiers appear only inside the student's explicit copied technical
+diagnostics and payload-free owner alerts; they are never presented in normal
+Study or Settings UI. LecturePack persists only normalized Study artifacts,
+provenance, mastery, safe failure diagnostics, and a bounded concept-level
+interaction cache in the existing per-job data root. Original videos remain
+local and are never read by the gateway client.
+
+**Alternatives considered:**
+
+- Direct provider calls or BYOK in the desktop: rejected because secrets and
+  routing policy would ship to every client and create a provider setup UI.
+- A bundled local model or vector database: rejected because it changes the
+  approved release footprint and is outside this phase.
+- One unvalidated provider response: rejected because malformed output could
+  cross directly into persisted study state and no route fallback would exist.
+- Silent deterministic fallback: rejected because students could believe they
+  received the requested AI system when generation had actually failed.
+- Storing payloads in D1 for debugging: rejected because lecture evidence is
+  not needed for rate limiting or reliability diagnosis.
+
+**Rationale:** One narrow gateway preserves a simple student experience while
+keeping secrets, model changes, retries, limits, and provider failover outside
+the desktop release. Explicit Basic mode makes failure honest and recoverable,
+and the metadata-only server boundary minimizes retained lecture data.
+
+**Initial production deployment record (2026-08-12):** The Worker is deployed at
+`https://lecturepack-ai-gateway.discordsammy2.workers.dev` with D1 database
+`lecturepack-study-prod` (`0ddaa845-8302-48d9-8fec-7d601f8be82c`). OpenRouter's
+`openrouter/free` capability router is paired with the native Workers AI
+binding. Workers AI uses `@cf/openai/gpt-oss-20b` for text and
+`@cf/google/gemma-4-26b-a4b-it` for selected slide vision. Long-form material
+generation puts Workers AI first; other tasks keep OpenRouter first. Identical
+same-provider routes are de-duplicated, and bounded route deadlines fit inside
+the desktop's 175-second request deadline. AD-47 supersedes this initial
+route/model snapshot while preserving the same gateway, D1, and privacy
+boundary.
+
+The live packaged Polar Bears gate passed canonical analysis, selected vision,
+bounded optional web context, material generation, Ask, Teach Me, semantic
+grading, explicit Basic Study, anonymous registration, packaged-default URL,
+clean exit, and no-orphan checks. A controlled invalid OpenRouter route also
+proved that Workers AI succeeds as an independent fallback. The remote D1
+schema was inspected after these calls and contains identifiers, counts,
+latency, route/model, status, and token/character totals only—no lecture text,
+prompt, completion, or image columns. Native/Resend email delivery remains
+disabled because this account has no managed sender domain; alert failure is
+intentionally non-blocking and does not affect Study requests.
+
+**Official provider/platform contracts checked 2026-08-12:**
+
+- OpenRouter structured outputs:
+  `https://openrouter.ai/docs/guides/features/structured-outputs`
+- OpenRouter free router:
+  `https://openrouter.ai/docs/guides/routing/routers/free-router`
+- OpenRouter web-search server tool:
+  `https://openrouter.ai/docs/guides/features/server-tools/web-search`
+- Cloudflare Workers AI bindings and JSON mode:
+  `https://developers.cloudflare.com/workers-ai/configuration/bindings/` and
+  `https://developers.cloudflare.com/workers-ai/features/json-mode/`
+- Cloudflare Workers Web Crypto, D1 Worker API, and rate-limit bindings:
+  `https://developers.cloudflare.com/workers/runtime-apis/web-crypto/`,
+  `https://developers.cloudflare.com/d1/worker-api/d1-database/`, and
+  `https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/`
+
+---
+
+## AD-48: The guided demo is a self-contained screen with pre-baked real output
+
+**Date:** 2026-08-12
+**Status:** Implemented
+
+**Context:** The guided demo was a spotlight overlay that pointed at the live
+application UI. Eight distinct bugs were found and fixed in it across a full
+session — overlapping scrim rectangles, a step targeting markup Study V2 had
+superseded, a full-width flex row measured as if it were a control, a step
+precondition running inside the per-frame measure path (which reverted the
+user's clicks within a frame and made buttons look dead), a coach card covering
+its own subject, the prominent entry button not starting the tour at all — and
+the result was still not usable. The premise was the defect, not the execution.
+
+A tour that measures the live UI at runtime is a second renderer for the app's
+layout. It must independently know where everything is, which mode it is in and
+what is about to move. Every one of those eight bugs was that coupling failing,
+and the class is unbounded: any layout change anywhere can break it silently,
+as Study V2 did. "Must work 100% of the time" and "measures the live UI at
+runtime" are incompatible requirements.
+
+**Decision:** The demo is its own screen (`data-screen="demo"`), registered like
+Home or Review. It measures nothing, mutates nothing outside its own section,
+and has no scrim, spotlight, anchoring or z-index band. Five chapters swap with
+`[hidden]`.
+
+It shows **pre-baked real output** of the bundled Polar Bears lecture, shipped
+as `app/assets/demo/demo.data.js` plus real slide PNGs extracted at the
+timestamps the detector actually selected. It is real output, simply not
+recomputed.
+
+The real pipeline runs **after** the walkthrough, from an explicit "Process this
+lecture for real" button.
+
+**Alternatives considered:**
+
+- Keep fixing the spotlight tour: rejected. Eight fixes did not converge, and
+  each only removed one instance of an unbounded class.
+- Have the demo run the pipeline live: rejected. It needs ffprobe and a Whisper
+  model, takes tens of seconds and can fail — and a failure there reads as the
+  *product* failing, on a first impression. Constraint 5 was its own answer.
+- Ship the data as `demo.json` loaded with `fetch()`: rejected after testing.
+  The renderer is loaded via Electron's `loadFile`, i.e. `file://` with web
+  security on, where `fetch()` of a sibling file is blocked. This version
+  silently degraded to the fallback on *every* launch, packaged included. A
+  `<script>` tag has no such restriction.
+- A union hole spanning several disjoint elements: rejected earlier; four-rect
+  tiling expresses exactly one rectangle. Moot now — there is no hole.
+
+**Rationale:** The number of ways the demo can break drops from unbounded to
+one — a missing bundled asset — and that one has a designed fallback per
+chapter. It also removes the pipeline, the network and the AI gateway from the
+first-run path entirely, so the demo works offline and before any provider is
+configured.
+
+**Consequence:** the demo no longer teaches where the Review controls are. That
+is deliberate: the value proposition is what the app produces, not where its
+buttons live, and chrome is learned in seconds by using it.
+
+---
+
+## AD-49: Waiting, slide review, and demo state must represent one real system each
+
+**Date:** 2026-08-12
+
+**Status:** Implemented
+
+**Context:** Live evidence showed the Study preparation panel at `0%` while the
+lecture pipeline was still detecting slides. No Study stage existed yet, so an
+eight-row idle checklist and an AI elapsed clock falsely implied that Study AI
+had started and stalled. Review also exposed a Grid/List choice inside a
+250-pixel rail where the grid could resolve to only one column, while accepted
+selection received a louder full-card fill than the export-changing rejected
+state. Finally, AD-48 made the old live-screen spotlight renderer unreachable,
+but its geometry, focus, animation, and test contracts remained in production.
+
+**Decision:** Treat lecture processing, Study AI preparation, slide navigation,
+and the walkthrough as separate presentation systems with explicit boundaries:
+
+- When Study has no generation stage, render one honest waiting row. While the
+  lecture pipeline is active it says that Study is waiting for transcript and
+  slides; otherwise it says Study AI is starting. Hide the AI progress bar and
+  source list, and do not start the Study elapsed clock until a real stage is
+  received.
+- Keep Review's narrow slide rail as a list. Its Compact/Roomy control changes
+  density only. Put the actual deck grid in a full-window **All slides** dialog
+  using `repeat(auto-fill,minmax(168px,1fr))`.
+- Encode accepted selection as an unfilled checkbox, rejected as the loud red
+  state, and the slide currently being viewed as an orange outline. Keeping a
+  slide updates both its accepted state and selected flag immediately.
+- Delete the unreachable spotlight renderer, scrim geometry, focus trap,
+  lifted-card animation, and the tests that specified them. Keep only the
+  provider-neutral demo eligibility contract and the identity-safe real-demo
+  session reducer. Reset terminal cleanup guards when starting a new demo
+  attempt so a second run can still be stopped safely.
+
+**Alternatives considered:**
+
+- Show the full Study checklist at `0%`: rejected because it assigns lecture
+  work and elapsed time to an AI task that does not yet exist.
+- Hide Study entirely until the lecture finishes: rejected because an explicit
+  waiting state explains what will happen next and confirms the request was
+  accepted.
+- Keep Grid/List in the rail with smaller cards: rejected because shrinking
+  cards does not create useful deck-level scanning in that width.
+- Tint every accepted slide card: rejected because acceptance is the normal
+  state; rejection and current viewing carry more decision value.
+- Leave unreachable tour code for old tests: rejected because those tests made
+  deleted behavior an accidental maintenance contract and allowed the second
+  renderer to return.
+
+**Rationale:** Every visible progress indicator now belongs to work that has
+actually started, every slide control has a layout capable of expressing its
+label, and the first-run walkthrough has one renderer rather than two. The UI
+therefore communicates backend state without inventing activity and keeps the
+highest-consequence review state visually loudest.

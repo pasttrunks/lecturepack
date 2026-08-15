@@ -73,6 +73,14 @@ def validate_candidate(root: Path) -> None:
         root / "LecturePack.exe",
         root / "resources" / "app.asar",
         root / "resources" / "LecturePackSidecar" / "LecturePackSidecar.exe",
+        root / "resources" / "ui" / "index.html",
+        root / "resources" / "ui" / "app.js",
+        root / "resources" / "assets" / "demo-lecture.mp4",
+        root / "resources" / "assets" / "demo" / "demo.data.js",
+        root / "resources" / "assets" / "demo" / "hero.png",
+        root / "resources" / "assets" / "demo" / "slide_01.png",
+        root / "resources" / "assets" / "demo" / "slide_02.png",
+        root / "resources" / "LICENSE",
     ]
     missing = [str(path) for path in required if not path.is_file()]
     if missing:

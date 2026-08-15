@@ -621,8 +621,8 @@ function trackActiveWork(session, event, message) {
   } else if (event === 'downloads_changed') {
     const downloads = Array.isArray(message.downloads) ? message.downloads : [];
     const activeKeys = new Set(
-      downloads.filter((d) => d && (d.status === 'waiting' || d.status === 'downloading'))
-        .map((d) => `download:${String(d.item_id || d.id || '')}`)
+      downloads.filter((d) => d && (d.status === 'waiting' || d.status === 'downloading' || d.status === 'running'))
+        .map((d) => `download:${String(d.download_id || d.item_id || d.id || '')}`)
     );
     for (const key of work) {
       if (key.startsWith('download:') && !activeKeys.has(key)) work.delete(key);
@@ -740,7 +740,12 @@ function startSidecar(session, attempt) {
   session.logger.write('sidecar_starting', { command, args, data_dir: dataDir });
   const child = spawn(command, args, {
     cwd,
-    env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
+    env: {
+      ...process.env,
+      PYTHONUNBUFFERED: '1',
+      PYTHONUTF8: '1',
+      LECTUREPACK_APP_VERSION: app.getVersion()
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
     shell: false
@@ -781,16 +786,24 @@ async function bootstrap(session, attempt) {
     const listed = await sendCommand(session, 'list_jobs');
     if (attempt !== session.startupAttempt) return;
     const jobs = Array.isArray(listed.jobs) ? listed.jobs : [];
+    const setupAcknowledged = health.startup_ok === true && health.setup_acknowledged === true;
+    const checklist = Array.isArray(health.checklist) ? health.checklist : [];
+    const guidedTour = listed.guided_tour || null;
     if (!jobs.length) {
       completeStartup(session);
-      sendToPage(session, {
+      const bootstrapPayload = {
         event: 'bootstrap_complete',
         bootstrap_pending: false,
         runtime_health_state: 'HEALTHY',
-        setup_acknowledged: true,
+        setup_acknowledged: setupAcknowledged,
+        setup_complete: setupAcknowledged,
         healthy: true,
-        checklist: health.checks || []
-      });
+        checklist,
+        guided_tour: guidedTour
+      };
+      session.latestBootstrap = bootstrapPayload;
+      session.guidedTour = guidedTour;
+      sendToPage(session, bootstrapPayload);
       return;
     }
     // The sidecar returns newest-first. Restore the newest completed job when
@@ -799,14 +812,19 @@ async function bootstrap(session, attempt) {
     await restoreJob(session, preferred);
     if (attempt !== session.startupAttempt) return;
     completeStartup(session);
-    sendToPage(session, {
+    const bootstrapPayload = {
       event: 'bootstrap_complete',
       bootstrap_pending: false,
       runtime_health_state: 'HEALTHY',
-      setup_acknowledged: true,
+      setup_acknowledged: setupAcknowledged,
+      setup_complete: setupAcknowledged,
       healthy: true,
-      checklist: health.checks || []
-    });
+      checklist,
+      guided_tour: guidedTour
+    };
+    session.latestBootstrap = bootstrapPayload;
+    session.guidedTour = guidedTour;
+    sendToPage(session, bootstrapPayload);
   } catch (error) {
     if (attempt !== session.startupAttempt) return;
     session.logger.write('bootstrap_failed', { error: error.message });
@@ -951,6 +969,105 @@ async function openJobFolder(session, command, payload) {
   return { ok: true, path: target };
 }
 
+function resetUserDataFiles() {
+  const root = path.resolve(app.getPath('userData'));
+  const names = [
+    'window-state.json',
+    'close-to-tray.json',
+    'updater.checkState.v1.json'
+  ];
+  const removed = [];
+  const failed = [];
+  for (const name of names) {
+    const target = path.resolve(root, name);
+    if (!target.startsWith(`${root}${path.sep}`)) {
+      failed.push({ path: target, error: 'path escaped Electron userData' });
+      continue;
+    }
+    try {
+      let exists = false;
+      try {
+        fs.lstatSync(target);
+        exists = true;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+      if (exists) {
+        const stat = fs.lstatSync(target);
+        if (stat.isSymbolicLink()) {
+          const resolved = fs.realpathSync.native(target);
+          if (!resolved.startsWith(`${root}${path.sep}`)) {
+            throw new Error('refusing to remove a userData link outside its root');
+          }
+        }
+        fs.unlinkSync(target);
+        removed.push(name);
+      }
+    } catch (error) {
+      failed.push({ path: target, error: error.message });
+    }
+  }
+  return { ok: failed.length === 0, removed, failed };
+}
+
+async function clearRendererSession(session) {
+  const webSession = session && session.window && session.window.webContents
+    ? session.window.webContents.session : null;
+  if (!webSession) return { ok: true, cleared: false };
+  try {
+    if (typeof webSession.clearStorageData === 'function') {
+      await webSession.clearStorageData({ storages: [
+        'appcache', 'cookies', 'filesystem', 'indexdb', 'localstorage',
+        'shadercache', 'websql', 'serviceworkers', 'cachestorage'
+      ] });
+    }
+    if (typeof webSession.clearCache === 'function') await webSession.clearCache();
+    return { ok: true, cleared: true };
+  } catch (error) {
+    return { ok: false, error: error.message || String(error) };
+  }
+}
+
+async function resetLecturePack(session) {
+  const dataReset = await sendCommand(session, 'reset_lecturepack', {});
+  if (!dataReset || dataReset.ok !== true) {
+    return Object.assign({ ok: false, error: 'LecturePack data reset failed.' }, dataReset || {});
+  }
+  const userData = resetUserDataFiles();
+  const rendererSession = await clearRendererSession(session);
+  if (!userData.ok || !rendererSession.ok) {
+    session.logger.write('reset_failed', { user_data: userData, renderer_session: rendererSession });
+    return {
+      ok: false,
+      error: 'LecturePack reset could not clear every owned Electron session file.',
+      data_reset: dataReset.reset || dataReset,
+      user_data: userData,
+      renderer_session: rendererSession
+    };
+  }
+  session.resetting = true;
+  session.logger.write('reset_complete', {
+    data_dir: session.dataDir,
+    user_data: userData.removed,
+    relaunch: true
+  });
+  try {
+    app.relaunch({ args: process.argv.slice(1) });
+  } catch (error) {
+    session.resetting = false;
+    return { ok: false, error: `LecturePack reset completed but relaunch failed: ${error.message}` };
+  }
+  setTimeout(() => requestQuit(), 25);
+  return {
+    ok: true,
+    reset: dataReset.reset || dataReset,
+    user_data: userData,
+    renderer_session: rendererSession,
+    relaunch_scheduled: true,
+    relaunching: true
+  };
+}
+
 function testDesktopNotification() {
   if (!Notification.isSupported()) {
     return {
@@ -980,6 +1097,8 @@ async function startStartupAttempt(session) {
   session.startupComplete = false;
   session.startupFailure = null;
   session.latestHealth = null;
+  session.latestBootstrap = null;
+  session.guidedTour = null;
   session.bootstrapped = false;
   session.sidecarBuffer = '';
   rejectPending(session, 'A new startup attempt began.');
@@ -1214,7 +1333,21 @@ async function handleCommand(session, command, payload) {
   if (command === 'retry_startup') return startStartupAttempt(session);
   if (command === 'open_logs') return openLogsFolder(session);
   if (command === 'get_startup_diagnostics') return startupDiagnostics(session);
+  if (command === 'get_bootstrap') {
+    return session.latestBootstrap || {
+      bootstrap_pending: !session.startupComplete,
+      runtime_health_state: session.latestHealth && session.latestHealth.startup_ok === true
+        ? 'HEALTHY' : 'SETUP_REQUIRED',
+      setup_acknowledged: !!(session.latestHealth && session.latestHealth.setup_acknowledged === true),
+      setup_complete: !!(session.latestHealth && session.latestHealth.setup_acknowledged === true),
+      healthy: !!(session.latestHealth && session.latestHealth.startup_ok === true),
+      guided_tour: session.guidedTour || null,
+      checklist: session.latestHealth && Array.isArray(session.latestHealth.checklist)
+        ? session.latestHealth.checklist : []
+    };
+  }
   if (command === 'browse_video') return browseVideo(session);
+  if (command === 'reset_lecturepack') return resetLecturePack(session);
   if (command === 'import_paths') {
     const paths = Array.isArray(payload.paths) ? payload.paths : (
       typeof payload.paths === 'string' ? [payload.paths] : []);
@@ -1376,9 +1509,12 @@ function createProductionWindow() {
     startupFailure: null,
     lastStartupError: null,
     latestHealth: null,
+    latestBootstrap: null,
+    guidedTour: null,
     activeWorkCount: 0,
     documentTempDir: null,
     closed: false,
+    resetting: false,
     dataDir: ''
   };
   activeSession = session;
@@ -1389,17 +1525,20 @@ function createProductionWindow() {
   });
   let windowSaveTimer = null;
   const scheduleWindowSave = () => {
+    if (session.resetting) return;
     if (windowSaveTimer) clearTimeout(windowSaveTimer);
     windowSaveTimer = setTimeout(() => {
       windowSaveTimer = null;
-      saveWindowState(window);
+      if (!session.resetting) saveWindowState(window);
     }, 250);
   };
   window.on('move', scheduleWindowSave);
   window.on('resize', scheduleWindowSave);
   window.on('maximize', scheduleWindowSave);
   window.on('unmaximize', scheduleWindowSave);
-  window.on('close', () => saveWindowState(window));
+  window.on('close', () => {
+    if (!session.resetting) saveWindowState(window);
+  });
   window.on('close', (event) => {
     // Feature 2: when real work would continue, intercept the X button and
     // offer to keep working in the background via the tray. Explicit Quit

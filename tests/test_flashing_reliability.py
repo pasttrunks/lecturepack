@@ -100,22 +100,23 @@ def test_pipeline_and_status_handlers_preserve_live_dom_nodes():
     assert "setStatusDotText($('ai-status'), txt, col, false)" in js
 
 
-def test_guided_processing_spotlight_remeasures_after_pipeline_dom_growth():
+def test_pipeline_render_no_longer_remeasures_a_demo_overlay():
     js = read_ui("app.js")
     pipeline = js.split("function renderPipeline()", 1)[1].split("// Main slide preview", 1)[0]
+    assert "guidedTour" not in pipeline
+    assert "scheduleTourGeometry" not in pipeline
 
-    assert "if (guidedTour.snapshot().active && demoFlowPhase() === 'processing') scheduleTourGeometry();" in pipeline
 
-
-def test_spotlight_uses_static_scrim_and_geometry_without_expensive_effects():
+def test_removed_spotlight_css_cannot_reintroduce_expensive_effects():
     css = read_ui("app.css")
-    spotlight = css.split("#guided-tour-overlay", 1)[1].split("#guided-tour-card", 1)[0]
-
-    assert "background:rgba(8,10,14,.65)" in spotlight
-    assert "9999px" not in spotlight
-    assert "filter:drop-shadow" not in spotlight
-    assert "transition:" not in spotlight
-    assert "will-change" not in spotlight
+    html = read_ui("index.html")
+    for token in ("#guided-tour-overlay", "#tour-spotlight-box", "#tour-dim-"):
+        assert token not in css
+    assert 'id="guided-tour-overlay"' not in html
+    demo_css = css.split("/* --- guided demo (self-contained screen)", 1)[1]
+    assert "9999px" not in demo_css
+    assert "filter:drop-shadow" not in demo_css
+    assert "will-change:" not in demo_css
 
 
 def test_acknowledged_healthy_bootstrap_closes_a_pending_runtime_overlay():
@@ -141,23 +142,16 @@ def test_hidden_runtime_overlay_close_releases_underlying_inert_state():
     assert "setUnderlyingInert(false); el.hidden = true; eventModel.reset();" in close
 
 
-def test_guided_tour_trace_is_opt_in_and_covers_state_mutations_and_frames():
+def test_renderer_no_longer_bootstraps_the_spotlight_trace():
     js = read_ui("app.js")
     bridge = (ROOT / "app" / "desktop" / "bridge.py").read_text(encoding="utf-8")
-    render = js.split("function renderGuidedTour()", 1)[1].split("function offerGuidedTour", 1)[0]
-
+    # The backend slot remains harmless compatibility surface for older builds,
+    # but the production renderer no longer starts or emits the old frame trace.
     assert 'TOUR_TRACE_ENV = "LECTUREPACK_TOUR_TRACE"' in bridge
-    assert 'self._tour_trace_enabled = os.environ.get(TOUR_TRACE_ENV, "").strip() == "1"' in bridge
-    assert '"tour_trace_enabled": self._tour_trace_enabled' in bridge
     assert "def log_tour_trace" in bridge
-    assert "if (!tourTraceEnabled) return;" in js
-    assert "function setTourOverlayHidden(next)" in js
-    assert "setTourOverlayHidden(" in render
-    assert "overlay.hidden =" not in render
-    assert "MutationObserver" in js
-    assert "attributeOldValue: true" in js
-    assert "function traceTourFrame(timestamp)" in js
-    assert "traceTour('requestAnimationFrame', { timestamp: timestamp })" in js
+    assert "tour_trace_enabled" not in js
+    assert "log_tour_trace" not in js
+    assert "traceTour" not in js
 
 
 def test_packaged_visual_gate_handles_modal_file_dialog_outside_synchronous_cdp():
