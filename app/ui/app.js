@@ -4629,30 +4629,47 @@
     var memberMap = {};
     members.forEach(function (m) { memberMap[m.job_id] = m; });
 
+    function sameTitle(a, b) {
+      return !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+    }
+
     var concepts = (analysis.concepts || []).map(function (c) {
       var sources = [];
       // A group concept is a SYNTHESIZED merge of per-lecture concepts, so its
-      // id exists in no single lecture's store. Remember the first real owning
+      // id exists in no single lecture's store. Remember the real owning
       // lecture + concept so per-concept actions (mastery, Teach Me, edit,
-      // delete, regenerate) can address the row the backend actually has.
+      // delete, regenerate) address the row the backend actually has.
+      //
+      // Identity is resolved by TITLE ONLY, never by source_concept_ids.
+      // That field is model-generated, and on real subjects the model returns
+      // the SIBLING concept ids instead of the ones the concept was built from
+      // (observed 2026-08-15: "Homeric Troy" listed concept_1/concept_3, the
+      // other two concepts). Trusting it made every concept resolve to
+      // concept_1 -- which would have written mastery to the WRONG concept, a
+      // worse failure than the "concept not found" error it replaced. If no
+      // title matches we leave the origin empty and the caller falls back to
+      // the displayed id, which fails loudly instead of corrupting a row.
       var originJobId = '';
       var originConceptId = '';
       (c.job_ids || []).forEach(function (jid) {
         var member = memberMap[jid];
         if (!member) return;
         (member.concepts || []).forEach(function (mc) {
-          if ((c.source_concept_ids || []).indexOf(mc.id) >= 0 || (mc.title && mc.title.toLowerCase() === c.title.toLowerCase())) {
-            if (!originJobId) { originJobId = jid; originConceptId = mc.id; }
-            (mc.lecture_sources || mc.sources || []).forEach(function (s) {
-              sources.push({
-                job_id: jid,
-                lecture_title: member.title,
-                segment_id: s.segment_id,
-                start_ms: s.start_ms,
-                slide_id: s.slide_id
-              });
+          // Provenance may still use the looser match: a wrong citation is a
+          // display flaw, whereas a wrong id is a data-integrity flaw.
+          var titleHit = sameTitle(mc.title, c.title);
+          var looseHit = titleHit || (c.source_concept_ids || []).indexOf(mc.id) >= 0;
+          if (titleHit && !originJobId) { originJobId = jid; originConceptId = mc.id; }
+          if (!looseHit) return;
+          (mc.lecture_sources || mc.sources || []).forEach(function (s) {
+            sources.push({
+              job_id: jid,
+              lecture_title: member.title,
+              segment_id: s.segment_id,
+              start_ms: s.start_ms,
+              slide_id: s.slide_id
             });
-          }
+          });
         });
       });
       return {
@@ -5281,7 +5298,10 @@
       // In Subject scope the visible concept is a merge; address the owning
       // lecture's real row instead of whatever lecture is active in the switcher.
       var ownerAttrs = ' data-job-id="' + escText(c.origin_job_id || '') + '" data-origin-id="' + escText(c.origin_concept_id || '') + '"';
-      conceptsHtml += '<div class="study-concept" style="background:var(--sunk);border:1.5px solid var(--line);border-radius:10px;padding:14px 16px">' +
+      // Bottom padding is set HERE, not in the stylesheet: this inline style
+      // would override a .study-concept rule, which is how the citation pills
+      // ended up sitting flush on the card's bottom border.
+      conceptsHtml += '<div class="study-concept" style="background:var(--sunk);border:1.5px solid var(--line);border-radius:10px;padding:14px 16px 16px">' +
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-weight:700;font-size:14px;flex:1">' + escText(c.title) + '</span>' + emphasisBadge + '<span style="font:600 10px JetBrains Mono;color:var(--muted)">' + masteryLabel + '</span></div>' +
         '<div style="font-size:13px;color:var(--secondary-text);line-height:1.55;margin-bottom:8px">' + escText(c.explanation) + '</div>' +
         (sources ? '<div class="study-provenance-row">' + sources + '</div>' : '') +

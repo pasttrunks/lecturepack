@@ -1191,7 +1191,8 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
    panel ended exactly at the scroll boundary, so STUDY STATS' final metric row
    looked bisected by the viewport rather than simply scrolled to its end. */
 .study-overview-columns > div{padding-bottom:20px}
-.study-concept{padding-bottom:16px}
+/* .study-concept's bottom padding is applied inline where the card is built --
+   an inline style wins over this file, so a rule here would be silently dead. */
 
 /* --- invalid input feedback (DEF-009) -------------------------------------
    A rejected link only recoloured a small line of helper text below the field.

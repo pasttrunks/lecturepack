@@ -913,9 +913,15 @@ inventory that was authored rather than derived from the binaries.
      and `export_one` to `{command:'export', payload:{}}`, so the requested format never
      left the renderer (DEF-003). A test *asserted* the empty payload, i.e. the defect was
      pinned by its own regression test — updated in `tests/test_renderer_spike.py`.
-- **Also fixed:** `_jobIsReady` matched only `status === 'queued'`, so freshly imported
-  lectures ('ready'/'unstarted'/'imported') could not be dragged to Process (DEF-005);
-  scope-switch to a single lecture cleared Study content without reloading it (DEF-004);
+- **DEF-005 DID NOT REPRODUCE — do not "re-fix" it.** The report blamed `_jobIsReady`
+  matching only `status === 'queued'` while unstarted lectures are `'ready'`/`'unstarted'`.
+  Live A/B on the real profile (2026-08-15): the backend emits **`status: 'queued'`** for an
+  unstarted lecture — the card's *badge* reads "Ready to process", which is a label, not the
+  status. The OLD predicate already returned `true` and the card was already draggable.
+  `_jobIsReady` was still widened to accept the other spellings defensively, but it fixed
+  nothing observable. **A badge string is not a status value.**
+- **Also fixed:** scope-switch to a single lecture cleared Study content without reloading it
+  (DEF-004);
   `studyV2.scope.groupName` was not updated on subject rename, leaving a stale Overview
   headline (DEF-010); a hardcoded `+ '.500'` produced `00:01:12.000.500` (DEF-006); raw
   float seconds rendered in Subject cards (DEF-008); invalid link import gave no visible
@@ -923,9 +929,51 @@ inventory that was authored rather than derived from the binaries.
   `"1 lectures updated"` (DEF-012); citation pills and Study Stats clipped at the scroll
   boundary (DEF-007); sidebar storage text wrapped `free` onto its own line (DEF-014);
   README gained an authoritative export inventory (DEF-013).
-- **Verification:** full suite `1757 passed, 23 skipped`. `node --check` on `app.js` and
-  `electron-bridge.js`. **Not** driven end-to-end in the packaged app this session — the
-  Study-scope and export paths need a real lecture and a live sidecar to exercise.
+- **TWO OF MY OWN FIXES WERE WRONG, AND ONLY THE LIVE RUN CAUGHT THEM.** Both passed the
+  test suite and `node --check`:
+  1. **`source_concept_ids` cannot be trusted for identity.** My first DEF-001 fix resolved a
+     group concept's origin via `source_concept_ids` OR a title match. On real data the model
+     returns the **sibling** concept ids there (group `concept_2` "Homeric Troy" listed
+     `[concept_1, concept_3]`), so every concept resolved to `concept_1` — mastery would have
+     been written to the WRONG concept, worse than the `concept not found` it replaced.
+     Identity is now resolved by **title match only**; no match means no origin, and the call
+     fails loudly instead of corrupting a row. The looser match is still allowed for
+     *citations*, where a wrong pill is cosmetic. The gateway prompt asks for the merged-from
+     ids (`ai-gateway/src/tasks.js:173`) but the model does not reliably comply.
+  2. **An inline style silently killed a CSS rule.** `.study-concept{padding-bottom:16px}` in
+     `app.css` never applied, because the card is built with an inline `padding:14px 16px`,
+     which wins. The citation pills stayed flush on the border. Bottom padding is now set in
+     the inline style where the card is generated. **Check for an inline `style=` before
+     adding a rule for anything `app.js` builds as a string.**
+- **Verification — driven live in the real app (2026-08-15).** Packaged shell from
+  `electron-spike/dist/LecturePack-win32-x64`, copied to a scratch dir with `app/ui/*`
+  swapped in and `electron-bridge.js` repacked into `app.asar`; `production-main.js` patched
+  behind `LP_VERIFY_*` env vars to spawn the **source** sidecar so both halves were the
+  changed code. Real profile `C:\Users\marsh\LecturePackData`. Driven over CDP
+  (`--remote-debugging-port=9333`) with playwright.
+  - **The runtime gate is NOT a blocker** — correcting an earlier note. `--resources-root`
+    must point at **`C:\Users\marsh\Documents\LecturePack`**, which has `bin/ffmpeg.exe`,
+    `bin/ffprobe.exe`, `bin/Release/whisper-cli.exe` and `models/ggml-base.en.bin`. Point it
+    at the worktree and the sidecar reports `Missing packaged runtime` and returns **zero
+    jobs** with every command answering `FEATURE_UNAVAILABLE` — which looks exactly like an
+    empty profile. Check `engine_loaded` in the `ready` event before believing "no jobs".
+  - **Confirmed live:** DEF-001 (3 concepts → 3 distinct origins; setting "Homeric Troy" to
+    MASTERED persisted to `concept_2`; zero console errors), DEF-002 (real click rewrote
+    **12 export files** on disk), DEF-003 (sidecar echoed `kind:"pdf"` then `kind:"html"`,
+    `kind:""` for `export_all` — before the fix both were `""`), DEF-004 (scoping to the
+    lecture that has content renders all 3 concepts, no empty-state error), DEF-006
+    (`cur.time` really is `00:00:13.500`, so the old code rendered `00:00:13.500.500`),
+    DEF-007 (~20px clearance at full scroll at 1500×950, 1280×800, 1180×720, 1024×660,
+    including sizes where both columns genuinely overflow), DEF-008 (`Ready · 2:48` /
+    `Ready · 5:10`, previously `168.321451` / `310`), DEF-009 (red border, red background,
+    `aria-invalid="true"`), DEF-010 (after rename no visible node holds the old name),
+    DEF-011 (three `DIV`s, no `lp-hit`/`lp-press-sm`, `cursor:auto`, highlight follows the
+    job's real `product_mode`), DEF-012 (**"1 lecture updated"** and **"2 lectures updated"**
+    from real renames — subject names restored afterwards), DEF-013 (a full export wrote
+    exactly the 13 files now listed in README), DEF-014 (one line, 11px row).
+  - **Not verified:** a per-format export that writes ONLY the requested file — no such path
+    exists; `export_now()` always rebuilds the whole pack.
+  - Full suite after the corrections: `1757 passed, 23 skipped`.
 - **Files:** `app/ui/app.js`, `app/ui/app.css`, `app/ui/index.html`,
   `electron-spike/electron-bridge.js`, `electron-spike/python-sidecar.py`,
   `tests/test_renderer_spike.py`, `README.md`.
