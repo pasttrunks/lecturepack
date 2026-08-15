@@ -32,6 +32,56 @@ function fakeStorage() {
     async getProviderHealth() { return []; },
     async claimAlertWindow() { return false; },
     async cleanupTelemetry() {},
+    async getAdminSummary() {
+      return {
+        total_calls: 42,
+        successful_calls: 40,
+        failed_calls: 2,
+        total_input_tokens: 15000,
+        total_output_tokens: 8500,
+        avg_latency_ms: 312.4,
+        active_installations: 5,
+      };
+    },
+    async getAdminModelStats() {
+      return [
+        {
+          provider: 'nvidia',
+          model: 'meta/llama-3.1-70b-instruct',
+          total_calls: 30,
+          successful_calls: 30,
+          failed_calls: 0,
+          input_tokens: 12000,
+          output_tokens: 6000,
+          avg_latency_ms: 280.0,
+        },
+        {
+          provider: 'openrouter',
+          model: 'anthropic/claude-3.5-sonnet',
+          total_calls: 12,
+          successful_calls: 10,
+          failed_calls: 2,
+          input_tokens: 3000,
+          output_tokens: 2500,
+          avg_latency_ms: 450.0,
+        },
+      ];
+    },
+    async getAdminTaskStats() {
+      return [
+        { task: 'study_guide', total_calls: 20, successful_calls: 20, failed_calls: 0, input_tokens: 8000, output_tokens: 5000, avg_latency_ms: 320.0 },
+      ];
+    },
+    async getAdminRecentEvents() {
+      return [
+        { id: 'evt-1', request_id: 'req-1', task: 'study_guide', route_id: 'r1', provider: 'nvidia', model: 'meta/llama-3.1-70b-instruct', success: 1, status_code: 200, failure_code: '', latency_ms: 250, input_tokens: 400, output_tokens: 200, created_at: 1700000000000 },
+      ];
+    },
+    async getAllProviderHealth() {
+      return [
+        { route_id: 'nvidia-primary', consecutive_failures: 0, last_error_code: '', last_failure_at: null, last_success_at: 1700000000000 },
+      ];
+    },
   };
 }
 
@@ -138,6 +188,24 @@ test('NVIDIA is fastest-first for configured text and vision tasks', () => {
 
   const longRoutes = resolveRoutes(env, 'study_material_generation');
   assert.ok(longRoutes.reduce((total, route) => total + route.timeoutMs, 0) <= 160000);
+});
+
+test('Google AI Studio Gemini route is resolved when configured', () => {
+  const env = baseEnv();
+  env.GEMINI_API_KEY = 'gemini-secret';
+  env.GEMINI_PRIMARY_MODEL = 'gemini-3.5-flash';
+  env.GEMINI_VISION_MODEL = 'gemini-3.5-flash';
+  env.GEMINI_FIRST_TASKS = 'study_material_generation,vision_slide';
+
+  const studyRoutes = resolveRoutes(env, 'study_material_generation');
+  assert.equal(studyRoutes[0].provider, 'openai_compatible');
+  assert.equal(studyRoutes[0].model, 'gemini-3.5-flash');
+  assert.equal(studyRoutes[0].failureDomain, 'generativelanguage.googleapis.com');
+  assert.equal(studyRoutes[0].secretEnv, 'GEMINI_API_KEY');
+
+  const visionRoutes = resolveRoutes(env, 'vision_slide');
+  assert.equal(visionRoutes[0].id, 'vision_slide-gemini');
+  assert.equal(visionRoutes[0].model, 'gemini-3.5-flash');
 });
 
 test('routes cooling down after repeated failures move behind healthy fallbacks', () => {
@@ -493,3 +561,48 @@ test('health is configured only when every task has an independent fallback', as
   assert.equal(unhealthyBody.configured, false);
   assert.equal(unhealthyBody.configured_tasks, 0);
 });
+
+test('admin stats endpoint enforces authentication and returns metrics', async () => {
+  const gateway = createGateway({ storage: fakeStorage(), now: () => 1700000000000 });
+  const env = { ...baseEnv(), ADMIN_API_KEY: 'super-admin-secret' };
+
+  // 1. Unauthenticated request returns 401
+  const unauthorized = await gateway(new Request('https://gateway.test/v1/admin/stats'), env, { waitUntil() {} });
+  assert.equal(unauthorized.status, 401);
+  const unauthBody = await unauthorized.json();
+  assert.equal(unauthBody.ok, false);
+  assert.equal(unauthBody.error.code, 'unauthorized_admin');
+
+  // 2. Request with wrong key returns 401
+  const wrongKey = await gateway(new Request('https://gateway.test/v1/admin/stats', {
+    headers: { 'x-admin-key': 'wrong-key' },
+  }), env, { waitUntil() {} });
+  assert.equal(wrongKey.status, 401);
+
+  // 3. Authorized request with header returns stats payload
+  const authorized = await gateway(new Request('https://gateway.test/v1/admin/stats?window=24h', {
+    headers: { 'x-admin-key': 'super-admin-secret' },
+  }), env, { waitUntil() {} });
+  assert.equal(authorized.status, 200);
+  const body = await authorized.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.summary.total_calls, 42);
+  assert.equal(body.models.length, 2);
+  assert.equal(body.models[0].provider, 'nvidia');
+  assert.equal(body.tasks[0].task, 'study_guide');
+  assert.equal(body.health[0].route_id, 'nvidia-primary');
+  assert.equal(body.recent_events.length, 1);
+});
+
+test('admin dashboard endpoint serves HTML interface', async () => {
+  const gateway = createGateway({ storage: fakeStorage(), now: () => 1700000000000 });
+  const env = baseEnv();
+  const res = await gateway(new Request('https://gateway.test/v1/admin/dashboard'), env, { waitUntil() {} });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type').includes('text/html'), true);
+  const html = await res.text();
+  assert.equal(html.includes('LecturePack'), true);
+  assert.equal(html.includes('Admin Gateway'), true);
+  assert.equal(html.includes('ADMIN_API_KEY'), true);
+});
+

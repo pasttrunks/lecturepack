@@ -494,3 +494,413 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def _create_test_job(
+    data_root: Path,
+    job_id: str,
+    title: str,
+    *,
+    group: str = "",
+    status: str = "ready",
+    concepts: list[str] | None = None,
+) -> None:
+    job_dir = data_root / "jobs" / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "job_id": job_id,
+        "title": title,
+        "created_at": "2026-08-15T00:00:00Z",
+    }
+    if group:
+        manifest["group"] = group
+    (job_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (job_dir / "state.json").write_text(
+        json.dumps({"overall_status": "completed", "lifecycle": "completed"}),
+        encoding="utf-8",
+    )
+
+    concept_list = concepts or ["c1", "c2"]
+    content = {
+        "study_status": status,
+        "generated_at": "2026-08-15T00:00:00Z",
+        "lecture_analysis": {
+            "lecture_summary": f"Summary of {title}",
+            "concepts": [{"id": cid, "title": cid} for cid in concept_list],
+        },
+        "concepts": [{"id": cid, "title": cid} for cid in concept_list],
+    }
+    (job_dir / "study-content-v2.json").write_text(json.dumps(content), encoding="utf-8")
+
+
+def _setup_group_study_sidecar(data_root: Path, *, mock_gateway_fn=None):
+    from lecturepack import electron_backend
+    from lecturepack.services import ai_gateway, group_study, study_v2
+
+    module = _sidecar_module()
+    sidecar = module.Sidecar.__new__(module.Sidecar)
+    sidecar._engine_error = ""
+    sidecar.data_dir = data_root
+    sidecar.session_id = "test-session"
+    sidecar.current_job = None
+    sidecar.Job = Job
+    sidecar.electron_backend = electron_backend
+    sidecar.group_study = group_study
+    sidecar.study_v2 = study_v2
+    sidecar.ai_gateway = ai_gateway
+
+    emitted = []
+    responses = []
+    sidecar._emit = lambda event: emitted.append(event)
+    sidecar._respond = lambda request_id, command, **kwargs: responses.append({
+        "event": "response",
+        "response_to": request_id,
+        "command": command,
+        **kwargs,
+    })
+
+    client = SimpleNamespace()
+    if mock_gateway_fn is not None:
+        client.request = mock_gateway_fn
+    else:
+        client.request = lambda task, payload: {
+            "group_summary": "Synthesized summary",
+            "concepts": [
+                {
+                    "id": "gc1",
+                    "title": "Global Concept 1",
+                    "job_ids": [m["job_id"] for m in payload.get("lectures", [])],
+                },
+            ],
+            "relationships": [],
+            "through_lines": [],
+            "gaps": [],
+        }
+    sidecar._ai_gateway_client = client
+    sidecar._study_workers_lock = threading.Lock()
+    sidecar._gateway_client = lambda: client
+
+    sidecar._job_objects = module.Sidecar._job_objects.__get__(sidecar)
+    sidecar._study_v2_group_prepare = module.Sidecar._study_v2_group_prepare.__get__(sidecar)
+    sidecar._handle_command = module.Sidecar._handle_command.__get__(sidecar)
+
+    return sidecar, emitted, responses, client
+
+
+def test_sidecar_study_v2_group_prepare_success_uncached(tmp_path):
+    _create_test_job(tmp_path, "job-1", "History 101: Intro", group="History")
+    _create_test_job(tmp_path, "job-2", "History 102: Rome", group="History")
+    _create_test_job(tmp_path, "job-3", "Physics 101: Mechanics", group="Physics")
+
+    sidecar, emitted, responses, _ = _setup_group_study_sidecar(tmp_path)
+
+    sidecar._handle_command({
+        "request_id": "req-1",
+        "command": "study_v2_group_prepare",
+        "payload": {"group": "History", "force": False},
+    })
+
+    assert len(responses) == 1
+    resp = responses[0]
+    assert resp["response_to"] == "req-1"
+    assert resp["command"] == "study_v2_group_prepare"
+    assert resp["ok"] is True
+    assert resp["group"] == "History"
+    assert resp["cached"] is False
+    assert len(resp["members"]) == 2
+    assert {m["job_id"] for m in resp["members"]} == {"job-1", "job-2"}
+    assert resp["analysis"]["group_summary"] == "Synthesized summary"
+    assert resp["reason"] is None
+
+    # Check progress events emitted
+    assert any(
+        e.get("event") == "group_study_progress"
+        and e.get("group") == "History"
+        and e.get("status") == "preparing"
+        and e.get("total_jobs") == 2
+        for e in emitted
+    )
+    assert any(
+        e.get("event") == "group_study_progress"
+        and e.get("group") == "History"
+        and e.get("status") == "ready"
+        and e.get("cached") is False
+        and e.get("members_count") == 2
+        for e in emitted
+    )
+
+    # Check disk cache created
+    from lecturepack.services.group_study import analysis_path
+    cache_file = Path(analysis_path(str(tmp_path), "History"))
+    assert cache_file.is_file()
+    cached_doc = json.loads(cache_file.read_text(encoding="utf-8"))
+    assert cached_doc["group"] == "History"
+    assert cached_doc["analysis"]["group_summary"] == "Synthesized summary"
+
+
+def test_sidecar_study_v2_group_prepare_success_cached(tmp_path):
+    _create_test_job(tmp_path, "job-1", "History 101: Intro", group="History")
+    _create_test_job(tmp_path, "job-2", "History 102: Rome", group="History")
+
+    gateway_calls = []
+
+    def mock_gw(task, payload):
+        gateway_calls.append((task, payload))
+        return {
+            "group_summary": "Initial summary",
+            "concepts": [
+                {
+                    "id": "gc1",
+                    "title": "Global 1",
+                    "job_ids": [m["job_id"] for m in payload.get("lectures", [])],
+                }
+            ],
+            "relationships": [],
+            "through_lines": [],
+            "gaps": [],
+        }
+
+    sidecar, emitted, responses, client = _setup_group_study_sidecar(
+        tmp_path, mock_gateway_fn=mock_gw
+    )
+
+    # First call: builds cache
+    sidecar._handle_command({
+        "request_id": "req-1",
+        "command": "study_v2_group_prepare",
+        "payload": {"group": "History"},
+    })
+    assert responses[-1]["ok"] is True
+    assert responses[-1]["cached"] is False
+    assert len(gateway_calls) == 1
+
+    # Second call: hits cache without gateway request
+    def exploding_gw(_task, _payload):
+        raise AssertionError("Gateway must not be called on cache hit")
+
+    client.request = exploding_gw
+
+    sidecar._handle_command({
+        "request_id": "req-2",
+        "command": "study_v2_group_prepare",
+        "payload": {"group": "History"},
+    })
+    assert responses[-1]["response_to"] == "req-2"
+    assert responses[-1]["ok"] is True
+    assert responses[-1]["cached"] is True
+    assert responses[-1]["analysis"]["group_summary"] == "Initial summary"
+    assert len(responses[-1]["members"]) == 2
+
+    assert any(
+        e.get("event") == "group_study_progress"
+        and e.get("group") == "History"
+        and e.get("status") == "ready"
+        and e.get("cached") is True
+        for e in emitted
+    )
+
+
+def test_sidecar_study_v2_group_prepare_force_bypass(tmp_path):
+    _create_test_job(tmp_path, "job-1", "History 101: Intro", group="History")
+
+    call_count = 0
+
+    def mock_gw(task, payload):
+        nonlocal call_count
+        call_count += 1
+        return {
+            "group_summary": f"Summary call {call_count}",
+            "concepts": [{"id": "gc1", "title": "Global 1", "job_ids": ["job-1"]}],
+            "relationships": [],
+            "through_lines": [],
+            "gaps": [],
+        }
+
+    sidecar, _, responses, _ = _setup_group_study_sidecar(
+        tmp_path, mock_gateway_fn=mock_gw
+    )
+
+    # First call: populates cache
+    sidecar._handle_command({
+        "request_id": "req-1",
+        "command": "study_v2_group_prepare",
+        "payload": {"group": "History"},
+    })
+    assert responses[-1]["cached"] is False
+    assert responses[-1]["analysis"]["group_summary"] == "Summary call 1"
+    assert call_count == 1
+
+    # Force bypass call: re-generates
+    sidecar._handle_command({
+        "request_id": "req-2",
+        "command": "study_v2_group_prepare",
+        "payload": {"group": "History", "force": True},
+    })
+    assert responses[-1]["response_to"] == "req-2"
+    assert responses[-1]["ok"] is True
+    assert responses[-1]["cached"] is False
+    assert responses[-1]["analysis"]["group_summary"] == "Summary call 2"
+    assert call_count == 2
+
+
+def test_sidecar_study_v2_group_prepare_missing_group_error(tmp_path):
+    sidecar, _, responses, _ = _setup_group_study_sidecar(tmp_path)
+
+    # Empty string
+    sidecar._handle_command({
+        "request_id": "req-empty",
+        "command": "study_v2_group_prepare",
+        "payload": {"group": "  "},
+    })
+    assert responses[-1]["ok"] is False
+    assert responses[-1]["reason"] == "missing_group"
+    assert "group is required" in responses[-1]["error"]
+
+    # Missing group field
+    sidecar._handle_command({
+        "request_id": "req-missing",
+        "command": "study_v2_group_prepare",
+        "payload": {},
+    })
+    assert responses[-1]["ok"] is False
+    assert responses[-1]["reason"] == "missing_group"
+
+
+def test_sidecar_study_v2_group_prepare_no_ready_lectures(tmp_path):
+    # Job exists in group, but has status preparing
+    _create_test_job(tmp_path, "job-prep", "Math 101", group="Math", status="preparing")
+
+    sidecar, emitted, responses, _ = _setup_group_study_sidecar(tmp_path)
+
+    sidecar._handle_command({
+        "request_id": "req-no-ready",
+        "command": "study_v2_group_prepare",
+        "payload": {"group": "Math"},
+    })
+
+    assert responses[-1]["ok"] is False
+    assert responses[-1]["reason"] == "no_ready_lectures"
+    assert responses[-1]["members"] == []
+    assert any(
+        e.get("event") == "group_study_progress"
+        and e.get("group") == "Math"
+        and e.get("status") == "failed"
+        and e.get("reason") == "no_ready_lectures"
+        for e in emitted
+    )
+
+
+def test_sidecar_study_v2_group_prepare_derive_group_matching(tmp_path):
+    # No explicit group in manifest, but title has colon delimiter
+    _create_test_job(tmp_path, "job-cs", "CS 101: Introduction to Python")
+
+    sidecar, _, responses, _ = _setup_group_study_sidecar(tmp_path)
+
+    sidecar._handle_command({
+        "request_id": "req-derived",
+        "command": "study_v2_group_prepare",
+        "payload": {"group": "CS 101"},
+    })
+
+    assert responses[-1]["ok"] is True
+    assert responses[-1]["group"] == "CS 101"
+    assert len(responses[-1]["members"]) == 1
+    assert responses[-1]["members"][0]["job_id"] == "job-cs"
+
+
+def test_sidecar_study_v2_group_prepare_gateway_error_resilience(tmp_path):
+    _create_test_job(tmp_path, "job-1", "Bio 101", group="Biology")
+
+    def failing_gw(_task, _payload):
+        raise RuntimeError("Cloudflare rate limit")
+
+    sidecar, emitted, responses, _ = _setup_group_study_sidecar(
+        tmp_path, mock_gateway_fn=failing_gw
+    )
+
+    sidecar._handle_command({
+        "request_id": "req-fail",
+        "command": "study_v2_group_prepare",
+        "payload": {"group": "Biology"},
+    })
+
+    assert responses[-1]["ok"] is False
+    assert responses[-1]["reason"] == "prepare_failed"
+    assert "Cloudflare rate limit" in responses[-1]["error"]
+    assert any(
+        e.get("event") == "group_study_progress"
+        and e.get("group") == "Biology"
+        and e.get("status") == "failed"
+        for e in emitted
+    )
+
+
+def test_bridge_map_call_study_v2_group_prepare(tmp_path):
+    node = shutil.which("node")
+    if node is None:
+        return
+    harness = tmp_path / "bridge-group-study-contract.js"
+    harness.write_text(
+        r"""
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+const calls = [];
+const context = {
+  console: { error() {} },
+  window: {
+    localStorage: { setItem() {} },
+    lecturePackElectron: {
+      request(command, payload) {
+        calls.push({ command, payload });
+        return Promise.resolve({ ok: true });
+      },
+      onMessage() {}
+    }
+  }
+};
+vm.createContext(context);
+vm.runInContext(source, context, { filename: 'electron-bridge.js' });
+(async () => {
+  // Test 1: Positional args (group, force)
+  await context.window.lpBridge.call('study_v2_group_prepare', 'CL100', true);
+  if (calls[0].command !== 'study_v2_group_prepare' || calls[0].payload.group !== 'CL100' || calls[0].payload.force !== true) {
+    throw new Error('positional group and force failed: ' + JSON.stringify(calls[0]));
+  }
+
+  // Test 2: Positional arg (group only)
+  await context.window.lpBridge.call('study_v2_group_prepare', 'CL100');
+  if (calls[1].command !== 'study_v2_group_prepare' || calls[1].payload.group !== 'CL100' || calls[1].payload.force !== false) {
+    throw new Error('positional group only failed: ' + JSON.stringify(calls[1]));
+  }
+
+  // Test 3: Object payload { group, force }
+  await context.window.lpBridge.call('study_v2_group_prepare', { group: 'CS101', force: true });
+  if (calls[2].command !== 'study_v2_group_prepare' || calls[2].payload.group !== 'CS101' || calls[2].payload.force !== true) {
+    throw new Error('object payload group and force failed: ' + JSON.stringify(calls[2]));
+  }
+
+  // Test 4: Object payload { group }
+  await context.window.lpBridge.call('study_v2_group_prepare', { group: 'CS101' });
+  if (calls[3].command !== 'study_v2_group_prepare' || calls[3].payload.group !== 'CS101' || calls[3].payload.force !== false) {
+    throw new Error('object payload group only failed: ' + JSON.stringify(calls[3]));
+  }
+
+  // Test 5: Empty call
+  await context.window.lpBridge.call('study_v2_group_prepare');
+  if (calls[4].command !== 'study_v2_group_prepare' || calls[4].payload.group !== '' || calls[4].payload.force !== false) {
+    throw new Error('empty call failed: ' + JSON.stringify(calls[4]));
+  }
+})().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
+""".strip() + "\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [node, str(harness), str(ROOT / "electron-spike" / "electron-bridge.js")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+

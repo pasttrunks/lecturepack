@@ -1,4 +1,5 @@
 import { hashIdentifier, issueInstallationToken, validInstallationId, verifyInstallationToken } from './auth.js';
+import { DASHBOARD_HTML } from './dashboard_html.js';
 import {
   callProvider, prioritizeHealthyRoutes, ProviderError, resolveRoutes,
 } from './providers.js';
@@ -84,13 +85,43 @@ function corsHeaders(request, env) {
   const origin = String(request.headers.get('origin') || '');
   if (!origin) return {};
   const allowed = String(env.ALLOWED_ORIGINS || '').split(',').map((item) => item.trim()).filter(Boolean);
-  if (!allowed.includes(origin)) return {};
+  const isAllowed = !allowed.length || allowed.includes('*') || allowed.includes(origin) || origin === 'null';
+  if (!isAllowed) return {};
   return {
-    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Origin': origin === 'null' ? '*' : origin,
     Vary: 'Origin',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-LecturePack-Version',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-LecturePack-Version, X-Admin-Key',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   };
+}
+
+function checkAdminAuth(request, env) {
+  if (!env.ADMIN_API_KEY) {
+    return { ok: false, status: 503, code: 'admin_not_configured', message: 'ADMIN_API_KEY is not configured on this gateway.' };
+  }
+  const headerKey = request.headers.get('x-admin-key');
+  const bearer = bearerToken(request);
+  if ((headerKey && headerKey === env.ADMIN_API_KEY) || (bearer && bearer === env.ADMIN_API_KEY)) {
+    return { ok: true };
+  }
+  return { ok: false, status: 401, code: 'unauthorized_admin', message: 'Invalid or missing admin key.' };
+}
+
+async function fetchOpenRouterBalance(fetchImpl, env) {
+  if (!env.OPENROUTER_API_KEY) return null;
+  try {
+    const res = await fetchImpl('https://openrouter.ai/api/v1/auth/key', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+      },
+    });
+    if (!res.ok) return { ok: false, status: res.status };
+    const data = await res.json();
+    return { ok: true, data: (data && data.data) ? data.data : data };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message ? err.message : 'fetch failed') };
+  }
 }
 
 async function rateLimit(binding, key) {
@@ -352,6 +383,54 @@ export function createGateway(options = {}) {
     ), 503, cors);
   }
 
+  async function adminStats(request, env, cors) {
+    const auth = checkAdminAuth(request, env);
+    if (!auth.ok) return jsonResponse(publicError(auth.code, auth.message, false), auth.status, cors);
+    const url = new URL(request.url);
+    const windowParam = String(url.searchParams.get('window') || '24h').toLowerCase();
+    const now = nowFn();
+    let since = now - 86400000;
+    if (windowParam === '7d') since = now - 7 * 86400000;
+    else if (windowParam === '30d') since = now - 30 * 86400000;
+    else if (windowParam === 'all') since = 0;
+    else if (Number(windowParam)) since = Math.max(0, now - Number(windowParam));
+
+    const [summary, models, tasksList, health, recentEvents, openrouterBalance] = await Promise.all([
+      storage.getAdminSummary(env, since),
+      storage.getAdminModelStats(env, since),
+      storage.getAdminTaskStats(env, since),
+      storage.getAllProviderHealth(env),
+      storage.getAdminRecentEvents(env, 50),
+      fetchOpenRouterBalance(fetchImpl, env),
+    ]);
+
+    return jsonResponse({
+      ok: true,
+      service: 'lecturepack-ai-gateway',
+      window: windowParam,
+      since: new Date(since).toISOString(),
+      timestamp: new Date(now).toISOString(),
+      summary,
+      models,
+      tasks: tasksList,
+      health,
+      recent_events: recentEvents,
+      openrouter_balance: openrouterBalance,
+    }, 200, cors);
+  }
+
+  function adminDashboard(request, env, cors) {
+    return new Response(DASHBOARD_HTML, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+        ...cors,
+      },
+    });
+  }
+
   return async function handle(request, env, context = { waitUntil() {} }) {
     const cors = corsHeaders(request, env);
     if (request.method === 'OPTIONS') {
@@ -375,6 +454,8 @@ export function createGateway(options = {}) {
           required_tasks: TASK_TYPES.length,
         }, 200, cors);
       }
+      if (request.method === 'GET' && url.pathname === '/v1/admin/stats') return await adminStats(request, env, cors);
+      if (request.method === 'GET' && (url.pathname === '/v1/admin/dashboard' || url.pathname === '/admin' || url.pathname === '/admin/')) return adminDashboard(request, env, cors);
       if (request.method === 'POST' && url.pathname === '/v1/installations/register') return await register(request, env, cors);
       if (request.method === 'POST' && url.pathname === '/v1/tasks') return await tasks(request, env, context, cors);
       return jsonResponse(publicError('not_found', 'Gateway endpoint not found.', false), 404, cors);

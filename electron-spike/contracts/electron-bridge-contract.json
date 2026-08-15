@@ -167,6 +167,23 @@
       "status": "IMPLEMENTED"
     },
     {
+      "direction": "event",
+      "event_fields": [
+        "event",
+        "group",
+        "status"
+      ],
+      "mapped_to": "",
+      "name": "group_study_progress",
+      "notes": "Reports progress during cross-lecture group map preparation.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [],
+      "request_id_required": false,
+      "response_fields": [],
+      "status": "IMPLEMENTED"
+    },
+    {
       "direction": "command",
       "event_fields": [],
       "mapped_to": "",
@@ -2483,6 +2500,29 @@
         "ok",
         "started",
         "concept_ids"
+      ],
+      "status": "IMPLEMENTED"
+    },
+    {
+      "direction": "command",
+      "event_fields": [],
+      "mapped_to": "",
+      "name": "study_v2_group_prepare",
+      "notes": "Prepares or retrieves cached cross-lecture map for a subject group.",
+      "phase8": "",
+      "production_core": true,
+      "request_fields": [
+        "group",
+        "force"
+      ],
+      "request_id_required": true,
+      "response_fields": [
+        "ok",
+        "group",
+        "cached",
+        "analysis",
+        "members",
+        "reason"
       ],
       "status": "IMPLEMENTED"
     },

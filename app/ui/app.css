@@ -1472,3 +1472,309 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 
 .lp-prep-inputs{margin-top:15px;padding-top:12px;border-top:1.5px solid var(--line);
   font:500 11px 'JetBrains Mono';color:var(--muted)}
+
+/* ===== SUBJECTS MANAGEMENT SCREEN & COVERAGE BARS ===== */
+.lp-subjects-screen {
+  animation: lprail var(--motion-seat) var(--motion-spring) both;
+}
+
+.subjects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.subject-card {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-hard-sm);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.subject-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.subject-card-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.subject-card-title {
+  font: 700 18px 'Space Grotesk';
+  color: var(--ink);
+  cursor: pointer;
+  border-bottom: 1.5px dashed transparent;
+  transition: border-color var(--motion-fast) var(--motion-ease);
+}
+
+.subject-card-title:hover {
+  border-bottom-color: var(--blue);
+}
+
+.subject-rename-btn {
+  background: transparent;
+  border: none;
+  padding: 3px;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.subject-rename-btn:hover {
+  color: var(--ink);
+  background: var(--panel2);
+}
+
+.subject-card-meta {
+  font: 500 11px 'JetBrains Mono';
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.subject-study-btn {
+  font: 700 12px 'Space Grotesk';
+  background: var(--orange);
+  color: var(--on-signal);
+  border: 1.5px solid var(--orange-ink);
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.subject-coverage-section {
+  background: var(--sunk);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+/* Coverage Bar Components */
+.lp-coverage-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.lp-coverage-track {
+  flex: 1;
+  height: 7px;
+  background: var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.lp-coverage-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width var(--motion-slow) var(--motion-ease);
+}
+
+.lp-coverage-pct {
+  font: 700 10px 'JetBrains Mono';
+  color: var(--ink);
+  min-width: 28px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subject Member Lecture Rows */
+.subject-members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.subject-member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: var(--panel2);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  transition: background var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease);
+}
+
+.subject-member-row:hover {
+  background: var(--sunk);
+  border-color: var(--border);
+}
+
+.subject-member-name {
+  font: 600 12.5px 'Space Grotesk';
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subject-member-meta {
+  font: 500 10px 'JetBrains Mono';
+  color: var(--muted);
+}
+
+.subject-member-open {
+  font: 600 11px 'Space Grotesk';
+  padding: 4px 8px;
+  background: var(--panel);
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  color: var(--ink);
+  cursor: pointer;
+  flex: none;
+}
+
+/* Card Subject Badge & Inline Editing */
+.lp-subject-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 700 10.5px 'JetBrains Mono';
+  letter-spacing: .04em;
+  padding: 3px 7px;
+  background: var(--blue-soft);
+  border: 1.5px solid var(--blue-strong);
+  border-radius: 6px;
+  color: var(--blue-ink);
+  cursor: pointer;
+  transition: transform var(--motion-fast) var(--motion-spring), box-shadow var(--motion-fast) var(--motion-ease);
+}
+
+.lp-subject-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--btn-edge-hover);
+}
+
+.lp-subject-inline-input {
+  font: 700 11px 'JetBrains Mono';
+  outline: 2px solid var(--blue);
+  outline-offset: 0;
+}
+
+/* --- Study Scope Header & Group Study Polish --- */
+.study-scope-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 16px;
+  box-shadow: var(--shadow-soft);
+  flex: none;
+  flex-wrap: wrap;
+}
+.study-scope-header[hidden] { display: none; }
+.study-scope-left { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+.study-scope-badge-wrap { display: flex; flex-direction: column; gap: 2px; }
+.study-scope-type-label { font: 700 9px 'JetBrains Mono'; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.study-scope-subject-badge {
+  font: 700 13px 'JetBrains Mono';
+  color: var(--orange-ink);
+  background: var(--orange-soft);
+  border: 1.5px solid var(--orange);
+  border-radius: 6px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.study-scope-info { display: flex; flex-direction: column; min-width: 0; }
+.study-scope-title { font: 700 15px 'Space Grotesk'; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.study-scope-summary, .study-scope-meta { font: 500 11px 'JetBrains Mono'; color: var(--muted); margin-top: 2px; }
+
+.study-scope-center { display: flex; align-items: center; gap: 8px; flex: none; }
+.study-scope-switcher-wrap { display: flex; align-items: center; gap: 7px; }
+.study-scope-switcher-label { font: 600 11px 'JetBrains Mono'; text-transform: uppercase; color: var(--muted); }
+.study-scope-select {
+  font: 600 12px 'Space Grotesk';
+  background: var(--sunk);
+  color: var(--ink);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  max-width: 280px;
+  cursor: pointer;
+}
+.study-scope-select option:disabled { color: var(--muted); background: var(--panel); }
+
+.study-scope-right { display: flex; align-items: center; gap: 8px; flex: none; }
+.study-scope-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 11px 'Space Grotesk';
+  background: var(--panel);
+  color: var(--ink);
+  border: 1.5px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.study-scope-btn:hover { background: var(--panel2); border-color: var(--secondary-border); }
+
+/* Progressive Unlocking Banner */
+.study-progressive-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--orange-soft);
+  border: 1.5px solid var(--orange);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: var(--ink);
+  flex: none;
+}
+.study-progressive-banner[hidden] { display: none; }
+.study-progressive-banner-icon { color: var(--orange-ink); display: flex; align-items: center; flex: none; }
+.study-progressive-banner-text { font: 500 12px 'Space Grotesk'; line-height: 1.45; flex: 1; }
+
+/* Cross-Lecture Citations */
+.study-cross-lecture-citations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  width: 100%;
+}
+.study-citation-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+.study-citation-lecture-name {
+  font: 700 11px 'JetBrains Mono';
+  color: var(--secondary-text);
+  letter-spacing: .02em;
+}
+.study-citation-buttons { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* Transcript jump highlight */
+.transcript-target-highlight {
+  outline: 2px solid var(--orange);
+  background: var(--orange-soft) !important;
+}

@@ -1171,8 +1171,12 @@
     var b = JOB_BADGES[displayStatus] || JOB_BADGES.done;
     var dot = '<span style="width:6px;height:6px;border-radius:50%;background:' + b.dot + (b.blink ? ';animation:lpblink 1s infinite' : '') + '"></span>';
     var badge = '<span class="lp-state" data-state="' + (JOB_STATE_MAP[displayStatus] || 'idle') + '" style="position:absolute;top:9px;right:9px;display:flex;align-items:center;gap:5px;font:600 10px \'JetBrains Mono\';text-transform:uppercase;background:' + b.bg + ';color:' + b.fg + ';border-radius:6px;padding:3px 8px">' + dot + b.label + '</span>';
-    var menu = j.id ? '<div style="position:absolute;top:9px;left:9px;display:flex;gap:6px">' +
-      _jobBtn('group', j.id, TAG_SVG, 'Set group') + _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
+    var subject = jobGroup(j) || 'General';
+    var subjectBadge = '<button type="button" class="lp-subject-badge" data-jobid="' + esc(j.id) + '" data-subject="' + esc(subject) + '" title="Click to rename subject">' +
+      '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/></svg>' +
+      '<span>' + esc(subject) + '</span></button>';
+    var menu = j.id ? '<div style="position:absolute;top:9px;left:9px;display:flex;align-items:center;gap:6px">' +
+      subjectBadge + _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
     var body;
     if (j.status === 'running') {
       body = '<div data-job-title title="Double-click to rename" style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(j.name) + '</div>' +
@@ -1505,6 +1509,226 @@
   }
   function jobGroup(job) {
     return (job && job.group) || inferredJobGroup(job && (job.name || job.title));
+  }
+
+  function lectureProgressPct(job) {
+    if (!job) return 0;
+    if (job.status !== 'done') return Math.max(0, Math.min(100, Number(job.pct) || 0));
+    var studyData = (typeof studyV2 !== 'undefined' && studyV2.progress && studyV2.viewJobId === job.id) ? studyV2.progress : null;
+    if (!studyData && job.study_summary && typeof job.study_summary.progress_percent === 'number') {
+      return Math.max(0, Math.min(100, Math.round(job.study_summary.progress_percent)));
+    }
+    if (studyData && studyData.concepts) {
+      var cids = Object.keys(studyData.concepts);
+      if (cids.length > 0) {
+        var scoreSum = 0;
+        cids.forEach(function (cid) {
+          var state = studyData.concepts[cid];
+          if (typeof state === 'object' && state !== null) state = state.mastery;
+          if (state === 'MASTERED' || state === 'mastered') scoreSum += 1.0;
+          else if (state === 'LEARNING' || state === 'learning' || state === 'MEDIUM' || state === 'medium') scoreSum += 0.5;
+          else if (state === 'NEEDS_REVIEW' || state === 'needs_review' || state === 'LOW' || state === 'low') scoreSum += 0.2;
+        });
+        return Math.max(0, Math.min(100, Math.round((scoreSum / cids.length) * 100)));
+      }
+    }
+    return 100; // Processed and ready for study
+  }
+
+  function groupCoveragePct(jobs) {
+    if (!jobs || !jobs.length) return 0;
+    var sum = 0;
+    jobs.forEach(function (j) { sum += lectureProgressPct(j); });
+    return Math.round(sum / jobs.length);
+  }
+
+  function renderCoverageBarHtml(pct, label) {
+    var p = Math.max(0, Math.min(100, Number(pct) || 0));
+    var color = p >= 80 ? 'var(--green)' : p >= 40 ? 'var(--orange)' : 'var(--blue)';
+    return '<div class="lp-coverage-bar" title="' + esc(label || (p + '% coverage')) + '">' +
+      '<div class="lp-coverage-track"><div class="lp-coverage-fill" style="width:' + p + '%;background:' + color + '"></div></div>' +
+      '<span class="lp-coverage-pct">' + p + '%</span></div>';
+  }
+
+  var subjectFilterQuery = '';
+
+  function renderSubjects() {
+    var grid = $('subjects-grid'), empty = $('subjects-empty'), countLabel = $('subjects-summary-count');
+    if (!grid) return;
+    var allJobs = (typeof LP !== 'undefined' && LP.data && LP.data.jobs) || [];
+    var groupsMap = {};
+    allJobs.forEach(function (j) {
+      var grp = jobGroup(j) || 'General';
+      if (!groupsMap[grp]) groupsMap[grp] = [];
+      groupsMap[grp].push(j);
+    });
+    var groupNames = Object.keys(groupsMap).sort();
+    if (subjectFilterQuery) {
+      var q = subjectFilterQuery.toLowerCase().trim();
+      groupNames = groupNames.filter(function (name) {
+        if (name.toLowerCase().indexOf(q) >= 0) return true;
+        return groupsMap[name].some(function (j) { return ((j && (j.name || j.title)) || '').toLowerCase().indexOf(q) >= 0; });
+      });
+    }
+    if (countLabel) countLabel.textContent = groupNames.length + (groupNames.length === 1 ? ' Subject' : ' Subjects');
+    if (!groupNames.length) {
+      grid.innerHTML = '';
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+
+    grid.innerHTML = groupNames.map(function (grpName) {
+      var members = groupsMap[grpName];
+      var cov = groupCoveragePct(members);
+      var doneCount = members.filter(function (m) { return m.status === 'done'; }).length;
+      var memberListHtml = members.map(function (m) {
+        var mPct = lectureProgressPct(m);
+        var isViewing = typeof LP !== 'undefined' && LP.state && m.id === LP.state.jobId;
+        var r = getJobReadiness(m);
+        var mName = m.name || m.title || m.filename || 'Lecture';
+        return '<div class="subject-member-row' + (isViewing ? ' active' : '') + '" data-jobid="' + esc(m.id) + '">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="subject-member-name" title="' + esc(mName) + '">' + esc(mName) + '</div>' +
+            '<div class="subject-member-meta">' + esc(r.label + (m.duration ? ' · ' + m.duration : '')) + '</div>' +
+          '</div>' +
+          '<div style="width:70px;flex:none">' + renderCoverageBarHtml(mPct, mName + ': ' + mPct + '%') + '</div>' +
+          '<button type="button" class="lp-hit subject-member-open" data-jobid="' + esc(m.id) + '" title="Open lecture">Open</button>' +
+        '</div>';
+      }).join('');
+
+      return '<div class="subject-card lp-card" data-group="' + esc(grpName) + '">' +
+        '<div class="subject-card-head">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="subject-card-title-wrap">' +
+              '<span class="subject-card-title" data-group="' + esc(grpName) + '" title="Click to rename subject">' + esc(grpName) + '</span>' +
+              '<button type="button" class="subject-rename-btn" data-group="' + esc(grpName) + '" title="Rename subject group"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>' +
+            '</div>' +
+            '<div class="subject-card-meta">' + members.length + (members.length === 1 ? ' lecture' : ' lectures') + ' · ' + doneCount + ' ready</div>' +
+          '</div>' +
+          '<button type="button" class="lp-hit lp-press-sm subject-study-btn" data-group="' + esc(grpName) + '" title="Study entire subject">' +
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Study Subject' +
+          '</button>' +
+        '</div>' +
+        '<div class="subject-coverage-section">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;font:500 11px \'JetBrains Mono\';color:var(--muted);margin-bottom:6px">' +
+            '<span>SUBJECT MASTERY</span><span>' + cov + '%</span>' +
+          '</div>' +
+          renderCoverageBarHtml(cov, 'Overall subject mastery: ' + cov + '%') +
+        '</div>' +
+        '<div class="subject-members-list">' + memberListHtml + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function wireSubjectEvents() {
+    var searchInput = $('subjects-filter-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        subjectFilterQuery = this.value;
+        renderSubjects();
+      });
+    }
+
+    var grid = $('subjects-grid');
+    if (grid) {
+      grid.addEventListener('click', function (e) {
+        var openBtn = e.target.closest('.subject-member-open');
+        if (openBtn) {
+          var jid = openBtn.dataset.jobid;
+          if (jid) selectJob(jid, { screen: 'review' });
+          return;
+        }
+        var studyBtn = e.target.closest('.subject-study-btn');
+        if (studyBtn) {
+          var grp = studyBtn.dataset.group;
+          if (grp) studySubjectGroup(grp);
+          return;
+        }
+        var renameBtn = e.target.closest('.subject-rename-btn') || e.target.closest('.subject-card-title');
+        if (renameBtn) {
+          var groupName = renameBtn.dataset.group;
+          if (groupName) handleSubjectCardRename(renameBtn.closest('.subject-card'), groupName);
+          return;
+        }
+      });
+    }
+
+    var jobsContainer = $('jobs-grid') || document.body;
+    jobsContainer.addEventListener('click', function (e) {
+      var badge = e.target.closest('.lp-subject-badge');
+      if (badge && !badge.querySelector('input')) {
+        e.stopPropagation();
+        handleHomeBadgeInlineRename(badge);
+      }
+    });
+  }
+
+  function handleHomeBadgeInlineRename(badgeEl) {
+    var jobId = badgeEl.dataset.jobid;
+    var currentVal = badgeEl.dataset.subject || '';
+    badgeEl.innerHTML = '<input class="lp-subject-inline-input" type="text" value="' + esc(currentVal) + '" data-prev="' + esc(currentVal) + '" style="font:700 11px \'JetBrains Mono\';width:80px;padding:2px 4px;border:1.5px solid var(--blue);border-radius:4px;background:var(--panel);color:var(--ink)">';
+    var input = badgeEl.querySelector('input');
+    if (!input) return;
+    input.focus();
+    input.select();
+    var committed = false;
+    function commit() {
+      if (committed) return;
+      committed = true;
+      var nextVal = input.value.trim();
+      if (nextVal && nextVal !== currentVal) {
+        if (lpBridge.connected()) lpBridge.call('set_job_group', jobId, nextVal);
+        var job = _jobById(jobId);
+        if (job) job.group = nextVal;
+        toast('Subject updated to ' + nextVal);
+      }
+      renderJobs();
+      if (typeof LP !== 'undefined' && LP.state && LP.state.screen === 'subjects') renderSubjects();
+    }
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { e.preventDefault(); committed = true; renderJobs(); }
+    });
+    input.addEventListener('blur', function () { commit(); });
+  }
+
+  function handleSubjectCardRename(cardEl, oldGroup) {
+    var titleEl = cardEl.querySelector('.subject-card-title');
+    if (!titleEl) return;
+    titleEl.innerHTML = '<input class="subject-card-title-input" type="text" value="' + esc(oldGroup) + '" style="font:700 18px \'Space Grotesk\';padding:3px 8px;border:2px solid var(--blue);border-radius:6px;background:var(--panel);color:var(--ink);width:100%">';
+    var input = titleEl.querySelector('input');
+    if (!input) return;
+    input.focus();
+    input.select();
+    var committed = false;
+    function commit() {
+      if (committed) return;
+      committed = true;
+      var nextGroup = input.value.trim();
+      if (nextGroup && nextGroup !== oldGroup) {
+        var allJobs = (typeof LP !== 'undefined' && LP.data && LP.data.jobs) || [];
+        var memberIds = allJobs.filter(function (j) { return (jobGroup(j) || 'General') === oldGroup; }).map(function (j) { return j.id; });
+        if (memberIds.length) {
+          if (lpBridge.connected()) lpBridge.call('set_jobs_group', JSON.stringify(memberIds), nextGroup);
+          allJobs.forEach(function (j) {
+            if (memberIds.indexOf(j.id) >= 0) j.group = nextGroup;
+          });
+          toast('Renamed subject to ' + nextGroup + ' (' + memberIds.length + ' lectures updated)');
+        }
+      }
+      renderSubjects();
+      renderJobs();
+    }
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { e.preventDefault(); committed = true; renderSubjects(); }
+    });
+    input.addEventListener('blur', function () { commit(); });
+  }
+
+  function studySubjectGroup(groupName) {
+    openGroupStudy(groupName, { jobId: 'all' });
   }
 
   /* Collapsed groups, remembered by group NAME rather than by job id: the
@@ -2022,6 +2246,7 @@
     });
     $('jobs-count').textContent = LP.data.jobs.length;
     renderContinueCard();
+    if (typeof LP !== 'undefined' && LP.state && LP.state.screen === 'subjects') renderSubjects();
   }
 
   // Live progress updates land on the matching Home card BY JOB ID, never only
@@ -3131,7 +3356,7 @@
 
   /* ======================= screen switching / chrome ======================= */
 
-  var CRUMBS = { home: 'Home', process: 'Process', review: 'Review', transcript: 'Transcript', study: 'Study', exports: 'Exports', settings: 'Settings' };
+  var CRUMBS = { home: 'Home', subjects: 'Subjects', process: 'Process', review: 'Review', transcript: 'Transcript', study: 'Study', exports: 'Exports', settings: 'Settings' };
 
   function setScreen(name) {
     if (LP.state.screen === name) return;
@@ -3141,7 +3366,7 @@
     // shutdown. Capture before changing LP.state.screen so the saved target
     // remains Review/Transcript/Study/Process rather than Home.
     if (name === 'home' && LP.state.jobId &&
-        /^(process|review|transcript|study|exports)$/.test(LP.state.screen || '')) {
+        /^(process|review|transcript|study|exports|subjects)$/.test(LP.state.screen || '')) {
       if (typeof captureResumeState === 'function') captureResumeState(LP.state.jobId);
     }
     LP.motion.nav(function () {
@@ -3169,6 +3394,9 @@
       // now that it's visible so the slide fills the canvas.
       if (name === 'review') {
         requestAnimationFrame(function () { previewCtl.refit(); });
+      }
+      if (name === 'subjects') {
+        renderSubjects();
       }
       if (name === 'process') renderSlideDetectionPreset();
       if (name === 'exports') updateExportPdfDescription();
@@ -4188,8 +4416,392 @@
     viewJobId: '',
     restoredView: false,
     resumeMode: 'flashcards',
-    restoredQuickActive: false
+    restoredQuickActive: false,
+    // --- Group Scope State ---
+    scope: {
+      type: 'lecture', // 'lecture' | 'group'
+      groupName: '',
+      selectedJobId: 'all', // 'all' | '<job_id>'
+      groupAnalysis: null,
+      members: [],
+      loading: false,
+      status: 'idle', // 'idle' | 'preparing' | 'ready' | 'failed'
+      stage: '',
+      error: '',
+      reason: ''
+    }
   };
+
+  function studyGroupSlug(name) {
+    var s = String(name || '').trim().toLowerCase();
+    var h = 0;
+    for (var i = 0; i < s.length; i++) {
+      h = ((h << 5) - h) + s.charCodeAt(i);
+      h |= 0;
+    }
+    return 'g_' + Math.abs(h).toString(16);
+  }
+
+  function studyGroupStorageKey(groupName) {
+    return groupName ? 'lecturepack.study.v2.group.' + studyGroupSlug(groupName) : '';
+  }
+
+  function studyV2PersistGroupView() {
+    var groupName = studyV2.scope && studyV2.scope.groupName;
+    var key = studyGroupStorageKey(groupName);
+    if (!key || !localStorage) return;
+    try {
+      localStorage.setItem(key, JSON.stringify({
+        selectedJobId: studyV2.scope.selectedJobId,
+        lastMode: studyV2.mode,
+        resumeMode: studyV2.resumeMode,
+        quizDifficulty: studyV2.quizDifficulty,
+        flashDifficulty: studyV2.flashDifficulty
+      }));
+    } catch (e) {}
+  }
+
+  function studyV2RestoreGroupView(groupName) {
+    var key = studyGroupStorageKey(groupName);
+    if (!key || !localStorage) return false;
+    try {
+      var saved = JSON.parse(localStorage.getItem(key) || 'null');
+      if (!saved || typeof saved !== 'object') return false;
+      if (saved.selectedJobId) studyV2.scope.selectedJobId = saved.selectedJobId;
+      if (['overview', 'flashcards', 'quiz', 'ask', 'quick', 'teach'].indexOf(saved.lastMode) >= 0) {
+        studyV2.mode = saved.lastMode;
+      }
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function getJobReadiness(job) {
+    if (!job) return { status: 'queued', label: 'Queued', icon: '⏸', ready: false };
+    if (job.status === 'running') {
+      return { status: 'processing', label: 'Processing ' + (job.progress || job.pct || 0) + '%', icon: '⏳', ready: false };
+    }
+    if (job.status === 'queued') {
+      return { status: 'queued', label: 'Queued', icon: '⏸', ready: false };
+    }
+    if (job.status === 'failed' || job.status === 'interrupted') {
+      return { status: 'failed', label: 'Needs Attention', icon: '⚠', ready: false };
+    }
+    if (job.study_status === 'preparing') {
+      return { status: 'preparing', label: 'Preparing Study', icon: '⏳', ready: false };
+    }
+    if (job.study_status === 'failed') {
+      return { status: 'failed', label: 'Needs Attention', icon: '⚠', ready: false };
+    }
+    if (job.study_status === 'basic') {
+      return { status: 'basic', label: 'Basic', icon: '✓', ready: true };
+    }
+    if (job.study_status === 'ready' || job.status === 'done') {
+      return { status: 'ready', label: 'Ready', icon: '✓', ready: true };
+    }
+    return { status: 'ready', label: 'Ready', icon: '✓', ready: true };
+  }
+
+  function openGroupStudy(groupName, opts) {
+    opts = opts || {};
+    groupName = String(groupName || '').trim();
+    if (!groupName) return;
+    studyV2.scope.type = 'group';
+    studyV2.scope.groupName = groupName;
+    studyV2.scope.selectedJobId = opts.jobId || 'all';
+    studyV2RestoreGroupView(groupName);
+    setScreen('study');
+    studyV2GroupLoad(groupName, opts);
+  }
+
+  function studyV2GroupLoad(groupName, opts) {
+    opts = opts || {};
+    if (!lpBridge.connected()) return;
+    groupName = String(groupName || (studyV2.scope && studyV2.scope.groupName) || '').trim();
+    if (!groupName) return;
+
+    studyV2.scope.type = 'group';
+    studyV2.scope.groupName = groupName;
+    studyV2.scope.loading = true;
+    studyV2.scope.status = 'preparing';
+    studyV2.scope.stage = 'Collecting member lectures';
+    studyV2.scope.error = '';
+    studyV2.scope.reason = '';
+
+    renderStudyScopeHeader();
+    renderStudyGenerationState();
+
+    lpBridge.call('study_v2_group_prepare', { group: groupName, force: !!opts.force })
+      .then(function (res) {
+        if (!res) return;
+        if (studyV2.scope.groupName.toLowerCase() !== groupName.toLowerCase()) return;
+        studyV2.scope.loading = false;
+        if (res.ok) {
+          studyV2.scope.status = 'ready';
+          studyV2.scope.groupAnalysis = res.analysis || null;
+          studyV2.scope.members = Array.isArray(res.members) ? res.members : [];
+          studyV2.scope.reason = '';
+          studyV2.scope.error = '';
+
+          if (studyV2.scope.selectedJobId === 'all') {
+            studyV2.content = buildGroupStudyContent(studyV2.scope.groupAnalysis, studyV2.scope.members);
+            studyV2.summary = buildGroupStudySummary(studyV2.content, studyV2.scope.members);
+          }
+        } else {
+          studyV2.scope.status = 'failed';
+          studyV2.scope.reason = res.reason || 'prepare_failed';
+          studyV2.scope.error = res.error || (res.reason === 'no_ready_lectures' ? 'No ready lectures in this subject yet.' : 'Group study could not be prepared.');
+          studyV2.scope.members = Array.isArray(res.members) ? res.members : [];
+        }
+        renderStudyScopeHeader();
+        renderStudyGenerationState();
+        if (studyV2.scope.status === 'ready' && studyV2.scope.selectedJobId === 'all') {
+          renderStudyV2Overview();
+        }
+      })
+      .catch(function (err) {
+        if (studyV2.scope.groupName.toLowerCase() !== groupName.toLowerCase()) return;
+        studyV2.scope.loading = false;
+        studyV2.scope.status = 'failed';
+        studyV2.scope.reason = 'prepare_failed';
+        studyV2.scope.error = 'Group Study could not be prepared: ' + (err && err.message ? err.message : String(err));
+        renderStudyScopeHeader();
+        renderStudyGenerationState();
+      });
+  }
+
+  function buildGroupStudyContent(analysis, members) {
+    analysis = analysis || {};
+    members = members || [];
+    var memberMap = {};
+    members.forEach(function (m) { memberMap[m.job_id] = m; });
+
+    var concepts = (analysis.concepts || []).map(function (c) {
+      var sources = [];
+      (c.job_ids || []).forEach(function (jid) {
+        var member = memberMap[jid];
+        if (!member) return;
+        (member.concepts || []).forEach(function (mc) {
+          if ((c.source_concept_ids || []).indexOf(mc.id) >= 0 || (mc.title && mc.title.toLowerCase() === c.title.toLowerCase())) {
+            (mc.lecture_sources || mc.sources || []).forEach(function (s) {
+              sources.push({
+                job_id: jid,
+                lecture_title: member.title,
+                segment_id: s.segment_id,
+                start_ms: s.start_ms,
+                slide_id: s.slide_id
+              });
+            });
+          }
+        });
+      });
+      return {
+        id: c.id,
+        title: c.title,
+        explanation: c.explanation,
+        importance: c.importance,
+        coverage: c.coverage,
+        job_ids: c.job_ids || [],
+        sources: sources,
+        lecture_sources: sources
+      };
+    });
+
+    var studyGuide = [];
+    (analysis.through_lines || []).forEach(function (tl) {
+      studyGuide.push({
+        heading: 'Through-line: ' + tl.title,
+        body: tl.body,
+        job_ids: tl.job_ids || [],
+        concept_ids: tl.concept_ids || []
+      });
+    });
+    (analysis.gaps || []).forEach(function (gap) {
+      studyGuide.push({
+        heading: 'Knowledge Gap: ' + gap.title,
+        body: gap.body,
+        concept_ids: gap.concept_ids || []
+      });
+    });
+
+    return {
+      study_status: 'ready',
+      lecture_summary: analysis.group_summary || '',
+      study_guide: studyGuide,
+      concepts: concepts,
+      flashcards: [],
+      quiz: [],
+      relationships: analysis.relationships || []
+    };
+  }
+
+  function buildGroupStudySummary(content, members) {
+    content = content || { concepts: [] };
+    var totalConcepts = (content.concepts || []).length;
+    var mastered = 0, learning = 0, needsReview = 0;
+    (content.concepts || []).forEach(function (c) {
+      var m = conceptMastery(c.id);
+      if (m === 'MASTERED') mastered++;
+      else if (m === 'LEARNING') learning++;
+      else if (m === 'NEEDS_REVIEW') needsReview++;
+    });
+    var pct = totalConcepts ? Math.round((mastered / totalConcepts) * 100) : 0;
+    return {
+      progress_percent: pct,
+      mastered: mastered,
+      learning: learning,
+      needs_review: needsReview,
+      cards_completed: 0,
+      quiz_correct: 0
+    };
+  }
+
+  function renderStudyScopeHeader() {
+    var header = $('study-scope-header');
+    var progBanner = $('study-group-progressive-banner');
+    var emptyPanel = $('study-group-empty-panel');
+    if (!header) return;
+
+    var isGroup = studyV2.scope && studyV2.scope.type === 'group' && !!studyV2.scope.groupName;
+    header.hidden = !isGroup;
+    if (!isGroup) {
+      if (progBanner) progBanner.hidden = true;
+      if (emptyPanel) emptyPanel.hidden = true;
+      return;
+    }
+
+    var groupName = studyV2.scope.groupName;
+    var badge = $('study-scope-subject-badge');
+    var title = $('study-scope-title');
+    var summary = $('study-scope-summary');
+    if (badge) badge.textContent = groupName;
+
+    var groupJobs = ((typeof LP !== 'undefined' && LP.data && LP.data.jobs) || []).filter(function (j) {
+      return (jobGroup(j) || '').trim().toLowerCase() === groupName.toLowerCase();
+    });
+
+    var readyJobs = groupJobs.filter(function (j) { return getJobReadiness(j).ready; });
+    var procJobs = groupJobs.filter(function (j) { return getJobReadiness(j).status === 'processing'; });
+
+    if (title) {
+      if (studyV2.scope.selectedJobId === 'all') {
+        title.textContent = groupName + ' Subject Overview';
+      } else {
+        var curJob = _jobById(studyV2.scope.selectedJobId);
+        title.textContent = curJob ? (curJob.name || curJob.title || curJob.filename || 'Lecture') : 'Lecture View';
+      }
+    }
+
+    if (summary) {
+      var total = groupJobs.length;
+      var readyCount = readyJobs.length;
+      var procCount = procJobs.length;
+      summary.textContent = total + (total === 1 ? ' lecture' : ' lectures') + ' · ' +
+        readyCount + ' ready' + (procCount ? ', ' + procCount + ' processing' : '');
+    }
+
+    // Populate In-Study Lecture Switcher
+    var select = $('study-scope-lecture-select');
+    if (select) {
+      var optionsHtml = '<option value="all"' + (studyV2.scope.selectedJobId === 'all' ? ' selected' : '') + '>📚 All Lectures (Subject Overview)</option>';
+      groupJobs.forEach(function (job) {
+        var r = getJobReadiness(job);
+        var jobTitle = job.name || job.title || job.filename || 'Lecture';
+        var disabled = !r.ready ? ' disabled' : '';
+        var selected = studyV2.scope.selectedJobId === job.id ? ' selected' : '';
+        optionsHtml += '<option value="' + esc(job.id) + '"' + disabled + selected + '>' +
+          r.icon + ' ' + esc(jobTitle) + ' (' + r.label + ')' + '</option>';
+      });
+      select.innerHTML = optionsHtml;
+    }
+
+    // Progressive Unlocking Banner
+    if (progBanner) {
+      var showProg = readyJobs.length > 0 && readyJobs.length < groupJobs.length;
+      progBanner.hidden = !showProg;
+      if (showProg) {
+        var cnt = $('study-progressive-count');
+        var subj = $('study-progressive-subject');
+        if (cnt) cnt.textContent = readyJobs.length + ' of ' + groupJobs.length + ' lectures ready';
+        if (subj) subj.textContent = groupName;
+      }
+    }
+
+    // Empty / Failure Panel
+    if (emptyPanel) {
+      var isEmpty = studyV2.scope.status === 'failed' && studyV2.scope.reason === 'no_ready_lectures';
+      var isFailed = studyV2.scope.status === 'failed' && studyV2.scope.reason !== 'no_ready_lectures';
+      emptyPanel.hidden = !(isEmpty || isFailed);
+      if (isEmpty) {
+        var emptyTitle = $('study-group-empty-title');
+        var emptyDetail = $('study-group-empty-detail');
+        if (emptyTitle) emptyTitle.textContent = 'No ready lectures in ' + groupName + ' yet';
+        if (emptyDetail) emptyDetail.textContent = 'None of the lectures in this subject have finished processing. Once at least one lecture is ready, group study materials will be generated automatically.';
+      } else if (isFailed) {
+        var emptyTitle = $('study-group-empty-title');
+        var emptyDetail = $('study-group-empty-detail');
+        if (emptyTitle) emptyTitle.textContent = 'Group Study could not be prepared';
+        if (emptyDetail) emptyDetail.textContent = studyV2.scope.error || 'The AI Gateway was unable to synthesize cross-lecture material for this subject.';
+      }
+    }
+  }
+
+  function bindStudyScopeControls() {
+    var select = $('study-scope-lecture-select');
+    if (select) {
+      select.addEventListener('change', function () {
+        var val = select.value;
+        if (val === 'all') {
+          studyV2.scope.selectedJobId = 'all';
+          studyV2PersistGroupView();
+          if (studyV2.scope.groupAnalysis) {
+            studyV2.content = buildGroupStudyContent(studyV2.scope.groupAnalysis, studyV2.scope.members);
+            studyV2.summary = buildGroupStudySummary(studyV2.content, studyV2.scope.members);
+            renderStudyScopeHeader();
+            renderStudyGenerationState();
+            renderStudyV2Overview();
+          } else {
+            studyV2GroupLoad(studyV2.scope.groupName);
+          }
+        } else {
+          studyV2.scope.selectedJobId = val;
+          studyV2PersistGroupView();
+          selectJob(val, { screen: 'study' });
+          renderStudyScopeHeader();
+        }
+      });
+    }
+
+    var btnRebuild = $('btn-study-rebuild-map');
+    if (btnRebuild) {
+      btnRebuild.addEventListener('click', function () {
+        if (studyV2.scope && studyV2.scope.groupName) {
+          toast('Rebuilding cross-lecture map…');
+          studyV2GroupLoad(studyV2.scope.groupName, { force: true });
+        }
+      });
+    }
+
+    var btnManage = $('btn-study-manage-subject');
+    if (btnManage) {
+      btnManage.addEventListener('click', function () {
+        setScreen('subjects');
+      });
+    }
+
+    var btnEmptyProc = $('btn-study-empty-process');
+    if (btnEmptyProc) {
+      btnEmptyProc.addEventListener('click', function () {
+        setScreen('process');
+      });
+    }
+
+    var btnEmptyHome = $('btn-study-empty-home');
+    if (btnEmptyHome) {
+      btnEmptyHome.addEventListener('click', function () {
+        setScreen('home');
+      });
+    }
+  }
 
   function studyV2StorageKey() {
     var jobId = typeof LP !== 'undefined' && LP.state && LP.state.jobId;
@@ -4278,10 +4890,16 @@
   }
 
   function studyV2Load() {
+    if (studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all' && studyV2.scope.groupName) {
+      renderStudyScopeHeader();
+      studyV2GroupLoad(studyV2.scope.groupName);
+      return;
+    }
     if (!lpBridge.connected()) return;
     var requestedJobId = LP.state.jobId || '';
     if (!requestedJobId) return;
     lpBridge.call('study_v2_status', { job_id: requestedJobId }).then(function (res) {
+      if (studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all') return;
       if (!res || !res.content) return;
       // A response for the lecture that was viewed when the request started
       // must never repaint a different lecture selected while it was in flight.
@@ -4302,6 +4920,7 @@
         studyV2.quickSession = studyV2.progress.quick_study;
       }
       studyV2.restoredQuickActive = false;
+      renderStudyScopeHeader();
       renderStudyGenerationState();
       renderStudyV2Overview();
       if (restoreMode && studyV2.mode !== 'overview') {
@@ -4314,6 +4933,7 @@
     }).catch(function () {
       if (LP.state.jobId !== requestedJobId) return;
       studyV2.loadError = 'Study data could not be loaded. Retry, or use Basic Study.';
+      renderStudyScopeHeader();
       renderStudyGenerationState();
     });
   }
@@ -4542,13 +5162,19 @@
   function renderStudyV2Overview() {
     var content = studyV2.content || { concepts: [], flashcards: [], quiz: [] };
     var summary = studyV2.summary || {};
-    var studyJob = _jobById(LP.state.jobId) || LP.data.job || {};
-    var title = studyJob.title ||
-      (studyJob.name && studyJob.name !== 'Lecture' ? studyJob.name : '') ||
-      studyJob.filename || studyJob.source_name || studyJob.file || 'Lecture';
-    title = String(title).replace(/\.[^.]+$/, '');
+    var isGroup = studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all';
+    var title;
+    if (isGroup) {
+      title = (studyV2.scope.groupName || 'Subject') + ' Subject Overview';
+    } else {
+      var studyJob = _jobById(LP.state.jobId) || LP.data.job || {};
+      title = studyJob.title ||
+        (studyJob.name && studyJob.name !== 'Lecture' ? studyJob.name : '') ||
+        studyJob.filename || studyJob.source_name || studyJob.file || 'Lecture';
+      title = String(title).replace(/\.[^.]+$/, '');
+    }
     $('study-ready-title').textContent = title;
-    $('study-ready-meta').textContent = content.concepts.length + ' concepts · ' + content.flashcards.length + ' cards · ' + content.quiz.length + ' questions';
+    $('study-ready-meta').textContent = (content.concepts || []).length + ' concepts · ' + (content.flashcards || []).length + ' cards · ' + (content.quiz || []).length + ' questions';
     var pct = summary.progress_percent || 0;
     $('study-progress-pct').textContent = pct + '%';
     $('study-progress-bar').style.transform = 'scaleX(' + (pct / 100) + ')';
@@ -4623,10 +5249,49 @@
     return idx || '?';
   }
 
-  function studyItemSourcesHtml(item) {
+  function studyItemSourcesHtml(item, opts) {
     item = item || {};
+    opts = opts || {};
+    var isGroup = (typeof studyV2 !== 'undefined' && studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all') || opts.isGroup;
     var lecture = item.lecture_sources || item.sources || [];
     var web = item.web_sources || [];
+
+    if (!lecture.length && !web.length && !item.provenance) return '';
+
+    // Check if citations span multiple distinct lectures
+    var byJob = {};
+    var distinctJobs = [];
+    lecture.forEach(function (source) {
+      var jid = source.job_id || (typeof LP !== 'undefined' && LP.state && LP.state.jobId) || 'default';
+      if (!byJob[jid]) {
+        byJob[jid] = [];
+        distinctJobs.push(jid);
+      }
+      byJob[jid].push(source);
+    });
+
+    if (isGroup && distinctJobs.length > 1) {
+      var groupRows = distinctJobs.map(function (jid) {
+        var memberJob = _jobById(jid);
+        var title = (memberJob && (memberJob.name || memberJob.title || memberJob.filename)) || (byJob[jid][0] && byJob[jid][0].lecture_title) || 'Lecture';
+        var btns = byJob[jid].map(function (source) {
+          var parts = [];
+          if (source.segment_id != null) {
+            parts.push('<button class="lp-hit study-source study-source-time" data-job="' + escText(jid) + '" data-segment="' + escText(source.segment_id) + '" data-ms="' + (source.start_ms || 0) + '">Transcript ' + fmtTime(source.start_ms) + '</button>');
+          }
+          if (source.slide_id != null) {
+            parts.push('<button class="lp-hit study-source study-source-slide" data-job="' + escText(jid) + '" data-slide="' + escText(source.slide_id) + '">Slide ' + escText(studySlideLabel(source.slide_id)) + '</button>');
+          }
+          return parts.join(' ');
+        }).join(' ');
+        return '<div class="study-citation-group">' +
+          '<span class="study-citation-lecture-name">' + escText(title) + '</span>' +
+          '<div class="study-citation-buttons">' + btns + '</div>' +
+          '</div>';
+      }).join('');
+      return '<div class="study-cross-lecture-citations">' + groupRows + '</div>';
+    }
+
     var parts = [];
     if (lecture.length) {
       parts.push('<span class="study-provenance-badge" data-provenance="lecture">From lecture</span>');
@@ -4637,18 +5302,24 @@
     if (web.length) {
       parts.push('<span class="study-provenance-badge" data-provenance="web">Web verified</span>');
     }
+
     lecture.forEach(function (source) {
+      var jid = source.job_id || (typeof LP !== 'undefined' && LP.state && LP.state.jobId) || '';
+      var jobObj = jid ? _jobById(jid) : null;
+      var prefix = (isGroup && (jobObj || source.lecture_title)) ? ((jobObj ? (jobObj.name || jobObj.title || jobObj.filename) : source.lecture_title) + ' · ') : '';
       if (source.segment_id != null) {
-        parts.push('<button class="lp-hit study-source study-source-time" data-segment="' + escText(source.segment_id) + '" data-ms="' + (source.start_ms || 0) + '">Transcript ' + fmtTime(source.start_ms) + '</button>');
+        parts.push('<button class="lp-hit study-source study-source-time"' + (jid ? ' data-job="' + escText(jid) + '"' : '') + ' data-segment="' + escText(source.segment_id) + '" data-ms="' + (source.start_ms || 0) + '">' + escText(prefix) + 'Transcript ' + fmtTime(source.start_ms) + '</button>');
       }
       if (source.slide_id != null) {
-        parts.push('<button class="lp-hit study-source study-source-slide" data-slide="' + escText(source.slide_id) + '">Slide ' + escText(studySlideLabel(source.slide_id)) + '</button>');
+        parts.push('<button class="lp-hit study-source study-source-slide"' + (jid ? ' data-job="' + escText(jid) + '"' : '') + ' data-slide="' + escText(source.slide_id) + '">' + escText(prefix) + 'Slide ' + escText(studySlideLabel(source.slide_id)) + '</button>');
       }
     });
+
     web.forEach(function (source) {
       if (!source || !source.url) return;
       parts.push('<a class="study-web-source" href="' + escText(source.url) + '" target="_blank" rel="noopener noreferrer">' + escText(source.title || 'Web source') + '</a>');
     });
+
     return parts.join(' ');
   }
 
@@ -5694,9 +6365,44 @@
   }
 
   function navigateStudySource(el) {
+    var targetJobId = el.dataset.job || '';
     var segment = el.dataset.segment;
     var ms = Number(el.dataset.ms || 0);
     var slide = el.dataset.slide;
+
+    if (targetJobId && typeof LP !== 'undefined' && LP.state && targetJobId !== LP.state.jobId) {
+      selectJob(targetJobId, { screen: slide != null ? 'review' : 'transcript' });
+      if (slide != null) {
+        setTimeout(function () {
+          var slides = LP.data.slides || [];
+          var idx = slides.findIndex(function (s) { return String(s.image_filename) === String(slide) || String(s.index) === String(slide); });
+          if (idx >= 0) {
+            LP.state.viewingSlide = idx;
+            renderSlides();
+          }
+        }, 150);
+      } else if (segment != null) {
+        setTimeout(function () {
+          var blocks = document.querySelectorAll('#transcript-blocks [data-transcript-time], #transcript-blocks [data-start]');
+          var target = null;
+          blocks.forEach(function (b) {
+            var raw = b.dataset.start;
+            if (raw == null) {
+              var parts = String(b.dataset.transcriptTime || '').split(':').map(Number);
+              raw = parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : (parts.length === 2 ? parts[0] * 60 + parts[1] : Number(parts[0] || 0));
+            }
+            if (Number(raw) <= ms / 1000) target = b;
+          });
+          if (target) {
+            target.scrollIntoView({ block: 'center' });
+            target.classList.add('transcript-target-highlight');
+            setTimeout(function () { target.classList.remove('transcript-target-highlight'); }, 2000);
+          }
+        }, 220);
+      }
+      return;
+    }
+
     if (slide != null) {
       // Navigate to the slides/review source.
       setScreen('review');
@@ -5718,7 +6424,7 @@
           var raw = b.dataset.start;
           if (raw == null) {
             var parts = String(b.dataset.transcriptTime || '').split(':').map(Number);
-            raw = parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : Number(parts[0] || 0);
+            raw = parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : (parts.length === 2 ? parts[0] * 60 + parts[1] : Number(parts[0] || 0));
           }
           if (Number(raw) <= ms / 1000) target = b;
         });
@@ -7704,6 +8410,21 @@
         (kind === 'quiz' ? renderQuiz : renderCard)();
       }
     });
+
+    lpBridge.on('group_study_progress', function (json) {
+      var p = parseBridgePayload(json, null);
+      if (!p || typeof p !== 'object') return;
+      if (studyV2.scope && studyV2.scope.type === 'group' &&
+          studyV2.scope.groupName.toLowerCase() === String(p.group || '').toLowerCase()) {
+        studyV2.scope.status = p.status || studyV2.scope.status;
+        if (p.stage) studyV2.scope.stage = p.stage;
+        if (p.error) studyV2.scope.error = p.error;
+        if (p.reason) studyV2.scope.reason = p.reason;
+        renderStudyScopeHeader();
+        renderStudyGenerationState();
+      }
+    });
+
     lpBridge.on('pause_state', function (json) {
       var pauseState = parseBridgePayload(json, null);
       if (!pauseState || typeof pauseState !== 'object') return;
@@ -9267,7 +9988,9 @@
     wireDemoLifecycle();
     wireModelTooltip();
     wireBridge();
+    wireSubjectEvents();
     bindStudyV2Events();
+    bindStudyScopeControls();
     bindDemoScreen();
     renderStudyV2Overview();
     window.addEventListener('resize', function () { LP.motion.indicator(); });

@@ -25,17 +25,17 @@ function configuredTasks(value) {
 
 function routeTimeouts(task) {
   if (task === 'vision_slide') {
-    return { nvidia: 25000, workers_ai: 30000, openrouter: 25000 };
+    return { nvidia: 25000, gemini: 25000, workers_ai: 30000, openrouter: 25000 };
   }
   if (task === 'web_enrichment') {
-    return { nvidia: 12000, workers_ai: 15000, openrouter: 20000 };
+    return { nvidia: 12000, gemini: 15000, workers_ai: 15000, openrouter: 20000 };
   }
   if (['ask', 'teach_me', 'grade_short_answer'].includes(task)) {
-    return { nvidia: 12000, workers_ai: 25000, openrouter: 20000 };
+    return { nvidia: 12000, gemini: 15000, workers_ai: 25000, openrouter: 20000 };
   }
   // The three-route worst case is 160 seconds, leaving room inside the
   // desktop client's 175-second request deadline for gateway/D1 overhead.
-  return { nvidia: 50000, workers_ai: 65000, openrouter: 45000 };
+  return { nvidia: 50000, gemini: 45000, workers_ai: 65000, openrouter: 45000 };
 }
 
 function defaultRoutes(env, task) {
@@ -43,8 +43,14 @@ function defaultRoutes(env, task) {
   const vision = task === 'vision_slide';
   const interactive = ['ask', 'teach_me', 'grade_short_answer'].includes(task);
   const timeouts = routeTimeouts(task);
+  const geminiFirst = configuredTasks(env.GEMINI_FIRST_TASKS).has(task);
   const nvidiaFirst = configuredTasks(env.NVIDIA_FIRST_TASKS).has(task);
   const workersFirst = configuredTasks(env.WORKERS_AI_FIRST_TASKS).has(task);
+  const geminiModel = vision
+    ? (env.GEMINI_VISION_MODEL || '')
+    : (env[`GEMINI_${suffix}_MODEL`]
+      || (interactive ? env.GEMINI_INTERACTIVE_MODEL : env.GEMINI_PRIMARY_MODEL)
+      || '');
   const openRouterPrimary = vision
     ? (env.OPENROUTER_VISION_MODEL || '')
     : (env[`OPENROUTER_${suffix}_MODEL`] || env.OPENROUTER_PRIMARY_MODEL || '');
@@ -61,39 +67,62 @@ function defaultRoutes(env, task) {
   const openRouterFallback = vision
     ? (env.OPENROUTER_VISION_FALLBACK_MODEL || '')
     : (env[`OPENROUTER_${suffix}_FALLBACK_MODEL`] || env.OPENROUTER_FALLBACK_MODEL || '');
+  const geminiRoute = {
+    id: `${task}-gemini`,
+    provider: 'openai_compatible',
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    secret_env: 'GEMINI_API_KEY',
+    model: geminiModel,
+    structured_outputs: false,
+    timeout_ms: timeouts.gemini,
+  };
   const openRouterRoute = {
     id: `${task}-openrouter`,
     provider: 'openrouter',
-    endpoint: 'https://openrouter.ai/api/v1/chat/completions', secret_env: 'OPENROUTER_API_KEY',
-    model: openRouterPrimary, structured_outputs: true, timeout_ms: timeouts.openrouter,
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    secret_env: 'OPENROUTER_API_KEY',
+    model: openRouterPrimary,
+    structured_outputs: true,
+    timeout_ms: timeouts.openrouter,
   };
   const nvidiaRoute = {
     id: `${task}-nvidia`,
     provider: 'nvidia',
-    endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions', secret_env: 'NVIDIA_API_KEY',
-    model: nvidiaModel, structured_outputs: true, timeout_ms: timeouts.nvidia,
+    endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions',
+    secret_env: 'NVIDIA_API_KEY',
+    model: nvidiaModel,
+    structured_outputs: true,
+    timeout_ms: timeouts.nvidia,
   };
   const workersAiRoute = {
     id: `${task}-workers-ai`,
     provider: 'workers_ai',
-    model: workersAiModel, structured_outputs: true, timeout_ms: timeouts.workers_ai,
+    model: workersAiModel,
+    structured_outputs: true,
+    timeout_ms: timeouts.workers_ai,
   };
   const openRouterFallbackRoute = {
     id: `${task}-openrouter-fallback`,
     provider: 'openrouter',
-    endpoint: 'https://openrouter.ai/api/v1/chat/completions', secret_env: 'OPENROUTER_API_KEY',
-    model: openRouterFallback, structured_outputs: true, timeout_ms: timeouts.openrouter,
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    secret_env: 'OPENROUTER_API_KEY',
+    model: openRouterFallback,
+    structured_outputs: true,
+    timeout_ms: timeouts.openrouter,
   };
+  if (geminiFirst) {
+    return [geminiRoute, nvidiaRoute, workersAiRoute, openRouterRoute, openRouterFallbackRoute];
+  }
   if (nvidiaFirst) {
-    return [nvidiaRoute, workersAiRoute, openRouterRoute, openRouterFallbackRoute];
+    return [nvidiaRoute, geminiRoute, workersAiRoute, openRouterRoute, openRouterFallbackRoute];
   }
   if (workersFirst) {
-    return [workersAiRoute, nvidiaRoute, openRouterRoute, openRouterFallbackRoute];
+    return [workersAiRoute, geminiRoute, nvidiaRoute, openRouterRoute, openRouterFallbackRoute];
   }
   // OpenRouter remains first by default because web_enrichment depends on its
   // bounded server-side search annotations. Other production tasks opt into
   // the measured NVIDIA-first route explicitly through NVIDIA_FIRST_TASKS.
-  return [openRouterRoute, nvidiaRoute, workersAiRoute, openRouterFallbackRoute];
+  return [openRouterRoute, geminiRoute, nvidiaRoute, workersAiRoute, openRouterFallbackRoute];
 }
 
 export function prioritizeHealthyRoutes(routes, healthRows, now = Date.now(), options = {}) {

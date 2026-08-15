@@ -537,6 +537,15 @@
       }
       return { command: 'set_setting', payload: { key: setting, value: settingValue(name, args) } };
     }
+    if (name === 'study_v2_group_prepare') {
+      return {
+        command: name,
+        payload: {
+          group: String(payload.group || (typeof first === 'string' ? first : '') || ''),
+          force: payload.force === true || args[1] === true
+        }
+      };
+    }
     return { command: name, payload: payload };
   }
 

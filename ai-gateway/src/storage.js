@@ -101,6 +101,74 @@ export async function cleanupTelemetry(env, before) {
   ]);
 }
 
+export async function getAdminSummary(env, since = 0) {
+  const row = await db(env).prepare(
+    'SELECT COUNT(*) AS total_calls, '
+      + 'SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls, '
+      + 'SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls, '
+      + 'SUM(input_tokens) AS total_input_tokens, '
+      + 'SUM(output_tokens) AS total_output_tokens, '
+      + 'ROUND(AVG(latency_ms), 1) AS avg_latency_ms, '
+      + 'COUNT(DISTINCT installation_id) AS active_installations '
+      + 'FROM usage_events WHERE created_at >= ?',
+  ).bind(since).first();
+  return {
+    total_calls: Number(row && row.total_calls) || 0,
+    successful_calls: Number(row && row.successful_calls) || 0,
+    failed_calls: Number(row && row.failed_calls) || 0,
+    total_input_tokens: Number(row && row.total_input_tokens) || 0,
+    total_output_tokens: Number(row && row.total_output_tokens) || 0,
+    avg_latency_ms: Number(row && row.avg_latency_ms) || 0,
+    active_installations: Number(row && row.active_installations) || 0,
+  };
+}
+
+export async function getAdminModelStats(env, since = 0) {
+  const response = await db(env).prepare(
+    'SELECT provider, model, '
+      + 'COUNT(*) AS total_calls, '
+      + 'SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls, '
+      + 'SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls, '
+      + 'SUM(input_tokens) AS input_tokens, '
+      + 'SUM(output_tokens) AS output_tokens, '
+      + 'ROUND(AVG(latency_ms), 1) AS avg_latency_ms '
+      + 'FROM usage_events WHERE created_at >= ? '
+      + 'GROUP BY provider, model ORDER BY total_calls DESC',
+  ).bind(since).all();
+  return Array.isArray(response && response.results) ? response.results : [];
+}
+
+export async function getAdminTaskStats(env, since = 0) {
+  const response = await db(env).prepare(
+    'SELECT task, '
+      + 'COUNT(*) AS total_calls, '
+      + 'SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls, '
+      + 'SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls, '
+      + 'SUM(input_tokens) AS input_tokens, '
+      + 'SUM(output_tokens) AS output_tokens, '
+      + 'ROUND(AVG(latency_ms), 1) AS avg_latency_ms '
+      + 'FROM usage_events WHERE created_at >= ? '
+      + 'GROUP BY task ORDER BY total_calls DESC',
+  ).bind(since).all();
+  return Array.isArray(response && response.results) ? response.results : [];
+}
+
+export async function getAdminRecentEvents(env, limit = 50) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const response = await db(env).prepare(
+    'SELECT id, request_id, task, route_id, provider, model, success, status_code, failure_code, latency_ms, input_tokens, output_tokens, created_at '
+      + 'FROM usage_events ORDER BY created_at DESC LIMIT ?',
+  ).bind(safeLimit).all();
+  return Array.isArray(response && response.results) ? response.results : [];
+}
+
+export async function getAllProviderHealth(env) {
+  const response = await db(env).prepare(
+    'SELECT route_id, consecutive_failures, last_error_code, last_failure_at, last_success_at FROM provider_health ORDER BY route_id ASC',
+  ).all();
+  return Array.isArray(response && response.results) ? response.results : [];
+}
+
 export const storage = {
   upsertInstallation,
   getInstallation,
@@ -113,4 +181,9 @@ export const storage = {
   getProviderHealth,
   claimAlertWindow,
   cleanupTelemetry,
+  getAdminSummary,
+  getAdminModelStats,
+  getAdminTaskStats,
+  getAdminRecentEvents,
+  getAllProviderHealth,
 };

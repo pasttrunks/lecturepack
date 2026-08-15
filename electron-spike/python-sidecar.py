@@ -259,7 +259,7 @@ class Sidecar:
                 study_service,
                 transcript_store,
             )
-            from lecturepack.services import study_presets, study_v2
+            from lecturepack.services import group_study, study_presets, study_v2
             from lecturepack.services.job_queue import JobQueue
 
             self.JobController = JobController
@@ -280,6 +280,7 @@ class Sidecar:
             self.study_service = study_service
             self.study_presets = study_presets
             self.study_v2 = study_v2
+            self.group_study = group_study
         except Exception as exc:  # noqa: BLE001 - surfaced through ready/error
             self._engine_error = f"{type(exc).__name__}: {exc}"
 
@@ -728,6 +729,8 @@ class Sidecar:
                 self._study_v2_delete(request_id, command, payload)
             elif command == "study_v2_regenerate":
                 self._study_v2_regenerate(request_id, command, payload)
+            elif command == "study_v2_group_prepare":
+                self._study_v2_group_prepare(request_id, command, payload)
             elif command == "smart_study_status":
                 self._smart_study_status(request_id, command)
             elif command == "set_study_preset":
@@ -4015,6 +4018,96 @@ class Sidecar:
         self._respond(request_id, command, ok=started, job_id=job.job_id,
                       started=started, kind=kind, id=item_id,
                       concept_ids=concept_ids)
+
+    def _study_v2_group_prepare(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
+        """Prepare cross-lecture Study map for a whole course/subject group."""
+        group = str(payload.get("group") or "").strip()
+        force = bool(payload.get("force", False))
+        if not group:
+            self._respond(request_id, command, ok=False, group="", reason="missing_group", error="group is required")
+            return
+
+        all_jobs = self._job_objects()
+        matching_jobs: list[Any] = []
+        for job in all_jobs:
+            manifest = getattr(job, "manifest", {}) or {}
+            explicit_group = str(manifest.get("group") or "").strip()
+            if explicit_group:
+                job_group = explicit_group
+            else:
+                title = str(manifest.get("title") or "")
+                job_group = self.electron_backend._derive_group(title)
+            if job_group.strip().casefold() == group.casefold():
+                matching_jobs.append(job)
+
+        self._emit({
+            "event": "group_study_progress",
+            "group": group,
+            "status": "preparing",
+            "stage": "Collecting member lectures",
+            "total_jobs": len(matching_jobs),
+        })
+
+        try:
+            result = self.group_study.prepare(
+                str(self.data_dir),
+                group,
+                matching_jobs,
+                self._gateway_client(),
+                force=force,
+            )
+        except Exception as exc:  # noqa: BLE001 - user-facing boundary
+            self._emit({
+                "event": "group_study_progress",
+                "group": group,
+                "status": "failed",
+                "error": str(exc),
+            })
+            self._respond(
+                request_id,
+                command,
+                ok=False,
+                group=group,
+                reason="prepare_failed",
+                error=f"Group Study could not be prepared: {exc}",
+            )
+            return
+
+        if result.get("ok"):
+            self._emit({
+                "event": "group_study_progress",
+                "group": group,
+                "status": "ready",
+                "cached": bool(result.get("cached")),
+                "members_count": len(result.get("members") or []),
+            })
+            self._respond(
+                request_id,
+                command,
+                ok=True,
+                group=group,
+                cached=bool(result.get("cached")),
+                analysis=result.get("analysis"),
+                members=result.get("members") or [],
+                reason=None,
+            )
+        else:
+            self._emit({
+                "event": "group_study_progress",
+                "group": group,
+                "status": "failed",
+                "reason": str(result.get("reason") or "unknown"),
+            })
+            self._respond(
+                request_id,
+                command,
+                ok=False,
+                group=group,
+                cached=False,
+                analysis=None,
+                members=result.get("members") or [],
+                reason=str(result.get("reason") or "unknown"),
+            )
 
     # ------------------------------------------------------------------ #
     # Phase 9: paste link / yt-dlp

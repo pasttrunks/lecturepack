@@ -79,6 +79,7 @@
 
       <div style="font:500 10px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--muted);padding:0 8px 8px">Library</div>
       <button class="lp-nav" data-nav="home"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>Home</button>
+      <button class="lp-nav" data-nav="subjects"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/><path d="M6 10h10"/></svg>Subjects</button>
 
       <div style="font:500 10px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--muted);padding:16px 8px 8px">Workspace</div>
       <button class="lp-nav" data-nav="process"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>Process<span id="process-workload" hidden style="margin-left:auto;min-width:19px;height:19px;padding:0 5px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:var(--orange-soft);color:var(--orange-ink);font:700 10px 'JetBrains Mono'">0</span></button>
@@ -186,6 +187,28 @@
             <div style="display:flex;align-items:center;gap:8px;font:500 12px 'JetBrains Mono';color:var(--muted)"><span style="width:22px;height:22px;border:2px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--orange-ink)">3</span>Study &amp; export</div>
           </div>
         </div>
+        </div>
+      </section>
+
+      <!-- ===== SUBJECTS ===== -->
+      <section data-screen="subjects" hidden class="lp-subjects-screen" style="padding:36px 44px 52px;max-width:1140px">
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:24px;flex-wrap:wrap">
+          <div>
+            <div style="font:500 11px 'JetBrains Mono';letter-spacing:.16em;text-transform:uppercase;color:var(--blue-ink);margin-bottom:8px">Organised Courses &amp; Subjects</div>
+            <h1 style="font-size:32px;font-weight:700;letter-spacing:-.02em;margin:0">Subjects &amp; Groups</h1>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="subjects-summary-count" class="lp-badge" style="font:700 11px 'JetBrains Mono';padding:6px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--panel)">0 Subjects</span>
+            <input id="subjects-filter-input" type="search" placeholder="Filter subjects or lectures…" style="font:500 12px 'Space Grotesk';padding:7px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--panel);color:var(--ink);width:220px">
+          </div>
+        </div>
+
+        <div id="subjects-grid" class="subjects-grid"></div>
+
+        <div id="subjects-empty" hidden style="text-align:center;padding:56px 20px;border:2px dashed var(--line);border-radius:14px;background:var(--panel)">
+          <div style="font-weight:700;font-size:18px;margin-bottom:6px">No subjects found</div>
+          <div style="font:500 13px 'Space Grotesk';color:var(--muted);margin-bottom:16px">Import lectures or assign groups to organize them into subject decks.</div>
+          <button type="button" class="lp-hit lp-press-sm" onclick="setScreen('home')" style="font:600 13px 'Space Grotesk';padding:9px 16px;border:2px solid var(--border);border-radius:9px;background:var(--panel);cursor:pointer">Go to Home</button>
         </div>
       </section>
 
@@ -359,6 +382,48 @@
 
       <!-- ===== STUDY ===== -->
       <section data-screen="study" class="study-shell" hidden style="display:flex;flex-direction:column;height:100%;padding:18px 20px;gap:14px">
+        <!-- Persistent Scope Header Bar -->
+        <div id="study-scope-header" class="study-scope-header" hidden>
+          <div class="study-scope-left">
+            <div class="study-scope-badge-wrap">
+              <span class="study-scope-type-label">SUBJECT</span>
+              <span id="study-scope-subject-badge" class="study-scope-subject-badge study-scope-subject">CL100</span>
+            </div>
+            <div class="study-scope-info">
+              <div id="study-scope-title" class="study-scope-title">Subject Overview</div>
+              <div id="study-scope-summary" class="study-scope-summary study-scope-meta">0 lectures · 0 ready</div>
+            </div>
+          </div>
+          <div class="study-scope-center">
+            <div id="study-scope-switcher-container" class="study-scope-switcher-wrap">
+              <label for="study-scope-lecture-select" class="study-scope-switcher-label">Scope</label>
+              <select id="study-scope-lecture-select" class="study-scope-select" aria-label="Select study scope lecture">
+                <option value="all">📚 All Lectures (Subject Overview)</option>
+              </select>
+            </div>
+          </div>
+          <div class="study-scope-right">
+            <button id="btn-study-rebuild-map" class="lp-hit lp-press study-scope-btn" title="Rebuild cross-lecture map">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              <span>Rebuild Map</span>
+            </button>
+            <button id="btn-study-manage-subject" class="lp-hit lp-press study-scope-btn" title="View subject in Subjects screen">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+              <span>Subjects</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Progressive Unlocking Banner -->
+        <div id="study-group-progressive-banner" class="study-progressive-banner study-partial-readiness-banner" hidden>
+          <div class="study-progressive-banner-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="study-progressive-banner-text">
+            <span id="study-progressive-count" style="font-weight:700">0 of 0 lectures ready</span> in <span id="study-progressive-subject" style="font-weight:600">Subject</span>. Group study covers available lectures now and updates automatically when remaining lectures finish.
+          </div>
+        </div>
+
         <!-- Study top-level mode tabs -->
         <div class="study-mode-nav" role="tablist" aria-label="Study modes" style="flex:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <button class="lp-hit lp-tab study-mode-tab active" role="tab" aria-selected="true" data-study-mode="overview" style="font-size:13px;border-radius:9px;padding:8px 16px;cursor:pointer">Study Guide</button>
@@ -402,6 +467,16 @@
 
         <!-- Study Overview mode -->
         <div id="study-mode-overview" style="flex:1;display:flex;flex-direction:column;gap:14px;min-height:0;overflow-y:auto">
+          <!-- Fallback / Empty State Container -->
+          <div id="study-group-empty-panel" class="study-panel study-group-empty-panel study-group-empty" hidden style="background:var(--panel);border:2px solid var(--border);border-radius:13px;padding:36px 24px;text-align:center;box-shadow:var(--shadow-soft)">
+            <div style="font:700 18px 'Space Grotesk';color:var(--ink);margin-bottom:8px" id="study-group-empty-title">No ready lectures in this subject yet</div>
+            <div style="font:500 13px 'JetBrains Mono';color:var(--muted);max-width:520px;margin:0 auto 20px;line-height:1.5" id="study-group-empty-detail">Process at least one lecture in this subject to generate group study materials.</div>
+            <div style="display:inline-flex;gap:10px;flex-wrap:wrap;justify-content:center" id="study-group-empty-actions">
+              <button id="btn-study-empty-process" class="lp-hit lp-press" style="font:700 13px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:10px 18px;cursor:pointer">Open Process</button>
+              <button id="btn-study-empty-home" class="lp-hit lp-press" style="font:700 13px 'Space Grotesk';background:var(--panel);border:2px solid var(--border);border-radius:9px;padding:10px 18px;cursor:pointer;color:var(--ink)">Back to Home</button>
+            </div>
+          </div>
+
           <!-- Ready to study summary -->
           <div id="study-ready-panel" class="study-panel study-ready-panel" style="flex:none;background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 24px">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="font:500 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">Ready to study</div><span id="study-ready-status-badge" class="study-status-badge" hidden>Basic</span></div>
