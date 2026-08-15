@@ -891,7 +891,25 @@ inventory that was authored rather than derived from the binaries.
 
 ## DEFERRED (known, accepted for now)
 
-*None — BUG-07 was un-deferred and fixed on 2026-07-25.*
+*BUG-07 was un-deferred and fixed on 2026-07-25. Two items deferred 2026-08-15:*
+
+### DEF-015 — recurring cross-lecture concepts record mastery in ONE lecture   ⚪️ DEFERRED (known, accepted for now)
+- **Area:** Study / subject scope (`app/ui/app.js`, `buildGroupStudyContent`).
+- Not a regression — subject-scope mastery never worked at all before 2.0.3. A concept
+  with `coverage: "recurring"` latches to the FIRST matching lecture in `c.job_ids` order,
+  so mastery is written and read there only. The subject view is self-consistent (read and
+  write share the origin), but the other lectures' own Study screens still show it as New.
+- **Fixing it** means fanning the write out to every matching origin. Safe for mastery;
+  **do NOT generalise that to delete**, which cascades into flashcards/quiz/guide. Do it
+  deliberately, not as a drive-by.
+
+### DEF-016 — "Export PDF" and "Export HTML" are the same operation   ⚪️ DEFERRED (known, accepted for now)
+- **Area:** Export (`lecturepack/controllers/job_controller.py:873`).
+- The requested `kind` now survives renderer → bridge → sidecar, but `export_now()` takes
+  no format and always rebuilds the whole pack. The UI copy ("Rebuilding the study pack to
+  refresh the PDF…") is honest about this. A true per-format export is a FEATURE.
+- `tests/test_renderer_spike.py` carries a comment so a green test is never misread as
+  end-to-end format support.
 
 ### DEF-001 … DEF-014 — v2.0.2 polish audit sweep   ✅ FIXED (suite green, NOT hand-verified in the packaged app)
 - **Area:** Study scope, Export, drag-and-drop, Subjects, Process, sidebar.
@@ -929,6 +947,52 @@ inventory that was authored rather than derived from the binaries.
   `"1 lectures updated"` (DEF-012); citation pills and Study Stats clipped at the scroll
   boundary (DEF-007); sidebar storage text wrapped `free` onto its own line (DEF-014);
   README gained an authoritative export inventory (DEF-013).
+### DEF-017 — subject-scope mastery never round-tripped; write was fixed, read was not   ✅ FIXED (verified live)
+- **Area:** Study / subject scope. Found by the **independent pre-release review**, not by
+  the author — after the author had already "verified DEF-001 live". Read the next bullet.
+- **Symptom:** in Subject scope, setting a concept's mastery appeared to work and then
+  snapped straight back to New; the subject progress bar sat at 0% forever.
+- **Root cause — a half-fixed defect is still a defect.** DEF-001 corrected the WRITE to
+  target `origin_job_id`/`origin_concept_id`, but the READ stayed
+  `conceptMastery(c.id)` against `studyV2.progress` — and `studyV2GroupLoad` **never
+  assigns `studyV2.progress` at all**, so it held whatever single lecture was loaded last,
+  keyed in a different id space. Fixed by carrying each member's progress in
+  `group_study.collect_members` and re-keying it onto the group ids
+  (`buildGroupStudyProgress`). Safe on both counts: `fingerprint()` keys only on
+  `job_id`+`generated_at` so the AI cache is not invalidated, and `build_evidence()` sends
+  only `job_id`/`title`/`analysis` so progress never leaves the machine.
+- **WHY THE AUTHOR'S OWN LIVE TEST MISSED IT — the trap to remember.** The Study screen
+  restores its last scope selection. Clicking "Study Subject" landed on a **single
+  lecture**, not "All lectures in this subject", while still looking like subject scope.
+  On this profile the group concept ids happened to equal the member ids
+  (`concept_1..3`) with one member lecture, so single-lecture behaviour was
+  indistinguishable from working group behaviour. **Assert
+  `#study-scope-lecture-select.value === 'all'` before believing any subject-scope
+  result.** The same trap invalidated the first attempt at the DEF-018 guard test.
+- **Verified:** in true group scope, set → persisted → survived leaving and re-entering
+  the screen; console clean.
+
+### DEF-018 — concept actions failed silently, and could hit the WRONG concept   ✅ FIXED (verified live)
+- **Area:** Study concept actions (`app/ui/app.js`). Also found by the pre-release review.
+- **Two defects in one path:**
+  1. **A rejected call RESOLVES.** `lpBridge.call(...)` resolves with `{ok:false}` on a
+     backend rejection; only transport errors reject. `set_mastery`/`edit`/`delete` used
+     `.then(studyV2Load).catch(...)`, so a refusal took the **then** branch: the select
+     silently reverted, and a confirmed DELETE did nothing while reporting nothing. Only
+     `regenerate` checked `ok`. All five now check it. **`.catch()` is not error handling
+     for this bridge.**
+  2. **The unresolvable-owner fallback was unsafe.** `studyItemOwner` fell back to
+     `{job_id: LP.state.jobId, id: displayedId}`. A group concept id is a free-form model
+     string and per-lecture ids are short and sequential (`c7`, `concept_2`), so a
+     collision would have set mastery on — or DELETED, with its cascade into
+     flashcards/quiz/guide — an unrelated concept in whatever lecture was active, and
+     reported success. It now returns `null` in group scope and every caller refuses with
+     an explanation. The fallback remains in single-lecture scope, where the displayed id
+     IS the stored id.
+- **Verified:** with owner attributes stripped to simulate a merged/renamed title, both
+  mastery and delete refused with the explanatory toast and the store was byte-identical
+  afterwards — 3 concepts, 14 flashcards, 10 quiz items intact.
+
 - **TWO OF MY OWN FIXES WERE WRONG, AND ONLY THE LIVE RUN CAUGHT THEM.** Both passed the
   test suite and `node --check`:
   1. **`source_concept_ids` cannot be trusted for identity.** My first DEF-001 fix resolved a

@@ -470,8 +470,13 @@ vm.runInContext(source, context, { filename: 'electron-bridge.js' });
   if (Object.prototype.hasOwnProperty.call(calls[1].payload, 'job_id')) {
     throw new Error('transcript correction command leaked an inferred job_id');
   }
+  // BRIDGE-LEVEL CONTRACT ONLY. This asserts the renderer's requested format
+  // survives the bridge; it does NOT prove the sidecar produces a per-format
+  // export. It does not: JobController.export_now() takes no format and always
+  // rebuilds the whole pack, so "Export PDF" and "Export HTML" currently do the
+  // same work. Do not read a green test here as end-to-end format support.
   // export_all carries no payload; export_one MUST carry the requested kind --
-  // dropping it made "Export PDF" and "Export HTML" indistinguishable.
+  // dropping it made the two buttons indistinguishable at the sidecar.
   if (calls[2].command !== 'export' || Object.keys(calls[2].payload).length !== 0) {
     throw new Error(`export_all mapping was not contract-shaped: ${JSON.stringify(calls[2])}`);
   }

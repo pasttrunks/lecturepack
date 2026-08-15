@@ -4598,6 +4598,11 @@
 
           if (studyV2.scope.selectedJobId === 'all') {
             studyV2.content = buildGroupStudyContent(studyV2.scope.groupAnalysis, studyV2.scope.members);
+            // Mastery is WRITTEN to the owning lecture, so it must also be READ
+            // from there. Without this, progress was whatever single lecture
+            // was loaded last, keyed by a different id space -- so a concept
+            // set to Mastered snapped back to New and the subject bar sat at 0%.
+            studyV2.progress = buildGroupStudyProgress(studyV2.content, studyV2.scope.members);
             studyV2.summary = buildGroupStudySummary(studyV2.content, studyV2.scope.members);
           }
         } else {
@@ -4621,6 +4626,26 @@
         renderStudyScopeHeader();
         renderStudyGenerationState();
       });
+  }
+
+  /* Re-key each owning lecture's stored progress onto the SYNTHESIZED group
+     concept ids the subject view renders with, so the read side matches the
+     write side (which targets origin_job_id/origin_concept_id). Flashcards and
+     quizzes are not merged into group content, so their progress stays empty
+     here rather than leaking the last single lecture's results. */
+  function buildGroupStudyProgress(content, members) {
+    var byJob = {};
+    (members || []).forEach(function (m) {
+      var p = (m && m.progress) || {};
+      byJob[m.job_id] = (p && p.concepts) || {};
+    });
+    var concepts = {};
+    ((content && content.concepts) || []).forEach(function (c) {
+      if (!c.origin_job_id || !c.origin_concept_id) return;
+      var entry = byJob[c.origin_job_id] && byJob[c.origin_job_id][c.origin_concept_id];
+      if (entry) concepts[c.id] = entry;
+    });
+    return { concepts: concepts, flashcard_results: {}, quiz_attempts: [] };
   }
 
   function buildGroupStudyContent(analysis, members) {
@@ -5305,7 +5330,10 @@
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-weight:700;font-size:14px;flex:1">' + escText(c.title) + '</span>' + emphasisBadge + '<span style="font:600 10px JetBrains Mono;color:var(--muted)">' + masteryLabel + '</span></div>' +
         '<div style="font-size:13px;color:var(--secondary-text);line-height:1.55;margin-bottom:8px">' + escText(c.explanation) + '</div>' +
         (sources ? '<div class="study-provenance-row">' + sources + '</div>' : '') +
-        '<div style="display:flex;gap:6px;margin-top:8px"><button class="lp-hit study-explain" data-id="' + escText(c.id) + '"' + ownerAttrs + ' style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--ink)">Explain</button>' +
+        // No ownerAttrs on Explain: it does not address a stored row, it asks
+        // the Study chat about the concept. Carrying owner data it ignores
+        // would read as intentional to the next reader.
+        '<div style="display:flex;gap:6px;margin-top:8px"><button class="lp-hit study-explain" data-id="' + escText(c.id) + '" style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--ink)">Explain</button>' +
         '<button class="lp-hit study-edit" data-kind="concept" data-id="' + escText(c.id) + '"' + ownerAttrs + ' style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--muted)">Edit</button>' +
         '<button class="lp-hit study-regenerate" data-kind="concept" data-id="' + escText(c.id) + '"' + ownerAttrs + ' style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--muted)">Regenerate</button>' +
         '<button class="lp-hit study-delete" data-kind="concept" data-id="' + escText(c.id) + '"' + ownerAttrs + ' style="font:600 11px Space Grotesk;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 9px;cursor:pointer;color:var(--red)">Delete</button>' +
@@ -6260,11 +6288,16 @@
       var teachConcept = ((studyV2.content && studyV2.content.concepts) || []).filter(function (c) {
         return c.id === studyV2.teachConceptId;
       })[0] || {};
+      var teachOwned = !!(teachConcept.origin_job_id && teachConcept.origin_concept_id);
+      if (!teachOwned && inGroupScope()) {
+        studyV2.teachLoading = false;
+        ownerMissingToast();
+        renderStudyTeach();
+        return;
+      }
       lpBridge.call('study_v2_teach_me', {
-        job_id: teachConcept.origin_job_id || LP.state.jobId,
-        concept_id: teachConcept.origin_job_id && teachConcept.origin_concept_id
-          ? teachConcept.origin_concept_id
-          : studyV2.teachConceptId
+        job_id: teachOwned ? teachConcept.origin_job_id : LP.state.jobId,
+        concept_id: teachOwned ? teachConcept.origin_concept_id : studyV2.teachConceptId
       }).then(function (result) {
         if (!result || result.ok === false) {
           studyV2.teachLoading = false;
@@ -6283,11 +6316,23 @@
       var t = e.target.closest('.study-source');
       if (t) { navigateStudySource(t); return; }
       var edit = e.target.closest('.study-edit');
-      if (edit) { studyV2EditItem(edit.dataset.kind, edit.dataset.id, studyItemOwner(edit, edit.dataset.id)); return; }
+      if (edit) {
+        var editOwner = studyItemOwner(edit, edit.dataset.id);
+        if (!editOwner) { ownerMissingToast(); return; }
+        studyV2EditItem(edit.dataset.kind, edit.dataset.id, editOwner); return;
+      }
       var del = e.target.closest('.study-delete');
-      if (del) { studyV2DeleteItem(del.dataset.kind, del.dataset.id, studyItemOwner(del, del.dataset.id)); return; }
+      if (del) {
+        var delOwner = studyItemOwner(del, del.dataset.id);
+        if (!delOwner) { ownerMissingToast(); return; }
+        studyV2DeleteItem(del.dataset.kind, del.dataset.id, delOwner); return;
+      }
       var regenerate = e.target.closest('.study-regenerate');
-      if (regenerate) { studyV2RegenerateItem(regenerate.dataset.kind, regenerate.dataset.id, studyItemOwner(regenerate, regenerate.dataset.id)); return; }
+      if (regenerate) {
+        var regenOwner = studyItemOwner(regenerate, regenerate.dataset.id);
+        if (!regenOwner) { ownerMissingToast(); return; }
+        studyV2RegenerateItem(regenerate.dataset.kind, regenerate.dataset.id, regenOwner); return;
+      }
       var explain = e.target.closest('.study-explain');
       if (explain) { studyV2ExplainItem(explain.dataset.id); }
     });
@@ -6295,12 +6340,21 @@
       var select = e.target.closest('.study-mastery-select');
       if (!select || !lpBridge.connected()) return;
       var masteryOwner = studyItemOwner(select, select.dataset.conceptId);
+      if (!masteryOwner) { ownerMissingToast(); studyV2Load(); return; }
       lpBridge.call('study_v2_set_mastery', {
         job_id: masteryOwner.job_id,
         concept_id: masteryOwner.id,
         mastery: select.value
-      }).then(function () { studyV2Load(); }).catch(function () {
+      }).then(function (result) {
+        // A rejected call RESOLVES with {ok:false}; only transport errors
+        // reject. Without this check the select silently snapped back.
+        if (result && result.ok === false) {
+          toast((result && result.error) || 'Mastery could not be updated.');
+        }
+        studyV2Load();
+      }).catch(function () {
         toast('Mastery could not be updated.');
+        studyV2Load();
       });
     });
     var guideRoot = $('study-guide-root');
@@ -6443,7 +6497,14 @@
           if (kind === 'concept') payload.title = value;
           else if (kind === 'flashcard') payload.front = value;
           else if (kind === 'quiz') payload.question = value;
-          lpBridge.call('study_v2_edit', payload).then(function () { studyV2Load(); }).catch(function () {});
+          lpBridge.call('study_v2_edit', payload)
+            .then(function (result) {
+              if (result && result.ok === false) {
+                toast((result && result.error) || 'This edit could not be saved.');
+              }
+              studyV2Load();
+            })
+            .catch(function () { toast('This edit could not be saved.'); });
         } }
       ]
     });
@@ -6460,7 +6521,16 @@
       actions: [
         { label: 'Cancel' },
         { label: 'Delete', danger: true, onClick: function () {
-          lpBridge.call('study_v2_delete', { job_id: owner.job_id, kind: kind, id: owner.id }).then(function () { studyV2Load(); }).catch(function () {});
+          lpBridge.call('study_v2_delete', { job_id: owner.job_id, kind: kind, id: owner.id })
+            .then(function (result) {
+              // A destructive action that quietly does nothing is worse than
+              // one that errors: the user believes the item is gone.
+              if (result && result.ok === false) {
+                toast((result && result.error) || ('This ' + noun + ' could not be deleted.'));
+              }
+              studyV2Load();
+            })
+            .catch(function () { toast('This ' + noun + ' could not be deleted.'); });
         } }
       ]
     });
@@ -6470,13 +6540,30 @@
      not in any lecture's store. The card carries the owning lecture + the real
      concept id; fall back to the active lecture for ordinary single-lecture
      scope, where the displayed id IS the stored id. */
+  function inGroupScope() {
+    return !!(studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all');
+  }
+
+  /* Returns null when the owning row cannot be established. Callers MUST treat
+     null as "refuse and explain".
+
+     The old fallback to {job_id: LP.state.jobId, id: displayedId} was unsafe in
+     subject scope: a group concept id is a free-form model string, per-lecture
+     ids are short and sequential ("c7", "concept_2"), and they collide across
+     lectures. A collision would have set mastery on -- or DELETED, with its
+     cascade into flashcards/quiz/guide -- an unrelated concept in whatever
+     lecture happened to be active, and reported success. In single-lecture
+     scope the displayed id IS the stored id, so the fallback stays there. */
   function studyItemOwner(el, displayedId) {
     var jobId = (el && el.dataset && el.dataset.jobId) || '';
     var originId = (el && el.dataset && el.dataset.originId) || '';
-    return {
-      job_id: jobId || LP.state.jobId,
-      id: (jobId && originId) ? originId : displayedId
-    };
+    if (jobId && originId) return { job_id: jobId, id: originId };
+    if (inGroupScope()) return null;
+    return { job_id: LP.state.jobId, id: displayedId };
+  }
+
+  function ownerMissingToast() {
+    toast('This concept could not be traced back to one lecture. Open that lecture from the Scope menu to change it.');
   }
 
   function studyV2RegenerateItem(kind, id, owner) {

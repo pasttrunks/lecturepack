@@ -89,12 +89,22 @@ def collect_members(jobs: list[Any]) -> list[dict[str, Any]]:
         analysis = content.get("lecture_analysis")
         if not isinstance(analysis, dict) or not analysis.get("concepts"):
             continue
+        # The learner's per-lecture progress travels with the member so the
+        # group view can SHOW mastery it already writes back to the owning
+        # lecture. Without it the subject overview read stale progress from
+        # whichever lecture happened to be loaded last, so a concept marked
+        # Mastered snapped straight back to New.
+        try:
+            member_progress = study_v2.load_progress(job)
+        except Exception:  # noqa: BLE001 - progress is display state, never fatal
+            member_progress = {}
         members.append({
             "job_id": str(getattr(job, "job_id", "")),
             "title": str((getattr(job, "manifest", {}) or {}).get("title") or ""),
             "generated_at": str(content.get("generated_at") or ""),
             "analysis": analysis,
             "concepts": content.get("concepts") or [],
+            "progress": member_progress if isinstance(member_progress, dict) else {},
         })
     return members
 
