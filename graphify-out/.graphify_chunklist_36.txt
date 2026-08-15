@@ -1,3 +1,0 @@
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\transcription\egyptA_base_en_generic_prompt.txt
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\transcription\egyptA_base_en_nocontext.txt
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.0.1\transcription\egyptA_base_en_targeted_prompt.txt

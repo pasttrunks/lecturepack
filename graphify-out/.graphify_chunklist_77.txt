@@ -1,3 +1,0 @@
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\electron-spike\deepseek\audit_r2_shots\11_paste_garbage.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\electron-spike\deepseek\audit_r2_shots\12_paste_dead_url.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\electron-spike\deepseek\audit_r2_shots\13_narrow_760.png

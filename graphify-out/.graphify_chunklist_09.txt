@@ -1,4 +1,0 @@
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\MILESTONE-CONTEXT.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\README.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\ROADMAP.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\STATE.md

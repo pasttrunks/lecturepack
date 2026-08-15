@@ -1,4 +1,0 @@
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\phases\01-clean-device-footprint-first-launch\01-RESEARCH.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\phases\01-clean-device-footprint-first-launch\01-UI-SPEC.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\phases\01-clean-device-footprint-first-launch\01-VALIDATION.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\phases\01-clean-device-footprint-first-launch\deferred-items.md

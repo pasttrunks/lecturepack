@@ -1,6 +1,0 @@
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\README.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\context_repair_failure_tests.txt
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\engine_benchmark.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\final_pytest_output.txt
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\model_checksums.txt
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\vulkan_binary_checksums.txt

@@ -1,8 +1,0 @@
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\05-packaged-physical-release-gate\05-01-PLAN.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\05-packaged-physical-release-gate\05-01-SUMMARY.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\05-packaged-physical-release-gate\05-02-PLAN.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\05-packaged-physical-release-gate\05-02-SUMMARY.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\05-packaged-physical-release-gate\05-03-PLAN.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\05-packaged-physical-release-gate\05-03-SUMMARY.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\05-packaged-physical-release-gate\05-CONTEXT.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.planning\milestones\v0.9.0-beta.6\phases\05-packaged-physical-release-gate\05-UAT.md

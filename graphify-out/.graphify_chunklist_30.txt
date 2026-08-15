@@ -1,9 +1,0 @@
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\TEST_PLAN.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\TRANSCRIPTION_AND_CONTEXT_REPAIR.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\TROUBLESHOOTING.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\UI_REDESIGN.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\UI_UX_AUDIT_BETA3.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\WINDOWS_PORTABLE_INSTALL.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\WINDOWS_RUN_HANDOFF.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\WORKLOG_WEBVIEW_RECOVERY.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\repo_state_snapshot.md

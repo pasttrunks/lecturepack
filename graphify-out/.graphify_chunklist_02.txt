@@ -1,3 +1,0 @@
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.github\workflows\ci.yml
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.github\workflows\release-electron.yml
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\.github\workflows\release-runtime-repair.yml

@@ -1,4 +1,0 @@
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v0.4.0\preview_dialog.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v0.4.0\processing_view.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v0.4.0\review_view.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v0.4.0\setup_view.png

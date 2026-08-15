@@ -1,8 +1,0 @@
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\screenshots\03_transcript_2_dark.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\screenshots\03_transcript_2_light.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\screenshots\03_transcript_3_dark.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\screenshots\03_transcript_3_light.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\screenshots\04_exports_dark.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\screenshots\04_exports_light.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\screenshots\05_settings_dark.png
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\docs\evidence\v1.1.0\screenshots\05_settings_light.png

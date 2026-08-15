@@ -68,3 +68,6 @@ claude-promo-video/
 
 # Teamwork agent scratch state -- not part of the product
 .agents/
+
+# Knowledge-graph output from the graphify tool -- generated, not source
+graphify-out/

@@ -1,5 +1,0 @@
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\electron-spike\deepseek\ELECTRON_BETA15_COMBINED_AUDIT_REPORT.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\electron-spike\deepseek\ELECTRON_BETA15_FRUSTRATED_STUDENT_AUDIT.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\electron-spike\deepseek\ELECTRON_BETA15_GRAPH_MAP.html
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\electron-spike\deepseek\ELECTRON_DIST_FRUSTRATED_STUDENT_AUDIT.md
-C:\Users\marsh\Documents\LecturePack-worktrees\release-polish\electron-spike\deepseek\ELECTRON_DIST_FRUSTRATED_STUDENT_AUDIT_R2.md
