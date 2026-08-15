@@ -933,7 +933,11 @@ inventory that was authored rather than derived from the binaries.
   test suite and `node --check`:
   1. **`source_concept_ids` cannot be trusted for identity.** My first DEF-001 fix resolved a
      group concept's origin via `source_concept_ids` OR a title match. On real data the model
-     returns the **sibling** concept ids there (group `concept_2` "Homeric Troy" listed
+     is unreliable. Four cached group analyses of the SAME lecture on disk
+     (`<data>/groups/*/group-analysis-v1.json`) returned the field three different ways —
+     empty `[]`, correct, and **sibling ids** — while the concept TITLES were identical in
+     all four. That is why identity keys on the title. In the broken run the model
+     returns the sibling concept ids (group `concept_2` "Homeric Troy" listed
      `[concept_1, concept_3]`), so every concept resolved to `concept_1` — mastery would have
      been written to the WRONG concept, worse than the `concept not found` it replaced.
      Identity is now resolved by **title match only**; no match means no origin, and the call
