@@ -124,6 +124,10 @@ hiddenimports = [
     # only symptom would be downloaded lectures quietly transcribing from
     # scratch, with nothing in any log to say the feature had stopped working.
     "lecturepack.services.source_captions",
+    # Same reasoning: the demo Study cache is imported inside a function whose
+    # failure path is "build the pack the slow way", so a missing module would
+    # show up only as the guided demo taking minutes again.
+    "lecturepack.services.demo_study_cache",
     "lecturepack.infrastructure.whisper_detector",
     "lecturepack.infrastructure.whisper_path_staging",
 ]

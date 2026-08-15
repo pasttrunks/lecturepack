@@ -135,8 +135,12 @@
           <div style="display:flex;align-items:baseline;gap:11px"><h2 style="font:500 12px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;margin:0;color:var(--ink)">Recent jobs</h2><span id="jobs-count" style="font:500 12px 'JetBrains Mono';color:var(--muted)">3</span></div>
           <div style="display:flex;gap:8px">
             <button id="btn-show-empty" class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--muted);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Preview first-run</button>
-            <button id="btn-archive" class="lp-hit" disabled title="Archive is not available in Beta 15" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--muted);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:not-allowed">Archive</button>
-            <button id="btn-restore" class="lp-hit" disabled title="Restore is not available in Beta 15" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--muted);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:not-allowed">Restore</button>
+<!-- Archive/Restore lived here as permanently-disabled placeholders whose
+                 tooltips still said "not available in Beta 15" three releases later.
+                 No handler, no sidecar command, no feature behind them -- they only
+                 taught a student that two of the four controls on the shelf do
+                 nothing. Removed rather than re-labelled; they can come back with the
+                 feature. -->
             <button id="btn-select-mode" class="lp-hit" style="font:500 12px 'JetBrains Mono';background:var(--panel);color:var(--ink);border:2px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">Select</button>
           </div>
         </div>

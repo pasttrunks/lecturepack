@@ -1281,7 +1281,17 @@ class Sidecar:
                 "demo_owner": "guided_tour",
             })
         job.source.update(metadata)
-        job.settings["preset"] = self._preset(preset)
+        # PRESETS["demo"] was calibrated for the bundled lecture -- 10 seconds
+        # with a slide change roughly every 2.5s -- but nothing could ever
+        # select it: _preset() whitelists the three student-facing names and
+        # silently returns "balanced" for anything else. Balanced enforces
+        # min_time_between_slides=5.0, so the demo detected its first slide and
+        # then one more, and the guided tour showed 2 slides for a 4-slide
+        # lecture. Measured on the bundled video: balanced 2 (1.5s, 9.5s),
+        # detailed 2, demo 4 (0.75s, 4.0s, 6.5s, 8.75s) -- one per slide.
+        # Forced here rather than widened in _preset() so "demo" stays
+        # unselectable as an ordinary processing option.
+        job.settings["preset"] = "demo" if bundled_demo else self._preset(preset)
         job.settings.setdefault("whisper", {})["engine"] = "cpu"
         model = self.config.get("whisper_model", "")
         if model and os.path.isfile(model):
@@ -1959,7 +1969,13 @@ class Sidecar:
         job = self._job_for(payload)
         if payload.get("mode"):
             job.settings["product_mode"] = self._product_mode(payload.get("mode"))
-        if payload.get("preset"):
+        # The bundled demo keeps the preset calibrated for it. The bridge always
+        # sends a preset here (payload.preset or the current setting), so
+        # without this guard the "demo" preset chosen at import is overwritten
+        # with "balanced" the instant the job starts -- which is how the demo
+        # came to detect 2 slides in a 4-slide lecture while the code that
+        # picked the right preset looked correct.
+        if payload.get("preset") and not self._is_demo_job(job):
             job.settings["preset"] = self._preset(payload.get("preset"))
         job.settings.setdefault("whisper", {})["engine"] = "cpu"
         job.settings["whisper"]["transcription_backend"] = "local-whispercpp"
@@ -2994,6 +3010,47 @@ class Sidecar:
             worker = self._study_workers.get(str(job_id or ""))
             return bool(worker and worker.is_alive())
 
+    def _adopt_demo_study_cache(self, job: Any) -> bool:
+        """Serve the shipped Study pack for the bundled demo lecture.
+
+        Returns True only when a matching cache was actually persisted. Every
+        failure -- no cache, a swapped demo video, a transcript or slide list
+        that no longer has the shape the cache was captured against -- returns
+        False and lets the normal build run. A stale cache must cost time, not
+        correctness, so the match is deliberately strict: half-matching would
+        attach real-looking citations to the wrong timestamps.
+        """
+        if not self._is_demo_job(job):
+            return False
+        try:
+            from lecturepack.services import demo_study_cache
+
+            path = demo_study_cache.find_cache(self.runtime_root, self.repo_root)
+            if not path:
+                return False
+            cache = demo_study_cache.load_cache(path)
+            if cache is None:
+                return False
+            source = (job.manifest or {}).get("source") or {}
+            video = str(source.get("original_path") or "")
+            if not video or not os.path.isfile(video):
+                return False
+            segments = self.study_v2._load_segments(job)
+            slides = self.study_v2._load_accepted_slides(job)
+            if not demo_study_cache.matches(cache, video, len(segments), len(slides)):
+                return False
+            self.study_v2.save_content(job, demo_study_cache.content_for(cache))
+        except Exception:  # noqa: BLE001 - the demo falls back to a real build
+            return False
+        self._emit_study_generation({
+            "job_id": str(job.job_id),
+            "status": self.study_v2.STUDY_READY,
+            "stage": "Ready",
+            "progress_percent": 100,
+            "error": "",
+        })
+        return True
+
     def _start_ai_study(self, job: Any, *, force: bool = False) -> bool:
         """Start the canonical two-pass Study build once per job."""
         if self._shutting_down or job is None:
@@ -3002,6 +3059,13 @@ class Sidecar:
         content = self.study_v2.load_content(job)
         if not force and content.get("study_status") in {
                 self.study_v2.STUDY_READY, self.study_v2.STUDY_BASIC}:
+            return False
+        # The guided demo serves a pre-built pack for its own bundled lecture.
+        # A real build of that lecture measures 15.6s of gateway work on top of
+        # local processing -- a long hold for someone still being shown around.
+        # force=True (the student pressing Regenerate) skips the cache, so a
+        # real build is always reachable.
+        if not force and self._adopt_demo_study_cache(job):
             return False
         with self._study_workers_lock:
             existing = self._study_workers.get(job_id)

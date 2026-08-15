@@ -154,7 +154,12 @@ def test_d13_zero_job_action_bar_is_hidden() -> None:
     html = read(HTML)
     assert 'id="jobs-actionbar"' in html
     assert "actionBar.hidden = !!empty;" in app
-    assert 'id="btn-archive"' in html and 'id="btn-restore"' in html
+    # Archive/Restore used to sit in this bar as permanently-disabled controls.
+    # They had no handler and no backend command, so they only advertised two
+    # dead buttons -- and their tooltips still said "Beta 15" in 2.0.1. The bar
+    # now carries only controls that do something.
+    assert 'id="btn-archive"' not in html and 'id="btn-restore"' not in html
+    assert 'id="btn-select-mode"' in html
 
 
 def test_d14_global_save_is_hidden_but_specific_save_remains() -> None:
