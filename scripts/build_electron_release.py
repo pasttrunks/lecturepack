@@ -307,6 +307,11 @@ def main(argv: list[str] | None = None) -> int:
         if iscc is None:
             raise RuntimeError("Inno Setup 6 ISCC.exe was not found; pass --skip-installer or --iscc")
         installer = build_installer(iscc, version, candidate, output, fast=fast_compression)
+    # SHA256SUMS.txt is a PUBLISHED release artifact and it is what a user runs
+    # Get-FileHash against. This call was dropped in an edit, so the full build
+    # crashed with NameError at the result dict below -- after ~10 minutes of
+    # compression, with every other artifact already on disk and no sums file.
+    sums = write_sha256sums(version, output)
     manifest = write_release_manifest(version, output, installer)
 
     result = {

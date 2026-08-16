@@ -153,3 +153,20 @@ def test_version_check_fails_closed_when_the_tag_does_not_match():
     ok, message = verify("99.0.0")
     assert ok is False
     assert "expected '99.0.0'" in message
+
+
+def test_release_build_writes_the_published_sha256sums():
+    """SHA256SUMS.txt is a published artifact; the call to produce it was once
+    dropped, so the full build crashed with NameError AFTER compressing
+    everything and never wrote the file."""
+    source = (ROOT / "scripts" / "build_electron_release.py").read_text(encoding="utf-8")
+    body = source[source.index("def main("):]
+    assert "sums = write_sha256sums(version, output)" in body
+    assert body.index("sums = write_sha256sums(version, output)") < body.index('"sha256sums": str(sums)')
+
+
+def test_official_build_always_cleans_the_pyinstaller_cache():
+    """A release must not inherit stale PyInstaller artifacts from a prior build."""
+    source = (ROOT / "electron-spike" / "package-sidecar.mjs").read_text(encoding="utf-8")
+    assert "LECTUREPACK_OFFICIAL_BUILD" in source
+    assert "if (officialBuild || cleanRequested)" in source

@@ -9,6 +9,29 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.0.4] — 2026-08-16
+
+Fixes the update experience itself. Everything in 2.0.3 is included.
+
+### Updating
+- **The update dialog shows what you are getting again.** It read
+  "v2.0.2 → v" with "No release notes", because the update details never
+  survived the trip to the window. It now shows the new version, the download
+  size as "372.7 MB" rather than a raw byte count, and the release notes.
+- **Update status messages work at all.** "Checking…", "You're up to date",
+  "Downloading", "Verifying", "Ready to install" and every update error were
+  silently doing nothing, for the same reason.
+- **Installing an update no longer fails silently.** LecturePack started the
+  installer and then closed itself. Windows cannot replace a program that is
+  still running, so the installer could fail with nothing installed and no
+  message — you would reopen on the old version as if you had never clicked.
+  The installer now starts only after LecturePack has fully shut down.
+
+### Build
+- Signed: **no.** No Authenticode credentials exist for this project, so
+  Windows will warn on first run. Every download is still verified against a
+  published SHA-256.
+
 ## [2.0.3] — 2026-08-16
 
 A polish release: fourteen reported defects fixed, plus five more found while

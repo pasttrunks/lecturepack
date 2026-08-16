@@ -38,8 +38,15 @@ function pruneHeadlessQtPayload() {
   }
 }
 
+// An OFFICIAL build always cleans: a release must never inherit stale
+// PyInstaller cache/workpath artifacts from a previous build. Skipping --clean
+// is a local iteration speed knob only, and it must not apply to a release, so
+// the default flips on LECTUREPACK_OFFICIAL_BUILD (set by
+// scripts/build_electron_release.py).
+const officialBuild = process.env.LECTUREPACK_OFFICIAL_BUILD === '1';
+const cleanRequested = process.env.LECTUREPACK_CLEAN_BUILD === '1' || process.env.CLEAN_BUILD === '1';
 const pyinstallerArgs = ['--noconfirm'];
-if (process.env.LECTUREPACK_CLEAN_BUILD === '1' || process.env.CLEAN_BUILD === '1') {
+if (officialBuild || cleanRequested) {
   pyinstallerArgs.push('--clean');
 }
 pyinstallerArgs.push('--distpath', distPath, '--workpath', workPath, spec);

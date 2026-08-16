@@ -947,6 +947,80 @@ inventory that was authored rather than derived from the binaries.
   `"1 lectures updated"` (DEF-012); citation pills and Study Stats clipped at the scroll
   boundary (DEF-007); sidebar storage text wrapped `free` onto its own line (DEF-014);
   README gained an authoritative export inventory (DEF-013).
+### DEF-022 — DEF-019's fix was SILENTLY DELETED one release later   ✅ FIXED (guarded by a test now)
+- **Area:** Packaging (`app/packaging/lecturepack.iss`). Caught by the independent
+  pre-release review for 2.0.4, not by any test.
+- **What happened:** the `[InstallDelete]` section added for 2.0.3 (DEF-019) was gone from
+  the working tree by the time 2.0.4 was being cut. An unrelated concurrent edit to the
+  same file (fast-compression support) rewrote it from an older copy, and a blanket
+  `git add -A` swept that revert into an unrelated commit ("the update dialog showed no
+  version and no release notes") whose message never mentions the installer.
+- **Why nothing caught it:** 1772 tests were green. No test asserted the section existed,
+  and the whole class of bug is invisible to fresh installs — only the A→B upgrade gate
+  finds it, and that runs at release time, after the code is already committed.
+- **Fixed:** section restored from the v2.0.3 tag, and
+  `tests/test_installer_iscc_path.py::test_installer_removes_the_previous_payload_before_installing`
+  now asserts it is present, lists all four re-shipped directories, and refuses any target
+  outside `{app}`.
+- **THE LESSONS.** (1) `git add -A` is not safe when anything else is editing the tree;
+  stage deliberately, or read `git diff --stat <lasttag>..HEAD` and account for EVERY file
+  before committing. (2) A fix that only exists as a line in a config file, with no test
+  asserting it, is one careless edit from being gone — and the ledger entry saying "FIXED"
+  will still be there, lying.
+- **Also fixed in the same pass** (same review): `scripts/build_electron_release.py` lost
+  its `sums = write_sha256sums(...)` call, so the full release build crashed with
+  `NameError` after ~10 minutes of compression and never wrote the published
+  `SHA256SUMS.txt`; and `package-sidecar.mjs` made PyInstaller's `--clean` opt-in, so the
+  OFFICIAL build path was the unclean one and could inherit stale freeze artifacts. Both
+  now have tests in `tests/test_release_pipeline_authority.py`.
+
+### DEF-020 — the update dialog showed no version and no release notes   ✅ FIXED (verified live)
+- **Area:** `electron-spike/production-main.js` → `app/ui/app.js`.
+- **Symptom:** the live 2.0.2 dialog read `v2.0.2 → v`, "No release notes.", and a literal
+  `vundefined available`, while the release it offered had 3113 characters of notes.
+- **Root cause:** `update_available` and `update_state` were sent as
+  `{event, payload: JSON.stringify({...})}`. `electron-bridge.js` `deliver()` strips
+  `event` and **re-serializes whatever is left**, so the renderer received
+  `{"payload":"{...}"}`. Every field was `undefined`. `update_state` was broken the same
+  way, which silently killed every update status message. Every other event puts its
+  fields at the top level; these two were the only exceptions.
+- **THE LESSON:** the transport re-wraps the message. Do not hand it a pre-serialized
+  envelope — put the fields at the top level and let it serialize once.
+- **Also:** the updater carries the raw git tag (`v2.0.3`) while the UI prepends its own
+  `v`; the version is normalized before it goes on the wire. The renderer no longer
+  concatenates a possibly-absent version (that produced `vundefined`) and formats the size
+  with `fmtBytes`. Release notes are Markdown rendered as flat bullets, so `_wnNoteLines`
+  strips heading/bullet/emphasis markers and drops fenced blocks.
+- **Update DECISIONS were never affected** — `parseVersionPart` accepts `^v?` and compares
+  semver. Proven, not assumed: a global rollout matrix in `tests/test_electron_updater.py`
+  asserts every shipped version (0.9.0-beta.3 → 2.0.2) is offered the current stable, an
+  up-to-date user is never offered their own version (the nag loop a lexicographic compare
+  would cause, since `"v2.0.3" > "2.0.3"` as strings), updates never go backwards, 2.0.10
+  beats 2.0.9, stable users never see a prerelease, and a release with no installer asset
+  fails closed.
+
+### DEF-021 — installing an update over the RUNNING app failed silently   ✅ FIXED
+- **Area:** `electron-spike/production-main.js` (`installDownloadedUpdate`, `requestQuit`).
+- **Symptom / repro:** installing 2.0.3 over a **running** 2.0.2 exits with Inno code 5 and
+  installs NOTHING — every 2.0.2-only package was still present afterwards. The user clicks
+  "Download and Install", the app closes, and they reopen on the old version having been
+  told nothing.
+- **Root cause:** the installer was spawned detached and the app quit *afterwards*. Windows
+  cannot replace a running `.exe`, and the app plus its sidecar still held
+  `resources\LecturePackSidecar` open.
+- **PRE-EXISTING, not caused by DEF-019's `[InstallDelete]`** — verified: the 2.0.2
+  installer fails identically over a running 2.0.2.
+- **Fixed:** the installer is deferred to `requestQuit()` and launched only after
+  `stopSession()` has shut the sidecar down, bounded by `INSTALLER_SHUTDOWN_GRACE_MS` so a
+  hung shutdown cannot swallow the update, and consumed exactly once so a re-entrant quit
+  cannot launch two installers.
+- **Severity honesty:** the repro forced the worst case with `/VERYSILENT`. The shipped
+  flow shows the Inno wizard, so a human's click latency usually covers the app's exit —
+  the failure is real but intermittent, which is why it was never reported.
+- **Still not deterministic:** the `.iss` has no `AppMutex`/`CloseApplications`, so Inno
+  neither detects nor waits for a running LecturePack. The ordering fix removes the
+  guaranteed collision; adding `AppMutex` would remove the residual race.
+
 ### DEF-019 — the installer never removed anything, so UPGRADING broke link import   ✅ FIXED (verified by the gate that caught it)
 - **Area:** Packaging (`app/packaging/lecturepack.iss`). Found by RELEASING.md step 14
   (`scripts/updater_ab_acceptance.py`) during the 2.0.3 release.

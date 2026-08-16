@@ -68,3 +68,32 @@ def test_iss_script_uses_sourcedir_and_outputdir_macros_not_hardcoded_dotdot():
     # not in the [Files]/[Setup] directives ISCC actually resolves paths from.
     files_section = text.split("[Files]", 1)[1]
     assert ".." not in files_section
+
+
+def test_installer_removes_the_previous_payload_before_installing():
+    """DEF-019 guard. [Files] uses `ignoreversion`, which adds and overwrites but
+    NEVER removes, so without [InstallDelete] every upgrade accumulates whatever
+    older versions shipped. That is how 2.0.3-over-2.0.2 left 12 stale packages
+    in the frozen sidecar and killed `import yt_dlp` on upgrade while a FRESH
+    install of the identical build was healthy.
+
+    This section shipped in v2.0.3 and was then silently deleted by an unrelated
+    edit to this file, which 1772 green tests did not notice. Hence this test.
+    """
+    text = ISS_PATH.read_text(encoding="utf-8")
+    assert "[InstallDelete]" in text, (
+        "[InstallDelete] is gone; upgrades will accumulate stale files again (DEF-019)"
+    )
+    section = text[text.index("[InstallDelete]"):]
+    section = section[: section.index("\n[Files]")]
+    for target in (
+        r"{app}\resources\LecturePackSidecar",   # the frozen Python payload
+        r"{app}\resources\ui",
+        r"{app}\resources\assets",
+        r"{app}\locales",
+    ):
+        assert target in section, f"{target} is no longer cleared before install"
+    # Never clear anything outside {app}: user data lives in LecturePackData.
+    for line in section.splitlines():
+        if line.startswith("Type:"):
+            assert r'Name: "{app}' in line, f"refuses to delete outside the app dir: {line}"
