@@ -18,6 +18,14 @@ import pytest
 WORKTREE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UPDATER_JS = os.path.join(WORKTREE, "electron-spike", "updater.js")
 
+PRODUCTION_MAIN_JS = os.path.join(WORKTREE, "electron-spike", "production-main.js")
+
+
+def _production_main_source() -> str:
+    with open(PRODUCTION_MAIN_JS, encoding="utf-8") as handle:
+        return handle.read()
+
+
 NODE = shutil.which("node")
 pytestmark = pytest.mark.skipif(
     NODE is None,
@@ -280,3 +288,39 @@ def test_release_without_an_installer_asset_fails_closed():
     """A release published with notes but no Setup.exe must not half-update."""
     picked = _call("selectInstallerAsset", {"assets": [{"name": "notes.txt"}]})
     assert picked["installer"] is None
+
+
+# ------------------------------------------------- installer launch ordering
+def test_installer_is_launched_after_shutdown_not_before():
+    """The app must release its files BEFORE the installer runs.
+
+    Windows cannot replace a running .exe. production-main.js used to spawn the
+    installer and then quit, so the installer could start while this app and
+    its sidecar still held resources\LecturePackSidecar open. Reproduced by
+    installing over a running app: Inno exits 5 and installs NOTHING, so the
+    user clicks "Download and Install", the app closes, and they reopen on the
+    old version with no error. The installer is now deferred to requestQuit(),
+    after stopSession() has shut the sidecar down.
+    """
+    source = _production_main_source()
+    install_fn = source[source.index("async function installDownloadedUpdate"):]
+    install_fn = install_fn[: install_fn.index("\nasync function handleCommand")]
+    assert "updater.install(installerPath)" not in install_fn, (
+        "installDownloadedUpdate spawns the installer directly again; that races the app's "
+        "own shutdown and the update silently fails"
+    )
+    assert "pendingInstaller = {" in install_fn
+
+    # ...and requestQuit must launch it only inside the post-shutdown callback.
+    quit_fn = source[source.index("function requestQuit()"):][:1600]
+    assert "launchPendingInstaller()" in quit_fn
+    assert "stopSession(session)" in quit_fn
+    # A hung shutdown must not swallow the update.
+    assert "INSTALLER_SHUTDOWN_GRACE_MS" in quit_fn
+
+
+def test_pending_installer_is_consumed_exactly_once():
+    source = _production_main_source()
+    fn = source[source.index("function launchPendingInstaller()"):]
+    fn = fn[: fn.index("\n}\n") + 3]
+    assert "pendingInstaller = null;" in fn, "a re-entrant quit could launch two installers"

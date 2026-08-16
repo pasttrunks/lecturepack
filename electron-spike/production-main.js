@@ -1333,10 +1333,19 @@ async function installDownloadedUpdate(session) {
   }
   const updater = ensureUpdater(session);
   try {
-    updater.install(installerPath);
-    session.logger.write('update_installer_launched', { file: installerPath });
-    // Exit the running app cleanly so the installer can finish over the same
-    // per-user installation; the installer relaunches LecturePack.
+    // ORDER MATTERS. This used to spawn the installer and THEN quit, which is a
+    // race: the installer begins while this app and its sidecar still hold
+    // resources\LecturePackSidecar open, and Windows cannot replace a running
+    // exe. Verified by installing over a running app -- Inno exits with code 5
+    // and NOTHING is installed, so the user clicks "Download and Install", the
+    // app closes, and they reopen on the old version with no error shown.
+    // (Pre-existing: the 2.0.2 installer fails the same way.)
+    //
+    // The installer is now launched from requestQuit(), after stopSession() has
+    // shut the sidecar down and released the files. It is spawned detached, so
+    // it outlives this process.
+    pendingInstaller = { path: installerPath, updater, logger: session.logger };
+    session.logger.write('update_installer_deferred_to_shutdown', { file: installerPath });
     quitToTray = true;
     requestQuit();
     return { ok: true };
@@ -1470,6 +1479,24 @@ async function stopSession(session) {
   return session.stopPromise;
 }
 
+// Set by installUpdate(); consumed once by requestQuit() after shutdown.
+let pendingInstaller = null;
+const INSTALLER_SHUTDOWN_GRACE_MS = 10000;
+
+function launchPendingInstaller() {
+  const job = pendingInstaller;
+  pendingInstaller = null;               // exactly once, even if quit re-enters
+  if (!job) return;
+  try {
+    job.updater.install(job.path);
+    if (job.logger) job.logger.write('update_installer_launched', { file: job.path });
+  } catch (error) {
+    // Nothing left to show the user -- the window is already going away -- but
+    // the log has to say the update did not actually start.
+    if (job.logger) job.logger.write('update_install_failed', { error: error.message });
+  }
+}
+
 function requestQuit() {
   if (quitPromise) return;
   quitToTray = true;
@@ -1484,7 +1511,18 @@ function requestQuit() {
     tray = null;
   }
   const session = activeSession;
-  quitPromise = stopSession(session).finally(() => app.quit());
+  // A hung shutdown must never swallow a requested update, so the wait for
+  // stopSession is bounded; after that the installer is launched regardless.
+  const shutdown = pendingInstaller
+    ? Promise.race([
+        Promise.resolve(stopSession(session)).catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, INSTALLER_SHUTDOWN_GRACE_MS))
+      ])
+    : Promise.resolve(stopSession(session)).catch(() => {});
+  quitPromise = shutdown.finally(() => {
+    launchPendingInstaller();
+    app.quit();
+  });
 }
 
 function createProductionWindow() {
