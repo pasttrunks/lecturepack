@@ -7331,19 +7331,46 @@
     return '<div style="display:flex;gap:9px;align-items:flex-start"><span style="width:6px;height:6px;flex:none;border-radius:2px;background:var(--orange);margin-top:7px"></span><span>' + esc(n) + '</span></div>';
   }
 
+  /* Release notes arrive as GitHub-flavoured Markdown and are rendered as flat
+     bullets, so raw "## " and "- " markers and code fences would show up
+     verbatim. Strip the markers, drop fenced blocks (the notes carry a SHA-256
+     block), and keep headings as their own short lines. */
+  function _wnNoteLines(raw) {
+    var out = [];
+    var fenced = false;
+    String(raw || '').split(/\r?\n/).forEach(function (line) {
+      var t = line.trim();
+      if (/^```/.test(t)) { fenced = !fenced; return; }
+      if (fenced || !t) return;
+      t = t.replace(/^#{1,6}\s*/, '')          // headings
+           .replace(/^[-*+]\s+/, '')           // bullets
+           .replace(/^\d+\.\s+/, '')           // numbered
+           .replace(/\*\*(.+?)\*\*/g, '$1')    // bold
+           .replace(/`(.+?)`/g, '$1');         // inline code
+      if (t) out.push(t);
+    });
+    return out;
+  }
+
   function showWhatsNew(info, mode) { // mode: 'available' | 'installed'
-    var noteItems = Array.isArray(info.notes) ? info.notes : String(info.notes || '')
-      .split(/\r?\n+/).map(function (line) { return line.trim(); }).filter(Boolean);
+    var noteItems = Array.isArray(info.notes) ? info.notes : _wnNoteLines(info.notes);
     LP.state.updateInfo = info;
     LP.state.updateMode = mode;
     $('whatsnew-title').textContent = mode === 'installed' ? 'What’s new in this update' : 'Update available';
     var cur = info.current || LP.data.version || '';
     $('whatsnew-current').textContent = cur ? ('v' + cur) : '';
     $('whatsnew-arrow').style.display = (mode === 'installed' || !cur) ? 'none' : '';
-    $('whatsnew-version').textContent = 'v' + (info.available || info.version || '');
+    // Never concatenate a raw value here: an absent version printed the
+    // literal "vundefined" in the Settings card (and a bare "v" here).
+    var newVersion = String(info.available || info.version || '').replace(/^v/i, '');
+    $('whatsnew-version').textContent = newVersion ? ('v' + newVersion) : '';
     $('whatsnew-channel').textContent = info.channel || 'Stable';
     $('whatsnew-channel').style.display = info.channel ? '' : 'none';
-    $('whatsnew-size').textContent = info.size ? ('· ' + info.size) : '';
+    // The updater reports the asset size in BYTES; printing it raw rendered
+    // "· 390761266" next to the version.
+    $('whatsnew-size').textContent = info.size
+      ? ('· ' + (typeof info.size === 'number' ? fmtBytes(info.size) : info.size))
+      : '';
     $('whatsnew-date').textContent = info.date || '';
     $('whatsnew-skipnote').hidden = !info.is_skipped;
     ['improvements', 'fixes', 'limitations'].forEach(function (sec) {
@@ -7362,7 +7389,7 @@
     $('whatsnew-overlay').hidden = false;
     if (mode === 'available') {
       $('update-badge').hidden = false;
-      $('update-status').textContent = 'v' + (info.available || info.version) + ' available';
+      $('update-status').textContent = newVersion ? ('v' + newVersion + ' available') : 'An update is available';
     }
   }
 

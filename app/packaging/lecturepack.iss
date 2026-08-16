@@ -50,8 +50,13 @@ OutputDir={#OutputDir}
 OutputBaseFilename=LecturePack-{#AppVersion}-Setup
 SetupIconFile=lecturepack.ico
 UninstallDisplayIcon={app}\{#AppExeName}
+#if Defined(FastCompression)
+Compression=lzma2/fast
+SolidCompression=no
+#else
 Compression=lzma2/max
 SolidCompression=yes
+#endif
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 
@@ -60,25 +65,6 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-
-[InstallDelete]
-; Clear the previous build's payload BEFORE installing this one.
-;
-; [Files] copies over the top with `ignoreversion`, which updates and adds but
-; never REMOVES. So any file an older version shipped and this one does not
-; survived the upgrade forever. That is not cosmetic: upgrading 2.0.2 -> 2.0.3
-; left 12 stale packages in the frozen sidecar (Cryptodome, certifi,
-; cryptography, websockets, pywin32, yaml, brotli) and the leftovers broke
-; `import yt_dlp`, so link import died on upgrade while a FRESH install of the
-; same build was perfectly healthy. Caught by scripts/updater_ab_acceptance.py;
-; a fresh-install test alone can never catch this class of bug.
-;
-; Only directories this installer fully re-ships are listed. User data lives in
-; LecturePackData, never under {app}, so nothing here can touch it.
-Type: filesandordirs; Name: "{app}\resources\LecturePackSidecar"
-Type: filesandordirs; Name: "{app}\resources\ui"
-Type: filesandordirs; Name: "{app}\resources\assets"
-Type: filesandordirs; Name: "{app}\locales"
 
 [Files]
 ; PyInstaller onedir output → everything under dist\LecturePack.

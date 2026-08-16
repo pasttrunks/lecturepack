@@ -1153,7 +1153,17 @@ function emitUpdaterState(session, patch) {
   const state = session.updaterState || {};
   const phase = patch && patch.status ? patch.status : (state.status || 'idle');
   const payload = buildUpdaterStatePayload(session, Object.assign({}, state, patch || {}), phase);
-  sendToPage(session, { event: 'update_state', payload: JSON.stringify(payload) });
+  // Fields go at the TOP LEVEL, like every other event. The transport
+  // (electron-bridge.js eventPayload/deliver) strips `event` and re-serializes
+  // whatever is left, so nesting the data in a `payload` JSON string reached
+  // the renderer doubly wrapped as {"payload":"{...}"} -- `d.phase` was always
+  // undefined and every update status message silently did nothing.
+  sendToPage(session, Object.assign({ event: 'update_state' }, payload));
+}
+
+// The updater carries the raw git tag ("v2.0.3"); the UI adds its own "v".
+function displayVersion(value) {
+  return String(value || '').replace(/^v/i, '');
 }
 
 function buildUpdaterStatePayload(session, state, phase) {
@@ -1166,7 +1176,7 @@ function buildUpdaterStatePayload(session, state, phase) {
     auto_check: persisted.autoCheck !== false,
     skipped_version: persisted.skippedVersion || null,
     release_url: (state && state.update && state.update.releaseUrl) || '',
-    available_version: (state && state.update && state.update.version) || '',
+    available_version: displayVersion(state && state.update && state.update.version),
     message: ''
   };
   if (phase === 'uptodate') base.message = "You're up to date";
@@ -1197,11 +1207,18 @@ async function checkForUpdates(session, manual) {
   const result = await updater.check({ respectSkip: !manual });
   session.updaterState = Object.assign({}, session.updaterState, result);
   if (result.status === 'available') {
-    sendToPage(session, { event: 'update_available', payload: JSON.stringify({
-      version: (result.update && result.update.version) || '',
+    // Top level, same reason as emitUpdaterState above. Nested, this arrived as
+    // {"payload":"{...}"} and the dialog rendered "v2.0.2 -> v" with
+    // "No release notes." and a literal "vundefined available".
+    sendToPage(session, {
+      event: 'update_available',
+      // The renderer prints "v" + version; the updater carries the raw git tag
+      // ("v2.0.3"), which would have read "vv2.0.3".
+      version: displayVersion(result.update && result.update.version),
       notes: (result.update && result.update.notes) || '',
-      size: (result.update && result.update.size) || 0
-    }) });
+      size: (result.update && result.update.size) || 0,
+      release_url: (result.update && result.update.releaseUrl) || ''
+    });
   } else if (result.status === 'uptodate') {
     emitUpdaterState(session, { status: 'uptodate' });
   } else if (result.status === 'untrusted') {

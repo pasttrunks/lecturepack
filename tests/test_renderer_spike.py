@@ -839,3 +839,77 @@ def test_node_sources_parse():
             check=False,
         )
         assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_update_events_reach_the_renderer_unwrapped(tmp_path):
+    """An update event must arrive with its fields at the TOP level.
+
+    production-main.js used to send update_available/update_state as
+    {event, payload: JSON.stringify({...})}. electron-bridge.js's deliver()
+    strips `event` and re-serializes the rest, so the renderer received
+    {"payload":"{...}"} -- `version`, `notes` and `phase` were all undefined.
+    Live symptom on 2.0.2: the dialog read "v2.0.2 -> v" with "No release
+    notes." and a literal "vundefined available", and every update status
+    message silently did nothing.
+    """
+    harness = tmp_path / "bridge-update-check.js"
+    harness.write_text(
+        """
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+const fired = [];
+const context = {
+  console: { error() {}, warn() {} },
+  setTimeout,
+  window: {
+    localStorage: { setItem() {}, getItem() { return null; } },
+    lecturePackElectron: {
+      request() { return Promise.resolve({}); },
+      onMessage(cb) { context.__deliver = cb; }
+    }
+  }
+};
+vm.createContext(context);
+vm.runInContext(source, context, { filename: 'electron-bridge.js' });
+context.window.lpBridge.on('update_available', (p) => fired.push(['update_available', p]));
+context.window.lpBridge.on('update_state', (p) => fired.push(['update_state', p]));
+
+// EXACTLY what production-main.js sends now: fields at the top level.
+context.__deliver({ event: 'update_available', version: '2.0.3', notes: 'first note', size: 42 });
+context.__deliver({ event: 'update_state', phase: 'ready', message: 'Verified and ready to install.' });
+
+const avail = fired.find(([n]) => n === 'update_available');
+if (!avail) throw new Error('update_available never reached the renderer');
+const a = JSON.parse(avail[1]);
+if (a.version !== '2.0.3') throw new Error(`version lost in transport: ${JSON.stringify(a)}`);
+if (a.notes !== 'first note') throw new Error(`notes lost in transport: ${JSON.stringify(a)}`);
+if ('payload' in a) throw new Error(`double-wrapped envelope reached the renderer: ${JSON.stringify(a)}`);
+
+const st = fired.find(([n]) => n === 'update_state');
+if (!st) throw new Error('update_state never reached the renderer');
+const s = JSON.parse(st[1]);
+if (s.phase !== 'ready') throw new Error(`phase lost in transport: ${JSON.stringify(s)}`);
+""",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [shutil.which("node"), str(harness), str(SPIKE / "electron-bridge.js")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_production_main_does_not_double_wrap_update_events():
+    """Guard the sender side: no `payload: JSON.stringify` on update events."""
+    source = (SPIKE / "production-main.js").read_text(encoding="utf-8")
+    for event in ("update_available", "update_state"):
+        marker = f"event: '{event}', payload: JSON.stringify("
+        assert marker not in source, (
+            f"{event} is double-wrapped again; the renderer will see "
+            '{"payload":"{...}"} and every field will be undefined'
+        )

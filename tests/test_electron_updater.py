@@ -237,3 +237,46 @@ def test_auto_check_preference_persists_and_suppresses_background_checks(tmp_pat
 def test_parse_manifest_rejects_bad_json():
     assert _call("parseManifest", "not json") is None
     assert _call("parseManifest", '{"version":"2.0.0"}') == {"version": "2.0.0"}
+
+# ---------------------------------------------------- global rollout matrix
+# These exist because an update has to be correct for EVERY installed version
+# in the wild, not just the one on the release engineer's machine. The GitHub
+# tag carries a "v" prefix while every internal surface is bare semver, so each
+# case below is written with the prefix exactly as the real feed serves it.
+
+@pytest.mark.parametrize("installed", ["0.9.0-beta.3", "0.9.0-beta.13", "2.0.0", "2.0.1", "2.0.2"])
+def test_every_shipped_version_is_offered_the_current_stable(installed):
+    """No user is stranded: every version ever shipped must see a newer stable."""
+    assert _call("isNewer", "v2.0.3", installed) is True
+
+
+def test_current_version_is_never_offered_to_itself():
+    """The nag loop that a v-prefixed lexicographic compare would cause.
+
+    "v2.0.3" > "2.0.3" as plain strings, so a naive compare would tell every
+    up-to-date user, forever, that an update is available.
+    """
+    assert _call("isNewer", "v2.0.3", "2.0.3") is False
+    assert _call("compareVersions", "v2.0.3", "2.0.3") == 0
+
+
+def test_updates_never_go_backwards():
+    assert _call("isNewer", "v2.0.2", "2.0.3") is False
+
+
+def test_double_digit_patch_is_not_compared_lexicographically():
+    """2.0.10 must beat 2.0.9 — this breaks the day the patch number rolls over."""
+    assert _call("isNewer", "v2.0.10", "2.0.9") is True
+    assert _call("isNewer", "v2.10.0", "2.9.0") is True
+
+
+def test_stable_users_are_never_offered_a_prerelease():
+    assert _call("isStable", "v2.0.3") is True
+    assert _call("isStable", "v2.1.0-rc.1") is False
+    assert _call("isNewer", "2.0.3", "2.0.3-rc.1") is True
+
+
+def test_release_without_an_installer_asset_fails_closed():
+    """A release published with notes but no Setup.exe must not half-update."""
+    picked = _call("selectInstallerAsset", {"assets": [{"name": "notes.txt"}]})
+    assert picked["installer"] is None

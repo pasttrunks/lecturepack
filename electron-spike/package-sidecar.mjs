@@ -38,13 +38,13 @@ function pruneHeadlessQtPayload() {
   }
 }
 
-const child = spawn(pyinstaller, [
-  '--noconfirm',
-  '--clean',
-  '--distpath', distPath,
-  '--workpath', workPath,
-  spec
-], {
+const pyinstallerArgs = ['--noconfirm'];
+if (process.env.LECTUREPACK_CLEAN_BUILD === '1' || process.env.CLEAN_BUILD === '1') {
+  pyinstallerArgs.push('--clean');
+}
+pyinstallerArgs.push('--distpath', distPath, '--workpath', workPath, spec);
+
+const child = spawn(pyinstaller, pyinstallerArgs, {
   cwd: spikeRoot,
   stdio: 'inherit',
   windowsHide: true,

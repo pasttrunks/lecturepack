@@ -141,7 +141,7 @@ def validate_packaged_self_test(root: Path) -> dict[str, object]:
     return result
 
 
-def make_portable_zip(source: Path, destination: Path) -> Path:
+def make_portable_zip(source: Path, destination: Path, fast: bool = False) -> Path:
     validate_candidate(source)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
@@ -150,14 +150,13 @@ def make_portable_zip(source: Path, destination: Path) -> Path:
         destination,
         "w",
         compression=zipfile.ZIP_DEFLATED,
-        compresslevel=9,
+        compresslevel=1 if fast else 9,
         strict_timestamps=False,
     ) as archive:
         for path in sorted(source.rglob("*")):
             if path.is_file():
                 archive.write(path, path.relative_to(source.parent))
     return destination
-
 
 def find_iscc(configured: str | None) -> Path | None:
     candidates = []
@@ -177,20 +176,22 @@ def find_iscc(configured: str | None) -> Path | None:
     return None
 
 
-def build_installer(iscc: Path, version: str, source: Path, output: Path) -> Path:
+def build_installer(iscc: Path, version: str, source: Path, output: Path, fast: bool = False) -> Path:
     output.mkdir(parents=True, exist_ok=True)
-    run([
+    cmd = [
         str(iscc),
         f"/DAppVersion={version}",
         f"/DSourceDir={source.resolve()}",
         f"/DOutputDir={output.resolve()}",
-        str(PACKAGING_SCRIPT),
-    ], ROOT)
+    ]
+    if fast:
+        cmd.append("/DFastCompression=1")
+    cmd.append(str(PACKAGING_SCRIPT))
+    run(cmd, ROOT)
     installer = output / f"LecturePack-{version}-Setup.exe"
     if not installer.is_file():
         raise RuntimeError(f"Inno Setup completed without producing {installer}")
     return installer
-
 
 def write_sha256sums(version: str, output: Path) -> Path:
     artifacts = sorted(path for path in output.iterdir() if path.is_file() and path.suffix.lower() in {".zip", ".exe"})
@@ -243,6 +244,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-sidecar", action="store_true")
     parser.add_argument("--skip-installer", action="store_true")
     parser.add_argument(
+        "--fast",
+        "--fast-compression",
+        dest="fast_compression",
+        action="store_true",
+        help="Use fast compression for local testing and acceptance loops (~20s vs ~10m)",
+    )
+    parser.add_argument(
         "--hashes-only",
         action="store_true",
         help=(
@@ -291,14 +299,14 @@ def main(argv: list[str] | None = None) -> int:
     candidate = candidate_dir()
     validate_candidate(candidate)
     self_test = validate_packaged_self_test(candidate)
-    portable = make_portable_zip(candidate, output / f"LecturePack-{version}-Portable.zip")
+    fast_compression = bool(args.fast_compression or os.environ.get("LECTUREPACK_FAST_COMPRESSION", "").lower() in {"1", "true", "yes"})
+    portable = make_portable_zip(candidate, output / f"LecturePack-{version}-Portable.zip", fast=fast_compression)
     installer = None
     if not args.skip_installer:
         iscc = find_iscc(args.iscc)
         if iscc is None:
             raise RuntimeError("Inno Setup 6 ISCC.exe was not found; pass --skip-installer or --iscc")
-        installer = build_installer(iscc, version, candidate, output)
-    sums = write_sha256sums(version, output)
+        installer = build_installer(iscc, version, candidate, output, fast=fast_compression)
     manifest = write_release_manifest(version, output, installer)
 
     result = {

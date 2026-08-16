@@ -74,11 +74,33 @@ def test_eta_and_queue_strip_use_authoritative_job_state():
 
 
 def test_update_dialog_accepts_github_release_notes_string():
+    """The dialog must accept a raw GitHub release-notes STRING, not only an array.
+
+    Line splitting moved into _wnNoteLines, which additionally strips Markdown
+    so "## Study" and "- item" do not render with their markers, and drops
+    fenced blocks (the notes carry a SHA-256 block).
+    """
     source = _function_source("showWhatsNew")
     assert "Array.isArray(info.notes)" in source
-    assert ".split(/\\r?\\n+/)" in source
     assert "noteItems" in source
     assert "(info.notes || []).map" not in source
+    assert "_wnNoteLines(info.notes)" in source
+
+    lines = _function_source("_wnNoteLines")
+    assert ".split(/\\r?\\n/)" in lines      # still splits a raw string
+    assert "^```" in lines                   # drops fenced blocks
+    assert "#{1,6}" in lines                 # strips heading markers
+    assert "[-*+]" in lines                  # strips bullet markers
+
+
+def test_update_dialog_never_prints_undefined_or_raw_bytes():
+    """Regression from the live 2.0.2 dialog, which rendered "v2.0.2 -> v",
+    "vundefined available" and a raw byte count: a missing version was
+    concatenated directly and the size was printed unformatted."""
+    source = _function_source("showWhatsNew")
+    assert "'v' + (info.available || info.version)" not in source
+    assert "newVersion ? ('v' + newVersion)" in source
+    assert "fmtBytes(info.size)" in source
 
 
 def test_context_menu_routes_through_existing_actions():
