@@ -947,6 +947,31 @@ inventory that was authored rather than derived from the binaries.
   `"1 lectures updated"` (DEF-012); citation pills and Study Stats clipped at the scroll
   boundary (DEF-007); sidebar storage text wrapped `free` onto its own line (DEF-014);
   README gained an authoritative export inventory (DEF-013).
+### DEF-019 — the installer never removed anything, so UPGRADING broke link import   ✅ FIXED (verified by the gate that caught it)
+- **Area:** Packaging (`app/packaging/lecturepack.iss`). Found by RELEASING.md step 14
+  (`scripts/updater_ab_acceptance.py`) during the 2.0.3 release.
+- **Symptom:** a FRESH install of 2.0.3 passed all 12 self-test checks, but installing
+  2.0.3 **over** 2.0.2 produced `yt_dlp: false — yt-dlp import failed`, i.e. YouTube/link
+  import silently dead for every existing user. Fresh installs were perfectly healthy, so
+  no fresh-install test could ever have caught it.
+- **Root cause:** `[Files]` copies with `ignoreversion recursesubdirs createallsubdirs`,
+  which updates and adds but **never removes**, and there was no `[InstallDelete]` section
+  at all. Every file an older build shipped and a newer one does not survived forever. The
+  2.0.3 sidecar was frozen from a clean venv built strictly from `requirements-release.txt`,
+  so it ships fewer packages than 2.0.2 did; 12 stale packages (Cryptodome, certifi,
+  cryptography 49.0.0, websockets, pywin32, yaml, brotli, …) were left behind and broke
+  `import yt_dlp`.
+- **Fix:** an `[InstallDelete]` section that clears the directories the installer fully
+  re-ships (`resources\LecturePackSidecar`, `resources\ui`, `resources\assets`, `locales`)
+  before `[Files]` runs. User data lives in `LecturePackData`, never under `{app}`, so
+  nothing there is at risk.
+- **THE LESSON:** *an upgrade is not an install.* This class of bug is invisible to every
+  fresh-install test and to the entire Python suite; only a real A→B run over a previous
+  stable finds it. Do not skip step 14 — it earned its "REQUIRED" on this release.
+- **Verified:** A→B gate exits 0 — 2.0.2 detects 2.0.3, SHA-256 verified, all 12 checks
+  green including `yt_dlp`, 2.0.2's data marker survived, no orphan processes; and a fresh
+  install of the SAME fixed installer still passes all 12.
+
 ### DEF-017 — subject-scope mastery never round-tripped; write was fixed, read was not   ✅ FIXED (verified live)
 - **Area:** Study / subject scope. Found by the **independent pre-release review**, not by
   the author — after the author had already "verified DEF-001 live". Read the next bullet.

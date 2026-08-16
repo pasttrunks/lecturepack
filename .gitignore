@@ -68,3 +68,5 @@ claude-promo-video/
 
 # Teamwork agent scratch state -- not part of the product
 .agents/
+build-artifacts/
+release-out/

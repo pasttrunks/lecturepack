@@ -9,7 +9,67 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
-## [2.0.2] — unreleased
+## [2.0.3] — 2026-08-16
+
+A polish release: fourteen reported defects fixed, plus five more found while
+verifying them in the real app. No new features.
+
+> **Upgrading from 2.0.2 or earlier fixes a broken link import.** Until now the
+> installer only ever added and replaced files, never removed them, so files
+> from older versions accumulated. On this upgrade those leftovers stopped
+> yt-dlp loading, which disabled importing from a link. The installer now
+> clears the payload it re-ships before installing. Your lectures, study
+> progress and settings live outside the app folder and are untouched.
+
+### Study — a subject is now actually studyable
+- **Marking a concept Mastered from a subject sticks.** Setting mastery in
+  subject scope appeared to work and then reverted, and the subject progress
+  bar stayed at 0% no matter how much you marked. Subject scope now reads
+  progress from the lecture each concept came from, which is where it was
+  already being saved.
+- **Concept actions work from a subject.** Mastery, Teach Me, Edit, Regenerate
+  and Delete all failed with "concept not found" when used from a subject,
+  because they addressed the lecture in the switcher rather than the one the
+  concept belongs to.
+- **They also say so when they cannot.** A rejected action used to do nothing
+  quietly — most seriously, a confirmed Delete that deleted nothing. Every
+  concept action now reports failure, and refuses outright when it cannot tell
+  which lecture a concept belongs to rather than guessing.
+- **Choosing one lecture from a subject shows that lecture.** It previously
+  cleared the Study panel and left it empty.
+- **A renamed subject is renamed everywhere**, instead of leaving the old name
+  in the Study heading.
+
+### Export
+- **"Export again" re-exports.** It used to reset the banner and write nothing.
+- **"Export PDF" and "Export HTML" do something and say so.** They were silent
+  no-ops. Both rebuild the study pack — the format is not yet exported on its
+  own, and the app now says that plainly instead of implying otherwise.
+
+### Fixed elsewhere
+- Slide timestamps in Review no longer show a doubled millisecond
+  (`00:01:12.000.500`).
+- Subject cards show `2:48`, not `168.321451`.
+- A malformed link in Import now gets a visible error instead of silence.
+- The Process screen's output mode no longer looks clickable when it is not,
+  and now reflects the mode the lecture was actually imported with rather than
+  always showing Study Pack.
+- Citations and Study Stats are no longer clipped at the bottom of the panel.
+- "1 lecture updated", not "1 lectures updated".
+- The sidebar storage line no longer wraps "free" onto its own line.
+- README documents the 13 files an export actually writes.
+
+### Known limitations
+- A concept taught in several lectures records mastery against the first one.
+- "Export PDF" and "Export HTML" rebuild the whole study pack rather than that
+  one file.
+
+### Build
+- Signed: **no.** No Authenticode credentials are available for this project, so
+  Windows will warn on first run. The updater verifies every download against a
+  published SHA-256 regardless.
+
+## [2.0.2] — released 2026-08-15
 
 Study a whole subject, not one lecture at a time. Built on the 2.0.1
 hardening pass, which is included in full.
