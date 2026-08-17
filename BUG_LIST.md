@@ -947,6 +947,48 @@ inventory that was authored rather than derived from the binaries.
   `"1 lectures updated"` (DEF-012); citation pills and Study Stats clipped at the scroll
   boundary (DEF-007); sidebar storage text wrapped `free` onto its own line (DEF-014);
   README gained an authoritative export inventory (DEF-013).
+### DEF-023 — a drag could never scroll, so half the library was unreachable   ✅ FIXED (verified live)
+- **Area:** `app/ui/app.js` (new `dragScroll` manager).
+- **Symptom:** a drag started at the bottom of a long library could not reach the Process
+  tab at the top. The pointer is held down, so the wheel is the only other way to move,
+  and releasing to scroll ends the drag. There was no auto-scroll code at all.
+- **Design:** ONE manager, wired once on `window` in capture, rather than a copy inside
+  `#dropzone`, `#jobs-grid` and each Process target. The scroll container is resolved from
+  the POINTER (`elementFromPoint` then the nearest scrollable ancestor), so nested
+  scrollers work with no extra registration; both axes are handled.
+- **THE NON-OBVIOUS PART:** the loop must be `requestAnimationFrame`, not event-driven.
+  `dragover` fires only while the pointer MOVES, so a velocity computed from events stalls
+  the instant the user holds still at the edge — which is exactly what a user does while
+  waiting for the list to come to them.
+- **Teardown on every ending:** `drop`, `dragend`, a `dragleave` with no `relatedTarget`,
+  `mouseup`, and Escape. A scroll that outlives its drag runs away with the page.
+- **Verified live over CDP:** holding still at the top edge scrolled 720px, the bottom
+  edge 819px, and the scroll stopped on drop, on leaving the edge, and on Escape.
+
+### DEF-024 — deleting a lecture removed the directory while it was still in use   ✅ FIXED (mutation-checked)
+- **Area:** `electron-spike/python-sidecar.py` (`_delete_job` / `_delete_jobs`).
+- **Three holes, all user-visible:**
+  1. **The id stayed in the QUEUE.** `queue.json` kept a row for a lecture that no longer
+     existed and the scheduler could promote it. Nothing ever called `queue.remove()`.
+  2. **An ACTIVE lecture was deleted out from under its own workers.** `delete_job` ran
+     immediately; the controller still owned the job and its QThread workers were still
+     writing. On Windows the removal fails on the open handle, and the worker then writes
+     into a directory that is going away.
+  3. **Deleting the active lecture emitted NOTHING.** `_emit_job_payloads()` returns early
+     when `current_job is None`, and the old code cleared `current_job` *before* calling
+     it — so Home, Process and Review all kept rendering the deleted job.
+- **The order is the fix:** tombstone → dequeue (before any removal, so the scheduler
+  cannot promote a job being deleted) → cancel the controller → **wait** on each worker
+  (terminate only if wedged) → detach them → `set_job(None)` → clear `current_job` →
+  remove the directory → emit `jobs_changed` + `queue_changed`.
+- **Tombstones:** deleted ids are recorded and `_emit` drops any later event carrying one,
+  so a stage that was mid-flight when the delete landed cannot resurrect the lecture. The
+  deletion events themselves (`job_deleted`/`jobs_changed`/`queue_changed`/`active_job`)
+  are explicitly exempt, or the delete would silence its own confirmation.
+- **Renderer:** `LP.byJob` is pruned on `jobs_changed`; a deleted lecture's slides and
+  transcript used to sit in memory for the rest of the session.
+- **Mutation-checked:** making the teardown a no-op fails 10 of the 18 new tests.
+
 ### DEF-022 — DEF-019's fix was SILENTLY DELETED one release later   ✅ FIXED (guarded by a test now)
 - **Area:** Packaging (`app/packaging/lecturepack.iss`). Caught by the independent
   pre-release review for 2.0.4, not by any test.

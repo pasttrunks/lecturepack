@@ -9,6 +9,41 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.0.5] — 2026-08-17
+
+Drag and drop, and deleting lectures. Everything in 2.0.4 is included.
+
+### Dragging
+- **Dragging scrolls the list.** A drag that began at the bottom of a long
+  library could never reach the Process tab — the mouse button is held down, so
+  there was no way to scroll, and letting go to scroll ended the drag. Dragging
+  near the top or bottom edge now scrolls, including when you hold still, and
+  it works inside the Process queue panes too.
+- **The scroll always stops with the drag** — on drop, on moving away from the
+  edge, on Esc, and when the drag leaves the window.
+
+### Deleting a lecture
+- **Deleting the lecture that is currently processing now works properly.**
+  LecturePack stops the work and waits for it to finish letting go of the files
+  before removing anything, instead of deleting the folder out from under it.
+- **A deleted lecture leaves the queue.** Its queue entry and any schedule went
+  on existing after the lecture was gone.
+- **The screens update immediately.** Deleting the active lecture used to leave
+  Home, Process and Review still showing it.
+- **A deleted lecture cannot come back.** Work that was already in flight when
+  you deleted it can no longer re-add the lecture to your library.
+
+### Updating
+- **The update dialog and the Download and Install button work.** The dialog
+  showed a blank version and "No release notes", the progress read
+  "Downloading update… NaN%", and the Updates settings answered "Updates are
+  not available in this build." All fixed; this is the 2.0.4 work reaching you.
+
+### Build
+- Signed: **no.** No Authenticode credentials exist for this project, so
+  Windows will warn on first run. Every download is still verified against a
+  published SHA-256.
+
 ## [2.0.4] — 2026-08-16
 
 Fixes the update experience itself. Everything in 2.0.3 is included.
