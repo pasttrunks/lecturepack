@@ -75,7 +75,17 @@ def test_production_ui_keeps_real_sections_and_hardens_bridge_payloads():
     assert "app.requestSingleInstanceLock()" in host
     assert "getPathForFile(file)" in preload
     assert "pathForFile" in adapter
-    assert "importDroppedVideo" in ui
+    # NOT a substring check. The name appeared in this file for months while
+    # the function was nested inside wire() and its only caller,
+    # importDroppedFiles, is module scope -- so every real drop threw
+    # "ReferenceError: importDroppedVideo is not defined", silently, and drag
+    # and drop did nothing at all. Assert the DECLARATION is module scope.
+    assert "\n  function importDroppedVideo(" in ui, (
+        "importDroppedVideo is not declared at module scope; its module-scope "
+        "caller importDroppedFiles will throw ReferenceError on every drop"
+    )
+    assert "\n  function friendlyImportError(" in ui
+    assert "\n  function importDroppedFiles(" in ui
     assert "function parseBridgePayload" in ui
     assert "localStorage.getItem('lecturepack.electron.theme')" in ui
     assert "Array.isArray(queue.queue)" in ui

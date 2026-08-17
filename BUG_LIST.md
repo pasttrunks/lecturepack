@@ -947,6 +947,37 @@ inventory that was authored rather than derived from the binaries.
   `"1 lectures updated"` (DEF-012); citation pills and Study Stats clipped at the scroll
   boundary (DEF-007); sidebar storage text wrapped `free` onto its own line (DEF-014);
   README gained an authoritative export inventory (DEF-013).
+### DEF-025 — EVERY external file drop threw ReferenceError and died silently   ✅ FIXED (reproduced on the shipped binary)
+- **Area:** `app/ui/app.js`. Shipped broken in at least 2.0.2 through 2.0.5.
+- **Symptom:** dropping a video did nothing. No import, no error, no toast, no visible
+  failure of any kind. Reported with a screen recording; the user fell back to Browse.
+- **Root cause:** `importDroppedVideo` was declared INSIDE `wire()`, while its only caller
+  `importDroppedFiles` is at module scope. Every drop threw
+  `ReferenceError: importDroppedVideo is not defined` and the handler died before it ever
+  reached the import. Confirmed by running the SHIPPED 2.0.4 installer under CDP and
+  reading the renderer console.
+- **WHY EVERY EARLIER INVESTIGATION MISSED IT.** The dragenter/dragover/drop handlers, the
+  preload's `webUtils.getPathForFile`, the internal-drag machinery and the main-process
+  guards are ALL correct and were each verified in turn. The lifecycle was never the
+  problem; the very last step was unreachable. Checking that events fire is not the same
+  as checking that the work happens.
+- **AND THE TEST ACTIVELY HID IT.** `tests/test_renderer_spike.py` asserted
+  `"importDroppedVideo" in ui` — a substring check. The name was in the file (as both a
+  declaration and a call), so the test passed for months while every drop threw. It now
+  asserts the DECLARATION is at module scope (`"\n  function importDroppedVideo("`) and is
+  mutation-checked: re-nesting the function fails the test.
+- **Fix:** hoisted `importDroppedVideo` and `friendlyImportError` out of `wire()` to module
+  scope. Both are pure functions over module state (`importingFile`, `lpBridge`, `toast`,
+  `setOnb`, `setImporting`), so nothing else had to move.
+- **Verified on a real build with real files:** a browser-level file drag now resolves the
+  true native path (`C:\Users\...\demo-lecture.mp4` and a OneDrive path with an `&` in it)
+  and creates the job. Internal lecture drag re-verified in the same run: cards
+  `draggable=true`, the job-ids MIME payload is set, and the Process target accepts both
+  `dragover` and `drop`.
+- **THE LESSON:** a substring assertion proves a NAME exists, never that the code runs.
+  For anything reachable only at runtime, assert the shape that makes it reachable — or
+  drive it for real.
+
 ### DEF-023 — a drag could never scroll, so half the library was unreachable   ✅ FIXED (verified live)
 - **Area:** `app/ui/app.js` (new `dragScroll` manager).
 - **Symptom:** a drag started at the bottom of a long library could not reach the Process

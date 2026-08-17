@@ -9,6 +9,18 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.0.6] — 2026-08-17
+
+**Dragging a video into LecturePack works again.** Everything in 2.0.5 is
+included.
+
+Dropping a file did nothing at all — no import, no error, no message. The code
+that starts the import could not be reached from the code that handles the
+drop, so every drop failed instantly and silently. Dropping a lecture now
+imports it, from any folder, including OneDrive.
+
+If drag and drop has never worked for you, this is why. Use 2.0.6.
+
 ## [2.0.5] — 2026-08-17
 
 Drag and drop, and deleting lectures. Everything in 2.0.4 is included.

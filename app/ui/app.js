@@ -7778,45 +7778,6 @@
 
     // home / import
     var dz = $('dropzone');
-    function friendlyImportError(result) {
-      if (!result || !result.code) return (result && result.error) || 'The video could not be imported.';
-      var code = String(result.code);
-      if (code === 'RESOLVE_FAILED') return 'LecturePack could not access that file. Try Browse for video.';
-      if (code === 'NOT_FOUND') return 'That video could not be found. It may have been moved or removed.';
-      if (code === 'UNREADABLE') return 'LecturePack cannot read that video. Check the file permissions or copy it to a local folder.';
-      if (code === 'FFPROBE_FAILED') return 'LecturePack could not read this video format.';
-      if (code === 'FEATURE_UNAVAILABLE') return '';
-      return (result && result.error) || 'The video could not be imported.';
-    }
-    function importDroppedVideo(file) {
-      if (!file || importingFile) return;
-      var path = lpBridge.pathForFile ? lpBridge.pathForFile(file) : '';
-      if (!path) {
-        toast('LecturePack could not access that file. Try Browse for video.');
-        return;
-      }
-      if (!lpBridge.connected()) {
-        setOnb('detected');
-        return;
-      }
-      // Drop and Browse converge on the same native import: the path is
-      // resolved here (webUtils in the preload), then the host validates it
-      // and the sidecar inspects it with FFprobe.
-      importingFile = file.name || path;
-      setImporting(true, importingFile);
-      setOnb(null); // remove the drop overlay immediately
-      lpBridge.call('import_video', { path: path }).then(function (result) {
-        setImporting(false);
-        importingFile = null;
-        if (result && result.ok === false) {
-          var message = friendlyImportError(result);
-          if (message) toast(message);
-        }
-      }, function () {
-        setImporting(false);
-        importingFile = null;
-      });
-    }
     function beginBrowseImport() {
       if (!lpBridge.connected()) { setOnb('drop'); return; }
       setImporting(true, 'video');
@@ -9656,6 +9617,53 @@
       }
     };
   })();
+
+  /* Module scope, NOT inside wire(). These were nested in wire() while the
+     only caller, importDroppedFiles, is module scope -- so every real file
+     drop threw "ReferenceError: importDroppedVideo is not defined" and died
+     silently, with no toast, no import and no visible failure. That is the
+     whole "drag and drop does nothing" bug. Both are pure functions over
+     module state (importingFile, lpBridge, toast, setOnb, setImporting), so
+     they belong here. */
+  function friendlyImportError(result) {
+    if (!result || !result.code) return (result && result.error) || 'The video could not be imported.';
+    var code = String(result.code);
+    if (code === 'RESOLVE_FAILED') return 'LecturePack could not access that file. Try Browse for video.';
+    if (code === 'NOT_FOUND') return 'That video could not be found. It may have been moved or removed.';
+    if (code === 'UNREADABLE') return 'LecturePack cannot read that video. Check the file permissions or copy it to a local folder.';
+    if (code === 'FFPROBE_FAILED') return 'LecturePack could not read this video format.';
+    if (code === 'FEATURE_UNAVAILABLE') return '';
+    return (result && result.error) || 'The video could not be imported.';
+  }
+  function importDroppedVideo(file) {
+    if (!file || importingFile) return;
+    var path = lpBridge.pathForFile ? lpBridge.pathForFile(file) : '';
+    if (!path) {
+      toast('LecturePack could not access that file. Try Browse for video.');
+      return;
+    }
+    if (!lpBridge.connected()) {
+      setOnb('detected');
+      return;
+    }
+    // Drop and Browse converge on the same native import: the path is
+    // resolved here (webUtils in the preload), then the host validates it
+    // and the sidecar inspects it with FFprobe.
+    importingFile = file.name || path;
+    setImporting(true, importingFile);
+    setOnb(null); // remove the drop overlay immediately
+    lpBridge.call('import_video', { path: path }).then(function (result) {
+      setImporting(false);
+      importingFile = null;
+      if (result && result.ok === false) {
+        var message = friendlyImportError(result);
+        if (message) toast(message);
+      }
+    }, function () {
+      setImporting(false);
+      importingFile = null;
+    });
+  }
 
   function importDroppedFiles(files) {
     if (importingFile) return;
