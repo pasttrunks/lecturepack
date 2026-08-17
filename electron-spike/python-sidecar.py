@@ -519,7 +519,33 @@ class Sidecar:
     # ------------------------------------------------------------------ #
     # JSONL process boundary
     # ------------------------------------------------------------------ #
+    # Ids whose directories have been deleted. A worker thread that was mid
+    # stage when the delete landed can still emit progress afterwards; without
+    # this the renderer resurrects a lecture the user just removed, and it
+    # reappears in the library until the next restart.
+    _deleted_job_ids: set
+
+    def _tombstone_jobs(self, ids) -> None:
+        if not hasattr(self, "_deleted_job_ids") or self._deleted_job_ids is None:
+            self._deleted_job_ids = set()
+        self._deleted_job_ids.update(str(value) for value in ids if value)
+
+    def _is_tombstoned(self, payload: dict[str, Any]) -> bool:
+        tombstones = getattr(self, "_deleted_job_ids", None)
+        if not tombstones:
+            return False
+        # job_deleted/jobs_changed are ABOUT the deletion; never drop them.
+        if payload.get("event") in {"job_deleted", "jobs_changed", "queue_changed", "active_job"}:
+            return False
+        for key in ("job_id", "job", "id"):
+            value = payload.get(key)
+            if value and str(value) in tombstones:
+                return True
+        return False
+
     def _emit(self, payload: dict[str, Any]) -> None:
+        if self._is_tombstoned(payload):
+            return
         try:
             # Keep JSONL bytes ASCII-safe across Windows code pages. JSON.parse
             # restores escaped Unicode in the renderer without replacement
@@ -2245,17 +2271,94 @@ class Sidecar:
     # ------------------------------------------------------------------ #
     # Phase 9: job management and queue
     # ------------------------------------------------------------------ #
+    def _drain_controller_workers(self, timeout_ms: int = 5000) -> None:
+        """Block until the controller's QThread workers have actually stopped.
+
+        cancel() only ASKS a stage to stop. Deleting the directory while a
+        worker still holds the job open leaves half-written files behind on
+        Windows (the removal fails on the open handle) and the worker can crash
+        writing into a directory that no longer exists.
+        """
+        controller = getattr(self, "controller", None)
+        if controller is None:
+            return
+        for name in ("slide_worker", "align_worker", "export_worker"):
+            worker = getattr(controller, name, None)
+            if worker is None:
+                continue
+            try:
+                if worker.isRunning():
+                    worker.wait(timeout_ms)
+                    if worker.isRunning():
+                        # A wedged worker must not block the delete forever.
+                        worker.terminate()
+                        worker.wait(1000)
+            except Exception:  # noqa: BLE001 - teardown must never raise
+                pass
+            try:
+                setattr(controller, name, None)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _release_jobs_for_delete(self, ids: list[str]) -> None:
+        """Cancel, drain, dequeue and detach BEFORE anything is removed.
+
+        Order matters and is the whole fix: dequeue first so the scheduler can
+        never promote a job that is being deleted, then release the controller
+        so no worker still owns the directory.
+        """
+        wanted = {str(value) for value in ids if value}
+        if not wanted:
+            return
+        self._tombstone_jobs(wanted)
+        self._cancel_study_jobs(sorted(wanted))
+
+        for job_id in sorted(wanted):
+            try:
+                self.queue.remove(job_id)
+            except Exception:  # noqa: BLE001 - a missing queue entry is fine
+                pass
+
+        current = getattr(self, "current_job", None)
+        if current is not None and str(current.job_id) in wanted:
+            controller = getattr(self, "controller", None)
+            if controller is not None:
+                try:
+                    controller.cancel()
+                except Exception:  # noqa: BLE001
+                    pass
+                self._drain_controller_workers()
+                try:
+                    controller.set_job(None)
+                except Exception:  # noqa: BLE001
+                    pass
+            self.current_job = None
+            self.current_stage = ""
+            self._emit({"event": "active_job", "id": "", "title": ""})
+
+    def _after_delete(self, result: dict[str, Any]) -> None:
+        """Tell the renderer the library and the queue both changed.
+
+        _emit_job_payloads() returns early when there is no current job, so
+        deleting the ACTIVE lecture used to emit nothing at all and Home,
+        Process and Review each kept rendering the job that had just gone.
+        """
+        if not result.get("ok"):
+            return
+        self._emit({
+            "event": "jobs_changed",
+            "jobs": [self._summary(item) for item in self._job_objects()],
+        })
+        self._push_queue()
+        if getattr(self, "current_job", None) is not None:
+            self._emit_job_payloads()
+
     def _delete_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         job_id = str(payload.get("job_id") or "")
-        self._cancel_study_jobs([job_id])
+        self._release_jobs_for_delete([job_id])
         result = self.electron_backend.delete_job(str(self.data_dir), job_id)
         self._emit({"event": "job_deleted", **result})
-        if result.get("ok"):
-            if self.current_job is not None and self.current_job.job_id == job_id:
-                self.current_job = None
-                self.current_stage = ""
-                self._emit({"event": "active_job", "id": "", "title": ""})
-            self._emit_job_payloads()
+        self._after_delete(result)
         self._respond(request_id, command, **result)
 
     def _delete_jobs(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
@@ -2266,11 +2369,10 @@ class Sidecar:
             except json.JSONDecodeError:
                 ids = []
         ids = [str(value) for value in (ids or [])]
-        self._cancel_study_jobs(ids)
+        self._release_jobs_for_delete(ids)
         result = self.electron_backend.delete_jobs(str(self.data_dir), ids)
         self._emit({"event": "job_deleted", **result})
-        if result.get("ok"):
-            self._emit_job_payloads()
+        self._after_delete(result)
         self._respond(request_id, command, **result)
 
     def _enqueue_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:

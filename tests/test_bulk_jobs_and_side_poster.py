@@ -273,7 +273,9 @@ def test_bulk_delete_handler_prunes_state_and_reports_failures():
 
 
 def test_selection_pruned_when_jobs_disappear():
-    block = JS.split("lpBridge.on('jobs_changed'", 1)[1][:700]
+    # Widened from 700: the handler also prunes LP.byJob now, so the selection
+    # cleanup sits further down the same block.
+    block = JS.split("lpBridge.on('jobs_changed'", 1)[1][:1400]
     assert "delete LP.state.selected[id]" in block
 
 

@@ -6709,6 +6709,108 @@
   var INTERNAL_JOB_DRAG_MIME = 'application/x-lecturepack-job-ids';
   var internalJobDragIds = [];
 
+  /* ================= drag auto-scroll =================
+     ONE manager for every drag, internal and external. Scrolling logic used to
+     be absent entirely, so a drag that started at the bottom of a long library
+     could never reach the Process tab at the top: the pointer is held down, so
+     the wheel is the only other way to move and the drag ends if you release.
+
+     It lives here, not inside #dropzone / #jobs-grid / the Process targets,
+     because a drag crosses all of them and each would otherwise need its own
+     copy, its own rAF loop, and its own teardown.
+
+     The scroll container is resolved from the POINTER, not from the drag
+     source, so nested scrollers (the Process queue panes) work with no extra
+     registration. The rAF loop is what makes "hold still at the edge" scroll:
+     dragover only fires when the pointer MOVES, so a velocity driven purely by
+     events would stall the moment the user stops moving -- which is exactly
+     what a user does when waiting for the list to come to them. */
+  var dragScroll = (function () {
+    var EDGE = 72;          // px from an edge where scrolling begins
+    var MAX_SPEED = 24;     // px per frame at the very edge
+    var frame = 0;
+    var target = null;
+    var vx = 0;
+    var vy = 0;
+
+    function canScroll(el) {
+      if (!el || el === document || el.nodeType !== 1) return false;
+      var style;
+      try { style = getComputedStyle(el); } catch (e) { return false; }
+      var oy = style.overflowY, ox = style.overflowX;
+      var scrollsY = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1;
+      var scrollsX = (ox === 'auto' || ox === 'scroll') && el.scrollWidth > el.clientWidth + 1;
+      return scrollsY || scrollsX;
+    }
+
+    function containerAt(x, y) {
+      var el = null;
+      try { el = document.elementFromPoint(x, y); } catch (e) { el = null; }
+      while (el && el !== document.body && el !== document.documentElement) {
+        if (canScroll(el)) return el;
+        el = el.parentElement;
+      }
+      // Fall back to the page scroller when the pointer is over static content.
+      var doc = document.scrollingElement || document.documentElement;
+      return canScroll(doc) ? doc : null;
+    }
+
+    // 0 outside the edge zone, ramping to MAX_SPEED at the boundary itself.
+    function speed(distance) {
+      if (distance >= EDGE) return 0;
+      var ratio = (EDGE - Math.max(0, distance)) / EDGE;
+      return Math.max(1, Math.round(ratio * ratio * MAX_SPEED));
+    }
+
+    function step() {
+      frame = 0;
+      if (!target || (!vx && !vy)) return;
+      if (vy) target.scrollTop += vy;
+      if (vx) target.scrollLeft += vx;
+      frame = requestAnimationFrame(step);
+    }
+
+    function ensureRunning() {
+      if (!frame && (vx || vy)) frame = requestAnimationFrame(step);
+    }
+
+    return {
+      update: function (clientX, clientY) {
+        var el = containerAt(clientX, clientY);
+        if (!el) { this.stop(); return; }
+        var rect = (el === document.scrollingElement || el === document.documentElement)
+          ? { top: 0, left: 0, bottom: window.innerHeight, right: window.innerWidth }
+          : el.getBoundingClientRect();
+        // Outside the container entirely -> no scrolling, no stale velocity.
+        if (clientY < rect.top - EDGE || clientY > rect.bottom + EDGE ||
+            clientX < rect.left - EDGE || clientX > rect.right + EDGE) {
+          this.stop();
+          return;
+        }
+        target = el;
+        var up = speed(clientY - rect.top);
+        var down = speed(rect.bottom - clientY);
+        var left = speed(clientX - rect.left);
+        var right = speed(rect.right - clientX);
+        vy = up ? -up : (down ? down : 0);
+        vx = left ? -left : (right ? right : 0);
+        // Do not fight a container already at its limit.
+        if (vy < 0 && target.scrollTop <= 0) vy = 0;
+        if (vy > 0 && target.scrollTop >= target.scrollHeight - target.clientHeight - 1) vy = 0;
+        if (vx < 0 && target.scrollLeft <= 0) vx = 0;
+        if (vx > 0 && target.scrollLeft >= target.scrollWidth - target.clientWidth - 1) vx = 0;
+        if (!vx && !vy) { if (frame) { cancelAnimationFrame(frame); frame = 0; } return; }
+        ensureRunning();
+      },
+      stop: function () {
+        if (frame) cancelAnimationFrame(frame);
+        frame = 0; target = null; vx = 0; vy = 0;
+      },
+      // test seam: report whether a scroll is currently running
+      _active: function () { return !!frame; }
+    };
+  }());
+
   function persistGuidedTourState(status) {
     if (!status || !lpBridge.connected()) return Promise.resolve(null);
     return lpBridge.call('set_guided_tour_state', { status: status }).then(function (value) {
@@ -7801,6 +7903,24 @@
        Registered on window (capture) so it covers every screen, not just the
        dropzone -- the app advertises "Drop a lecture video anywhere". */
     window.addEventListener('dragenter', function (e) { e.preventDefault(); }, true);
+    /* The whole drag auto-scroll wiring, in ONE place, in capture so it runs
+       for every drag regardless of which element ends up handling the drop.
+       dragover drives the velocity; drop / dragend / a dragleave that leaves
+       the window all tear it down, so a scroll can never outlive its drag. */
+    window.addEventListener('dragover', function (e) {
+      dragScroll.update(e.clientX, e.clientY);
+    }, true);
+    window.addEventListener('drop', function () { dragScroll.stop(); }, true);
+    window.addEventListener('dragend', function () { dragScroll.stop(); }, true);
+    window.addEventListener('dragleave', function (e) {
+      if (!e.relatedTarget) dragScroll.stop();
+    }, true);
+    // A drag can also end without any of the above (Esc, or the OS cancelling
+    // an external drag). Both of these fire in that case.
+    window.addEventListener('mouseup', function () { dragScroll.stop(); }, true);
+    window.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') dragScroll.stop();
+    }, true);
     dz.addEventListener('dragenter', function (e) { e.preventDefault(); });
     dz.addEventListener('dragover', function (e) {
       e.preventDefault();
@@ -8782,6 +8902,14 @@
       var alive = {};
       jobs.forEach(function (job) { if (job && job.id) alive[job.id] = true; });
       LP.data.jobs = jobs;
+      // Drop the per-lecture workspace cache for anything that no longer
+      // exists. Without this a deleted lecture's slides, transcript and scroll
+      // position stayed in memory for the rest of the session, and a reused id
+      // (or a stale late event) could paint the dead workspace back onto a
+      // live screen.
+      Object.keys(LP.byJob).forEach(function (id) {
+        if (!alive[id]) delete LP.byJob[id];
+      });
       // Prune selection state before any job-removal navigation. Keeping this
       // adjacent to the received summary array makes the data-shape boundary
       // explicit and prevents a stale selection count during that navigation.
