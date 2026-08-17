@@ -205,3 +205,19 @@ def test_completed_background_download_uses_normal_import_path(tmp_path: Path, m
     assert sidecar._downloads["download-1"]["status"] == "complete"
     assert any(event.get("event") == "media_progress" and event.get("pct") == 42 for event in events)
     assert any(event.get("event") == "media_done" and event.get("ok") for event in events)
+
+
+def test_update_progress_and_error_parse_the_delivered_payload():
+    """The transport delivers a JSON STRING of the payload object, never a bare
+    scalar. Treating update_progress's argument as a number produced
+    "Downloading update... NaN%" with the bar stuck at 0, and update_error
+    showed the raw JSON envelope as the error text."""
+    app = APP
+    progress = app[app.index("lpBridge.on('update_progress'"):][:900]
+    assert "parseBridgePayload(json" in progress
+    assert "d.pct" in progress
+    assert "isFinite(pct)" in progress, "a non-numeric payload must not paint NaN"
+
+    error = app[app.index("lpBridge.on('update_error'"):][:800]
+    assert "parseBridgePayload(json" in error
+    assert "d.message" in error

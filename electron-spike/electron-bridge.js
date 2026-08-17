@@ -15,15 +15,17 @@
     // DEFERRED. Implemented operations are mapped below and cross JSONL.
     // Commands reached by visible controls resolve to a structured
     // FEATURE_UNAVAILABLE response in call(), never a silent null.
+    // NOTE: clear_skipped_version, set_auto_check and open_release_page are
+    // IMPLEMENTED by production-main.js handleCommand and must NOT be inert --
+    // listing them here made the Updates settings and "View on GitHub" answer
+    // "Updates are not available in this build." install_update is a dead name
+    // (the renderer calls install_downloaded_update).
     browse_model: true,
-    clear_skipped_version: true,
+    install_update: true,
     exit_application: true,
     get_post_completion: true,
-    install_update: true,
     log_tour_trace: true,
-    open_release_page: true,
     save_project: true,
-    set_auto_check: true,
     whatsnew_seen: true,
     // UI readiness remains a local acknowledgement; bootstrap retrieval now
     // crosses the host so it carries the same guided-tour object as the event.
@@ -32,14 +34,11 @@
   var unavailableMessages = {
     acknowledge_setup: 'Runtime Setup must pass before it can be acknowledged.',
     browse_model: 'Model browsing is not available in this build.',
-    clear_skipped_version: 'Updates are not available in this build.',
+    install_update: 'Updates are not available in this build.',
     exit_application: 'Close the window to exit LecturePack.',
     get_post_completion: 'Post-completion coaching is not available in this build.',
-    install_update: 'Updates are not available in this build.',
     log_tour_trace: 'Guided tour tracing is not available in this build.',
-    open_release_page: 'Release notes are not available in this build.',
     save_project: 'Saving is automatic in this build.',
-    set_auto_check: 'Updates are not available in this build.',
     whatsnew_seen: 'What\'s new is not available in this build.',
     get_bootstrap: 'Bootstrap is not available until the Electron host starts.',
     ui_ready: 'UI readiness is acknowledged in this build.'
@@ -548,6 +547,20 @@
         payload: {
           group: String(payload.group || (typeof first === 'string' ? first : '') || ''),
           force: payload.force === true || args[1] === true
+        }
+      };
+    }
+    if (name === 'set_auto_check') {
+      // The renderer calls this with a bare 'true'/'false' string. The generic
+      // passthrough runs it through objectPayload(), which yields {} for a
+      // non-object -- so the host saw no `enabled` field and defaulted to ON,
+      // making the checkbox impossible to turn off.
+      var autoCheckRaw = payload.enabled !== undefined ? payload.enabled : first;
+      return {
+        command: name,
+        payload: {
+          enabled: !(autoCheckRaw === false || autoCheckRaw === 'false' ||
+                     autoCheckRaw === 0 || autoCheckRaw === '0')
         }
       };
     }

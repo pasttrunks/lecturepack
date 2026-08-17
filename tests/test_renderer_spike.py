@@ -170,9 +170,20 @@ def test_migration_bridge_maps_existing_ui_without_requiring_qt_webchannel():
     assert "isLocalThemeSetting" in bridge
     for deferred in (
         "exit_application",
-        "open_release_page",
     ):
         assert f"{deferred}: true" in bridge
+    # These ARE implemented by production-main.js handleCommand. Listing them as
+    # inert made the renderer's calls resolve to FEATURE_UNAVAILABLE, so the
+    # Updates settings and "View on GitHub" answered "Updates are not available
+    # in this build." while the host was perfectly capable of serving them.
+    for implemented in (
+        "open_release_page",
+        "set_auto_check",
+        "clear_skipped_version",
+    ):
+        assert f"{implemented}: true" not in bridge, (
+            f"{implemented} is inert again, but the host implements it"
+        )
     # D-2: start_demo_job is wired to the normal import_video path with the
     # bundled demo; it is no longer a no-op.
     assert "start_demo_job: true" not in bridge

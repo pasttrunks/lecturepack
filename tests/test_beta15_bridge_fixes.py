@@ -373,9 +373,11 @@ vm.createContext(context);
 vm.runInContext(source, context, { filename: 'electron-bridge.js' });
 (async () => {
   const commands = [
-    'save_project', 'browse_model', 'open_release_page', 'exit_application',
-    'install_update', 'set_auto_check',
-    'clear_skipped_version',
+    // open_release_page, set_auto_check and clear_skipped_version were removed
+    // from this list: production-main.js implements them, and keeping them inert
+    // made the Updates settings answer "Updates are not available in this build."
+    'save_project', 'browse_model', 'exit_application',
+    'install_update',
     'acknowledge_setup', 'get_post_completion', 'whatsnew_seen', 'log_tour_trace'
   ];
   for (const name of commands) {

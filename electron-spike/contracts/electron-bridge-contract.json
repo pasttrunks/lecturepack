@@ -426,13 +426,13 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "clear_skipped_version",
-      "notes": "Updater is deferred.",
+      "notes": "Updater is deferred. Implemented by production-main.js handleCommand; listing it as deferred made the renderer answer FEATURE_UNAVAILABLE.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "event",
@@ -1578,13 +1578,13 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "open_release_page",
-      "notes": "Updater is deferred.",
+      "notes": "Updater is deferred. Implemented by production-main.js handleCommand; listing it as deferred made the renderer answer FEATURE_UNAVAILABLE.",
       "phase8": "",
       "production_core": false,
       "request_fields": [],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",
@@ -2091,7 +2091,7 @@
       "event_fields": [],
       "mapped_to": "",
       "name": "set_auto_check",
-      "notes": "Updater is deferred.",
+      "notes": "Updater is deferred. Implemented by production-main.js handleCommand; listing it as deferred made the renderer answer FEATURE_UNAVAILABLE.",
       "phase8": "",
       "production_core": false,
       "request_fields": [
@@ -2099,7 +2099,7 @@
       ],
       "request_id_required": false,
       "response_fields": [],
-      "status": "DEFERRED"
+      "status": "IMPLEMENTED"
     },
     {
       "direction": "command",

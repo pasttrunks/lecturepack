@@ -9374,7 +9374,14 @@
       var d = parseBridgePayload(json, null);
       if (d && typeof d === 'object') showWhatsNew(d, 'available');
     });
-    lpBridge.on('update_progress', function (pct) {
+    lpBridge.on('update_progress', function (json) {
+      // The transport always delivers a JSON STRING of the payload object, never
+      // a bare number. Treating it as one produced "Downloading update… NaN%"
+      // with the bar stuck at 0, because Math.round('{"pct":42}') is NaN.
+      var d = parseBridgePayload(json, null);
+      var pct = Number(d && typeof d === 'object' ? d.pct : d);
+      if (!isFinite(pct)) return;                    // never paint NaN
+      pct = Math.max(0, Math.min(100, pct));
       if ($('whatsnew-overlay').hidden) $('whatsnew-overlay').hidden = false;
       if (LP.state.updatePhase !== 'downloading') updSetPhase('downloading');
       $('whatsnew-progress-bar').style.width = pct + '%';
@@ -9384,7 +9391,11 @@
       // update_state 'ready' already reconfigured the buttons; this is a backstop.
       if (LP.state.updatePhase !== 'ready') updSetPhase('ready');
     });
-    lpBridge.on('update_error', function (msg) {
+    lpBridge.on('update_error', function (json) {
+      // Same transport contract: an object arrives as a JSON string, so the raw
+      // envelope was being shown to the user as the error text.
+      var d = parseBridgePayload(json, null);
+      var msg = (d && typeof d === 'object' ? (d.message || d.error) : d) || 'Unknown error';
       updSetPhase(LP.state.updateMode === 'installed' ? 'installed' : 'available');
       updMsg(String(msg), 'error');
       $('update-status').textContent = 'Update failed: ' + msg;
