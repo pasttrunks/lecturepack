@@ -2062,3 +2062,225 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
   outline: 2px solid var(--orange);
   background: var(--orange-soft) !important;
 }
+
+/* ================= Microinteractions & Physics Polish ================= */
+
+/* Canvas Stamp Trail on Drop */
+.lp-drop-stamp {
+  animation: lpDropStamp 180ms ease-out forwards;
+}
+
+@keyframes lpDropStamp {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.35);
+    transform: scale(1.03);
+  }
+  40% {
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.15);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgba(0, 0, 0, 0);
+    transform: scale(1);
+  }
+}
+
+/* FLIP Drag Insertion Slot with Hatched Accent */
+.lp-drop-insert {
+  position: fixed;
+  width: 4px;
+  background: var(--orange);
+  background-image: repeating-linear-gradient(45deg, var(--orange) 0, var(--orange) 3px, rgba(255, 107, 0, 0.4) 3px, rgba(255, 107, 0, 0.4) 6px);
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(255, 107, 0, 0.6);
+  z-index: 10001;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+/* Viewport Edge-Flash for Keyboard Stamping */
+.lp-viewport-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99999;
+}
+
+.lp-viewport-flash-keep {
+  animation: lpEdgeFlashGreen 120ms ease-out forwards;
+}
+
+.lp-viewport-flash-reject {
+  animation: lpEdgeFlashRed 120ms ease-out forwards;
+}
+
+@keyframes lpEdgeFlashGreen {
+  0% { box-shadow: inset 0 0 0 3px #2ecc71; opacity: 1; }
+  100% { box-shadow: inset 0 0 0 0 #2ecc71; opacity: 0; }
+}
+
+@keyframes lpEdgeFlashRed {
+  0% { box-shadow: inset 0 0 0 3px #e74c3c; opacity: 1; }
+  100% { box-shadow: inset 0 0 0 0 #e74c3c; opacity: 0; }
+}
+
+/* Magnifying Loupe on Slide Hover */
+.lp-slide-loupe {
+  position: fixed;
+  z-index: 10002;
+  width: 280px;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity 100ms ease, transform 100ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+.lp-slide-loupe.is-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.lp-loupe-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lp-loupe-img-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--sunk);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lp-loupe-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font: 700 11px 'JetBrains Mono';
+  color: var(--ink);
+  padding: 0 2px;
+}
+
+.lp-loupe-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+/* Scrubber Timeline Snap Tick Pulse */
+.lp-tick.is-snapped {
+  transform: scaleY(1.35) !important;
+  box-shadow: 0 0 8px var(--orange) !important;
+  z-index: 5;
+}
+
+/* Rolling Monospace Counters (Odometer) */
+.lp-odometer {
+  display: inline-flex;
+  align-items: baseline;
+  font-family: 'JetBrains Mono', monospace;
+  overflow: hidden;
+  vertical-align: baseline;
+}
+
+.lp-odometer-digit {
+  position: relative;
+  display: inline-block;
+  height: 1.15em;
+  line-height: 1.15em;
+  overflow: hidden;
+  vertical-align: baseline;
+}
+
+.lp-odometer-ribbon {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  transition: transform 240ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  line-height: 1.15em;
+  user-select: none;
+}
+
+.lp-odometer-hidden {
+  visibility: hidden;
+  line-height: 1.15em;
+}
+
+.lp-odometer-char {
+  display: inline-block;
+  line-height: 1.15em;
+}
+
+/* Status Waveform Equalizer in Footer */
+.lp-status-waveform {
+  display: inline-flex;
+  align-items: center;
+  gap: 2.5px;
+  height: 12px;
+  flex: none;
+  padding: 0 2px;
+}
+
+.lp-wave-bar {
+  width: 2.5px;
+  height: 8px;
+  background: var(--orange);
+  border-radius: 1.5px;
+  transition: height 150ms ease, background 150ms ease;
+}
+
+#status-footer[data-status="idle"] .lp-wave-bar,
+.lp-status-waveform.is-idle .lp-wave-bar {
+  height: 3px;
+  background: var(--muted);
+  animation: none !important;
+}
+
+#status-footer[data-status="running"] .lp-wave-bar,
+#status-footer[data-status="processing"] .lp-wave-bar,
+.lp-status-waveform.is-active .lp-wave-bar {
+  background: var(--orange);
+  animation: lpWaveBarPulse 600ms ease-in-out infinite alternate;
+}
+
+.lp-wave-bar:nth-child(1) { animation-delay: 0ms; }
+.lp-wave-bar:nth-child(2) { animation-delay: 150ms; }
+.lp-wave-bar:nth-child(3) { animation-delay: 300ms; }
+
+@keyframes lpWaveBarPulse {
+  0% { height: 3px; }
+  100% { height: 11px; }
+}
+
+/* Hover Data Inversion on Export Chips */
+.export-chip,
+.lp-export-chip,
+#export-formats label.lp-hit {
+  transition: background var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) var(--motion-spring), box-shadow var(--motion-fast) ease;
+}
+
+.export-chip:hover,
+.lp-export-chip:hover,
+#export-formats label.lp-hit:hover {
+  background: var(--ink) !important;
+  color: var(--panel) !important;
+  transform: translate(-2px, -2px);
+  box-shadow: 2px 2px 0 var(--border);
+}
+
+.export-chip:hover *,
+.lp-export-chip:hover *,
+#export-formats label.lp-hit:hover * {
+  color: var(--panel) !important;
+}
+

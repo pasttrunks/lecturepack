@@ -2060,6 +2060,223 @@
      bulk Group dialog). Drag is an accelerator layered on top, never the only
      route to a capability.
      ====================================================================== */
+
+  /* ======================================================================
+     LPAudio: Zero-Asset Mechanical Web Audio Cues.
+     Synthesised on demand with the Web Audio API without shipping audio assets.
+     Square-wave click on button depression, low-frequency pop on card drop,
+     light ratchet on queue reordering, and tactile toggle clack on switch.
+     ====================================================================== */
+  var LPAudio = (function () {
+    var audioCtx = null;
+
+    function soundEnabled() {
+      try {
+        if (localStorage.getItem('lecturepack.sound.enabled') === 'off') return false;
+        return true;
+      } catch (e) { return true; }
+    }
+
+    function getContext() {
+      if (!soundEnabled()) return null;
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return null;
+        if (!audioCtx) audioCtx = new Ctx();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+      } catch (e) { return null; }
+    }
+
+    function playClick() {
+      try {
+        var ctx = getContext();
+        if (!ctx) return;
+        var now = ctx.currentTime;
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(1200, now);
+        osc.frequency.exponentialRampToValueAtTime(300, now + 0.010);
+        gain.gain.setValueAtTime(0.02, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.010);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(now); osc.stop(now + 0.012);
+      } catch (e) {}
+    }
+
+    function playDrop() {
+      try {
+        var ctx = getContext();
+        if (!ctx) return;
+        var now = ctx.currentTime;
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(55, now + 0.12);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(now); osc.stop(now + 0.13);
+      } catch (e) {}
+    }
+
+    function playRatchet() {
+      try {
+        var ctx = getContext();
+        if (!ctx) return;
+        var now = ctx.currentTime;
+        [0, 0.018].forEach(function (offset) {
+          var osc = ctx.createOscillator();
+          var gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(1300, now + offset);
+          osc.frequency.exponentialRampToValueAtTime(600, now + offset + 0.008);
+          gain.gain.setValueAtTime(0.03, now + offset);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.008);
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.start(now + offset); osc.stop(now + offset + 0.010);
+        });
+      } catch (e) {}
+    }
+
+    function playToggle(isEngaged) {
+      try {
+        var ctx = getContext();
+        if (!ctx) return;
+        var now = ctx.currentTime;
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = 'sine';
+        if (isEngaged) {
+          osc.frequency.setValueAtTime(440, now);
+          osc.frequency.exponentialRampToValueAtTime(880, now + 0.018);
+        } else {
+          osc.frequency.setValueAtTime(780, now);
+          osc.frequency.exponentialRampToValueAtTime(360, now + 0.016);
+        }
+        gain.gain.setValueAtTime(0.035, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.020);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(now); osc.stop(now + 0.022);
+      } catch (e) {}
+    }
+
+    return {
+      playClick: playClick,
+      playDrop: playDrop,
+      playRatchet: playRatchet,
+      playToggle: playToggle,
+      soundEnabled: soundEnabled
+    };
+  })();
+
+  /* ======================================================================
+     LPNumberRoller: Rolling Monospace Odometer Reels.
+     Smooth vertical digit reels for percentages and counters.
+     ====================================================================== */
+  var LPNumberRoller = (function () {
+    function setRolling(el, numText) {
+      if (!el) return;
+      var str = String(numText || '');
+      var digits = str.split('');
+      var html = '<span class="lp-odometer" aria-label="' + esc(str) + '">';
+      for (var i = 0; i < digits.length; i++) {
+        var ch = digits[i];
+        if (/[0-9]/.test(ch)) {
+          var d = parseInt(ch, 10);
+          html += '<span class="lp-odometer-digit" data-digit="' + d + '"><span class="lp-odometer-ribbon" style="transform:translateY(-' + (d * 10) + '%)">' +
+            '0<br>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9' +
+            '</span><span class="lp-odometer-hidden">' + d + '</span></span>';
+        } else {
+          html += '<span class="lp-odometer-char">' + esc(ch) + '</span>';
+        }
+      }
+      html += '</span>';
+      el.innerHTML = html;
+    }
+    return { setRolling: setRolling };
+  })();
+
+  /* ======================================================================
+     Physical Review Mode Polish: Loupe, Keyboard Stamping, Edge Flashes.
+     ====================================================================== */
+  var viewportFlashEl = null;
+  function getViewportFlash() {
+    if (viewportFlashEl) return viewportFlashEl;
+    viewportFlashEl = document.createElement('div');
+    viewportFlashEl.id = 'lp-viewport-flash';
+    viewportFlashEl.className = 'lp-viewport-flash';
+    viewportFlashEl.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(viewportFlashEl);
+    return viewportFlashEl;
+  }
+
+  function flashViewport(tone) {
+    var el = getViewportFlash();
+    el.className = 'lp-viewport-flash';
+    void el.offsetWidth;
+    el.className = 'lp-viewport-flash lp-viewport-flash-' + tone;
+    setTimeout(function () {
+      el.className = 'lp-viewport-flash';
+    }, 140);
+  }
+
+  var slideLoupeEl = null;
+  function getSlideLoupe() {
+    if (slideLoupeEl) return slideLoupeEl;
+    slideLoupeEl = document.createElement('div');
+    slideLoupeEl.id = 'lp-slide-loupe';
+    slideLoupeEl.className = 'lp-slide-loupe';
+    slideLoupeEl.hidden = true;
+    slideLoupeEl.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(slideLoupeEl);
+    return slideLoupeEl;
+  }
+
+  function showSlideLoupe(slideIndex, clientX, clientY) {
+    if (LP.state.screen !== 'review' || (typeof LPDrag !== 'undefined' && LPDrag.dragging && LPDrag.dragging())) {
+      hideSlideLoupe();
+      return;
+    }
+    var slide = LP.data.slides && LP.data.slides[slideIndex];
+    if (!slide) { hideSlideLoupe(); return; }
+    var el = getSlideLoupe();
+    var state = slideReviewState(slide);
+    var label = state === 'rejected' ? 'Rejected' : 'Kept';
+    var badgeColor = state === 'rejected' ? 'var(--red)' : 'var(--blue)';
+    var imgHtml = slideImg(slide.img || slide.thumb, 'width:100%;height:auto;display:block;border-radius:4px;', 32, 'var(--muted)');
+
+    el.innerHTML = '<div class="lp-loupe-inner">' +
+      '<div class="lp-loupe-img-wrap">' + imgHtml + '</div>' +
+      '<div class="lp-loupe-meta">' +
+        '<span class="lp-loupe-title">Slide ' + (slideIndex + 1) + '</span>' +
+        '<span class="lp-loupe-time">' + esc(slide.time || '') + '</span>' +
+        '<span class="lp-loupe-badge" style="color:' + badgeColor + '">' + label + '</span>' +
+      '</div>' +
+    '</div>';
+
+    var loupeW = 280, loupeH = 180;
+    var x = clientX + 24;
+    var y = clientY - 60;
+    if (x + loupeW > window.innerWidth - 12) x = clientX - loupeW - 24;
+    if (y < 12) y = 12;
+    if (y + loupeH > window.innerHeight - 12) y = window.innerHeight - loupeH - 12;
+
+    el.style.left = Math.round(x) + 'px';
+    el.style.top = Math.round(y) + 'px';
+    el.hidden = false;
+    el.classList.add('is-visible');
+  }
+
+  function hideSlideLoupe() {
+    if (slideLoupeEl) {
+      slideLoupeEl.hidden = true;
+      slideLoupeEl.classList.remove('is-visible');
+    }
+  }
+
   var LPDrag = (function () {
     // The live drag: {kind, ids, label, hint}. Null whenever nothing is
     // in flight, which is also the guard that keeps the external file-drop
@@ -2121,18 +2338,55 @@
       document.body.appendChild(insertEl);
       return insertEl;
     }
+    function applyFlipSeparation(targetRowId, after) {
+      var items = document.querySelectorAll('[data-lp-drag="queue"], .job-card, .queue-item');
+      if (!items || !items.length) return;
+      if (!targetRowId) {
+        Array.prototype.forEach.call(items, function (card) {
+          if (card.style && card.style.transform && !card.classList.contains('lp-drag-proxy')) {
+            card.style.transform = '';
+            card.style.transition = '';
+          }
+        });
+        return;
+      }
+      var target = document.querySelector('[data-lp-drag][data-queueid="' + cssEscapeId(targetRowId) + '"]');
+      if (!target) return;
+      var targetRect = target.getBoundingClientRect();
+      Array.prototype.forEach.call(items, function (card) {
+        if (card.classList.contains('lp-dragging') || card.classList.contains('lp-drag-proxy')) return;
+        var r = card.getBoundingClientRect();
+        card.style.transition = 'transform 180ms cubic-bezier(0.2, 0.9, 0.3, 1.2)';
+        if (after && r.left > targetRect.left) {
+          card.style.transform = 'translateX(6px)';
+        } else if (!after && r.left >= targetRect.left) {
+          card.style.transform = 'translateX(6px)';
+        } else {
+          card.style.transform = '';
+        }
+      });
+    }
+
     // The queue is a WRAPPING grid in row-major order, not a vertical list, so
     // the indicator is a vertical bar on the leading or trailing edge of the
     // card it would insert next to. Measured from a live rect, so it lands
     // correctly no matter how the grid has wrapped.
-    function showInsert(rect, after) {
+    function showInsert(rect, after, targetRowId) {
       var el = insertBar();
       el.style.top = rect.top + 'px';
       el.style.height = rect.height + 'px';
       el.style.left = ((after ? rect.right + 3 : rect.left - 6)) + 'px';
       el.hidden = false;
+      el.classList.add('lp-drop-insert-active');
+      applyFlipSeparation(targetRowId, after);
     }
-    function hideInsert() { if (insertEl) insertEl.hidden = true; }
+    function hideInsert() {
+      if (insertEl) {
+        insertEl.hidden = true;
+        insertEl.classList.remove('lp-drop-insert-active');
+      }
+      applyFlipSeparation(null);
+    }
 
     /* "Where can I actually drop this?" -- the question the old system could not
        answer, because only the target under the pointer ever reacted. Every
@@ -2269,14 +2523,20 @@
       } catch (e) { /* audio is a nicety; never let it break a drag */ }
     }
 
+    var dragVelocity = { vx: 0, lastX: 0, lastTime: 0, currentTilt: 0 };
+
     function reducedMotion() {
       try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; }
     }
-    function proxyTransform(x, y, settled) {
+    function proxyTransform(x, y, settled, tilt) {
       var t = 'translate3d(' + Math.round(x) + 'px,' + Math.round(y) + 'px,0)';
       // The tilt and scale ARE the "lifted off the canvas" cue. Dropped under
       // reduced motion, and dropped again once the card is settling into place.
-      if (!settled && !reducedMotion()) t += ' rotate(3.5deg) scale(1.03)';
+      if (!settled && !reducedMotion()) {
+        var rot = typeof tilt === 'number' ? Math.round(tilt * 10) / 10 : null;
+        if (rot === null) t += ' rotate(3.5deg) scale(1.03)';
+        else t += ' rotate(' + rot + 'deg) scale(1.03)';
+      }
       return t;
     }
     function buildProxy(src, count, x, y) {
@@ -2321,7 +2581,16 @@
     }
     function moveProxy(x, y) {
       if (!proxy) return;
-      proxy.style.transform = proxyTransform(x - proxyGrab.x, y - proxyGrab.y);
+      var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      var dt = Math.max(1, now - (dragVelocity.lastTime || now));
+      var dx = x - (dragVelocity.lastX || x);
+      var instVx = dx / dt;
+      dragVelocity.vx = dragVelocity.vx * 0.6 + instVx * 0.4;
+      dragVelocity.lastX = x;
+      dragVelocity.lastTime = now;
+      var targetTilt = Math.max(-6, Math.min(6, dragVelocity.vx * 4.0));
+      dragVelocity.currentTilt = dragVelocity.currentTilt * 0.5 + targetTilt * 0.5;
+      proxy.style.transform = proxyTransform(x - proxyGrab.x, y - proxyGrab.y, false, dragVelocity.currentTilt);
     }
     // Magnetic snap: the card travels to where it landed instead of vanishing.
     function snapProxy(toRect, then) {
@@ -2379,6 +2648,10 @@
       didDrop = false;
       armed = null;
       justDragged = true;
+      dragVelocity.lastX = x;
+      dragVelocity.lastTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      dragVelocity.vx = 0;
+      dragVelocity.currentTilt = 0;
       var lit = markCandidates(active.kind);
       /* Name the payload from the very first frame -- on a multi-select the
          count is the whole point -- and say how many places will take it, now
@@ -2445,7 +2718,7 @@
           return;
         }
         armed = { desc: desc, host: host, after: after, index: finalIndex, rect: rect };
-        showInsert(rect, after);
+        showInsert(rect, after, rowId);
         paintProxy('ok');
         say('move ' + active.label + ' to position ' + (finalIndex + 1) + ' of ' + order.length, 'ok');
         return;
@@ -2537,10 +2810,15 @@
     function settle(el) {
       if (!el) return;
       el.classList.remove('lp-drop-settle');
+      el.classList.remove('lp-drop-stamp');
       // reflow, so the same class can flash twice in a row
       void el.offsetWidth;
       el.classList.add('lp-drop-settle');
-      setTimeout(function () { el.classList.remove('lp-drop-settle'); }, 220);
+      el.classList.add('lp-drop-stamp');
+      setTimeout(function () {
+        el.classList.remove('lp-drop-settle');
+        el.classList.remove('lp-drop-stamp');
+      }, 240);
     }
 
     /* ------------------------------- input -------------------------------- */
@@ -8093,12 +8371,24 @@
 
   /* ======================= scrub ======================= */
 
+  function highlightScrubTick(slideIndex) {
+    var ticks = document.querySelectorAll('.lp-tick');
+    Array.prototype.forEach.call(ticks, function (t) {
+      if (t.dataset && t.dataset.slide === String(slideIndex)) {
+        t.classList.add('is-snapped');
+      } else {
+        t.classList.remove('is-snapped');
+      }
+    });
+  }
+
   // The hover preview is portaled to <body> so it escapes the timeline's
   // overflow clipping; positioned with fixed coords + collision-aware flip.
   function hideScrub() {
     var w = $('scrub-wrap'), pv = $('scrub-preview');
     if (w) w.hidden = true;
     if (pv) pv.style.display = 'none';
+    highlightScrubTick(-1);
   }
 
   function bestTimelineSlide(e) {
@@ -8120,6 +8410,7 @@
     var nearest = bestTimelineSlide(e);
     if (!nearest) return;
     var strip = $('timeline-strip'), best = nearest.slide, r = nearest.rect;
+    highlightScrubTick(best._i);
 
     // Needle stays inside the strip.
     $('scrub-wrap').hidden = false;
@@ -9419,6 +9710,37 @@
           return;
         }
       }
+      // Review mode keyboard stamping shortcuts (J / K / Space)
+      if (LP.state.screen === 'review' && !editing && !overlay) {
+        var rk = String(e.key || '').toLowerCase();
+        if (rk === 'j') {
+          e.preventDefault();
+          var btnKeep = $('btn-keep');
+          if (btnKeep) {
+            btnKeep.click();
+            flashViewport('keep');
+          }
+          return;
+        }
+        if (rk === 'k') {
+          e.preventDefault();
+          var btnReject = $('btn-reject');
+          if (btnReject) {
+            btnReject.click();
+            flashViewport('reject');
+          }
+          return;
+        }
+        if (rk === ' ' || e.code === 'Space') {
+          e.preventDefault();
+          var btnKeep2 = $('btn-keep');
+          if (btnKeep2) {
+            btnKeep2.click();
+            flashViewport('keep');
+          }
+          return;
+        }
+      }
       var map = { 1: 'home', 2: 'process', 3: 'review', 4: 'transcript', 5: 'study', 6: 'exports', 7: 'settings' };
       if (map[e.key]) setScreen(map[e.key]);
       else if (e.key === 'f' || e.key === 'F') setFocus(!LP.state.focus);
@@ -9428,6 +9750,34 @@
     window.addEventListener('beforeunload', function () {
       if (LP.state.jobId) captureResumeState(LP.state.jobId);
     });
+
+    // Slide filmstrip Loupe on hover
+    var slideListEl = $('slide-list');
+    if (slideListEl) {
+      slideListEl.addEventListener('mousemove', function (e) {
+        var card = e.target && e.target.closest && e.target.closest('.lp-slide-rail-card');
+        if (card && card.dataset.slide !== undefined) {
+          showSlideLoupe(+card.dataset.slide, e.clientX, e.clientY);
+        } else {
+          hideSlideLoupe();
+        }
+      });
+      slideListEl.addEventListener('mouseleave', hideSlideLoupe);
+    }
+
+    // Mechanical Web Audio: zero-asset clicks on button depressions & switches
+    document.addEventListener('pointerdown', function (e) {
+      var btn = e.target && e.target.closest && e.target.closest('button, .lp-hit, .nav-item, [role="button"], .export-chip, [data-lp-drag]');
+      if (btn && !btn.disabled) {
+        if (btn.classList.contains('lp-reorder-btn') || btn.dataset.reorder) {
+          LPAudio.playRatchet();
+        } else if (btn.classList.contains('toggle-btn') || btn.getAttribute('role') === 'switch') {
+          LPAudio.playToggle(btn.getAttribute('aria-checked') !== 'true');
+        } else {
+          LPAudio.playClick();
+        }
+      }
+    }, { passive: true });
   }
 
   /* ======================= backend hookup ======================= */
