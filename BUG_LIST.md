@@ -417,6 +417,205 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### DEF-029 — internal drag moved to a POINTER-driven layer so the carried card can have physics   ✅ FIXED (driven with real mouse input in the running app)
+- **Area:** `app/ui/app.js` (`LPDrag` input layer, `buildProxy`/`updateAt`/`commit`/`abandon`),
+  `app/ui/app.css` (`.lp-drag-proxy` and friends).
+- **Why, and the constraint nobody can engineer around.** The owner asked for a 3-5° tilt,
+  `scale(1.03)`, an elevated shadow and a magnetic spring snap. **None of that is reachable
+  with native HTML5 drag**: the drag preview is a bitmap the OS composites, outside CSS
+  entirely. `setDragImage` can only hand it a static snapshot. So the input layer — and only
+  the input layer — is now pointer-driven, drawing the carried card ourselves.
+- **The proposed library would NOT have solved this.** `@atlaskit/pragmatic-drag-and-drop`
+  is itself a wrapper over native HTML5 DnD, so it cannot style the drag preview either; and
+  `app/ui` has no build step (plain files loaded by BOTH the Electron host and Qt WebEngine),
+  so adopting it means adding a bundler to packaging. It would have cost a toolchain and
+  delivered none of the headline items. Rejected on those grounds, with the owner informed.
+- **Two input paths is inherent, not a design failure.** OS file drops can ONLY arrive as
+  native drag events, so the window-level `dragover`/`drop` handlers still own them and were
+  left untouched. Internal drags are suppressed on the native path (`dragstart` →
+  `preventDefault` for any `[data-lp-drag]`) and `draggable="true"` was removed from every
+  internal source, so the two paths can never both run for one press.
+- **What was preserved unchanged:** the registry, the refusal reasons, the status strip, the
+  insertion bar, the candidate highlighting, and every action (`set_jobs_group`,
+  `reorder_queue`, `queue_jobs`). Only the input layer moved.
+- **REGRESSION CAUGHT AND FIXED IN THE SAME CHANGE — DEF-023 by a new route.** Drag
+  auto-scroll was wired to the native `dragover`, which a pointer drag never fires, so a
+  lecture lifted at the bottom of a long library silently could not reach the Process tab
+  again. `onPointerMove` now drives the SAME `dragScroll` manager (never a second one) and
+  `finish()` stops it. Pinned by `test_the_pointer_drag_path_still_auto_scrolls`.
+- **Hit-testing is geometric, not event-target based:** the proxy is `pointer-events:none`
+  and `updateAt` uses `document.elementFromPoint`, so the carried card cannot shadow the
+  target underneath it.
+- **Refusal had to move onto the carried card.** With no OS cursor to paint `no-drop`, a
+  refused target now also marks the proxy (`.is-bad`, dashed red) — the strip alone is at the
+  bottom of the window where a user aiming a card is not looking.
+- **Compositor discipline (AD-20's actual concern):** the proxy is ONE fixed element, it
+  exists only while a drag is in flight, and it transitions `transform`/`opacity` only —
+  both compositor properties, so the snap cannot trigger layout. Targets and the resting UI
+  still animate no geometry whatsoever, which the test suite asserts separately.
+- **Verified with REAL mouse input** (CDP `Input.dispatchMouseEvent`, not synthetic
+  DragEvents): computed proxy transform `matrix(1.02808, 0.06288, -0.06288, 1.02808, …)` —
+  i.e. the tilt and scale are genuinely applied — source card at `opacity: 0.4`, 4 candidates
+  lit, `cursor: grabbing`, armed target `DOCUMENTARIES`, and on release `CL100 3→2 /
+  DOCUMENTARIES 1→2` with `day24Group = "DOCUMENTARIES"`, proxy gone, zero leftover classes.
+
+### DEF-030 — spec items delivered alongside the drag layer   ✅ FIXED
+- **6-dot grip.** Two bars read as a slider or a pause glyph; the 2×3 dot grid is the shape
+  users already associate with dragging. Extended to Subjects-view lecture rows, which are
+  now drag sources themselves — moving a lecture between subjects is what that screen is for.
+  Gated on the same `_jobIsDraggable` predicate, so a grip never appears on a row that would
+  refuse to lift.
+- **Text selection policy.** Cards were selectable, so a press-and-move painted the accidental
+  blue highlight across a lecture title. Cards are `user-select:none`; holding Ctrl/Cmd adds
+  `body.lp-text-select` and hands selection back; the transcript is exempt with
+  `user-select:text !important` because it exists to be read and quoted.
+- **Full-window OS-drop overlay.** The app advertises "drop a lecture video anywhere", so the
+  affordance is now the window itself: a fixed full-bleed veil with an inset orange frame and
+  a nudging arrow, deliberately a DIFFERENT visual language from the internal-drag vocabulary
+  (a frame, not a ring around one element) because "anywhere works" is the message. Created
+  on demand and `position:fixed`, so it costs nothing until a file is over the window.
+- **Multi-select deck.** Now that the carried object is ours to draw, a real deck is possible:
+  up to three offset faces plus an orange count badge. Offset only, never fanned at an angle —
+  a fan implies an order the selection does not have.
+- **Audio cues, OFF by default.** Synthesised with WebAudio (two short envelopes) rather than
+  shipped as `.wav` assets, so nothing can go missing from a build. Default silence is
+  deliberate: this app runs for hours in a library, and a click on every lift is charming for
+  ten minutes and intolerable by the afternoon. Persisted under
+  `lecturepack.drag.sound`.
+- **NOT built, with reasons given:** an "expanding ghost container" that parts cards to show an
+  insertion slot (geometry animation — jitters at boundaries, and the insertion bar already
+  does the job), and Exports as a drop target (the owner chose to keep the sidebar to Process
+  only rather than have a drag write files with no confirmation step).
+
+### DEF-028 — the lecture card was congested, and the drag work made it worse   ✅ FIXED (measured in the running app)
+- **Area:** `app/ui/app.js` (`_jobCardHtml`, new `_jobDisplayName`), `app/ui/app.css`
+  (`.lp-drag-grip`, `.lp-drag-ghost-card`).
+- **Symptom:** reported with a screenshot as "don't you think this UI layout looks too
+  congested". A grey unstyled tooltip covered the poster, and the drag grip appeared to sit
+  inside the subject badge.
+- **Three defects I introduced with DEF-026, all measured rather than guessed:**
+  1. **The grip landed inside the subject badge.** Grip at (11,11); `.lp-subject-badge` at
+     (11,14) and 159px wide. Moved to the bottom-left of the poster, the only region
+     carrying nothing but the video frame. It is a small `--panel` chip now, not bare bars,
+     so it stays legible over an arbitrary video frame.
+  2. **TWO native tooltips.** One on the card, one on the grip, stacking over the very
+     thumbnail they described. Both removed: the status strip names the verb on lift and
+     every valid target lights up, which teaches the gesture better than a hover-only
+     tooltip ever could. The grip is also revealed on hover/focus instead of at rest.
+  3. **`.lp-drag-ghost-card` re-declared `position:relative`,** silently overriding the base
+     `position:fixed`. The ghost stayed off-screen only because of its `left` offset while
+     still reserving a 172px block in the layout flow for the duration of every drag.
+- **Two PRE-EXISTING collisions the measurement exposed** (present before this session, on a
+  247px card): the subject badge spanned x 11-170 while the status badge spanned x 155-236 —
+  ~15px of overlap, guaranteed to worsen with a longer subject name — and the status badge
+  sat underneath the hover menu button at x 176-203.
+- **Fix (owner chose the fuller option):** the subject badge moved OFF the poster into the
+  card body as a kicker line above the heading. This removes the collision by construction
+  instead of by tuning offsets: the poster now carries only status (top-right), the menu (on
+  hover) and the grip (bottom-left), and no subject-name length can reintroduce it.
+  `selecting`/`chosen` moved above the body build, because the kicker must not be reachable
+  while the card's job is to be ticked.
+- **The card said its own name three times** — heading, then the source filename (the same
+  words plus `.mp4`), then the duration. The filename line is gone; `j.file` survives only
+  as a fallback so a card with no `meta` is not left blank.
+- **The yt-dlp id is stripped from the DISPLAYED heading only.** `j.name` is untouched
+  because rename, search and the drag label all read it, and the full string stays on the
+  heading's `title` so nothing becomes unrecoverable.
+- **WHY THE OBVIOUS IMPLEMENTATION WAS WRONG.** A shape-based regex cannot do this job. The
+  importer rewrites `_` as a space when deriving a display name, so the stored name really
+  ends `[ OQbKAx9878]` **with a space** — the first attempt matched `[A-Za-z0-9_-]{8,}` and
+  silently did nothing, which the packaged app proved. Loosening the class to allow spaces
+  then ate legitimate brackets like `[Lecture Notes]`. The fix anchors on the id the SOURCE
+  FILENAME carries: the filename is unmangled, so a real id has no space in it while a
+  bracket the user chose does. That is the discriminator, and it has no false positives.
+  A name with no matching file keeps its brackets — the safe direction to err.
+- **Verified:** all four thumbnail elements measured pairwise in the running app —
+  `COLLISIONS: none`, down from two overlapping pairs. Heading renders
+  "Heinrich Schliemann The Boogeyman of Archaeology"; body is subject / heading / duration.
+  Card height 288 -> 267. The display-name rule is executed in Node over 7 cases including
+  the real shipped string, `[Lecture Notes]`, `[2024]`, no-file, and id-only. Suite 1858
+  passed / 7 skipped.
+
+### DEF-026 — internal drag "did not work": one gesture existed and every other drop failed SILENTLY   ✅ FIXED (executed in a real browser, NOT yet in the packaged app)
+- **Area:** `app/ui/app.js` (new `LPDrag` registry), `app/ui/app.css` (drag vocabulary).
+  Sibling of DEF-025 (external drop) and DEF-023 (drag auto-scroll) — same feature, third
+  distinct defect. External file drop was working when this was reported.
+- **Symptom (user, on the shipped build):** "drag and drop still doesn't work internally, it
+  does work externally." Dragging a lecture card anywhere except the Process target did
+  nothing at all — no movement, no message, no refusal.
+- **Root cause, part 1 — the cursor lied.** The window-level `dragover` called
+  `e.preventDefault()` BEFORE it checked whether the drag was internal. That cancel is what
+  makes the whole window accept an external video on any screen, but it also advertised
+  every pixel as a valid drop target for an internal lecture drag, while exactly ONE element
+  had a drop handler. The user got a droppable cursor everywhere and a result nowhere. A
+  promise-then-nothing is indistinguishable from a broken feature.
+- **Root cause, part 2 — one gesture, hardcoded.** Internal drag was a single
+  lecture-card→Process path with listeners bound to elements. `renderJobs()` and
+  `renderQueue()` both rebuild their containers with `innerHTML` on every poll, so
+  per-element drag listeners cannot survive; any new surface would have needed its own copy
+  of the whole lift/paint/teardown dance.
+- **Root cause, part 3 — the dropzone ate the events.** `dz`'s internal-drag guards called
+  `stopPropagation()` (aimed at the window handler), which also stopped the event reaching
+  any delegated listener. Dragging a lecture across the dropzone went completely dark.
+- **Fix.** One delegated registry (`LPDrag`): targets DECLARE themselves with `data-lp-drop`,
+  sources with `data-lp-drag`, all five drag events are delegated from `document`. The window
+  and dropzone guards now bail out BEFORE cancelling, so anywhere the registry has not
+  claimed a target the browser paints its own `no-drop` cursor. Two new gestures on top:
+  lecture → subject heading (files it, via the existing `set_jobs_group`), and queue row
+  reorder (via the existing `reorder_queue`).
+- **The anti-silent-failure rule, now structural.** A persistent bottom status strip is live
+  for the whole drag, names the verb and destination, and on a refused or failed release it
+  STAYS for 1.2s with the reason. It is also the `aria-live` region, so the sighted and
+  screen-reader strings are the same object and cannot drift. Every registry entry is
+  required by test to carry a refusal `reason`.
+- **A no-op reorder was the same bug in miniature — caught only by executing it.** The
+  reorder branch originally cancelled the event and THEN checked whether the drop would
+  change anything, so releasing a row onto its own position gave a droppable cursor and did
+  nothing. Structural tests passed; a real `DragEvent` in a browser caught it. It now refuses
+  BEFORE `preventDefault` and says "already in this position". Pinned by
+  `test_a_no_op_reorder_is_refused_with_a_reason_not_silently`, which asserts the ORDER of
+  the two statements.
+- **Deliberately NOT made draggable:** slides (order is derived from timestamps — a reorder
+  gesture would let the user express something the data cannot store), slide keep/reject (a
+  checkbox is faster than an aimed drag across 200+ items), and study sources (selection with
+  no destination). "Universal" here means the vocabulary is universal, not that everything is
+  draggable; a card draggable to nowhere useful is this very bug in a new costume.
+- **Accessibility:** both new gestures are accelerators over controls that already shipped
+  (queue ↑/↓ buttons and context-menu Move Up/Down; the card Group action and bulk Group
+  dialog). `test_drag_never_becomes_the_only_route_to_a_capability` fails if those disappear.
+- **Verified:** 1829 passed / 23 skipped. Real `DragEvent`s dispatched in Chromium against
+  the actual delegated handlers: valid transfer, wrong-kind refusal (not cancelled, so
+  no-drop shows), empty space, valid reorder with insertion bar, no-op refusal, hysteresis
+  across a refusal, multi-select lifting every card, and external file drop still cancelled
+  window-wide. Computed styles confirmed in BOTH themes. **Not** yet exercised in the
+  packaged Qt WebEngine app.
+
+### DEF-027 — a stray blue focus ring boxed the "Setting things up" heading   ✅ FIXED (cause removed, not suppressed)
+- **Area:** `app/ui/index.html` (runtime state headings), `app/ui/app.js` (gate focus map),
+  `app/ui/app.css` (`:focus-visible` backstop).
+- **Symptom:** on the blocking Runtime setup modal, a 2px blue rectangle wrapped the
+  `Setting things up` heading and cleared on the next click. It read as a rendering fault.
+- **Root cause:** the four state headings carried `tabindex="-1"` and were programmatically
+  `.focus()`ed on every state change to steer a screen reader. Chromium counts programmatic
+  focus as `:focus-visible`, so the global focus ring painted a box around static text.
+- **The focus call bought nothing.** Every state change ALREADY announces into
+  `#runtime-live-polite` / `#runtime-live-assertive`. The focus move was pure redundancy — and
+  actively hostile beyond the cosmetics: it yanked focus off whatever button a keyboard user
+  was on, five times, while the checks ran.
+- **Fix.** Focus targets are interactive controls only (`diagnostics` → `btn-runtime-copy`,
+  `checklist` → `btn-runtime-done` once green). `checking` and `ready` move focus nowhere —
+  they contain nothing focusable and `#app` is `inert` while the gate is open, so no stray Tab
+  can escape. `tabindex="-1"` removed from all four headings so one re-added `.focus()` line
+  cannot bring the ring back. Backstop for the general class:
+  `[data-programmatic-focus]:focus-visible{outline:none}`.
+- **Note:** suppressing the outline alone would have treated the symptom and left the
+  focus-stealing bug in place. The mechanism was wrong, not just its paint.
+- **Verified:** structurally the ring cannot paint (nothing is focused, so `:focus-visible`
+  never matches) and the four headings are no longer focusable. Suite green. The allowlist in
+  `test_every_overlay_id_has_a_writer_in_app_js_except_the_static_label` grew 2 → 6 with the
+  reason recorded, since those headings are now correctly static markup rather than BUG-04
+  hardcoded values. **Not** eyeballed in a packaged build.
+
 ### BUG-27 - Size cuts produced a packaged build that could not start at all   FIXED (verified)
 
 **Symptom.** The beta-7 Phase 1 post-cut packaged build died before showing a window. PyInstaller's

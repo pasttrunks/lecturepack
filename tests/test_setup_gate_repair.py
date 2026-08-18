@@ -127,7 +127,9 @@ def test_gate_audit_contract_covers_inert_focus_offline_and_diagnostics_feedback
     assert "classification === 'offline'" in app
     assert "Could not copy details." in app and "Could not save report." in app
     assert "bootstrapPending = true" in app and "beginBootstrap" in app
-    for target in ("btn-runtime-repair", "btn-runtime-confirm", "btn-runtime-cancel", "btn-runtime-offline-retry", "btn-runtime-failed-retry", "runtime-diagnostics-heading", "runtime-ready-heading"):
+    # Focus targets are interactive controls only. The diagnostics and ready
+    # headings used to appear here; focusing them painted a spurious blue ring.
+    for target in ("btn-runtime-repair", "btn-runtime-confirm", "btn-runtime-cancel", "btn-runtime-offline-retry", "btn-runtime-failed-retry", "btn-runtime-copy"):
         assert target in app
     assert "overflow-wrap:anywhere" in app and "-webkit-line-clamp:2" in app
     assert 'aria-live="assertive"' in markup and 'aria-live="polite"' in markup

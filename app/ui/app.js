@@ -1107,6 +1107,14 @@
     });
   }
 
+  // Every member of a group that select mode can actually act on.
+  function groupSelectableIds(members) {
+    return (members || []).filter(function (j) { return j && j.id; }).map(function (j) { return j.id; });
+  }
+  function groupFullySelected(members) {
+    var ids = groupSelectableIds(members);
+    return ids.length > 0 && ids.every(function (id) { return !!LP.state.selected[id]; });
+  }
   function selectableIds() {
     return LP.data.jobs.filter(function (j) { return j.id; })
       .map(function (j) { return j.id; });
@@ -1164,6 +1172,34 @@
     setTimeout(function () { var i = $('lp-bulk-group-input'); if (i) i.focus(); }, 30);
   }
 
+  /* yt-dlp appends its video id to the filename, so a downloaded lecture is
+     called "... Archaeology [_OQbKAx9878]" and the card printed that id twice --
+     once in the heading, once in the filename line beneath it. The id is not
+     something a student reads, so it is dropped from the DISPLAYED name only;
+     j.name itself is untouched, because rename, search and the drag label all
+     depend on it.
+
+     This is anchored on the SOURCE FILENAME's id rather than on a shape, and
+     deliberately so. A shape-based rule cannot win here: the importer rewrites
+     "_" as " " when it derives a display name, so the real stored name ends
+     "[ OQbKAx9878]" -- with a space -- and any pattern loose enough to catch
+     that also eats legitimate brackets like "[Lecture Notes]". Matching the id
+     the file actually carries has no false positives at all. A name with no
+     matching file keeps its brackets, which is the safe direction to err. */
+  function _jobDisplayName(name, file) {
+    var full = String(name || '').trim();
+    /* No space in this class, deliberately. The FILENAME is unmangled, so a
+       real id ("_OQbKAx9878") has no spaces in it, while a bracket the user
+       chose ("[Lecture Notes]") does -- that is the discriminator. The _ -> " "
+       leniency below applies only when matching the already-rewritten NAME. */
+    var found = String(file || '').match(/\[([A-Za-z0-9_-]{8,})\](?=\.[A-Za-z0-9]+$|$)/);
+    if (!found) return full;
+    // Escape the id, then let "_" and " " stand in for each other.
+    var pattern = found[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[_ ]/g, '[_ ]');
+    var trimmed = full.replace(new RegExp('\\s*\\[' + pattern + '\\]\\s*$'), '').trim();
+    return trimmed || full;
+  }
+
   function _jobCardHtml(j) {
     var ready = _jobIsReady(j);
     var draggable = _jobIsDraggable(j);
@@ -1175,16 +1211,41 @@
     var subjectBadge = '<button type="button" class="lp-subject-badge" data-jobid="' + esc(j.id) + '" data-subject="' + esc(subject) + '" title="Click to rename subject">' +
       '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/></svg>' +
       '<span>' + esc(subject) + '</span></button>';
+    /* The subject badge USED to live here, pinned over the poster beside the
+       delete button. It carries a full subject name, so the top-left group grew
+       rightwards until it collided with the status badge pinned top-right --
+       measured at ~15px of overlap on a 247px card, and guaranteed to worsen
+       with a longer subject name. Moving it into the body removes the collision
+       by construction rather than by tuning offsets, and leaves the poster
+       carrying only status (top-right), the menu (on hover) and the drag grip
+       (bottom-left). */
     var menu = j.id ? '<div style="position:absolute;top:9px;left:9px;display:flex;align-items:center;gap:6px">' +
-      subjectBadge + _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
+      _jobBtn('delete', j.id, TRASH_SVG, 'Delete') + '</div>' : '';
+    /* In select mode the per-card menu becomes a checkbox and the whole card
+       toggles selection. Computed HERE, above the body, because the body needs
+       it too now: the subject badge renames on click, which must not be
+       reachable while the card's job is to be ticked. */
+    var selecting = LP.state.selecting && j.id;
+    var chosen = selecting && !!LP.state.selected[j.id];
+    var kicker = (!selecting && j.id) ? '<div style="margin-bottom:8px">' + subjectBadge + '</div>' : '';
+    var display = _jobDisplayName(j.name, j.file);
+    // The stripped id stays recoverable on hover rather than vanishing.
+    var nameTitle = display === String(j.name || '').trim()
+      ? 'Double-click to rename'
+      : esc(j.name) + ' · double-click to rename';
     var body;
     if (j.status === 'running') {
-      body = '<div data-job-title title="Double-click to rename" style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(j.name) + '</div>' +
+      body = kicker + '<div data-job-title title="' + nameTitle + '" style="font-weight:700;font-size:16px;margin-bottom:9px">' + esc(display) + '</div>' +
         '<div style="height:8px;border-radius:5px;background:var(--sunk);overflow:hidden;margin-bottom:7px"><div data-progress style="width:' + (j.pct || 0) + '%;height:100%;background:var(--orange);background-image:repeating-linear-gradient(90deg,transparent,transparent 6px,rgba(255,255,255,.3) 6px,rgba(255,255,255,.3) 13px);animation:lpbar 1s linear infinite"></div></div>' +
         '<div data-progress-label style="font:500 11px \'JetBrains Mono\';color:var(--muted)">' + esc(friendlyProcessingLabel(j.stage)) + ' · ' + (j.pct || 0) + '% · ' + esc(j.eta || '') + '</div>';
     } else {
-      body = '<div data-job-title title="Double-click to rename" style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(j.name) + '</div>' +
-        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted);line-height:1.7">' + esc(j.file || '') + '<br>' + esc(j.meta || '') + '</div>';
+      /* One identity line, not three. This printed the heading, then the source
+         filename -- the same words plus ".mp4" -- and only then the duration, so
+         a card said its own name twice before it said anything new. Only the
+         meta line survives; j.file is kept purely as a fallback so a card with
+         no meta is not left blank. */
+      body = kicker + '<div data-job-title title="' + nameTitle + '" style="font-weight:700;font-size:16px;margin-bottom:5px">' + esc(display) + '</div>' +
+        '<div style="font:500 11px \'JetBrains Mono\';color:var(--muted);line-height:1.7">' + esc(j.meta || j.file || '') + '</div>';
       if (ready) {
         body += '<div style="font:500 11px \'JetBrains Mono\';color:var(--blue-ink);margin-top:6px">' + esc(_optionsLabel(j)) + '</div>';
       }
@@ -1204,10 +1265,8 @@
         _jobActBtn('view', j.id, 'View Details') +
         _jobActBtn('remove', j.id, 'Remove') + '</div>';
     }
-    // In select mode the per-card menu is replaced by a checkbox, and the whole
-    // card toggles selection instead of opening.
-    var selecting = LP.state.selecting && j.id;
-    var chosen = selecting && !!LP.state.selected[j.id];
+    // selecting / chosen are declared above, since the body's subject-badge
+    // kicker needs them too.
     var selbox = selecting
       ? '<span data-selbox role="checkbox" aria-checked="' + (chosen ? 'true' : 'false') + '" ' +
         'style="position:absolute;top:9px;left:9px;width:22px;height:22px;border-radius:6px;' +
@@ -1218,11 +1277,29 @@
         '</span>'
       : '';
     var border = chosen ? 'var(--blue)' : 'var(--border)';
-    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + (draggable ? 'draggable="true" data-existing-job-drag="true" ' : '') +
-      (_jobIsReprocessable(j) ? 'data-reprocess="true" title="Drag to Process to run this lecture again" '
-        : (draggable ? 'title="Drag to Process to start this lecture" ' : '')) +
-      'data-status="' + esc(displayStatus) + '" style="background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:' + (draggable ? 'grab' : 'pointer') + '">' +
-      '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + (selecting ? selbox : menu) + badge + '</div>' +
+    /* data-lp-drag marks this card as a source for the ONE drag system; the
+       older data-existing-job-drag stays because it is the selector the
+       acceptance tests and the Process-target contract already use.
+       The grip renders only on a card that can actually be dragged -- its
+       absence is the honest signal on the rest, which previously advertised
+       cursor:grab and then refused to lift. */
+    var grip = draggable
+      ? '<button type="button" class="lp-drag-grip" tabindex="-1" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></button>'
+      : '';
+    return '<div class="lp-card" ' + (j.id ? 'data-job="' + esc(j.id) + '" ' : '') + /* NO draggable="true": the pointer layer owns internal drags now, and leaving
+         the native attribute on would let Chromium start its own unstyleable drag
+         for the same gesture. data-existing-job-drag stays -- it is the selector
+         the Process-target contract and the acceptance tests use. */
+      (draggable ? 'data-existing-job-drag="true" data-lp-drag="lecture" ' : '') +
+      /* No native title here on purpose. Two unstyled OS tooltips (one on the
+         card, one on the grip) used to stack over the poster and cover the very
+         thumbnail they described -- reported as the card looking congested.
+         The drag is now taught at the moment it matters instead: the status
+         strip names the verb on lift and every valid target lights up, which no
+         hover-only tooltip could do. */
+      (_jobIsReprocessable(j) ? 'data-reprocess="true" ' : '') +
+      'data-status="' + esc(displayStatus) + '" style="position:relative;background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:' + (draggable ? 'grab' : 'pointer') + '">' +
+      '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + (selecting ? selbox : menu) + badge + grip + '</div>' +
       '<div style="padding:14px 16px">' + body + '</div></div>';
   }
 
@@ -1603,7 +1680,17 @@
         var isViewing = typeof LP !== 'undefined' && LP.state && m.id === LP.state.jobId;
         var r = getJobReadiness(m);
         var mName = m.name || m.title || m.filename || 'Lecture';
-        return '<div class="subject-member-row' + (isViewing ? ' active' : '') + '" data-jobid="' + esc(m.id) + '">' +
+        /* A Subjects row is a drag SOURCE: moving a lecture between subjects is
+           the gesture this screen is for, and dragging the row itself is more
+           direct than opening the lecture to change its group. It carries
+           data-job (not just data-jobid) because the drag layer resolves a
+           lecture by that attribute everywhere else. Only a lecture the
+           pipeline could act on is draggable -- same predicate as the library,
+           so the grip never appears on a row that would refuse to lift. */
+        var mDraggable = _jobIsDraggable(m);
+        return '<div class="subject-member-row' + (isViewing ? ' active' : '') + '" data-jobid="' + esc(m.id) + '"' +
+          (mDraggable ? ' data-lp-drag="lecture" data-job="' + esc(m.id) + '"' : '') + '>' +
+          (mDraggable ? '<button type="button" class="lp-drag-grip lp-drag-grip-row" tabindex="-1" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></button>' : '') +
           '<div style="flex:1;min-width:0">' +
             '<div class="subject-member-name" title="' + esc(mName) + '">' + esc(mName) + '</div>' +
             '<div class="subject-member-meta">' + esc(r.label + (m.duration ? ' · ' + fmtDuration(m.duration) : '')) + '</div>' +
@@ -1613,7 +1700,7 @@
         '</div>';
       }).join('');
 
-      return '<div class="subject-card lp-card" data-group="' + esc(grpName) + '">' +
+      return '<div class="subject-card lp-card" data-lp-drop="group" data-group="' + esc(grpName) + '">' +
         '<div class="subject-card-head">' +
           '<div style="flex:1 1 12rem;min-width:0">' +
             '<div class="subject-card-title-wrap">' +
@@ -1710,9 +1797,17 @@
   }
 
   function handleSubjectCardRename(cardEl, oldGroup) {
-    var titleEl = cardEl.querySelector('.subject-card-title');
+    handleGroupRename(cardEl && cardEl.querySelector('.subject-card-title'), oldGroup,
+      'font:700 18px \'Space Grotesk\'');
+  }
+  /* ONE rename implementation, two surfaces. The Subjects card and the library
+     group header rename the same thing -- every lecture whose subject is this
+     name -- so they must not be allowed to drift into two behaviours. Only the
+     input's type size differs, because one sits in an 18px heading and the
+     other in an 11px mono chip. */
+  function handleGroupRename(titleEl, oldGroup, fontCss) {
     if (!titleEl) return;
-    titleEl.innerHTML = '<input class="subject-card-title-input" type="text" value="' + esc(oldGroup) + '" style="font:700 18px \'Space Grotesk\';padding:3px 8px;border:2px solid var(--blue);border-radius:6px;background:var(--panel);color:var(--ink);width:100%">';
+    titleEl.innerHTML = '<input class="subject-card-title-input" type="text" value="' + esc(oldGroup) + '" style="' + fontCss + ';padding:3px 8px;border:2px solid var(--blue);border-radius:6px;background:var(--panel);color:var(--ink);width:100%;min-width:90px;box-sizing:border-box">';
     var input = titleEl.querySelector('input');
     if (!input) return;
     input.focus();
@@ -1748,7 +1843,7 @@
     }
     input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); commit(); }
-      if (e.key === 'Escape') { e.preventDefault(); committed = true; renderSubjects(); }
+      if (e.key === 'Escape') { e.preventDefault(); committed = true; renderSubjects(); renderJobs(); }
     });
     input.addEventListener('blur', function () { commit(); });
   }
@@ -1935,12 +2030,630 @@
       return Array.isArray(ids) ? ids.filter(function (id, index) { return typeof id === 'string' && id && ids.indexOf(id) === index; }) : [];
     } catch (e) { return []; }
   }
-  function createInternalDragGhost(count) {
-    var ghost = document.createElement('div');
-    ghost.className = 'lp-drag-ghost';
-    ghost.textContent = count + ' lecture' + (count === 1 ? '' : 's');
-    document.body.appendChild(ghost);
-    return ghost;
+
+  /* ==========================================================================
+     LPDrag -- the ONE internal drag system.
+
+     Why this exists at all: internal drag used to be a single hardcoded
+     gesture (a lecture card onto Process) wired with listeners bound directly
+     to elements. Two consequences, both of which read to the user as "internal
+     drag is broken":
+
+       1. Releasing anywhere else did NOTHING AND SAID NOTHING. The window-level
+          dragover called preventDefault() before it checked whether the drag
+          was internal, so the entire window advertised itself as a valid drop
+          target for a lecture -- the cursor promised a drop that no handler
+          would ever act on. A user cannot tell that apart from a broken app.
+       2. Listeners bound per element could not survive a rerender. The queue
+          and the library both rebuild via innerHTML on every poll, so any
+          handler attached to a card was destroyed seconds after it was
+          attached. Delegation from `document` is not a style preference here,
+          it is the only thing that works on this markup.
+
+     So: targets DECLARE themselves in markup with data-lp-drop, sources with
+     data-lp-drag, and everything below is delegated. Adding a surface later is
+     a render-time attribute plus a registry entry -- not new event wiring.
+
+     Invariant worth keeping: every gesture here has a pointer-free equivalent
+     that already shipped (queue rows have Move up / Move down buttons and
+     context-menu items; group assignment has the card's Group action and the
+     bulk Group dialog). Drag is an accelerator layered on top, never the only
+     route to a capability.
+     ====================================================================== */
+  var LPDrag = (function () {
+    // The live drag: {kind, ids, label, hint}. Null whenever nothing is
+    // in flight, which is also the guard that keeps the external file-drop
+    // path (which works, and must keep working) completely untouched.
+    var active = null;
+    var armed = null;      // resolved valid target for the current pointer spot
+    var didDrop = false;
+    var stripEl = null, insertEl = null, hideTimer = 0;
+    var lastAfter = false;   // reorder side, kept across a no-op for hysteresis
+
+    function strip() {
+      if (stripEl) return stripEl;
+      stripEl = document.createElement('div');
+      stripEl.className = 'lp-drag-strip';
+      stripEl.id = 'lp-drag-strip';
+      stripEl.hidden = true;
+      // role=status + aria-live makes this the SAME string the screen reader
+      // hears and the sighted user reads, so the two channels cannot drift.
+      stripEl.setAttribute('role', 'status');
+      stripEl.setAttribute('aria-live', 'polite');
+      document.body.appendChild(stripEl);
+      return stripEl;
+    }
+    // tone: '' (neutral guidance) | 'ok' (will land here) | 'bad' (will not)
+    function say(text, tone) {
+      var el = strip();
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0; }
+      el.textContent = '';
+      var verb = document.createElement('span');
+      verb.className = 'lp-drag-strip-verb';
+      /* 'done' exists because a completed action must not be phrased as an
+         invitation: after the drop the strip read "Release to ... moved to
+         position 1", which is an instruction for something already finished. */
+      verb.textContent = tone === 'bad' ? "Can't drop here"
+        : tone === 'done' ? 'Done —'
+        : tone === 'ok' ? 'Release to' : 'Dragging';
+      el.appendChild(verb);
+      var body = document.createElement('span');
+      body.textContent = ' ' + text;
+      el.appendChild(body);
+      el.dataset.tone = tone || '';
+      el.hidden = false;
+    }
+    function hideStrip(delay) {
+      if (!stripEl) return;
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(function () {
+        hideTimer = 0;
+        if (stripEl) { stripEl.hidden = true; stripEl.textContent = ''; stripEl.dataset.tone = ''; }
+      }, delay || 0);
+    }
+    function insertBar() {
+      if (insertEl) return insertEl;
+      insertEl = document.createElement('div');
+      insertEl.className = 'lp-drop-insert';
+      insertEl.id = 'lp-drop-insert';
+      insertEl.hidden = true;
+      insertEl.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(insertEl);
+      return insertEl;
+    }
+    // The queue is a WRAPPING grid in row-major order, not a vertical list, so
+    // the indicator is a vertical bar on the leading or trailing edge of the
+    // card it would insert next to. Measured from a live rect, so it lands
+    // correctly no matter how the grid has wrapped.
+    function showInsert(rect, after) {
+      var el = insertBar();
+      el.style.top = rect.top + 'px';
+      el.style.height = rect.height + 'px';
+      el.style.left = ((after ? rect.right + 3 : rect.left - 6)) + 'px';
+      el.hidden = false;
+    }
+    function hideInsert() { if (insertEl) insertEl.hidden = true; }
+
+    /* "Where can I actually drop this?" -- the question the old system could not
+       answer, because only the target under the pointer ever reacted. Every
+       valid destination for the drag now announces itself the MOMENT the lift
+       starts, so the answer is on screen before the user goes hunting.
+       Reorder targets are excluded on purpose: for a reorder every row is
+       trivially a candidate, so outlining all of them says nothing -- the
+       insertion bar is the real indicator there. */
+    function markCandidates(kind) {
+      if (kind !== 'lecture') return 0;
+      var lit = 0;
+      Array.prototype.forEach.call(document.querySelectorAll('[data-lp-drop]'), function (el) {
+        var desc = descriptorFor(el);
+        if (!desc || desc.drop === 'queue-reorder' || !desc.kinds[kind]) return;
+        if (el.offsetParent === null) return;   // hidden on this screen
+        el.classList.add('lp-drop-candidate');
+        lit++;
+      });
+      return lit;
+    }
+    function clearCandidates() {
+      Array.prototype.forEach.call(document.querySelectorAll('.lp-drop-candidate'), function (el) {
+        el.classList.remove('lp-drop-candidate');
+      });
+    }
+
+    function clearTargetPaint() {
+      Array.prototype.forEach.call(document.querySelectorAll('.lp-drop-ok, .lp-drop-bad'), function (el) {
+        el.classList.remove('lp-drop-ok'); el.classList.remove('lp-drop-bad');
+      });
+      // The pre-existing Process-target class predates this system and is still
+      // asserted by tests, so it is kept in lockstep rather than replaced.
+      Array.prototype.forEach.call(document.querySelectorAll('.lp-existing-drop-hover'), function (el) {
+        el.classList.remove('lp-existing-drop-hover');
+      });
+    }
+
+    /* The registry. `kinds` is which drag types a target accepts; `reason`
+       explains a refusal in the user's words, never in the app's. */
+    var TARGETS = [
+      { drop: 'process', kinds: { lecture: true },
+        reason: 'only a lecture that has not been processed yet can be queued here',
+        label: function () { return 'queue for processing'; } },
+      { drop: 'group', kinds: { lecture: true },
+        reason: 'only lectures can be filed under a subject',
+        label: function (el) { return 'file under ' + (el.dataset.group || 'this subject'); } },
+      { drop: 'queue-reorder', kinds: { queue: true },
+        reason: 'only a queued row can be reordered here',
+        label: function () { return 'move it here in the queue'; } }
+    ];
+    function descriptorFor(el) {
+      var key = el && el.dataset ? el.dataset.lpDrop : '';
+      for (var i = 0; i < TARGETS.length; i++) if (TARGETS[i].drop === key) return TARGETS[i];
+      return null;
+    }
+
+    /* Queue reorder maths, kept out of the event handler so it is testable by
+       inspection. `before` is the index the row would be inserted in front of;
+       reorder_queue takes a FINAL absolute index, so removing the row from
+       earlier in the list shifts the destination down by one. */
+    function reorderIndex(from, before) {
+      var target = before;
+      if (from < target) target -= 1;
+      return target;
+    }
+
+    /* The subject a lecture would DISPLAY under if it were filed into `group`.
+       "Ungrouped" is not a real subject: filing there clears j.group, after
+       which jobGroup() re-infers the subject from the lecture's NAME -- so
+       clearing the group of "CL100 - Day 9 ..." leaves it under CL100 exactly
+       where it was. Without this, the strip cheerfully confirmed "filed under
+       Ungrouped" for a change with no visible effect, which is the same
+       silent-failure class as the no-op reorder. */
+    function bucketAfter(job, group) {
+      var target = group === 'Ungrouped' ? '' : group;
+      return target || inferredJobGroup(job && (job.name || job.title));
+    }
+
+    function queueRowIds() {
+      return (((LP.data.queue && LP.data.queue.queue) || []).map(function (r) { return r && r.id; }));
+    }
+
+    /* ================= the LIFT: pointer-driven, not native ==================
+       Native HTML5 drag was replaced HERE and only here -- the registry, the
+       status strip, the insertion bar and the actions above are untouched.
+
+       Why: the native drag preview is a bitmap the OS composites, so it cannot
+       be tilted, scaled, shadowed or eased. Physical feel (a card that lifts,
+       tilts and snaps home) is only reachable by drawing the carried object
+       ourselves and following the pointer.
+
+       What this deliberately does NOT take over: drops of real files from the
+       OS. Those can only arrive as native drag events, so the window-level
+       dragover/drop handlers still own them, untouched. Two input paths is
+       inherent to wanting physics AND OS file drops -- no library removes that,
+       because none of them can style the OS drag image either. */
+    var LIFT_THRESHOLD = 6;      // px of travel before a click becomes a drag
+    var pending = null;          // pointer down on a source, not yet a drag
+    var proxy = null;            // the thing the user is actually carrying
+    var proxyGrab = { x: 0, y: 0 };
+    var sourceRect = null;
+    var justDragged = false;     // swallow the click that follows a real drag
+
+    /* Audio cues, OFF unless the student turns them on. This app runs for
+       hours at a time on a laptop in a library; a click on every lift is the
+       kind of thing that is charming for ten minutes and intolerable by the
+       afternoon, so silence is the default and the preference is persisted.
+       Synthesised with WebAudio rather than shipped as .wav files: two short
+       envelopes cost nothing to package and cannot go missing from a build. */
+    var audioCtx = null;
+    function dragSoundEnabled() {
+      try { return localStorage.getItem('lecturepack.drag.sound') === 'on'; } catch (e) { return false; }
+    }
+    function dragCue(kind) {
+      if (!dragSoundEnabled()) return;
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audioCtx = audioCtx || new Ctx();
+        var now = audioCtx.currentTime;
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        // lift = a light woody click; drop = a lower, softer thud.
+        var freq = kind === 'lift' ? 880 : 180;
+        var dur = kind === 'lift' ? 0.045 : 0.12;
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now);
+        osc.frequency.exponentialRampToValueAtTime(Math.max(60, freq * 0.55), now + dur);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(kind === 'lift' ? 0.05 : 0.09, now + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(now); osc.stop(now + dur + 0.02);
+      } catch (e) { /* audio is a nicety; never let it break a drag */ }
+    }
+
+    function reducedMotion() {
+      try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; }
+    }
+    function proxyTransform(x, y, settled) {
+      var t = 'translate3d(' + Math.round(x) + 'px,' + Math.round(y) + 'px,0)';
+      // The tilt and scale ARE the "lifted off the canvas" cue. Dropped under
+      // reduced motion, and dropped again once the card is settling into place.
+      if (!settled && !reducedMotion()) t += ' rotate(3.5deg) scale(1.03)';
+      return t;
+    }
+    function buildProxy(src, count, x, y) {
+      var rect = src.getBoundingClientRect();
+      sourceRect = rect;
+      proxyGrab = { x: x - rect.left, y: y - rect.top };
+      var el = document.createElement('div');
+      el.className = 'lp-drag-proxy';
+      el.setAttribute('aria-hidden', 'true');
+      el.style.width = rect.width + 'px';
+      /* A real DECK for a multi-select: up to two faces peeking out behind the
+         front one. Offset only -- never fanned at an angle, because a fan
+         implies an order the selection does not have. */
+      var layers = Math.min(count, 3);
+      for (var i = layers - 1; i >= 1; i--) {
+        var back = document.createElement('span');
+        back.className = 'lp-drag-proxy-back';
+        back.style.transform = 'translate(' + (i * 7) + 'px,' + (i * 7) + 'px)';
+        el.appendChild(back);
+      }
+      var face = src.cloneNode(true);
+      face.removeAttribute('id');
+      face.removeAttribute('draggable');
+      face.classList.add('lp-drag-proxy-face');
+      face.classList.remove('lp-dragging');
+      face.classList.remove('lp-drop-ok');
+      face.classList.remove('lp-drop-bad');
+      face.classList.remove('lp-drop-candidate');
+      face.style.width = rect.width + 'px';
+      face.style.margin = '0';
+      el.appendChild(face);
+      if (count > 1) {
+        var chip = document.createElement('span');
+        chip.className = 'lp-drag-proxy-count';
+        chip.textContent = count;
+        el.appendChild(chip);
+      }
+      document.body.appendChild(el);
+      el.style.transform = proxyTransform(rect.left, rect.top);
+      proxy = el;
+      return el;
+    }
+    function moveProxy(x, y) {
+      if (!proxy) return;
+      proxy.style.transform = proxyTransform(x - proxyGrab.x, y - proxyGrab.y);
+    }
+    // Magnetic snap: the card travels to where it landed instead of vanishing.
+    function snapProxy(toRect, then) {
+      if (!proxy) { then(); return; }
+      var el = proxy;
+      proxy = null;
+      if (reducedMotion() || !toRect) { el.remove(); then(); return; }
+      var w = el.offsetWidth || 1, h = el.offsetHeight || 1;
+      var x = toRect.left + (toRect.width - w) / 2;
+      var y = toRect.top + (toRect.height - h) / 2;
+      el.classList.add('lp-drag-proxy-settling');
+      el.style.transform = proxyTransform(x, y, true);
+      el.style.opacity = '0';
+      var done = false;
+      var finishSnap = function () {
+        if (done) return;
+        done = true;
+        el.remove();
+        then();
+      };
+      el.addEventListener('transitionend', finishSnap, { once: true });
+      // Never strand the proxy on a transitionend that does not arrive.
+      setTimeout(finishSnap, 280);
+    }
+    function paintProxy(state) {
+      if (!proxy) return;
+      proxy.classList.remove('is-ok');
+      proxy.classList.remove('is-bad');
+      if (state) proxy.classList.add('is-' + state);
+    }
+    function cssEscapeId(value) {
+      return (window.CSS && CSS.escape) ? CSS.escape(value) : String(value).replace(/"/g, '\\"');
+    }
+
+    function beginDrag(src, x, y) {
+      var kind = src.dataset.lpDrag;
+      if (kind === 'lecture') {
+        var ids = internalDragIdsFor(src.dataset.job);
+        if (!ids.length) return false;
+        internalJobDragIds = ids.slice();
+        var first = _jobById(ids[0]);
+        active = { kind: 'lecture', ids: ids, from: -1,
+          label: ids.length === 1 ? (first && first.name) || 'this lecture' : ids.length + ' lectures',
+          hint: 'drop on a subject heading to file it, or on Process to queue it' };
+      } else if (kind === 'queue') {
+        var qid = src.dataset.queueid;
+        var order = queueRowIds();
+        var from = order.indexOf(qid);
+        if (!qid || from < 0) return false;
+        active = { kind: 'queue', ids: [qid], from: from, label: _jobName(qid) || 'this row',
+          // Reorder lights no candidates (every row is trivially one), so its
+          // own hint is what the opening message uses.
+          hint: 'drop between queued lectures to reorder' };
+      } else { return false; }
+      didDrop = false;
+      armed = null;
+      justDragged = true;
+      var lit = markCandidates(active.kind);
+      /* Name the payload from the very first frame -- on a multi-select the
+         count is the whole point -- and say how many places will take it, now
+         that every one of them is outlined on screen. */
+      say(active.label + ' — ' + (lit
+        ? lit + (lit === 1 ? ' highlighted place' : ' highlighted places') + ' will take it'
+        : active.hint || 'drop it on a highlighted target'), '');
+      active.ids.forEach(function (id) {
+        var card = document.querySelector('[data-lp-drag][data-job="' + cssEscapeId(id) + '"]') ||
+                   document.querySelector('[data-lp-drag][data-queueid="' + cssEscapeId(id) + '"]');
+        if (card) card.classList.add('lp-dragging');
+      });
+      src.classList.add('lp-dragging');
+      buildProxy(src, active.ids.length, x, y);
+      document.body.classList.add('lp-drag-in-flight');
+      dragCue('lift');
+      return true;
+    }
+
+    /* Target resolution by GEOMETRY rather than by event target -- the proxy is
+       pointer-events:none, so elementFromPoint sees straight through it to
+       whatever is underneath. */
+    function updateAt(x, y) {
+      if (!active) return;
+      var under = document.elementFromPoint(x, y);
+      var host = under && under.closest ? under.closest('[data-lp-drop]') : null;
+      var desc = descriptorFor(host);
+      if (!desc) {
+        armed = null; clearTargetPaint(); hideInsert(); paintProxy('');
+        say(active.label + ' — no drop target here', '');
+        return;
+      }
+      if (!desc.kinds[active.kind]) {
+        /* A REAL target that refuses THIS drag: say why, and make the carried
+           card itself look refused. There is no OS cursor doing that job now,
+           so the refusal has to be visible on the thing being carried. */
+        armed = null; clearTargetPaint(); hideInsert();
+        host.classList.add('lp-drop-bad');
+        paintProxy('bad');
+        say(desc.reason, 'bad');
+        return;
+      }
+      if (desc.drop === 'queue-reorder') {
+        var rowId = host.dataset.queueid;
+        var order = queueRowIds();
+        var over = order.indexOf(rowId);
+        if (over < 0) { armed = null; hideInsert(); return; }
+        var rect = host.getBoundingClientRect();
+        // Midpoint on X, because the grid flows left-to-right. 4px of
+        // hysteresis so a trembling hand does not flip the indicator.
+        var mid = rect.left + rect.width / 2;
+        // Remembered separately from `armed`, because a no-op clears `armed`
+        // and the side has to survive that.
+        var after = x > mid + 4 ? true : x < mid - 4 ? false : lastAfter;
+        lastAfter = after;
+        var finalIndex = reorderIndex(active.from, after ? over + 1 : over);
+        clearTargetPaint();
+        if (finalIndex === active.from || finalIndex < 0) {
+          /* A drop that would change nothing is the other thing that reads as
+             broken: the user releases, sees no movement, blames the app. It is
+             refused outright rather than accepted-and-ignored. */
+          armed = null; hideInsert(); paintProxy('bad');
+          say(active.label + ' is already in this position', 'bad');
+          return;
+        }
+        armed = { desc: desc, host: host, after: after, index: finalIndex, rect: rect };
+        showInsert(rect, after);
+        paintProxy('ok');
+        say('move ' + active.label + ' to position ' + (finalIndex + 1) + ' of ' + order.length, 'ok');
+        return;
+      }
+      if (desc.drop === 'group') {
+        var moving = active.ids.map(_jobById).filter(Boolean);
+        var target = host.dataset.group || '';
+        var pointless = moving.length > 0 && moving.every(function (job) {
+          return bucketAfter(job, target) === jobGroup(job);
+        });
+        if (pointless) {
+          armed = null; clearTargetPaint(); hideInsert();
+          host.classList.add('lp-drop-bad');
+          paintProxy('bad');
+          say(moving.length === 1
+            ? active.label + ' is already filed under ' + jobGroup(moving[0])
+            : 'those lectures are already filed here', 'bad');
+          return;
+        }
+      }
+      clearTargetPaint(); hideInsert();
+      host.classList.add('lp-drop-ok');
+      if (desc.drop === 'process') host.classList.add('lp-existing-drop-hover');
+      armed = { desc: desc, host: host, rect: host.getBoundingClientRect() };
+      paintProxy('ok');
+      say(desc.label(host) + ' — ' + active.label, 'ok');
+    }
+
+    function commit() {
+      if (!active) return;
+      if (!armed) { abandon(); return; }
+      var target = armed, drag = active;
+      didDrop = true;
+      clearTargetPaint(); hideInsert();
+      dragCue('drop');
+      /* The card flies to where it landed and the action runs when it arrives,
+         so a library rerender can never yank the proxy out mid-flight. */
+      snapProxy(target.rect, function () {
+        if (target.desc.drop === 'group') {
+          var group = target.host.dataset.group || '';
+          /* "Ungrouped" is a SYNTHETIC bucket the library invents for lectures
+             that have no group (renderJobs assigns that label itself), not a
+             subject you can belong to. Dropping there therefore has to CLEAR
+             the group -- writing the literal string would create a real subject
+             named "Ungrouped" that looks identical in the list but stops the
+             inferred grouping from ever applying to that lecture again. */
+          if (group === 'Ungrouped') group = '';
+          assignJobsToGroup(drag.ids, group, target.host);
+          say(drag.label + ' filed under ' + (group || 'Ungrouped'), 'done');
+          hideStrip(1200);
+        } else if (target.desc.drop === 'process') {
+          say(drag.label + ' queued for processing', 'done');
+          hideStrip(1200);
+          dropLecturesOnProcess(drag.ids, target.host);
+        } else if (target.desc.drop === 'queue-reorder') {
+          say(drag.label + ' moved to position ' + (target.index + 1), 'done');
+          hideStrip(1200);
+          if (lpBridge.connected()) lpBridge.call('reorder_queue', drag.ids[0], target.index);
+          else toast('Preview mode — the queue was not reordered.');
+        }
+      });
+      finish();
+    }
+
+    /* Released over nothing, or cancelled. THE anti-silent-failure rule, now
+       with a physical form: the card visibly returns to where it came from, so
+       the gesture is seen not to have taken, and the reason stays on screen
+       long enough to read. */
+    function abandon() {
+      if (!active) return;
+      var el = strip();
+      if (!(!el.hidden && el.dataset.tone === 'bad')) say(active.label + ' was not moved', 'bad');
+      hideStrip(1400);
+      snapProxy(sourceRect, function () {});
+      finish();
+    }
+
+    function finish() {
+      // A scroll that outlives its drag runs away with the page.
+      try { dragScroll.stop(); } catch (e) {}
+      Array.prototype.forEach.call(document.querySelectorAll('.lp-dragging'), function (el) { el.classList.remove('lp-dragging'); });
+      clearTargetPaint(); clearCandidates(); hideInsert();
+      if (proxy) { proxy.remove(); proxy = null; }
+      document.body.classList.remove('lp-drag-in-flight');
+      active = null; armed = null; pending = null; sourceRect = null;
+      internalJobDragIds = [];
+    }
+
+    function settle(el) {
+      if (!el) return;
+      el.classList.remove('lp-drop-settle');
+      // reflow, so the same class can flash twice in a row
+      void el.offsetWidth;
+      el.classList.add('lp-drop-settle');
+      setTimeout(function () { el.classList.remove('lp-drop-settle'); }, 220);
+    }
+
+    /* ------------------------------- input -------------------------------- */
+    function onPointerDown(e) {
+      if (active || e.button !== 0 || e.isPrimary === false) return;
+      var t = e.target;
+      var src = t && t.closest ? t.closest('[data-lp-drag]') : null;
+      if (!src) return;
+      /* Never hijack a real control. A card is full of them -- Start, Remove,
+         the subject badge, the select checkbox -- and a lift that began on one
+         would steal its click. The grip is the exception: it exists only to be
+         dragged. */
+      if (!t.closest('.lp-drag-grip') &&
+          t.closest('button, a, input, textarea, select, summary, [contenteditable], [data-selbox]')) return;
+      pending = { x: e.clientX, y: e.clientY, src: src };
+    }
+    function onPointerMove(e) {
+      if (pending && !active) {
+        if (Math.abs(e.clientX - pending.x) < LIFT_THRESHOLD &&
+            Math.abs(e.clientY - pending.y) < LIFT_THRESHOLD) return;
+        var src = pending.src;
+        pending = null;
+        if (!beginDrag(src, e.clientX, e.clientY)) return;
+      }
+      if (!active) return;
+      e.preventDefault();          // no text selection, no native image drag
+      moveProxy(e.clientX, e.clientY);
+      updateAt(e.clientX, e.clientY);
+      /* DEF-023 again, by a new route: auto-scroll was wired to the native
+         `dragover`, which a pointer drag never fires -- so lifting a lecture at
+         the bottom of a long library could not reach the Process tab any more.
+         The SAME manager is reused rather than a second one being grown here. */
+      dragScroll.update(e.clientX, e.clientY);
+    }
+    function onPointerUp(e) {
+      pending = null;
+      if (!active) return;
+      e.preventDefault();
+      updateAt(e.clientX, e.clientY);
+      commit();
+    }
+    function onPointerCancel() { pending = null; if (active) abandon(); }
+    function onKeyDown(e) {
+      if (e.key === 'Escape' && active) { e.preventDefault(); abandon(); }
+      // Ctrl/Cmd temporarily hands text selection back to the cards (app.css).
+      if (e.key === 'Control' || e.key === 'Meta') document.body.classList.add('lp-text-select');
+    }
+    function onKeyUp(e) {
+      if (e.key === 'Control' || e.key === 'Meta') document.body.classList.remove('lp-text-select');
+    }
+    /* A drag that ends on its own card must not also open the lecture. */
+    function onClickCapture(e) {
+      if (!justDragged) return;
+      justDragged = false;
+      e.stopPropagation();
+      e.preventDefault();
+    }
+
+    function wire() {
+      document.addEventListener('pointerdown', onPointerDown, true);
+      window.addEventListener('pointermove', onPointerMove, { passive: false });
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerCancel);
+      window.addEventListener('blur', onPointerCancel);
+      window.addEventListener('keydown', onKeyDown, true);
+      window.addEventListener('keyup', onKeyUp, true);
+      document.addEventListener('click', onClickCapture, true);
+      /* Native drag is suppressed for internal sources so the two input paths
+         can never both run for one gesture. OS file drops are untouched: they
+         do not originate from a [data-lp-drag] element. */
+      document.addEventListener('dragstart', function (e) {
+        if (e.target && e.target.closest && e.target.closest('[data-lp-drag]')) e.preventDefault();
+      }, true);
+    }
+    return { wire: wire, settle: settle, reorderIndex: reorderIndex,
+             dragging: function () { return !!active; } };
+  })();
+
+  /* Dropping lectures on Process. Extracted verbatim from the old per-element
+     handler so the reprocess confirmation and the queueing path are unchanged;
+     only the way the drop REACHES it moved to the registry. */
+  function dropLecturesOnProcess(ids, host) {
+    if (!ids.length) return;
+    if (host && host.dataset && host.dataset.nav === 'process') setScreen('process');
+    var again = ids.map(_jobById).filter(_jobIsReprocessable).length > 0;
+    (again ? confirmReprocess(ids) : Promise.resolve(false)).then(function (agreed) {
+      if (again && !agreed) return;
+      return queueExistingJobIds(ids, { reprocess: again }).then(function (result) {
+        var count = result && Number.isFinite(result.count) ? result.count : ids.length;
+        toast(count + ' lecture' + (count === 1 ? '' : 's') + ' queued');
+      }, function () { toast('The selected lectures could not be queued.'); });
+    });
+  }
+
+  /* Filing lectures under a subject by drag. Same bridge call the Group dialog
+     and the bulk Group action already use, so drag adds a route to an existing
+     capability rather than a second way to persist one. */
+  function assignJobsToGroup(ids, group, host) {
+    var unique = ids.filter(function (id, i) { return id && ids.indexOf(id) === i; });
+    if (!unique.length) return;
+    if (!lpBridge.connected()) { toast('Preview mode — not grouped'); return; }
+    lpBridge.call('set_jobs_group', JSON.stringify(unique), group).then(function (result) {
+      if (!result || !result.ok) { toast('Those lectures could not be filed under ' + (group || 'Ungrouped') + '.'); return; }
+      (LP.data.jobs || []).forEach(function (job) {
+        if (unique.indexOf(job.id) >= 0) job.group = group;
+      });
+      setSelectMode(false);
+      renderJobs();
+      toast(unique.length + ' lecture' + (unique.length === 1 ? '' : 's') + ' filed under ' + (group || 'Ungrouped'));
+      // renderJobs() rebuilt the DOM, so flash the group that received them.
+      var fresh = document.querySelector('[data-lp-drop="group"][data-group="' + (window.CSS && CSS.escape ? CSS.escape(group) : group) + '"]');
+      LPDrag.settle(fresh || host);
+    }, function () { toast('Those lectures could not be filed under ' + (group || 'Ungrouped') + '.'); });
   }
   // Dropping finished lectures on Process re-runs them, which REPLACES their
   // slides, transcript and Study pack. That is not something to discover after
@@ -2196,9 +2909,17 @@
           '" data-queueid="' + esc(row.id) + '" title="' + esc(label) + '" aria-label="' + esc(label) + '"' +
           (disabled ? ' disabled' : '') + '>' + glyph + '</button>';
       };
-      return '<div class="q-card">' +
+      /* A queue row is both a drag SOURCE and a reorder TARGET -- the only
+         surface in the app that is both, which is why the registry keys on the
+         drag's kind rather than on the element. The Move up / Move down buttons
+         below stay exactly as they are: they are the keyboard and screen-reader
+         route to this same capability, and drag is only an accelerator on top
+         of them. */
+      return '<div class="q-card" data-lp-drag="queue" data-lp-drop="queue-reorder"' +
+        ' data-queueid="' + esc(row.id) + '" title="Drag to reorder the queue">' +
         '<div class="q-thumb">' + posterHtml(job) +
-        '<span class="q-pos" aria-hidden="true">' + (i + 1) + '</span></div>' +
+        '<span class="q-pos" aria-hidden="true">' + (i + 1) + '</span>' +
+        '<button type="button" class="lp-drag-grip" tabindex="-1" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></button></div>' +
         '<div class="q-body">' +
         '<div class="q-title">' + esc(_jobName(row.id)) + '</div>' +
         '<div class="q-meta">' + esc(_optionsLabel(job)) + ' · Queued</div>' +
@@ -2278,7 +2999,14 @@
       // Collapsed groups render their header only. Dropping the cards from the
       // DOM (rather than hiding them) is the point of collapsing a library
       // that has grown too tall to scan.
-      return '<section class="lib-group" aria-label="' + esc(k) + '" data-group="' + esc(k) + '"' +
+      /* The WHOLE SECTION is the drop target, not just its header bar. Aiming a
+         card at a 30px strip is fussy when a 400px box means the same thing --
+         and because the cards live inside the section, dropping onto any card
+         in a subject files the dragged lecture into that subject too, which is
+         what a user means when they drop "into" a group.
+         The collapsed case still works for free: a collapsed section IS its
+         header, so it remains a target at the same place on screen. */
+      return '<section class="lib-group" data-lp-drop="group" aria-label="' + esc(k) + '" data-group="' + esc(k) + '"' +
         (shut ? ' data-collapsed="true"' : '') + '>' +
         '<div class="lib-group-head">' +
         '<button type="button" class="lp-hit lib-group-toggle" data-group-toggle="' + esc(k) + '"' +
@@ -2286,7 +3014,20 @@
         ' title="' + (shut ? 'Expand' : 'Collapse') + ' ' + esc(k) + '"' +
         ' aria-label="' + (shut ? 'Expand' : 'Collapse') + ' ' + esc(k) + '">' +
         (shut ? '&#43;' : '&#8722;') + '</button>' +
-        '<span class="lib-group-code">' + esc(k) + '</span>' +
+        '<span class="lib-group-code" data-group="' + esc(k) + '">' + esc(k) + '</span>' +
+        /* The same pencil the Subjects cards carry. Renaming a subject from the
+           library was previously only reachable through a lecture's own badge,
+           so the two screens disagreed about where that action lives. */
+        '<button type="button" class="lib-group-rename" data-group-rename="' + esc(k) + '" title="Rename subject" aria-label="Rename subject ' + esc(k) + '">' +
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>' +
+        /* Selecting a whole subject at once. The bulk actions already operate on
+           a selection, so the only missing piece was a way to say "this whole
+           subject". It toggles, so pressing again clears the group. */
+        (LP.state.selecting
+          ? '<button type="button" class="lib-group-select" data-group-select="' + esc(k) + '"' +
+            ' aria-pressed="' + (groupFullySelected(groups[k]) ? 'true' : 'false') + '">' +
+            (groupFullySelected(groups[k]) ? 'Deselect group' : 'Select group') + '</button>'
+          : '') +
         '<span class="lib-group-count">' + count +
         (count === 1 ? ' lecture' : ' lectures') + '</span></div>' +
         (shut ? '' : '<div class="lib-grid">' + groups[k].map(_jobCardHtml).join('') + '</div>') +
@@ -2296,6 +3037,36 @@
       button.addEventListener('click', function (e) {
         e.stopPropagation();
         toggleGroupCollapsed(button.getAttribute('data-group-toggle'));
+      });
+    });
+    /* Rename from the library header, through the SAME commit path the Subjects
+       card uses -- the input is opened on the group's own code chip. */
+    Array.prototype.forEach.call(g.querySelectorAll('[data-group-rename]'), function (button) {
+      button.addEventListener('click', function (e) {
+        e.stopPropagation(); e.preventDefault();
+        var name = button.getAttribute('data-group-rename');
+        var head = button.closest('.lib-group-head');
+        var chip = head && head.querySelector('.lib-group-code');
+        if (chip) handleGroupRename(chip, name, "font:700 12px 'JetBrains Mono'");
+      });
+    });
+    /* Select an entire subject at once. Toggles on the group's CURRENT
+       membership rather than a remembered list, so a group that changed while
+       select mode was open still selects exactly what is on screen. */
+    Array.prototype.forEach.call(g.querySelectorAll('[data-group-select]'), function (button) {
+      button.addEventListener('click', function (e) {
+        e.stopPropagation(); e.preventDefault();
+        var name = button.getAttribute('data-group-select');
+        var members = groups[name] || [];
+        var ids = groupSelectableIds(members);
+        var clearing = groupFullySelected(members);
+        ids.forEach(function (id) {
+          if (clearing) delete LP.state.selected[id];
+          else LP.state.selected[id] = true;
+        });
+        renderJobs(); renderSelCount();
+        toast((clearing ? 'Deselected ' : 'Selected ') + ids.length +
+          (ids.length === 1 ? ' lecture in ' : ' lectures in ') + name);
       });
     });
     $('jobs-count').textContent = LP.data.jobs.length;
@@ -3536,8 +4307,35 @@
     }
   }
 
+  /* The whole window is the drop target for a file from the OS, so the whole
+     window is what lights up. Deliberately a DIFFERENT visual language from the
+     internal-drag vocabulary: a full-bleed inset frame rather than a ring around
+     one element, because "anywhere works" is the message and picking out a
+     single panel would contradict it.
+     Created on demand and position:fixed, so it costs nothing until a file is
+     actually over the window and it never participates in layout. */
+  function fileDropVeil(show) {
+    var el = document.getElementById('lp-file-drop-veil');
+    if (!el) {
+      if (!show) return;
+      el = document.createElement('div');
+      el.id = 'lp-file-drop-veil';
+      el.className = 'lp-file-drop-veil';
+      el.setAttribute('aria-hidden', 'true');
+      el.innerHTML = '<span class="lp-file-drop-card">' +
+        '<span class="lp-file-drop-arrow"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" ' +
+        'stroke="var(--on-signal)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M12 5v14M5 12l7 7 7-7"/></svg></span>' +
+        'Drop the video anywhere</span>';
+      document.body.appendChild(el);
+    }
+    el.hidden = !show;
+  }
+
   function setOnb(state) { // null | 'drop' | 'detected'
     LP.state.onb = state;
+    // 'drop' means a real file is hovering the window; anything else clears it.
+    fileDropVeil(state === 'drop');
     var ov = $('onb-overlay');
     if (state === null) {
       if (ov) {
@@ -4030,11 +4828,19 @@
       renderComponents(); renderOffer(); renderChecking(); renderChecklist(); renderStartupFailure();
       // Runtime Setup is a blocking gate. It has no renderer-side exit or
       // bypass path; the only checklist action is Done after green verdicts.
-      // runtime-checking-heading and runtime-checklist-heading carry
-      // tabindex="-1" keeps the state headings available as stable focus
-      // targets while the backend remains authoritative for every verdict.
-      var targets = { gate: 'btn-runtime-repair', confirm: 'btn-runtime-confirm', repairing: 'btn-runtime-cancel', offline: 'btn-runtime-offline-retry', failed: 'btn-runtime-failed-retry', diagnostics: 'runtime-diagnostics-heading', ready: 'runtime-ready-heading',
-        checking: 'runtime-checking-heading', checklist: 'runtime-checklist-heading', startup_failed: 'btn-startup-retry' };
+      // Focus moves ONLY to genuinely interactive elements. The state headings
+      // used to carry tabindex="-1" and be focused here so a screen reader
+      // announced each new state -- but Chromium counts that programmatic
+      // focus as :focus-visible, so the global focus ring painted a blue
+      // rectangle around a heading nobody could interact with, which read as
+      // a rendering bug until the next click cleared it. The announcement was
+      // redundant anyway: every state change already writes a sentence into
+      // #runtime-live-polite / #runtime-live-assertive, which is what a live
+      // region is for. States with no focusable content (checking, ready) now
+      // move focus nowhere; #app is inert while the gate is open, so there is
+      // nothing for a stray Tab to escape to.
+      var targets = { gate: 'btn-runtime-repair', confirm: 'btn-runtime-confirm', repairing: 'btn-runtime-cancel', offline: 'btn-runtime-offline-retry', failed: 'btn-runtime-failed-retry', diagnostics: 'btn-runtime-copy',
+        startup_failed: 'btn-startup-retry' };
       if (next === 'checklist' && view.checklistReady) targets.checklist = 'btn-runtime-done';
       if (stateChanged) {
         var target = $(targets[next]); if (target) target.focus();
@@ -7883,9 +8689,15 @@
       if (e.key === 'Escape') dragScroll.stop();
     }, true);
     dz.addEventListener('dragenter', function (e) { e.preventDefault(); });
+    /* The internal-drag guards here used to stopPropagation(), which was aimed
+       at the window handler below but also blocked the event from ever reaching
+       LPDrag's delegated listeners on document -- so dragging a lecture across
+       the dropzone went dark: no target paint, no status strip, no explanation.
+       A plain return is enough now, because the window handlers check for an
+       internal drag themselves. */
     dz.addEventListener('dragover', function (e) {
+      if (readInternalJobDrag(e).length || internalJobDragIds.length || LPDrag.dragging()) return;
       e.preventDefault();
-      if (readInternalJobDrag(e).length || internalJobDragIds.length) { e.stopPropagation(); return; }
       if (hasDemoDrag(e)) { dz.classList.add('lp-demo-drop-hover'); return; }
       if (LP.state.onb !== 'detected') setOnb('drop');
     });
@@ -7893,16 +8705,25 @@
       if (hasDemoDrag(e)) clearDemoDropState();
     });
     dz.addEventListener('drop', function (e) {
+      if (readInternalJobDrag(e).length || internalJobDragIds.length || LPDrag.dragging()) return;
       e.preventDefault();
-      if (readInternalJobDrag(e).length || internalJobDragIds.length) { e.stopPropagation(); return; }
       if (hasDemoDrag(e)) { clearDemoDropState(); useDroppedDemo(); return; }
       importDroppedFiles(e.dataTransfer && e.dataTransfer.files);
     });
     // Electron owns the document-level drop path too. Ignore the dropzone here
     // because its handler already imported the first file and the event bubbles.
     window.addEventListener('dragover', function (e) {
+      /* ORDER MATTERS, and getting it wrong was the whole "internal drag is
+         broken" complaint. This preventDefault() is what makes the entire
+         window a valid drop target so an external video can be dropped on any
+         screen -- but it used to run BEFORE the internal-drag check, so an
+         internal lecture drag also got a window-wide "yes, drop here" cursor
+         while only one element could actually act on it. The cursor promised a
+         drop that silently did nothing, everywhere.
+         Internal drags now bail out FIRST, leaving the browser to paint its own
+         no-drop cursor anywhere LPDrag has not claimed a target. */
+      if (readInternalJobDrag(e).length || internalJobDragIds.length || LPDrag.dragging()) return;
       e.preventDefault();
-      if (readInternalJobDrag(e).length || internalJobDragIds.length) return;
       if (hasDemoDrag(e)) return;
       var types = e.dataTransfer && e.dataTransfer.types;
       var hasFiles = false;
@@ -7914,42 +8735,31 @@
       if (LP.state.onb === 'drop') setOnb(null);
     });
     window.addEventListener('drop', function (e) {
+      // Same ordering rule as the dragover above: an internal drag must never
+      // reach importDroppedFiles(), and must not be cancelled here either --
+      // LPDrag has already handled it and stopped propagation if it landed.
+      if (readInternalJobDrag(e).length || internalJobDragIds.length || LPDrag.dragging()) return;
       e.preventDefault();
-      if (readInternalJobDrag(e).length || internalJobDragIds.length) return;
       setOnb(null);
       if (e.target && e.target.closest && e.target.closest('#dropzone')) return;
       importDroppedFiles(e.dataTransfer && e.dataTransfer.files);
     });
 
-    var processQueueTargets = [$('process-queue-target'), document.querySelector('[data-nav="process"]')].filter(Boolean);
-    processQueueTargets.forEach(function (processQueueTarget) {
-      processQueueTarget.addEventListener('dragover', function (e) {
-        if (!readInternalJobDrag(e).length && !internalJobDragIds.length) return;
-        e.preventDefault(); e.stopPropagation();
-        e.dataTransfer.dropEffect = 'move';
-        processQueueTarget.classList.add('lp-existing-drop-hover');
-      });
-      processQueueTarget.addEventListener('dragleave', function (e) {
-        if (!processQueueTarget.contains(e.relatedTarget)) processQueueTarget.classList.remove('lp-existing-drop-hover');
-      });
-      processQueueTarget.addEventListener('drop', function (e) {
-        var ids = readInternalJobDrag(e);
-        if (!ids.length && internalJobDragIds.length) ids = internalJobDragIds.slice();
-        if (!ids.length) return;
-        e.preventDefault(); e.stopPropagation();
-        processQueueTarget.classList.remove('lp-existing-drop-hover');
-        internalJobDragIds = [];
-        if (processQueueTarget.dataset.nav === 'process') setScreen('process');
-        var again = ids.map(_jobById).filter(_jobIsReprocessable).length > 0;
-        (again ? confirmReprocess(ids) : Promise.resolve(false)).then(function (agreed) {
-          if (again && !agreed) return;
-          return queueExistingJobIds(ids, { reprocess: again }).then(function (result) {
-            var count = result && Number.isFinite(result.count) ? result.count : ids.length;
-            toast(count + ' lecture' + (count === 1 ? '' : 's') + ' queued');
-          }, function () { toast('The selected lectures could not be queued.'); });
-        });
-      });
-    });
+    /* The Process drop targets are now DECLARED, not wired. LPDrag delegates
+       from document, so these two elements need only say what they accept --
+       and the reprocess confirmation below is unchanged, because dropping a
+       finished lecture on Process still replaces its slides and Study pack. */
+    /* #dropzone is in this list because it SAYS "Drop a lecture video anywhere"
+       and then refused the app's own lectures -- reported as "I can't drag a
+       lecture from Recent onto the dropzone". Dropping an existing lecture on
+       the import zone can only sensibly mean "put this through the pipeline",
+       which is exactly the Process semantic, so it shares that entry rather
+       than growing a third one. External file drops on the same element are
+       untouched: dz's own handlers still run for those and bail out only for
+       internal drags. */
+    Array.prototype.slice.call(document.querySelectorAll('#process-queue-target, [data-existing-job-drop-target], [data-nav="process"], #dropzone'))
+      .forEach(function (el) { el.dataset.lpDrop = 'process'; });
+    LPDrag.wire();
 
     $('btn-show-empty').addEventListener('click', function () { setJobsEmpty(true); });
     // "Try the demo lecture" (N-3): the empty-state recovery action opens the
@@ -8057,28 +8867,11 @@
       // running, failed, cancelled) opens Process with its final/live state.
       selectJob(jobId, { screen: cardJob && cardJob.status === 'done' ? 'review' : 'process' });
     });
-    $('jobs-grid').addEventListener('dragstart', function (e) {
-      var card = e.target.closest('.lp-card[data-existing-job-drag="true"]');
-      if (!card || !e.dataTransfer) return;
-      var ids = internalDragIdsFor(card.dataset.job);
-      if (!ids.length) { e.preventDefault(); return; }
-      internalJobDragIds = ids.slice();
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData(INTERNAL_JOB_DRAG_MIME, JSON.stringify(ids));
-      e.dataTransfer.setData('text/plain', ids.length + ' LecturePack lecture' + (ids.length === 1 ? '' : 's'));
-      var ghost = createInternalDragGhost(ids.length);
-      try { e.dataTransfer.setDragImage(ghost, 18, 18); } catch (err) {}
-      setTimeout(function () { if (ghost.parentNode) ghost.remove(); }, 0);
-      card.classList.add('lp-dragging');
-    });
-    $('jobs-grid').addEventListener('dragend', function (e) {
-      var card = e.target.closest('.lp-card[data-existing-job-drag="true"]');
-      if (card) card.classList.remove('lp-dragging');
-      internalJobDragIds = [];
-      Array.prototype.forEach.call(document.querySelectorAll('[data-existing-job-drop-target], [data-nav="process"]'), function (target) {
-        target.classList.remove('lp-existing-drop-hover');
-      });
-    });
+    /* The lecture-card dragstart/dragend that used to live here moved into
+       LPDrag's delegated handlers. It could not stay: renderJobs() rebuilds
+       #jobs-grid via innerHTML, and while the listener on the grid itself
+       survived, every new surface would have needed its own copy of this. One
+       registry, one lift path, five surfaces. */
 
     $('jobs-grid').addEventListener('dblclick', function (e) {
       var title = e.target.closest('.lp-card[data-job] [data-job-title]');

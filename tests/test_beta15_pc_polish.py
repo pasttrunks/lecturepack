@@ -140,9 +140,16 @@ def test_only_queueable_job_cards_are_draggable() -> None:
     paused or already in the queue stays undraggable."""
     app = read(APP)
     card = block(app, "function _jobCardHtml", "/* ==================== import from a link")
-    assert "draggable ? 'draggable=\"true\" data-existing-job-drag=\"true\" ' : ''" in card
+    # One conditional gates every drag attribute, so an ineligible card cannot
+    # acquire one of them by accident. The native draggable="true" was dropped
+    # when the pointer-driven drag layer took over: leaving it on would let
+    # Chromium start its own unstyleable drag for the same press.
+    assert "draggable ? 'data-existing-job-drag=\"true\" data-lp-drag=\"lecture\" ' : ''" in card
     assert "cursor:' + (draggable ? 'grab' : 'pointer')" in card
     assert "var draggable = _jobIsDraggable(j);" in card
+    # The grip is the resting affordance, and its ABSENCE is the honest signal
+    # on a card that could never lift.
+    assert "var grip = draggable" in card
     # The Start/Options button row must stay on _jobIsReady: a finished lecture
     # becoming draggable must not also grow a Start button.
     assert "if (j.id && ready) {" in card

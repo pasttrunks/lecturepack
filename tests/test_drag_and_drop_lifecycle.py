@@ -70,24 +70,38 @@ def test_internal_drag_accepts_unstarted_and_finished_lectures_but_not_running()
 
 
 def test_dropping_a_finished_lecture_on_process_asks_before_reprocessing():
-    body = APP[APP.index("processQueueTargets.forEach"):][:2600]
+    # The per-element Process handler became dropLecturesOnProcess(), reached
+    # through the LPDrag registry instead of its own listener. The reprocess
+    # guard is what matters and it moved verbatim.
+    body = APP.split("function dropLecturesOnProcess(ids, host)", 1)[1][:1200]
     assert "_jobIsReprocessable" in body
     assert "confirmReprocess(ids)" in body
     assert "if (again && !agreed) return;" in body, "declining must not queue anything"
 
 
 def test_internal_drag_state_is_cleared_when_the_drag_ends():
-    body = APP[APP.index("$('jobs-grid').addEventListener('dragend'"):][:700]
+    """Teardown is now in ONE place -- LPDrag.finish() -- instead of a
+    per-surface dragend. Every drag ending routes through it, so a new surface
+    cannot forget to clean up after itself."""
+    module = APP.split("var LPDrag = (function () {", 1)[1]
+    body = module.split("function finish() {", 1)[1].split("\n    }", 1)[0]
     assert "internalJobDragIds = []" in body
-    assert "lp-existing-drop-hover" in body
+    assert "lp-dragging" in body
+    assert "active = null" in body
+    # The Process target's own hover class is cleared by the shared painter.
+    paint = APP.split("function clearTargetPaint() {", 1)[1].split("\n    }", 1)[0]
+    assert "lp-existing-drop-hover" in paint
+    assert "lp-drop-ok" in paint and "lp-drop-bad" in paint
 
 
 # --------------------------------------------------------------- auto-scroll
 def test_there_is_exactly_one_auto_scroll_manager():
     assert APP.count("var dragScroll = (function () {") == 1
     # No ad-hoc scrolling bolted onto the individual drop targets.
-    for owner in ("dz.addEventListener('dragover'", "processQueueTarget.addEventListener('dragover'"):
-        body = APP[APP.index(owner):][:700]
+    # The internal path is pointer-driven now; its move handler is the place a
+    # bespoke scroll would most tempt someone.
+    for owner in ("dz.addEventListener('dragover'", "function updateAt(x, y) {", "function onPointerMove(e) {"):
+        body = APP[APP.index(owner):][:900]
         assert "scrollTop +=" not in body, f"{owner} grew its own scrolling"
 
 
@@ -124,3 +138,17 @@ def test_every_drag_ending_stops_the_scroll():
     tail = APP[APP.index("window.addEventListener('drop', function () { dragScroll.stop(); }, true);"):][:900]
     assert "dragScroll.stop()" in tail
     assert "Escape" in tail, "Esc cancels a drag without firing drop"
+
+
+def test_the_pointer_drag_path_still_auto_scrolls():
+    """DEF-023 could regress by a NEW route: auto-scroll was wired to the native
+    `dragover`, which a pointer-driven drag never fires -- so a lecture lifted at
+    the bottom of a long library could not reach the Process tab. The pointer
+    move handler must drive the SAME manager, and teardown must stop it."""
+    move = APP.split("function onPointerMove(e) {", 1)[1].split("\n    }", 1)[0]
+    assert "dragScroll.update(e.clientX, e.clientY)" in move
+    module = APP.split("var LPDrag = (function () {", 1)[1]
+    finish = module.split("function finish() {", 1)[1].split("\n    }", 1)[0]
+    assert "dragScroll.stop()" in finish
+    # and still exactly one manager overall
+    assert APP.count("var dragScroll = (function () {") == 1

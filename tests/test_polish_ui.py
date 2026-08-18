@@ -112,7 +112,11 @@ def test_stacked_review_column_has_a_definite_height() -> None:
 def test_existing_lecture_drag_queues_ids_without_reimporting() -> None:
     assert 'data-existing-job-drag="true"' in JS
     assert "application/x-lecturepack-job-ids" in JS
-    assert "createInternalDragGhost" in JS
+    # createInternalDragGhost is gone: it built a bitmap for the NATIVE drag
+    # image, which the OS composites and which therefore could not be tilted,
+    # scaled or eased. Internal drags now carry a live cloned element instead.
+    assert "createInternalDragGhost" not in JS
+    assert "function buildProxy(src, count, x, y)" in JS
     assert "queueExistingJobIds" in JS
     # The request is built up now that a drop can also carry the reprocess
     # opt-in, but it is still one queue_jobs call over the existing IDs --

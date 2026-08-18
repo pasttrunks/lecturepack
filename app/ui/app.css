@@ -70,6 +70,15 @@ button:disabled{cursor:not-allowed}
    for as long as they held focus. */
 :focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .lp-nav:focus-visible,.lp-card:focus-visible{outline-offset:-2px}
+/* Backstop for a real shipped bug: script that calls .focus() on a
+   NON-interactive element (a heading with tabindex="-1", used to steer a
+   screen reader) counts as :focus-visible in Chromium, so the ring above
+   painted a blue rectangle around static text that only cleared on the next
+   click. The Runtime setup gate did exactly this and it read as a rendering
+   fault. The primary fix is to not focus non-interactive elements -- prefer an
+   aria-live region -- but where a script focus target is unavoidable, mark it
+   with data-programmatic-focus and it will never paint a ring. */
+[data-programmatic-focus]:focus-visible{outline:none}
 /* the ring must never animate -- keyboard users get it instantly */
 *:focus-visible{transition-property:transform,background,border-color,color}
 
@@ -773,8 +782,219 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 #downloads-panel.lp-download-popover button{font:600 11px 'Space Grotesk';border:1.5px solid var(--border);border-radius:6px;padding:4px 7px;background:var(--panel);color:var(--ink);cursor:pointer}
 #downloads-panel.lp-download-popover button:hover{background:var(--panel2)}
 .lp-drag-ghost{position:fixed;left:-10000px;top:-10000px;z-index:300;padding:9px 12px;border:2px solid var(--orange);border-radius:9px;background:var(--panel);color:var(--ink);box-shadow:var(--shadow-hi);font:700 12px 'Space Grotesk';white-space:nowrap}
+/* The drag image carries the CARD FACE. Dragging a lecture should look like
+   carrying the lecture; a bare text pill read like a tooltip that had come
+   loose, and said nothing about WHICH lecture was in flight. Falls back to the
+   pill above whenever the poster has not decoded yet, since setDragImage()
+   snapshots synchronously and would capture a blank frame. */
+/* NO position here: .lp-drag-ghost above is position:fixed, and re-declaring
+   relative silently overrode it -- the ghost stayed off-screen only because of
+   its left offset, while still reserving a 172px block in the layout flow for
+   the duration of every drag. `fixed` already establishes the containing block
+   the count chip needs. */
+.lp-drag-ghost-card{padding:0;width:172px;white-space:normal;overflow:hidden}
+.lp-drag-ghost-thumb{display:block;width:100%;height:97px;background:var(--sunk);border-bottom:2px solid var(--orange);overflow:hidden}
+.lp-drag-ghost-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.lp-drag-ghost-card .lp-drag-ghost-label{display:block;padding:8px 10px;font:700 12px 'Space Grotesk';
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lp-drag-ghost-count{position:absolute;top:6px;right:6px;min-width:20px;height:20px;padding:0 5px;
+  display:flex;align-items:center;justify-content:center;border:2px solid var(--border);border-radius:8px;
+  background:var(--orange);color:var(--on-signal);font:700 11px 'JetBrains Mono'}
 .lp-card.lp-dragging{opacity:.58;cursor:grabbing}
 #process-queue-target.lp-existing-drop-hover,[data-nav="process"].lp-existing-drop-hover{outline:3px solid var(--orange);outline-offset:-6px;background:var(--orange-soft)}
+
+/* --- internal drag: ONE vocabulary for every surface -----------------------
+   Before this block the app had exactly one internal drag (lecture card ->
+   Process) and every other release did nothing, silently -- which is why the
+   feature read as broken rather than as absent. The rules below are shared by
+   all internal drags so a lecture, a queue row and a subject header all speak
+   the same language, and -- most importantly -- so a drag that CANNOT land
+   says so instead of evaporating.
+
+   Colours come from tokens, never literals: --orange is #EF5A1E in light but
+   #FF6C36 in dark, and --orange-soft inverts outright (#FBE2D5 -> #38220F), so
+   a hardcoded hex would fail one theme.
+
+   Geometry: no transitions on size or position anywhere in here. AD-20 kept
+   "normal animations" but specifically removed the geometry transitions that
+   cost compositor work on weaker Windows machines, and a drop indicator that
+   eases between positions lags the pointer and reads as unresponsive. The
+   lifted object is the browser's own native drag image, so it needs no CSS. */
+
+/* Grip: the resting affordance. Its ABSENCE on an ineligible card is how the
+   app stops advertising a drag that could never land. */
+/* The grip is revealed on APPROACH, not painted at rest. A lecture thumbnail
+   already carries a poster, a status badge and a menu; a fourth permanent glyph
+   was the difference between a full card and a congested one. Hover/focus is
+   the right moment because nobody drags a card they are not pointing at, and
+   `cursor:grab` still answers "can I lift this?" the instant the pointer
+   arrives. An ineligible card reveals nothing on hover, so the affordance stays
+   honest -- it is deferred, not removed. */
+/* BOTTOM-left, not top-left. The top of a lecture thumbnail is fully occupied:
+   the subject badge is a 159px pill pinned top-left, the status badge sits
+   top-right, and the hover menu lands on top of that. A grip at top:9px/left:9px
+   landed INSIDE the subject badge -- measured overlap, and the reported cause of
+   the card looking congested. The bottom edge carries nothing but poster.
+   It is a small panel chip rather than bare bars because it has to stay legible
+   over an arbitrary video frame, where a 2px line in --border can vanish. */
+.lp-drag-grip{position:absolute;bottom:9px;left:9px;z-index:3;width:20px;height:20px;
+  display:grid;grid-template-columns:repeat(2,3px);grid-auto-rows:3px;gap:2.5px;
+  align-content:center;justify-content:center;
+  background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:0;cursor:grab;
+  opacity:0;transition:opacity 90ms linear}
+/* Six dots, the conventional grab handle. Two bars read as a slider or a
+   pause glyph; the 2x3 dot grid is the shape users already know means "drag". */
+.lp-drag-grip i{display:block;width:3px;height:3px;background:var(--border);border-radius:50%}
+.lp-card:hover .lp-drag-grip,.q-card:hover .lp-drag-grip,
+.lp-card:focus-within .lp-drag-grip,.q-card:focus-within .lp-drag-grip,
+[data-lp-drag].lp-dragging .lp-drag-grip{opacity:1}
+.lp-drag-grip:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+/* Keyboard move mode armed: the grip inverts so the armed row is unmistakable. */
+.lp-drag-grip[aria-pressed="true"]{background:var(--orange);border-radius:3px}
+.lp-drag-grip[aria-pressed="true"] i{background:var(--on-signal)}
+[data-lp-drag]{cursor:grab}
+[data-lp-drag] .lp-card-body,[data-lp-drag] .q-body{cursor:default}
+
+/* Lifted source: vacated, not merely faded. The hard offset shadow drops so
+   the card reads as a hole rather than a dimmed card. */
+[data-lp-drag].lp-dragging{opacity:.4;border-style:dashed!important;box-shadow:none!important;cursor:grabbing}
+
+/* CANDIDATE: every place this drag COULD land, lit the moment the lift starts.
+   This answers "where is it droppable?" before the user goes hunting -- the old
+   system only ever reacted to the target under the pointer, so the answer was
+   invisible until you had already guessed right.
+   An OUTLINE, not a border: outlines are drawn outside the box and cost no
+   layout, so lighting up six targets at once cannot reflow the page. */
+.lp-drop-candidate{outline:2px dashed var(--orange);outline-offset:-4px}
+/* Valid target: an INSET ring, so a target never grows and never nudges its
+   neighbours mid-drag. Only the colours cross-fade. The candidate dashes are
+   dropped here so the hovered target reads as solid-and-armed, not merely
+   possible -- two orange treatments at once would be noise. */
+.lp-drop-ok{box-shadow:inset 0 0 0 3px var(--orange)!important;background:var(--orange-soft)!important;
+  outline:none!important;
+  transition:background-color 90ms linear,box-shadow 90ms linear}
+/* Invalid target: dashed red plus a no-drop cursor. Never colour alone -- the
+   state has to survive greyscale and both themes. */
+.lp-drop-bad{border-color:var(--red)!important;border-style:dashed!important;background:var(--red-soft)!important;cursor:no-drop!important;
+  transition:background-color 90ms linear,border-color 90ms linear}
+/* Landed: one colour flash on the element that moved. Position is final on
+   frame one; nothing travels. */
+@keyframes lpdropsettle{from{background:var(--orange-soft)}to{background:var(--panel)}}
+.lp-drop-settle{animation:lpdropsettle 140ms linear 1}
+
+/* Insertion indicator, reorder only. The queue is a WRAPPING grid (row-major),
+   not a vertical list, so the bar is vertical and sits on the leading edge of
+   the card it would insert before -- a horizontal full-width bar would be
+   meaningless across a wrapped row. Positioned fixed from a measured rect so
+   it needs no positioned ancestor and survives the list's innerHTML rerenders.
+   Cards never part to make room: opening a gap is geometry animation and it
+   jitters when the pointer rests near a boundary. */
+.lp-drop-insert{position:fixed;z-index:301;width:3px;border-radius:2px;background:var(--orange);
+  box-shadow:0 0 0 2px var(--border);pointer-events:none}
+
+/* The status strip. This is the piece that actually kills silent failure: it
+   is live for the whole drag, it names the verb and the destination, and on an
+   invalid release it PERSISTS with the reason instead of vanishing. It is also
+   the aria-live region, so the sighted and screen-reader channels are the same
+   string and cannot drift apart. */
+.lp-drag-strip{position:fixed;left:0;right:0;bottom:0;z-index:302;height:36px;
+  display:flex;align-items:center;gap:10px;padding:0 16px;box-sizing:border-box;
+  background:var(--panel);border-top:2px solid var(--border);color:var(--ink);
+  font:500 12px 'JetBrains Mono';white-space:nowrap;overflow:hidden}
+.lp-drag-strip[hidden]{display:none}
+.lp-drag-strip .lp-drag-strip-verb{color:var(--muted)}
+.lp-drag-strip[data-tone="bad"]{background:var(--red-soft);border-top-color:var(--red)}
+.lp-drag-strip[data-tone="bad"] .lp-drag-strip-verb{color:var(--red)}
+.lp-drag-strip[data-tone="ok"]{background:var(--orange-soft);border-top-color:var(--orange)}
+.lp-drag-strip[data-tone="done"]{background:var(--green-soft);border-top-color:var(--green)}
+.lp-drag-strip[data-tone="done"] .lp-drag-strip-verb{color:var(--green)}
+
+/* prefers-reduced-motion: one rule, because nothing in the drag system moves.
+   Only the two colour cross-fades and the settle flash are dropped. */
+@media (prefers-reduced-motion:reduce){
+  .lp-drop-ok,.lp-drop-bad{transition:none}
+  .lp-drag-grip{transition:none}
+  .lp-drop-settle{animation:none}
+}
+/* Forced-colours / high-contrast: the orange ring and the dashed candidate
+   outline both collapse to the system highlight, so the two states stay
+   distinguishable by STYLE (solid vs dashed) rather than by hue alone. */
+@media (forced-colors:active){
+  .lp-drop-candidate{outline:2px dashed Highlight}
+  .lp-drop-ok{outline:3px solid Highlight!important}
+  .lp-drop-bad{outline:2px dashed GrayText!important}
+}
+/* The Subjects-view row variant: the row is a flex line, not a poster, so the
+   grip sits inline at its leading edge instead of being absolutely placed. */
+.subject-member-row{position:relative}
+.lp-drag-grip-row{position:static;flex:none;margin-right:8px}
+.subject-member-row:hover .lp-drag-grip-row,
+.subject-member-row:focus-within .lp-drag-grip-row{opacity:1}
+
+/* --- the carried card ------------------------------------------------------
+   This replaces the native drag image, which the OS composites as a flat
+   bitmap and which therefore cannot be tilted, scaled, shadowed or eased. It
+   is ONE fixed element, transform-only, and it exists only while a drag is in
+   flight -- so the compositor cost AD-20 cared about is bounded to the gesture
+   and never touches the resting UI.
+   pointer-events:none is load-bearing: the drag layer resolves its target with
+   elementFromPoint, which must see through the card being carried. */
+.lp-drag-proxy{position:fixed;left:0;top:0;z-index:305;pointer-events:none;
+  will-change:transform;transform-origin:50% 50%;
+  filter:drop-shadow(0 14px 22px rgba(0,0,0,.28)) drop-shadow(0 3px 0 var(--border))}
+.lp-drag-proxy-face{box-shadow:none!important;opacity:1!important;border-style:solid!important}
+.lp-drag-proxy.is-ok .lp-drag-proxy-face{border-color:var(--orange)!important}
+.lp-drag-proxy.is-bad .lp-drag-proxy-face{border-color:var(--red)!important;border-style:dashed!important}
+/* Only the settle transitions, and only transform/opacity -- both compositor
+   properties, so the snap cannot trigger layout. */
+.lp-drag-proxy-settling{transition:transform 190ms cubic-bezier(.2,.9,.3,1.15),opacity 190ms linear}
+/* The deck: offset faces behind the front one for a multi-select. Never fanned
+   at an angle -- a fan implies an order the selection does not have. */
+.lp-drag-proxy-back{position:absolute;inset:0;border:2px solid var(--border);border-radius:14px;
+  background:var(--panel2);z-index:-1}
+.lp-drag-proxy-count{position:absolute;top:-9px;right:-9px;min-width:24px;height:24px;padding:0 6px;
+  display:flex;align-items:center;justify-content:center;border:2px solid var(--border);border-radius:9px;
+  background:var(--orange);color:var(--on-signal);font:700 12px 'JetBrains Mono'}
+/* While carrying, the cursor says "grabbing" everywhere, not just on the card. */
+body.lp-drag-in-flight,body.lp-drag-in-flight *{cursor:grabbing!important}
+
+/* --- text selection policy -------------------------------------------------
+   Dragging a card used to paint the accidental blue text highlight across its
+   title, because a card is text and a press-and-move over text selects it.
+   Cards therefore do not select by default. Ctrl/Cmd hands selection back for
+   the case where someone genuinely wants to copy a lecture name, and the
+   transcript is exempt outright -- it exists to be read and quoted. */
+[data-lp-drag],.lp-card,.q-card,.subject-card{user-select:none;-webkit-user-select:none;-webkit-user-drag:none}
+body.lp-text-select [data-lp-drag],body.lp-text-select .lp-card,
+body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-webkit-user-select:text}
+#transcript,#transcript *,[data-transcript],[data-transcript] *,
+.lp-transcript,.lp-transcript *{user-select:text!important;-webkit-user-select:text!important}
+
+/* --- OS file drop: the WHOLE window is the target -------------------------
+   The app advertises "drop a lecture video anywhere" and that is literally
+   true, so the affordance is the window itself rather than one panel. Inset
+   border and a fixed overlay: no layout, nothing reflows, and it cannot be
+   confused with the internal-drag vocabulary because it is a full-bleed frame
+   rather than a ring around one element. */
+.lp-file-drop-veil{position:fixed;inset:0;z-index:299;pointer-events:none;
+  background:var(--orange-soft);opacity:.34;
+  box-shadow:inset 0 0 0 4px var(--orange);
+  display:flex;align-items:center;justify-content:center}
+.lp-file-drop-veil[hidden]{display:none}
+.lp-file-drop-veil .lp-file-drop-card{display:flex;align-items:center;gap:12px;
+  background:var(--panel);border:2px solid var(--border);border-radius:14px;
+  padding:14px 20px;box-shadow:var(--shadow-hard);
+  font:700 15px 'Space Grotesk';color:var(--ink);opacity:1}
+.lp-file-drop-veil .lp-file-drop-arrow{width:22px;height:22px;border-radius:6px;
+  background:var(--orange);display:flex;align-items:center;justify-content:center;
+  animation:lpdropnudge 1.1s ease-in-out infinite}
+@keyframes lpdropnudge{0%,100%{transform:translateY(-2px)}50%{transform:translateY(3px)}}
+
+@media (prefers-reduced-motion:reduce){
+  .lp-drag-proxy-settling{transition:none}
+  .lp-file-drop-veil .lp-file-drop-arrow{animation:none}
+}
+
 /* --- Home library: group containers + adaptive density ---------------------
    Two complaints, one layout. Recent lectures were a hard-coded
    `repeat(3,1fr)` regardless of window width, and the queue was one full-width
@@ -797,6 +1017,25 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
 .lib-group-code{font:700 11px 'JetBrains Mono';letter-spacing:.08em;padding:3px 7px;
   border:1.5px solid var(--border);border-radius:6px;background:var(--panel);color:var(--ink)}
 .lib-group-count{font:500 11px 'JetBrains Mono';color:var(--muted);margin-left:auto;flex:none}
+/* Rename pencil, matching the Subjects card affordance. Quiet until the header
+   is hovered so it does not compete with the subject code at rest. */
+/* Deliberately unanimated: the Home library block forbids easing of any kind,
+   because this region was the confirmed flicker hot spot on the affected
+   laptop, and the rule is stricter here than elsewhere in the stylesheet. An
+   instant show on hover costs a 22px icon nothing. */
+.lib-group-rename{flex:none;display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;padding:0;border:1.5px solid transparent;border-radius:6px;
+  background:transparent;color:var(--muted);cursor:pointer;opacity:0}
+.lib-group-head:hover .lib-group-rename,.lib-group-head:focus-within .lib-group-rename{opacity:1}
+.lib-group-rename:hover{color:var(--ink);border-color:var(--border);background:var(--panel)}
+.lib-group-rename:focus-visible{opacity:1;outline:2px solid var(--blue);outline-offset:1px}
+/* Select-whole-subject. Always visible while select mode is on -- it is the
+   action of the moment, so hiding it behind hover would be wrong. */
+.lib-group-select{flex:none;font:600 11px 'Space Grotesk';padding:4px 9px;cursor:pointer;
+  border:1.5px solid var(--border);border-radius:7px;background:var(--panel);color:var(--ink)}
+.lib-group-select:hover{background:var(--sunk)}
+.lib-group-select[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:var(--on-signal)}
+.lib-group-select:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
 /* Collapse toggle. A real button, first in the header and in the tab order, so
    a stacked Home can be folded down by keyboard as well as by pointer. The
    glyph carries the state and aria-expanded states it for screen readers, so

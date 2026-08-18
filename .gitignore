@@ -71,3 +71,6 @@ claude-promo-video/
 build-artifacts/
 release-out/
 prev-release/
+
+# Electron production-run logs (test output, regenerated per run)
+electron-production-results/

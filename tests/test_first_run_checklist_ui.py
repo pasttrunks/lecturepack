@@ -350,9 +350,20 @@ def test_every_overlay_id_has_a_writer_in_app_js_except_the_static_label() -> No
     writer anywhere in app.js is a permanent hardcoded value. Two allowlisted
     ids are static markup -- the overlay's aria-labelledby target and its
     checklist body copy -- and the allowlist cardinality is asserted so it
-    cannot quietly grow."""
-    allow = {"runtime-setup-title", "runtime-checklist-body"}
-    assert len(allow) == 2
+    cannot quietly grow.
+
+    The four state headings joined that allowlist deliberately: they were only
+    ever referenced from app.js as .focus() targets, and focusing a
+    non-interactive heading painted a stray blue :focus-visible ring. Their
+    copy is unconditional production text and their announcement now comes from
+    the aria-live regions, so having no writer is the correct end state, not a
+    BUG-04 hardcoded value. They keep their ids as aria/query anchors."""
+    allow = {
+        "runtime-setup-title", "runtime-checklist-body",
+        "runtime-checking-heading", "runtime-checklist-heading",
+        "runtime-ready-heading", "runtime-diagnostics-heading",
+    }
+    assert len(allow) == 6
     block = overlay_block()
     app = read_ui("app.js")
     ids = set(re.findall(r'id="([a-z0-9-]+)"', block)) - allow
@@ -400,12 +411,46 @@ def test_app_css_uses_document_width_without_a_viewport_scrollbar_gutter() -> No
     assert "body{width:100vw;" not in css
 
 
-def test_targets_focus_map_routes_checking_to_heading_and_ready_checklist_to_done() -> None:
+def test_targets_focus_map_never_focuses_a_non_interactive_heading() -> None:
+    """Focusing a heading painted a blue :focus-visible ring around static text
+    that only cleared on the next click, and it yanked focus off a button the
+    user was on every time a check resolved. The state headings are therefore
+    NOT focus targets; the live regions carry the announcement instead. Only
+    the checklist's Done button -- genuinely interactive -- is focused."""
     controller = gate_controller_source()
     targets_block = controller.split("var targets = {", 1)[1].split("};", 1)[0]
-    assert "checking: 'runtime-checking-heading'" in targets_block
-    assert "checklist: 'runtime-checklist-heading'" in targets_block
+    for heading in (
+        "runtime-checking-heading",
+        "runtime-checklist-heading",
+        "runtime-ready-heading",
+        "runtime-diagnostics-heading",
+    ):
+        assert heading not in targets_block
+    # Every remaining target is a real control.
+    assert "diagnostics: 'btn-runtime-copy'" in targets_block
     assert "if (next === 'checklist' && view.checklistReady) targets.checklist = 'btn-runtime-done';" in controller
+
+
+def test_runtime_state_headings_are_not_focusable_at_all() -> None:
+    """tabindex="-1" on these headings existed only to make them focus targets.
+    With the focus calls gone it must go too, or a future edit re-enables the
+    ring by re-adding one .focus() line."""
+    markup = read_ui("index.html")
+    for heading in (
+        "runtime-checking-heading",
+        "runtime-checklist-heading",
+        "runtime-ready-heading",
+        "runtime-diagnostics-heading",
+    ):
+        tag = markup.split('id="%s"' % heading, 1)
+        assert len(tag) == 2, heading
+        opening = tag[0].rsplit("<h2", 1)[1] + tag[1].split(">", 1)[0]
+        assert "tabindex" not in opening, heading
+
+
+def test_programmatic_focus_ring_backstop_exists_in_css() -> None:
+    css = read_ui("app.css")
+    assert '[data-programmatic-focus]:focus-visible{outline:none}' in css
 
 
 def test_render_guards_checklist_readiness_and_focuses_done_only_when_green() -> None:

@@ -163,7 +163,7 @@ def test_the_renderer_confirms_before_asking_for_a_reprocess():
     assert "resolve(false)" in body and "resolve(true)" in body
     # The flag is never sent unprompted.
     assert "if (opts && opts.reprocess) request.reprocess = true;" in APP
-    drop = APP.split("processQueueTarget.addEventListener('drop'", 1)[1].split("});", 1)[0]
+    drop = APP.split("function dropLecturesOnProcess(ids, host)", 1)[1][:1200]
     assert "if (again && !agreed) return;" in drop
     assert "queueExistingJobIds(ids, { reprocess: again })" in drop
 
