@@ -417,6 +417,59 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### DEF-031 — the packaged visual acceptance GATE was itself dead, and had been for four releases   ✅ FIXED (both gates now run to completion on the frozen binary)
+- **Area:** `scripts/packaged_visual_acceptance.py`, plus a new
+  `scripts/packaged_drag_acceptance.py`.
+- **Symptom:** every run of the release gate died at the first-run setup step with
+  `RuntimeError: UI element not found: #btn-runtime-continue`, before it reached a single
+  assertion. A gate that exits early looks indistinguishable from a gate that found nothing.
+- **Root cause:** `4cd98da` ("polish setup tour and lecture interactions") removed
+  `#btn-runtime-continue` from the runtime-setup overlay. The overlay now clears via
+  `#btn-runtime-done`; `#btn-runtime-confirm` ("Confirm & repair") stays **disabled** on a
+  machine whose checks are already ready. The gate was never updated, so it referenced an id
+  that no longer existed anywhere in the tree.
+- **Why it matters more than the drag bug it was hiding.** This is the gate whose entire
+  purpose is to catch "shipped dead in every build" — the DEF-025 failure mode. It was
+  broken by a UI rename and stayed broken, silently, while three releases (2.0.4, 2.0.5,
+  2.0.6) went out. **The verifier failed in exactly the way the thing it verifies fails.**
+- **Fix:** click `#btn-runtime-done`, and wait for it to be enabled rather than assuming.
+  The new drag gate additionally asserts its OWN aim before trusting a negative result
+  (see DEF-032) so a dead harness can never again be read as a dead feature.
+- **Lesson:** a gate needs a canary. An early exit and a clean pass are the same exit code
+  to anyone not reading the log, so a gate must assert that it reached its assertions.
+  Grepping for an id costs seconds; four releases of false confidence do not.
+- **Files:** `scripts/packaged_visual_acceptance.py`, `scripts/packaged_drag_acceptance.py`.
+
+### DEF-032 — DEF-026 was verified on the PACKAGED binary, and the harness lied twice first   ✅ FIXED (8/8 checks green on the frozen exe)
+- **Area:** `scripts/packaged_drag_acceptance.py` (new).
+- **Why this exists:** DEF-026 was only ever executed in a real browser
+  (`electron-spike/production-main.js` loading `app/ui` from the worktree). DEF-025 proves
+  that is not enough — it shipped dead in EVERY build having passed browser checks. The
+  internal drag needed to be driven on the frozen executable.
+- **How:** CDP `Input.dispatchMouseEvent`, not JS-dispatched events. Chromium synthesises
+  **trusted** pointer events from it, so the `pointerdown`/`pointermove`/`pointerup` layer
+  sees what a hand produces. A `new PointerEvent()` from `Runtime.evaluate` proves nothing:
+  an untrusted event can drive a listener a real gesture never reaches. The gesture moves in
+  18 steps, because one jump would skip both the lift threshold and the `pointermove`
+  auto-scroll — the DEF-023 regression path — and pass while the gesture is broken.
+- **Two false negatives the harness produced before it was right, both of which looked
+  exactly like "the drag is dead in the packaged app":**
+  1. **Aimed off-screen.** The press point came from `getBoundingClientRect` on a card below
+     the fold. CDP input is dispatched at VIEWPORT coordinates, so it went into nothing.
+     `elementFromPoint` returned `null` — that null was the whole diagnosis.
+  2. **Pressed a modal scrim.** The first drop correctly raised the reprocess confirmation;
+     its scrim then covered the page, so the second gesture pressed `.lp-modal-ov`.
+  Both now fail loudly: the gate refuses to press a point outside the viewport or one where
+  nothing is hit-testable, and it reports what is under the press point on every gesture.
+- **Verified on the packaged binary:** card lifts (`body.lp-drag-in-flight` +
+  `.lp-drag-proxy` mounted), the Process target arms, the drop is announced
+  ("demo lecture queued for processing"), app state changes, reprocess asks before replacing
+  existing work, and a drop on nothing says so out loud ("Can't drop here — was not moved").
+- **Lesson:** a negative result from a harness is a claim about the harness until its aim is
+  proven. Both false negatives would have been filed as a fourth instance of the drag bug.
+  Assert the probe before believing the probe.
+- **Files:** `scripts/packaged_drag_acceptance.py`.
+
 ### DEF-029 — internal drag moved to a POINTER-driven layer so the carried card can have physics   ✅ FIXED (driven with real mouse input in the running app)
 - **Area:** `app/ui/app.js` (`LPDrag` input layer, `buildProxy`/`updateAt`/`commit`/`abandon`),
   `app/ui/app.css` (`.lp-drag-proxy` and friends).
@@ -536,7 +589,7 @@ re-debug the same thing from scratch.
   the real shipped string, `[Lecture Notes]`, `[2024]`, no-file, and id-only. Suite 1858
   passed / 7 skipped.
 
-### DEF-026 — internal drag "did not work": one gesture existed and every other drop failed SILENTLY   ✅ FIXED (executed in a real browser, NOT yet in the packaged app)
+### DEF-026 — internal drag "did not work": one gesture existed and every other drop failed SILENTLY   ✅ FIXED (verified on the PACKAGED binary with trusted pointer input)
 - **Area:** `app/ui/app.js` (new `LPDrag` registry), `app/ui/app.css` (drag vocabulary).
   Sibling of DEF-025 (external drop) and DEF-023 (drag auto-scroll) — same feature, third
   distinct defect. External file drop was working when this was reported.

@@ -1319,7 +1319,12 @@ def run_one(exe: Path, video: Path, output_dir: Path, idle_seconds: float, keep_
 
         run.stage = "first-run-setup"
         run.wait_for(lambda m: m.get("runtime", {}).get("checklist"), "first-run setup checklist", 90)
-        run.click("#btn-runtime-continue")
+        # `#btn-runtime-continue` was removed by 4cd98da and this gate was never
+        # updated, so every run died here with "UI element not found" -- the
+        # release gate itself was dead, which is exactly the failure mode it
+        # exists to catch. "Done" clears the checklist; "Confirm & repair"
+        # stays disabled when the machine is already healthy.
+        run.click("#btn-runtime-done")
         run.wait_for(lambda m: not m.get("runtime", {}).get("visible"), "first-run setup close", 15)
         _run_demo(run)
         _run_navigation_matrix(run)
