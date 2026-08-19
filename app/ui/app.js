@@ -3211,16 +3211,15 @@
   function renderQueue() {
     var wrap = $('home-queue'), list = $('queue-list');
     if (!wrap || !list) return;
-    var jobs = LP.data.jobs || [];
     var q = (LP.data.queue && LP.data.queue.queue) || [];
-    if (!jobs.length) { wrap.hidden = true; list.innerHTML = ''; return; }
+    /* The queue is on screen only when it is actually holding work. It used to
+       sit there permanently saying "No jobs waiting" -- furniture that tells you
+       nothing -- and now that it is a DROP TARGET an empty one would invite a
+       drop onto a queue that is not there. */
+    if (!q.length) { wrap.hidden = true; list.innerHTML = ''; return; }
     wrap.hidden = false;
     var cnt = $('queue-count');
-    if (cnt) cnt.textContent = q.length ? q.length + (q.length === 1 ? ' job queued' : ' jobs queued') : '0 queued';
-    if (!q.length) {
-      list.innerHTML = '<div style="font:500 12px \'JetBrains Mono\';color:var(--muted);padding:12px 2px">No jobs waiting.</div>';
-      return;
-    }
+    if (cnt) cnt.textContent = q.length + (q.length === 1 ? ' job queued' : ' jobs queued');
     // The queue was one full-width row per job, so five queued lectures filled
     // the viewport in a straight line. It is now the same auto-filling grid the
     // library uses. A wrapping grid only keeps its order if the order is
@@ -9097,7 +9096,12 @@
        than growing a third one. External file drops on the same element are
        untouched: dz's own handlers still run for those and bail out only for
        internal drags. */
-    Array.prototype.slice.call(document.querySelectorAll('#process-queue-target, [data-existing-job-drop-target], [data-nav="process"], #dropzone'))
+    /* The QUEUE is the drop target now, not Process. Dropping a lecture onto a
+       queue that is visibly holding work says what it will do; dropping it on a
+       sidebar tab, or on a Process pane that is hidden on every other screen,
+       did not. #dropzone stays registered so there is still somewhere to land
+       when the queue is empty and therefore not on screen. */
+    Array.prototype.slice.call(document.querySelectorAll('#home-queue, #dropzone'))
       .forEach(function (el) { el.dataset.lpDrop = 'process'; });
     LPDrag.wire();
 

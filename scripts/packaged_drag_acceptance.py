@@ -344,21 +344,21 @@ def main() -> int:
         check("drag sources exist in the packaged DOM", bool(inventory.get("sources")), inventory)
 
         # DEF-026's core claim: a drop on the Process tab lands and is announced.
-        gesture = _drag(run, "[data-lp-drag='lecture']", ".lp-nav[data-nav='process']")
+        gesture = _drag(run, "[data-lp-drag='lecture']", "#dropzone")
         report["gesture_process"] = gesture
         check("card lifted on trusted pointer input", gesture["lifted"], gesture)
 
         said = _announcement(run)
         report["announcement_process"] = said
-        check("drop on Process was announced, not silent", "queued for processing" in said.lower(), said)
+        check("the queueing drop was announced, not silent", "queued for processing" in said.lower(), said)
 
         landed = run.wait_for(
             lambda m: m.get("screen") == "process" or bool(m.get("processing", {}).get("source")),
-            "drop on Process took effect",
+            "the queueing drop took effect",
             20,
         )
         check(
-            "drop on Process changed real app state",
+            "the queueing drop changed real app state",
             bool(landed),
             {"screen": landed.get("screen"), "source": landed.get("processing", {}).get("source")},
         )
@@ -431,7 +431,7 @@ def main() -> int:
             "  return true;"
             "})()"
         )
-        _drag(run, "[data-lp-drag='lecture']", ".lp-nav[data-nav='process']")
+        _drag(run, "[data-lp-drag='lecture']", "#dropzone")
         accepted = _dismiss_modal(run, "Process again")
         report["reprocess_accepted"] = accepted
 
@@ -448,7 +448,7 @@ def main() -> int:
         blob = " ".join(lines).lower()
         report["queue_started"] = {"log_lines": lines[-12:]}
         check(
-            "a lecture dropped on Process actually STARTS, not just queues",
+            "a dropped lecture actually STARTS, not just queues",
             any(tok in blob for tok in RAN) and not any(tok in blob for tok in FAILED),
             {"matched": [t for t in RAN if t in blob],
              "failures": [t for t in FAILED if t in blob],
