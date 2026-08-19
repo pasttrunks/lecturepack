@@ -55,11 +55,28 @@ NVIDIA_PRIMARY_MODEL = "meta/llama-3.1-8b-instruct"
 NVIDIA_INTERACTIVE_MODEL = "meta/llama-3.1-8b-instruct"
 NVIDIA_VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl"
 NVIDIA_FIRST_TASKS = "lecture_analysis,study_material_generation,ask,teach_me,grade_short_answer,regenerate_concept,expand_concept_material,vision_slide"
-OPENROUTER_PRIMARY_MODEL = "openrouter/free"
-OPENROUTER_ASK_MODEL = "openrouter/free"
-OPENROUTER_TEACH_ME_MODEL = "openrouter/free"
-OPENROUTER_GRADE_SHORT_ANSWER_MODEL = "openrouter/free"
-OPENROUTER_FALLBACK_MODEL = "openrouter/free"
+# "openrouter/free" is not a real OpenRouter model id -- every OpenRouter call
+# was silently failing and falling through to the next route. These are real,
+# currently-free OpenRouter models (verified against openrouter.ai/api/v1/models
+# on 2026-08-19 -- the free catalog churns, so RE-VERIFY rather than trusting
+# this line). nemotron-3.5-lightning has a 1M-token context, big enough for a
+# full lecture transcript in one pass.
+#
+# Primary and fallback are deliberately DIFFERENT models. Note what this does
+# and does not buy: with every key present the fallback sits at index 4 of 5
+# and is cut by resolveRoutes' .slice(0, 3) regardless, so this is inert in the
+# fully-configured production case. It matters only in degraded configs missing
+# two or more provider keys, where the fallback reaches the top 3 -- and would
+# then have been dropped by the provider|domain|model dedup for being identical
+# to the primary, leaving two routes where three were configured.
+OPENROUTER_PRIMARY_MODEL = "nvidia/nemotron-3.5-lightning:free"
+OPENROUTER_ASK_MODEL = "nvidia/nemotron-3.5-lightning:free"
+OPENROUTER_TEACH_ME_MODEL = "nvidia/nemotron-3.5-lightning:free"
+OPENROUTER_GRADE_SHORT_ANSWER_MODEL = "nvidia/nemotron-3.5-lightning:free"
+OPENROUTER_FALLBACK_MODEL = "dots-studio/dots-3-note-preview:free"
+# No verified free OpenRouter model accepts image input as of this writing, so
+# vision keeps its placeholder; NVIDIA and Gemini already lead vision_slide's
+# route order and this slot is rarely if ever reached.
 OPENROUTER_VISION_MODEL = "openrouter/free"
 OPENROUTER_VISION_FALLBACK_MODEL = "openrouter/free"
 # Group synthesis routes to a STRONGER model than everything else, and is the
@@ -71,8 +88,8 @@ OPENROUTER_VISION_FALLBACK_MODEL = "openrouter/free"
 # group_analysis is deliberately absent from NVIDIA_FIRST_TASKS so it takes the
 # default OpenRouter-first order: it runs once per group and is cached, so the
 # better answer is worth more than the faster one.
-OPENROUTER_GROUP_ANALYSIS_MODEL = "openrouter/free"
-OPENROUTER_GROUP_ANALYSIS_FALLBACK_MODEL = "openrouter/free"
+OPENROUTER_GROUP_ANALYSIS_MODEL = "nvidia/nemotron-3.5-lightning:free"
+OPENROUTER_GROUP_ANALYSIS_FALLBACK_MODEL = "dots-studio/dots-3-note-preview:free"
 WORKERS_AI_PRIMARY_MODEL = "@cf/openai/gpt-oss-20b"
 WORKERS_AI_INTERACTIVE_MODEL = "@cf/openai/gpt-oss-20b"
 WORKERS_AI_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it"

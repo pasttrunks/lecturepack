@@ -1,6 +1,9 @@
 import { buildMessages, maxOutputTokens, schemaForTask, validateTaskResult } from './tasks.js';
 
 const ROUTE_SLOTS = Object.freeze(['primary', 'secondary', 'tertiary']);
+// Hosts whose OpenAI-compatible layer supports `json_object` but NOT the
+// strict `json_schema` response format.
+const GEMINI_JSON_OBJECT_HOSTS = new Set(['generativelanguage.googleapis.com']);
 
 export class ProviderError extends Error {
   constructor(code, message, status = 502, retryable = true) {
@@ -73,7 +76,12 @@ function defaultRoutes(env, task) {
     endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
     secret_env: 'GEMINI_API_KEY',
     model: geminiModel,
-    structured_outputs: false,
+    // Gemini's OpenAI-compatible layer 400s on the strict `json_schema`
+    // format the other routes use, which is why this used to stay
+    // unstructured (and produced PROVIDER_INVALID_JSON when the model added
+    // prose around the JSON). Plain `json_object` mode is well-supported and
+    // forces valid JSON without that failure mode -- see callProvider.
+    structured_outputs: true,
     timeout_ms: timeouts.gemini,
   };
   const openRouterRoute = {
@@ -368,7 +376,18 @@ export async function callProvider(fetchImpl, env, route, task, input) {
     temperature: task === 'grade_short_answer' ? 0 : 0.2,
     max_tokens: maxOutputTokens(task),
   };
-  if (route.structuredOutputs) body.response_format = responseFormat(task);
+  if (route.structuredOutputs) {
+    // Google's OpenAI-compatible endpoint rejects the strict `json_schema`
+    // format the other JSON-mode providers accept; `json_object` is the mode
+    // it actually honors. Keyed on the HOST, not on the generic
+    // `openai_compatible` provider type -- other OpenAI-compatible routes an
+    // operator adds through AI_ROUTE_CONFIG (Groq, Together, vLLM) do support
+    // strict schemas, and must keep them. The schema still reaches the model
+    // either way: buildMessages embeds it in the system prompt.
+    body.response_format = GEMINI_JSON_OBJECT_HOSTS.has(route.failureDomain)
+      ? { type: 'json_object' }
+      : responseFormat(task);
+  }
   if (route.provider === 'openrouter') {
     body.provider = {
       allow_fallbacks: false,

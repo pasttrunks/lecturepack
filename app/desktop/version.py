@@ -4,7 +4,7 @@ The release workflow (.github/workflows/release.yml) checks that the pushed
 tag matches __version__ before building, so bump this first, then tag.
 """
 
-__version__ = "2.0.7"
+__version__ = "2.0.8"
 
 # GitHub repository that hosts releases for the auto-updater ("owner/repo").
 GITHUB_REPO = "pasttrunks/lecturepack"

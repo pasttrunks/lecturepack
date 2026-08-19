@@ -38,6 +38,30 @@ re-debug the same thing from scratch.
 
 *(newest first)*
 
+### BUG-47 — the study content file has an unlocked read-modify-write; a student's Ask/Teach Me answer can be silently discarded   🔴 OPEN (pre-existing, found by review 2026-08-19)
+- **Area:** `lecturepack/services/ai_study_service.py` (`_expand_material`,
+  `regenerate_affected`), `lecturepack/services/study_v2.py` (`save_content`,
+  `cache_concept_response`).
+- **Symptom (predicted, not yet observed in the wild):** a student uses Ask or Teach Me
+  while the pack is still growing in the background; their cached answer vanishes. Next
+  identical question costs a full gateway round trip again. Nothing errors.
+- **Root cause:** `_expand_material` does `load_content` → gateway call (up to ~50s) →
+  `save_content` **without holding `_job_lock` across that window**, while the pack is
+  already `STUDY_READY` and live in the UI. `cache_concept_response` correctly takes
+  `_job_lock` for its own read-modify-write, but that cannot help: the expansion loop's
+  save writes back a `content` dict snapshotted before the student's write existed.
+  Classic lost update — the lock protects each writer individually, not the interleaving.
+- **Related:** `FileManager.write_json_atomic` uses a fixed `filepath + ".tmp"`, so two
+  concurrent writers to the same path also collide on the temp file itself.
+- **Why it is not DEF-036:** DEF-036 was the same hazard between the pre-warm and the loop,
+  fixed by ordering. Ordering cannot fix this one, because the competing writer is the
+  *user*, whose timing we do not control. This needs either the lock held across the
+  read-modify-write, or a merge-on-save that re-reads and reconciles `cached_responses`
+  instead of overwriting.
+- **Do NOT "fix" by widening `_job_lock` naively:** holding it across a ~50s gateway call
+  would block the UI thread's reads for the whole expansion. The right shape is almost
+  certainly re-read-and-merge at save time, touching only the keys this pass owns.
+
 ### BUG-41 — guided-demo overlay: the four dim regions OVERLAPPED, showing a hard seam   ✅ FIXED (verified in the packaged app)
 - **Area:** `app/ui/app.js::positionTourSpotlight`, `app/ui/app.css` (3.8a guided tour).
 - **Found:** 2026-08-12, from user screenshots of the packaged guided demo.
@@ -416,6 +440,158 @@ re-debug the same thing from scratch.
 - **Files:** `app/ui/app.js`, `app/desktop/assets.py`.
 
 ## FIXED THIS SESSION
+
+### DEF-040 — the new stemmer DELETED content words whose stem is a stopword   ✅ FIXED (caught in review; every test still passed)
+- **Area:** `lecturepack/services/ai_study_service.py::_terms`.
+- **Symptom:** a forestry lecture could not be retrieved by the word "forest"; an
+  anatomy lecture not by "shoulder"; property law not by "owner".
+- **Root cause:** `_terms` stemmed FIRST and filtered stopwords AFTER. The suffix strip
+  turns `forest`→`for`, `shoulder`→`should`, `owner`→`own`, `outer`→`out` — all of which
+  are stopwords, so the term was dropped entirely. Symmetric on both sides (query *and*
+  concept text), so it produced no error and no empty result — just a silently missing
+  match on the query's single most discriminating word.
+- **Fix:** test the ORIGINAL word against `_STOPWORDS`, never its stem.
+- **Lesson:** **order matters between a normalizer and a filter.** Stem-then-filter tests
+  a word the user never typed. The same fix incidentally closed a second leak in the
+  other direction (`after`→`aft`, `only`→`onli` were surviving the filter).
+- **Files:** `lecturepack/services/ai_study_service.py`, `tests/test_ai_study_service.py`.
+
+### DEF-041 — Teach Me pre-warmed concepts the student never sees first   ✅ FIXED
+- **Area:** `lecturepack/services/ai_study_service.py::_expand_material`.
+- **Root cause:** the pre-warm sorted by `-importance` with **no tiebreak**, while
+  `quick_study_material` sorts by `(-importance, title.casefold())`. Models rarely spread
+  the `importance` field, so in the common case every concept ties at 3 and the tiebreak
+  is the *only* thing ordering them — pre-warm got normalizer order, the student got
+  alphabetical. Disjoint sets: the cache was paid for and never hit.
+- **Fix:** one authoritative `study_priority_order()` used by both.
+- **Lesson:** **two places that must agree on an order must share the function, not the
+  intent.** A tiebreak is not a detail when the primary key is usually tied.
+- **Files:** `lecturepack/services/ai_study_service.py`, `tests/test_ai_study_service.py`.
+
+### DEF-042 — the stemmer severed exactly the words the ranker relies on most   ✅ FIXED
+- **Area:** `lecturepack/services/ai_study_service.py::_stem`.
+- **Symptom:** "how do waves propagate" scored **zero** relevance against a concept
+  titled "Wave".
+- **Root cause:** blindly stripping `-es` gave `waves`→`wav` while `wave`→`wave`. This hit
+  `molecule`, `particle`, `force`, `state`, `value`, `variable`, `source`, `gene` — the
+  **high-IDF domain nouns** of a science lecture, i.e. precisely the terms IDF weights
+  most heavily. I had first dismissed these as "low-IDF words in practice"; that was
+  wrong, and review caught it.
+- **Fix:** English adds `-es` only after a sibilant. Strip `es` when the root ends
+  `s/x/z/ch/sh` (`process`, `box`, `church`), otherwise strip only the `s` and keep the
+  silent `e` (`wave`, `molecule`).
+- **Residue (documented, accepted):** `case`/`cases`, `house`/`houses`, and the
+  `-sis`/`-ses` family still miss — separating those needs a lexicon. The tempting
+  `ses`→`sis` rule was rejected: it also mangles `houses`, `phases`, `responses`, `causes`.
+- **Lesson:** **when you dismiss a class of misses as unimportant, check the weighting
+  first.** The dismissal was backwards — these were the heaviest-weighted terms, not the
+  lightest.
+- **Files:** `lecturepack/services/ai_study_service.py`, `tests/test_ai_study_service.py`.
+
+### DEF-037 — parallelizing the evidence phase broke Cancel   ✅ FIXED (found by adversarial review of my own diff, not by tests)
+- **Area:** `lecturepack/services/ai_study_service.py` (`prepare_ai_study`).
+- **Symptom:** pressing Cancel during "Reading selected lecture slides…" appeared to do
+  nothing for up to ~30s. Nothing errored; the job just ignored the user.
+- **Root cause:** collapsing the sequential vision/enrichment loops into a thread pool
+  removed the per-call `cancelled()` check. The old code tested cancellation before every
+  one of up to 6 calls and returned immediately. The new code checked once before
+  dispatching, and `with ThreadPoolExecutor(...)` calls `shutdown(wait=True)` on exit —
+  so cancel had to wait out the slowest in-flight provider.
+- **Fix:** `wait(..., timeout=1.0, return_when=FIRST_COMPLETED)` in a loop instead of
+  `as_completed`, re-checking `cancelled()` each pass and cancelling pending futures;
+  explicit `shutdown(wait=False, cancel_futures=True)`.
+- **Also fixed in the same pass:** `as_completed` yields in *race* order, so the slide
+  interpretations sent to `study_material_generation` were ordered nondeterministically —
+  identical input could produce a different pack. Results are now sorted back into
+  request order before use.
+- **Lesson:** **making something concurrent silently deletes every check that used to sit
+  between the sequential steps.** Cancellation, progress, and ordering all lived in that
+  gap. When converting a loop to a pool, enumerate what the loop body did *besides* the
+  work itself.
+- **Files:** `lecturepack/services/ai_study_service.py`.
+
+### DEF-038 — the Teach Me pre-warm cost more than it saved   ✅ FIXED (bounded)
+- **Area:** `lecturepack/services/ai_study_service.py` (`_expand_material`).
+- **Symptom:** an optimization added to make Study *faster* that made the post-ready pass
+  roughly twice as long and doubled gateway requests.
+- **Root cause:** it warmed **every** concept, one serial gateway call each, inside a pass
+  that already makes one call per concept. A 12-concept lecture went from 12 calls to 24.
+  Worse, `study_v2` keeps only the newest **24** cached responses and Ask shares that
+  cache — so warming a large pack evicted its own entries as fast as it wrote them, and
+  burned free-tier budget (which is what trips `prioritizeHealthyRoutes` cooldown and
+  degrades every other task) on concepts the student may never open.
+- **Fix:** `EXPAND_PREWARM_CONCEPTS = 6`, highest-importance first, with a cancellation
+  check after each warm.
+- **Lesson:** **speculative caching is only a win when the hit rate is high and the cache
+  can hold the result.** Both conditions have to be checked against the real cache bound,
+  not assumed. "Pre-cache everything" quietly inverted the goal of the change.
+- **Files:** `lecturepack/services/ai_study_service.py`, `tests/test_ai_study_service.py`.
+
+### DEF-039 — Gemini's relaxed JSON mode was applied to ALL OpenAI-compatible routes   ✅ FIXED (test added)
+- **Area:** `ai-gateway/src/providers.js`.
+- **Root cause:** the fix for Gemini's `PROVIDER_INVALID_JSON` keyed the `json_object`
+  fallback on `route.provider === 'openai_compatible'`. That is a *provider type*, not a
+  vendor: `safeRoute` accepts arbitrary `openai_compatible` routes from `AI_ROUTE_CONFIG`
+  with any endpoint. A Groq / Together / vLLM route added later would silently lose strict
+  `json_schema` enforcement — which those hosts DO support — and start returning
+  free-form JSON, i.e. more `provider_invalid_shape`, the exact failure being fixed.
+- **Fix:** key on the host (`generativelanguage.googleapis.com`) via an explicit
+  `GEMINI_JSON_OBJECT_HOSTS` set.
+- **Note:** the schema still reaches the model under `json_object` — `buildMessages`
+  embeds it in the system prompt. Enforcement is prompt-level rather than constrained
+  decoding; that is the accepted trade, not an oversight.
+- **Lesson:** a workaround for one vendor must be scoped to that vendor. `provider` here
+  means "wire protocol", and quirks are per-host.
+- **Files:** `ai-gateway/src/providers.js`, `ai-gateway/tests/gateway.test.mjs`.
+
+### DEF-035 — every OpenRouter route was dead: `openrouter/free` is not a model id   ✅ FIXED (real slugs verified against the live OpenRouter catalog)
+- **Area:** `ai-gateway/wrangler.toml`, `ai-gateway/wrangler.toml.example`.
+- **Symptom:** none visible. That is the point — OpenRouter was configured as the primary
+  route for `web_enrichment` and `group_analysis` and as the fallback for everything else,
+  and every one of those calls 4xx'd and fell through to the next provider. The gateway's
+  fallback logic is good enough that the app still worked, so the whole provider was
+  silently contributing nothing while appearing configured.
+- **Root cause:** `openrouter/free` was set for all nine OpenRouter model vars. It is not a
+  real model id — OpenRouter has no such slug. Checked against `openrouter.ai/api/v1/models`:
+  the genuinely free models today are `nvidia/nemotron-3.5-lightning:free` (1M context),
+  `dots-studio/dots-3-note-preview:free` (512K), `liquid/lfm-2.5-2.6b:free`, and two
+  poolside coding models.
+- **Second defect in the same lines:** primary and fallback were the *same* string, so
+  `resolveRoutes` deduped the fallback away entirely (it filters on
+  `provider|failureDomain|model`). Even a valid id would have yielded one route, not two.
+  Primary and fallback are now deliberately different models.
+- **Not fixed:** `OPENROUTER_VISION_MODEL` still holds the placeholder. No verified free
+  OpenRouter model accepts image input, and NVIDIA + Gemini both precede this slot in
+  `vision_slide`'s route order, so the slot is effectively unreachable. Left explicit
+  rather than pointed at a paid model.
+- **Lesson:** a config string that is never validated and sits behind a working fallback
+  chain can be wrong for the entire life of the project without producing one symptom.
+  **Model ids belong in the "verify against the provider's live catalog" bucket, and the
+  free catalog churns — re-check it, don't trust this entry's list to stay true.**
+- **Files:** `ai-gateway/wrangler.toml`, `ai-gateway/wrangler.toml.example`.
+
+### DEF-036 — the Teach Me pre-warm cache was wiped by the loop that created it   ✅ FIXED (regression test confirmed to fail without the fix)
+- **Area:** `lecturepack/services/ai_study_service.py` (`_expand_material`).
+- **Symptom:** a "pre-cache Teach Me during generation" optimization that measurably did
+  nothing — the student still paid a full gateway round trip on first click, while the app
+  had already spent one request per concept warming a cache it then destroyed.
+- **Root cause:** a lost update, entirely self-inflicted and introduced in the same change.
+  `_expand_material` snapshots `content = study_v2.load_content(job)` at the top of each
+  iteration and re-saves that dict at the bottom. `teach_me()` caches by *independently*
+  loading and re-saving the content file (`study_v2.cache_concept_response`). Warming
+  after the snapshot meant the iteration's closing `save_content` wrote back a dict that
+  predated the cache entry, silently dropping it.
+- **Fix:** warm before the snapshot is taken. One-line reorder; the comment at the call
+  site states the constraint so it cannot be "tidied" back.
+- **Verified:** the fix was re-broken on purpose and
+  `test_generation_prewarms_teach_me_so_the_first_click_costs_no_request` fails
+  (`KeyError: 'cached'`) without it. 18/18 pass with it.
+- **Lesson:** **any helper that persists state independently is unsafe to call between a
+  load and its matching save.** This pattern (snapshot → mutate → save) is all over
+  `_expand_material` and `regenerate_affected`; anything called inside that window must be
+  read-only or run outside it. The failure is invisible — no error, no log, just a feature
+  that quietly does nothing.
+- **Files:** `lecturepack/services/ai_study_service.py`, `tests/test_ai_study_service.py`.
 
 ### DEF-033 — processing did nothing for EVERY already-imported lecture   ✅ FIXED (verified on the packaged binary; 4 tests, checked they fail without the fix)
 - **Area:** `app/desktop/engine_adapter.py` (`start_processing`),

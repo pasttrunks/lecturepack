@@ -9,6 +9,39 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.0.8] — 2026-08-19
+
+**Study packs build faster, and Study AI answers land on the right part of the
+lecture.** Everything in 2.0.7 is included.
+
+While a pack is being built, LecturePack reads the slides you kept and checks
+public context for anything the lecture only mentions in passing. Those were
+happening strictly one after another, each waiting on the one before it — up to
+six round trips in a row. They now happen at the same time, so that stretch takes
+about as long as its slowest single step instead of the sum of all of them.
+
+**Ask and Teach Me find the right material more often.** Deciding which part of
+your lecture a question is about used to be plain word-matching, and it counted
+every word equally — so a question like "what's the difference between the
+thermohaline currents?" could be answered from whichever section happened to
+share the words "the difference between", rather than the one actually about
+currents. It now weighs how *distinctive* a word is within your particular
+lecture, so words that show up in every section of a biology lecture stop
+deciding the answer, and matches on a section's title count for more than a
+passing mention buried in a paragraph. Singulars and plurals now find each
+other, so asking about "waves" reaches the section titled "Wave" and "glaciers"
+reaches "Glaciation" — rewording a question usually lands on the same section it
+did before.
+
+**Teach Me opens instantly on the concepts you're most likely to open.** While
+the pack finishes filling in behind you, LecturePack now works ahead on the
+Teach Me explanations for the lecture's most important concepts, so clicking one
+is immediate instead of a wait. Concepts beyond those are fetched when you open
+them, exactly as before.
+
+Nothing about how your lectures are processed changed: video, audio and slide
+capture stay on your machine.
+
 ## [2.0.7] — 2026-08-19
 
 **Lectures actually process now.** Everything in 2.0.6 is included.

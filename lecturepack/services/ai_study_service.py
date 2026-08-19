@@ -9,8 +9,10 @@ optional vision and web calls are bounded evidence steps between them.
 from __future__ import annotations
 
 import base64
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from io import BytesIO
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -26,6 +28,32 @@ from lecturepack.services.ai_gateway import GatewayClient, GatewayError, sanitiz
 ProgressCallback = Callable[[dict[str, Any]], None]
 CancelCallback = Callable[[], bool]
 _WORD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9'-]{1,}")
+# Only true function words belong here. Words that are common in ONE lecture
+# but meaningless for telling its concepts apart are handled far better by the
+# per-pack IDF in _concept_idf, which adapts to the subject automatically.
+_STOPWORDS = frozenset("""
+about above after again against all also am an and any are aren't as at be because
+been before being below between both but by can cannot could couldn't did didn't do
+does doesn't doing don't down during each few for from further had hadn't has hasn't
+have haven't having he her here hers herself him himself his how i'm if in into is
+isn't it its itself let's may me might more most much must mustn't my myself no nor
+not of off on once only or other ought our ours ourselves out over own same shall
+shan't she should shouldn't so some such than that that's the their theirs them
+themselves then there these they this those through to too under until up us very
+was wasn't we were weren't what when where which while who whom why will with won't
+would wouldn't you your yours yourself yourselves
+""".split())
+# Ordered longest-first within each family so the most specific suffix wins.
+#
+# "est" is deliberately ABSENT. It only ever catches superlatives, which are
+# rarely the discriminating word in a question, and it mangles a long tail of
+# ordinary nouns that merely end that way: forest -> for, interest -> inter,
+# harvest -> harv, invest -> inv, protest -> prot. It also split every one of
+# those from its own plural, since the plural takes the "s" branch instead.
+_SUFFIXES = (
+    "ations", "ation", "ements", "ement", "ments", "ment", "nesses", "ness",
+    "ities", "ives", "ive", "ings", "ing", "ers", "ed", "es", "er", "s",
+)
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$")
 _PROVENANCE = {"lecture", "extra_context", "web_verified", "mixed"}
 _MAX_VISION_SLIDES = 3
@@ -727,13 +755,11 @@ def prepare_ai_study(job, client: GatewayClient, *,
             last_successful = "Canonical lecture analysis"
 
         slide_by_id = {str(slide.get("slide_id")): slide for slide in bundle["slides"]}
-        vision_results = []
         vision_requests = analysis.get("vision_requests", []) if isinstance(analysis.get("vision_requests"), list) else []
+        vision_jobs = []
         seen_slides = set()
         for item in vision_requests:
-            if cancelled and cancelled():
-                return study_v2.load_content(job)
-            if len(vision_results) >= _MAX_VISION_SLIDES or not isinstance(item, dict):
+            if len(vision_jobs) >= _MAX_VISION_SLIDES or not isinstance(item, dict):
                 break
             slide_id = str(item.get("slide_id") or "")
             if slide_id in seen_slides or slide_id not in slide_by_id:
@@ -742,69 +768,136 @@ def prepare_ai_study(job, client: GatewayClient, *,
             if not image:
                 continue
             seen_slides.add(slide_id)
-            try:
-                _emit(job, progress, "Reading selected lecture slides", 42 + len(vision_results) * 3,
-                      last_successful_stage=last_successful)
-                result, latest_diagnostics = _call(client, "vision_slide", {
-                    **slide_by_id[slide_id],
-                    "reason": _text(item.get("reason"), 500),
-                    "image_data_url": image,
-                })
-                result["slide_id"] = slide_id
-                vision_results.append(result)
-                last_successful = "Selected slide interpretation"
-            except GatewayError:
-                # Vision is optional. The lecture-analysis and material passes
-                # remain valid without it.
-                continue
+            vision_jobs.append((slide_id, item, image))
 
-        enrichment_results = []
         research_requests = analysis.get("research_requests", []) if isinstance(analysis.get("research_requests"), list) else []
+        research_jobs = []
         seen_queries = set()
         for item in research_requests:
-            if cancelled and cancelled():
-                return study_v2.load_content(job)
-            if len(enrichment_results) >= _MAX_WEB_REQUESTS or not isinstance(item, dict):
+            if len(research_jobs) >= _MAX_WEB_REQUESTS or not isinstance(item, dict):
                 break
             query = _text(item.get("query"), 500)
             if not query or query.casefold() in seen_queries:
                 continue
             seen_queries.add(query.casefold())
-            try:
-                _emit(job, progress, "Checking optional public context", 54 + len(enrichment_results) * 3,
-                      last_successful_stage=last_successful)
-                result, latest_diagnostics = _call(client, "web_enrichment", {
-                    "concept_id": _text(item.get("concept_id"), 80),
-                    "query": query,
-                    "reason": _text(item.get("reason"), 500),
+            research_jobs.append((query, item))
+
+        # Queued work must not dispatch after the user has cancelled. An
+        # already-open request cannot be interrupted, but everything still
+        # waiting for a pool slot can simply not start -- which is most of the
+        # batch, and is what would otherwise keep spending free-tier quota on
+        # a job nobody is waiting for.
+        def _run_vision(slide_id: str, item: dict[str, Any], image: str):
+            if cancelled and cancelled():
+                return None, {}
+            result, diagnostics = _call(client, "vision_slide", {
+                **slide_by_id[slide_id],
+                "reason": _text(item.get("reason"), 500),
+                "image_data_url": image,
+            })
+            result["slide_id"] = slide_id
+            return result, diagnostics
+
+        def _run_enrichment(query: str, item: dict[str, Any]):
+            if cancelled and cancelled():
+                return None, {}
+            result, diagnostics = _call(client, "web_enrichment", {
+                "concept_id": _text(item.get("concept_id"), 80),
+                "query": query,
+                "reason": _text(item.get("reason"), 500),
+            })
+            sources = _validated_web_sources(result.get("sources"))
+            if not sources:
+                return None, diagnostics
+            allowed_urls = {source["url"] for source in sources}
+            facts = []
+            for fact in result.get("facts", []) if isinstance(result.get("facts"), list) else []:
+                if not isinstance(fact, dict):
+                    continue
+                url = _text(fact.get("url"), 2000)
+                claim = _text(fact.get("claim"), 1600)
+                if url not in allowed_urls or not claim:
+                    continue
+                fact_source = next(source for source in sources if source["url"] == url)
+                facts.append({
+                    "claim": claim,
+                    "title": _text(fact.get("title"), 300) or fact_source["title"],
+                    "url": url,
                 })
-                sources = _validated_web_sources(result.get("sources"))
-                if sources:
-                    allowed_urls = {source["url"] for source in sources}
-                    facts = []
-                    for fact in result.get("facts", []) if isinstance(result.get("facts"), list) else []:
-                        if not isinstance(fact, dict):
+            return {
+                "concept_id": _text(item.get("concept_id"), 80),
+                "summary": _text(result.get("summary"), 4000),
+                "facts": facts[:12],
+                "sources": sources,
+            }, diagnostics
+
+        vision_results = []
+        enrichment_results = []
+        # Both are independent, bounded evidence steps between the canonical
+        # analysis and material generation -- running them one network call at
+        # a time serialized up to (_MAX_VISION_SLIDES + _MAX_WEB_REQUESTS)
+        # round trips. A shared thread pool runs them concurrently instead;
+        # each call is still optional, so a GatewayError from one just drops
+        # that item rather than the whole batch.
+        if (vision_jobs or research_jobs) and not (cancelled and cancelled()):
+            _emit(job, progress, "Reading selected lecture slides and checking public context",
+                  46, last_successful_stage=last_successful)
+            pool = ThreadPoolExecutor(max_workers=len(vision_jobs) + len(research_jobs))
+            try:
+                futures = {}
+                for order, (slide_id, item, image) in enumerate(vision_jobs):
+                    futures[pool.submit(_run_vision, slide_id, item, image)] = ("vision", order)
+                for order, (query, item) in enumerate(research_jobs):
+                    futures[pool.submit(_run_enrichment, query, item)] = ("enrichment", order)
+                pending = set(futures)
+                collected: list[tuple[str, int, Any]] = []
+                while pending:
+                    # Bounded waits rather than as_completed, so a user who
+                    # cancels mid-flight is not stuck behind the slowest
+                    # provider. The old sequential loop checked cancellation
+                    # before every call and must not regress to one check.
+                    done, pending = wait(pending, timeout=1.0, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        kind, order = futures[future]
+                        try:
+                            result, diagnostics = future.result()
+                        except GatewayError:
+                            # Vision and enrichment are both optional; the
+                            # lecture-analysis and material passes remain
+                            # valid without any single one of them.
                             continue
-                        url = _text(fact.get("url"), 2000)
-                        claim = _text(fact.get("claim"), 1600)
-                        if url not in allowed_urls or not claim:
-                            continue
-                        source = next(item for item in sources if item["url"] == url)
-                        facts.append({
-                            "claim": claim,
-                            "title": _text(fact.get("title"), 300) or source["title"],
-                            "url": url,
-                        })
-                    enrichment_results.append({
-                        "concept_id": _text(item.get("concept_id"), 80),
-                        "summary": _text(result.get("summary"), 4000),
-                        "facts": facts[:12],
-                        "sources": sources,
-                    })
-                    last_successful = "Optional web enrichment"
-            except GatewayError:
-                # Enrichment is optional and must never make Study fail.
-                continue
+                        # A worker that bailed on cancellation returns no
+                        # result and empty diagnostics; it must not overwrite
+                        # a real route's diagnostics.
+                        if result is not None:
+                            latest_diagnostics = diagnostics
+                            collected.append((kind, order, result))
+                    if done:
+                        # Without this the bar sat frozen for the whole
+                        # evidence phase: the old sequential loops emitted
+                        # per item, and collapsing them into one batch
+                        # collapsed the progress with it.
+                        _emit(job, progress,
+                              "Reading selected lecture slides and checking public context",
+                              46 + round((len(collected) / max(1, len(futures))) * 14),
+                              last_successful_stage=last_successful)
+                    if cancelled and cancelled():
+                        for future in pending:
+                            future.cancel()
+                        return study_v2.load_content(job)
+                # Completion order is a race. Sorting back to request order
+                # keeps the generation prompt -- and therefore the pack --
+                # reproducible for identical inputs.
+                for kind, _order, result in sorted(
+                        collected, key=lambda row: (row[0], row[1])):
+                    if kind == "vision":
+                        vision_results.append(result)
+                        last_successful = "Selected slide interpretation"
+                    else:
+                        enrichment_results.append(result)
+                        last_successful = "Optional web enrichment"
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
 
         if cancelled and cancelled():
             return study_v2.load_content(job)
@@ -880,22 +973,165 @@ def prepare_ai_study(job, client: GatewayClient, *,
         raise
 
 
+def _stem(word: str) -> str:
+    """Strip common English suffixes so 'derivatives' and 'derivative' match.
+
+    Deliberately a light heuristic, not a real Porter stemmer: it only has to
+    make morphological variants of the SAME word collide within one lecture's
+    vocabulary. Over-stemming two genuinely different words into one term costs
+    a slightly noisier score, never a wrong answer -- the model still receives
+    the concept text and decides for itself.
+
+    Known residue, accepted rather than chased. It is limited to words whose
+    stem-minus-"es" itself ends in a sibilant, so the sibilant rule below
+    cannot tell a real -es plural from an -e noun plus -s: "case"/"cases" and
+    "house"/"houses" still miss. Telling those apart needs a lexicon this does
+    not have. The Greek/Latin -sis/-ses family ("analysis"/"analyses") misses
+    for the same reason; the obvious "ses" -> "sis" rule was rejected because
+    it also rewrites "houses", "cases", "phases", "responses" and "causes"
+    into nonsense.
+    """
+    if len(word) <= 3:
+        return word
+    if word.endswith(("ies", "ied")) and len(word) > 4:
+        return word[:-3] + "i"
+    for suffix in _SUFFIXES:
+        # A trailing "s" is only a plural marker sometimes. Stripping it from
+        # the -ss/-us/-is/-as families breaks core academic vocabulary against
+        # its own plural: analysis/analyses, process/processes, class/classes,
+        # mass, focus, status, bias, hypothesis.
+        if suffix == "s" and word.endswith(("ss", "us", "is", "as")):
+            continue
+        if not word.endswith(suffix) or len(word) - len(suffix) < 3:
+            continue
+        if suffix == "es":
+            # English adds "-es" only after a sibilant (process/processes,
+            # box/boxes, church/churches). Everywhere else the plural is a
+            # bare "-s" on a word that already ends in "e", and blindly
+            # stripping "es" severed exactly the high-IDF domain nouns this
+            # ranker leans on hardest: wave/waves, molecule/molecules,
+            # force/forces, state/states, variable/variables, source/sources.
+            root = word[:-2]
+            word = root if root.endswith(("s", "x", "z", "ch", "sh")) else word[:-1]
+            break
+        word = word[:-len(suffix)]
+        break
+    if len(word) >= 4 and word.endswith("y"):
+        word = word[:-1] + "i"
+    return word
+
+
+def _terms(text: str) -> list[str]:
+    """Tokenize to stemmed, stopword-free terms, preserving order for bigrams.
+
+    The stopword test runs on the ORIGINAL word, never on its stem. Stemming
+    first and filtering after silently annihilates real content words whose
+    stem happens to collide with a function word -- "forest" -> "for",
+    "shoulder" -> "should", "owner" -> "own", "outer" -> "out" -- which does
+    not merely add noise, it deletes the most discriminating term in the query
+    from both sides of the comparison. A forestry lecture could not be
+    searched for "forest".
+    """
+    output = []
+    for word in _WORD_RE.findall(str(text or "")):
+        word = word.casefold()
+        if word in _STOPWORDS:
+            continue
+        stem = _stem(word)
+        if stem:
+            output.append(stem)
+    return output
+
+
+def _bigrams(terms: list[str]) -> set[str]:
+    return {f"{left} {right}" for left, right in zip(terms, terms[1:])}
+
+
+def _concept_idf(documents: list[list[str]]) -> tuple[dict[str, float], float]:
+    """Inverse document frequency over THIS pack's concepts.
+
+    The pack is its own corpus, which is what makes this worth doing at ~24
+    documents: a word appearing in every concept of a lecture ("cell",
+    "market", "Rome") is precisely the word that cannot discriminate between
+    them, and no general-purpose stopword list could know that. Function words
+    are already removed; this removes the lecture's own boilerplate.
+    """
+    total = max(1, len(documents))
+    frequency: dict[str, int] = {}
+    for document in documents:
+        for term in set(document):
+            frequency[term] = frequency.get(term, 0) + 1
+    # A query term absent from every concept is maximally rare, so it must
+    # count in full against coverage rather than being silently ignored.
+    rarest = math.log(1.0 + total / 1.0)
+    return ({term: math.log(1.0 + total / (1.0 + count))
+             for term, count in frequency.items()}, rarest)
+
+
+# A title is the concept's NAME; matching it is stronger evidence than matching
+# a word buried in a paragraph of explanation. Previously they scored the same.
+_TITLE_WEIGHT = 2.0
+_PHRASE_BONUS = 0.5
+_MAX_PHRASE_BONUS = 1.0
+_RELEVANCE_WEIGHT = 10.0
+_PIN_BONUS = 1000.0
+
+
 def _retrieved_context(job, prompt: str, *, concept_id: str = "") -> tuple[dict[str, Any], list[str]]:
+    """Rank the pack's concepts against a prompt and gather their evidence.
+
+    Scoring is IDF-weighted coverage of the query's terms, not raw word
+    overlap. The previous version counted set intersection of raw casefolded
+    words at 4 points each against an importance term worth at most 5, so a
+    single shared filler word ("different", "between") outweighed a full step
+    of importance, and a concept could rank top-4 purely on stopword noise.
+    """
     content = study_v2.load_content(job)
-    tokens = {word.casefold() for word in _WORD_RE.findall(prompt)}
+    concepts = content.get("concepts", [])
+    query = _terms(prompt)
+    # Order-preserving dedupe: repeating a word must not double its weight.
+    query = [term for index, term in enumerate(query) if term not in query[:index]]
+    query_bigrams = _bigrams(_terms(prompt))
+
+    titles = [_terms(concept.get("title")) for concept in concepts]
+    explanations = [_terms(concept.get("explanation")) for concept in concepts]
+    idf, rarest = _concept_idf(
+        [title + explanation for title, explanation in zip(titles, explanations)])
+    weight = sum(idf.get(term, rarest) for term in query)
+
     ranked = []
-    for index, concept in enumerate(content.get("concepts", [])):
-        cid = str(concept.get("id") or "")
-        haystack = " ".join((str(concept.get("title") or ""), str(concept.get("explanation") or "")))
-        words = {word.casefold() for word in _WORD_RE.findall(haystack)}
-        score = len(tokens & words) * 4 + int(concept.get("importance") or 3)
-        if concept_id and cid == concept_id:
-            score += 100
+    for index, concept in enumerate(concepts):
+        title_terms = set(titles[index])
+        body_terms = set(explanations[index])
+        relevance = 0.0
+        if weight > 0:
+            matched = 0.0
+            for term in query:
+                term_idf = idf.get(term, rarest)
+                if term in title_terms:
+                    matched += term_idf * _TITLE_WEIGHT
+                elif term in body_terms:
+                    matched += term_idf
+            relevance = matched / weight
+        if query_bigrams:
+            # Per field, never over the concatenation: joining the two lists
+            # manufactures one bigram from the last title word plus the first
+            # explanation word, a phrase that appears in no real text.
+            phrases = _bigrams(titles[index]) | _bigrams(explanations[index])
+            relevance += min(
+                _MAX_PHRASE_BONUS,
+                len(query_bigrams & phrases) * _PHRASE_BONUS)
+        # Importance is normalized to 0..1 so it breaks ties between similarly
+        # relevant concepts instead of competing with relevance outright.
+        importance = max(1, min(5, int(concept.get("importance") or 3)))
+        score = relevance * _RELEVANCE_WEIGHT + (importance - 1) / 4.0
+        if concept_id and str(concept.get("id") or "") == concept_id:
+            score += _PIN_BONUS
         ranked.append((score, -index, concept))
     ranked.sort(reverse=True, key=lambda item: (item[0], item[1]))
-    selected = [item[2] for item in ranked[:4] if item[0] > 0]
-    if not selected:
-        selected = [item[2] for item in ranked[:3]]
+    # Always up to four, as before: the pinned concept plus neighbours give the
+    # model context even when nothing matches lexically.
+    selected = [item[2] for item in ranked[:4]]
     concept_ids = [str(item.get("id") or "") for item in selected if item.get("id")]
     segments = _segments(job)
     evidence = []
@@ -1194,6 +1430,31 @@ EXPAND_CARDS_PER_CONCEPT = 3
 EXPAND_QUIZ_PER_CONCEPT = 2
 EXPAND_MAX_CARDS = 24
 EXPAND_MAX_QUIZ = 20
+# How many concepts get their Teach Me answer pre-fetched. Kept well under
+# study_v2's 24-entry response cache, which Ask shares.
+EXPAND_PREWARM_CONCEPTS = 6
+
+
+def study_priority_order(concepts: list[dict[str, Any]]) -> list[str]:
+    """The order a student meets concepts in: most important, then by title.
+
+    This is the single definition of that order. quick_study_material's
+    five/ten/twenty-minute selections and the Teach Me pre-warm must agree on
+    it, and previously did not: models rarely spread the `importance` field, so
+    in the common case every concept ties and the ONLY thing separating them is
+    the tiebreak. Without it the pre-warm picked concepts in normalizer order
+    while the student was shown them alphabetically -- so the cache was paid
+    for and never hit.
+    """
+    return [str(item.get("id") or "") for item in sorted(
+        concepts,
+        key=lambda item: (-max(1, min(5, int(item.get("importance") or 3))),
+                          str(item.get("title") or "").casefold()),
+    ) if item.get("id")]
+
+
+def _prewarm_concept_ids(concepts: list[dict[str, Any]], limit: int) -> list[str]:
+    return study_priority_order(concepts)[:max(0, limit)]
 
 
 def _dedup_key(item: dict[str, Any], *fields: str) -> str:
@@ -1285,9 +1546,35 @@ def _expand_material(job, client: GatewayClient, content: dict[str, Any], *,
     seen_quiz = {_dedup_key(q, "question") for q in content.get("quiz", [])}
     added_cards = added_quiz = 0
 
+    # Pre-warm Teach Me for the concepts a student reaches first, NOT for all
+    # of them. Warming every concept doubles the request count of this pass
+    # against the same free-tier budget that feeds route cooldown, lengthens
+    # the pass it runs inside, and is speculative work for concepts that may
+    # never be opened. The cap also matters for correctness: study_v2 keeps
+    # only the newest 24 cached responses, shared with the Ask cache, so
+    # warming a 24-concept pack would evict entries as fast as it wrote them.
+    prewarm = set(_prewarm_concept_ids(
+        content.get("concepts", []), EXPAND_PREWARM_CONCEPTS))
+
     for index, concept_id in enumerate(concepts):
         if cancelled and cancelled():
             return study_v2.load_content(job)
+        if concept_id in prewarm:
+            try:
+                # Warm the "Teach Me" cache so a student's click is a local
+                # cache hit (study_v2.find_cached_response inside teach_me)
+                # instead of a fresh gateway round trip.
+                #
+                # This MUST run before the load_content below. teach_me caches
+                # by loading and re-saving the content file itself, so warming
+                # it after the snapshot is taken means the save at the end of
+                # this iteration writes the pre-warm content back and silently
+                # drops the cache entry that was just written.
+                teach_me(job, client, concept_id)
+            except Exception:  # noqa: BLE001 - best-effort; never blocks growth
+                pass
+            if cancelled and cancelled():
+                return study_v2.load_content(job)
         content = study_v2.load_content(job)
         have_cards = len(_dependent_items(content, "flashcards", concept_id))
         have_quiz = len(_dependent_items(content, "quiz", concept_id))

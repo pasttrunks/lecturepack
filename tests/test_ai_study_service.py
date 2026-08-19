@@ -253,11 +253,14 @@ def test_two_pass_generation_is_automatic_quality_shape_and_video_path_free(lect
     # enrichment pass of per-concept expand_concept_material calls follows it,
     # once the pack is already marked ready -- a single generation call returns
     # close to the schema minimum, and the route budget forbids asking for more
-    # in one request. See _expand_material.
+    # in one request. See _expand_material. Each concept also gets a teach_me
+    # call in the same pass, pre-warming the cache so a student's later
+    # "Teach Me" click is instant instead of a fresh gateway round trip.
     assert "study_material_generation" in tasks
     generation = tasks.index("study_material_generation")
     assert generation > tasks.index("lecture_analysis")
-    assert set(tasks[generation + 1:]) <= {"expand_concept_material"}
+    assert set(tasks[generation + 1:]) <= {"expand_concept_material", "teach_me"}
+    assert tasks.count("teach_me") <= ai_study_service.EXPAND_PREWARM_CONCEPTS
     outbound = json.dumps([payload for _task, payload in client.calls])
     assert "original-video-must-not-be-sent" not in outbound
     assert content["study_status"] == study_v2.STUDY_READY
@@ -463,6 +466,157 @@ def test_concept_linked_cache_reopens_without_new_request_and_is_bounded(lecture
     cache = study_v2.load_content(lecture)["cached_responses"]
     assert len(cache) == 24
     assert all("prompt" not in item for item in cache)
+
+
+def test_generation_prewarms_teach_me_so_the_first_click_costs_no_request(lecture):
+    # The expansion pass warms teach_me for every concept. That warming writes
+    # to the same content file the expansion loop later re-saves, so an
+    # ordering slip silently drops the cache and the student pays a full
+    # gateway round trip on the click this exists to make instant.
+    content, client = _prepare(lecture)
+    warmed = [payload["concept"]["id"] for task, payload in client.calls
+              if task == "teach_me"]
+    # Bounded on purpose: warming every concept doubles this pass's request
+    # count and would evict itself from study_v2's 24-entry shared cache.
+    assert 0 < len(warmed) <= ai_study_service.EXPAND_PREWARM_CONCEPTS
+    assert len(warmed) == len(set(warmed)), "a concept was warmed twice"
+    before = len(warmed)
+    for concept_id in warmed:
+        lesson = ai_study_service.teach_me(lecture, client, concept_id)
+        assert lesson["cached"] is True, f"{concept_id} was warmed but not cached"
+    assert len([task for task, _payload in client.calls
+                if task == "teach_me"]) == before
+
+
+def _ranked(lecture, concepts, prompt, **kwargs):
+    content = study_v2.load_content(lecture)
+    content["concepts"] = concepts
+    study_v2.save_content(lecture, content)
+    context, _ids = ai_study_service._retrieved_context(lecture, prompt, **kwargs)
+    return [item["id"] for item in context["concepts"]]
+
+
+def _concept(cid, title, explanation, importance=3):
+    return {
+        "id": cid, "title": title, "importance": importance,
+        "explanation": explanation, "related_concept_ids": [],
+        "sources": [{"segment_id": "0"}], "lecture_sources": [{"segment_id": "0"}],
+        "web_sources": [], "provenance": "lecture",
+    }
+
+
+def test_retrieval_is_not_dominated_by_filler_words(lecture):
+    # The old ranker scored raw word overlap at 4 points each with no IDF and
+    # no stopword removal, so a concept sharing only "the difference between"
+    # beat the concept the question is actually about.
+    concepts = [
+        _concept("c-noise", "Administrative notes",
+                 "The difference between the sections is not important for the exam.",
+                 importance=5),
+        _concept("c-real", "Thermohaline circulation",
+                 "Density differences drive the deep ocean conveyor.", importance=1),
+    ]
+    ranked = _ranked(lecture, concepts, "What is the difference between the thermohaline currents?")
+    assert ranked[0] == "c-real", (
+        "filler-word overlap outranked the concept the question names")
+
+
+def test_retrieval_matches_morphological_variants_and_prefers_titles(lecture):
+    concepts = [
+        _concept("c-body", "Field notes",
+                 "We briefly mention that glaciation shaped these valleys."),
+        _concept("c-title", "Glaciation", "Ice sheets advance and retreat over time."),
+    ]
+    # "glaciers" must reach "glaciation"/"glaciation" via stemming, and a title
+    # hit must outrank the same word buried in an explanation.
+    assert _ranked(lecture, concepts, "how did glaciers form this landscape")[0] == "c-title"
+
+
+@pytest.mark.parametrize("word", ["forest", "shoulder", "owner", "outer", "outing"])
+def test_content_words_whose_stem_is_a_stopword_are_not_annihilated(word):
+    # Stemming first and filtering stopwords after deleted these outright:
+    # forest -> "for", shoulder -> "should", owner -> "own". Not noise --
+    # total loss of the query's most discriminating term, on BOTH sides, so a
+    # forestry lecture could not be searched for "forest".
+    assert ai_study_service._terms(word), f"{word!r} vanished from retrieval"
+
+
+@pytest.mark.parametrize("singular,plural", [
+    ("forest", "forests"), ("interest", "interests"), ("harvest", "harvests"),
+    ("process", "processes"), ("class", "classes"), ("mass", "masses"),
+    ("focus", "focuses"), ("glacier", "glaciers"), ("study", "studies"),
+    ("derivative", "derivatives"),
+    # The -e nouns below are the HIGH-IDF domain terms of a science lecture --
+    # exactly the words the IDF ranker leans on hardest. Stripping a bare "es"
+    # severed every one of them from its own plural, so "how do waves
+    # propagate" scored zero against a concept titled "Wave".
+    ("molecule", "molecules"), ("particle", "particles"), ("wave", "waves"),
+    ("state", "states"), ("force", "forces"), ("value", "values"),
+    ("variable", "variables"), ("source", "sources"), ("gene", "genes"),
+    # Genuine -es plurals must keep working: the rule keys on the sibilant.
+    ("box", "boxes"), ("church", "churches"),
+])
+def test_singular_and_plural_reach_the_same_term(singular, plural):
+    # A word must match its own plural or retrieval silently halves its recall.
+    assert ai_study_service._terms(singular) == ai_study_service._terms(plural)
+
+
+def test_retrieval_finds_a_forest_lecture_by_its_subject(lecture):
+    # End-to-end version of the annihilation bug, through the real ranker.
+    concepts = [
+        _concept("c-other", "Course admin", "Reminders about the exam timetable."),
+        _concept("c-forest", "Forest succession",
+                 "Pioneer species colonise cleared ground before canopy trees."),
+    ]
+    assert _ranked(lecture, concepts, "how does a forest regrow")[0] == "c-forest"
+
+
+def test_prewarm_targets_the_concepts_the_student_is_shown_first():
+    # Models rarely spread `importance`, so an all-tied pack is the common
+    # case and the tiebreak is then the ONLY thing ordering them. The concepts
+    # stored in normalizer order below deliberately do NOT match the
+    # alphabetical order the student is shown.
+    concepts = [_concept(f"c{index}", title, "Body text.", importance=3)
+                for index, title in enumerate(
+                    ["Zebra", "Alpha", "Mango", "Beta", "Yak", "Cobra", "Delta"])]
+    priority = ai_study_service.study_priority_order(concepts)
+    assert priority[0] == "c1", "Alpha sorts first once the tiebreak applies"
+    assert priority != [item["id"] for item in concepts], (
+        "fixture must not already be in priority order, or it proves nothing")
+    warmed = ai_study_service._prewarm_concept_ids(concepts, 3)
+    assert warmed == priority[:3]
+    # The concept stored first ("Zebra") must NOT be warmed: that is exactly
+    # what the untiebroken version got wrong.
+    assert "c0" not in warmed
+
+
+def test_prewarm_still_respects_real_importance_over_the_title_tiebreak():
+    concepts = [_concept("c-low", "Aardvark", "Body.", importance=1),
+                _concept("c-high", "Zebra", "Body.", importance=5)]
+    assert ai_study_service._prewarm_concept_ids(concepts, 1) == ["c-high"]
+
+
+def test_retrieval_pins_the_requested_concept_regardless_of_wording(lecture):
+    concepts = [
+        _concept("c-off", "Completely unrelated", "Nothing to do with the query at all."),
+        _concept("c-pinned", "Obscure topic", "Sparse text."),
+    ]
+    ranked = _ranked(
+        lecture, concepts, "words that match the other concept entirely",
+        concept_id="c-pinned")
+    assert ranked[0] == "c-pinned", "an explicit concept pin must always win"
+
+
+def test_retrieval_survives_a_prompt_that_is_entirely_stopwords(lecture):
+    concepts = [
+        _concept("c-a", "Alpha", "First body.", importance=2),
+        _concept("c-b", "Beta", "Second body.", importance=5),
+    ]
+    # Every term is filtered out, so there is no signal to rank on. It must
+    # still return concepts (importance-ordered) rather than nothing at all.
+    ranked = _ranked(lecture, concepts, "what is it about the")
+    assert ranked[0] == "c-b"
+    assert set(ranked) == {"c-a", "c-b"}
 
 
 def test_basic_study_is_explicit_and_quick_study_uses_no_ai(lecture):

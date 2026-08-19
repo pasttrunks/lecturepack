@@ -269,6 +269,55 @@ test('NVIDIA calls use the Worker secret and strict Study response schema', asyn
   assert.equal(outboundBody.response_format.json_schema.strict, true);
 });
 
+test('Gemini gets json_object mode; other OpenAI-compatible hosts keep strict schemas', async () => {
+  // Google's OpenAI-compatible layer 400s on strict json_schema, which left
+  // the route sending no response_format at all and returning prose-wrapped
+  // JSON (provider_invalid_json). The relaxed mode must be scoped to that
+  // HOST -- an operator's Groq/Together route is also `openai_compatible` and
+  // does support strict schemas.
+  const env = {
+    GEMINI_API_KEY: 'gemini-secret',
+    GEMINI_INTERACTIVE_MODEL: 'gemini-3.5-flash',
+    GEMINI_FIRST_TASKS: 'ask',
+  };
+  const answer = {
+    answer: 'Sea ice is a hunting platform.', concept_ids: ['c1'],
+    lecture_sources: [], web_sources: [], provenance: 'lecture',
+  };
+  let outboundBody;
+  const fetchImpl = async (_url, options) => {
+    outboundBody = JSON.parse(options.body);
+    return responseJson({ choices: [{ message: { content: JSON.stringify(answer) } }] });
+  };
+  const geminiRoute = resolveRoutes(env, 'ask')[0];
+  assert.equal(geminiRoute.failureDomain, 'generativelanguage.googleapis.com');
+  const response = await callProvider(fetchImpl, env, geminiRoute, 'ask', {
+    prompt: 'Why does sea ice matter?', retrieved_context: {},
+  });
+  assert.equal(response.result.answer, answer.answer);
+  assert.deepEqual(outboundBody.response_format, { type: 'json_object' });
+  // The schema is still conveyed, just through the prompt rather than
+  // constrained decoding -- that is the whole trade being made here.
+  assert.ok(outboundBody.messages[0].content.includes('JSON Schema'));
+
+  // Same provider type, different host: strict schema must survive.
+  const otherEnv = { ...env, AI_ROUTE_CONFIG: JSON.stringify({
+    ask: [{
+      id: 'ask-groq', provider: 'openai_compatible',
+      endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+      secret_env: 'GEMINI_API_KEY', model: 'llama-3.3-70b-versatile',
+      structured_outputs: true,
+    }],
+  }) };
+  const groqRoute = resolveRoutes(otherEnv, 'ask')[0];
+  assert.equal(groqRoute.failureDomain, 'api.groq.com');
+  await callProvider(fetchImpl, otherEnv, groqRoute, 'ask', {
+    prompt: 'Why does sea ice matter?', retrieved_context: {},
+  });
+  assert.equal(outboundBody.response_format.type, 'json_schema');
+  assert.equal(outboundBody.response_format.json_schema.strict, true);
+});
+
 test('study material schema requires useful minimum content', () => {
   const properties = schemaForTask('study_material_generation').properties;
   assert.equal(properties.study_guide.minItems, 2);
