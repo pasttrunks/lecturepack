@@ -122,7 +122,7 @@ def test_existing_lecture_drag_queues_ids_without_reimporting() -> None:
     # opt-in, but it is still one queue_jobs call over the existing IDs --
     # never a re-import.
     assert "var request = { job_ids: unique };" in JS
-    assert "lpBridge.call('queue_jobs', request)" in JS
+    assert "lpBridge.call('queue_jobs', JSON.stringify(request))" in JS
     assert "import_video" not in JS.split("function queueExistingJobIds", 1)[1][:900]
     assert "lpBridge.call('enqueue_job', id)" in JS
     assert 'id="process-queue-target"' in HTML

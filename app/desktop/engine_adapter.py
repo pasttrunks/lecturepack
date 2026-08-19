@@ -2279,6 +2279,73 @@ class LecturePackAdapter(EngineAdapter):
             subprocess.Popen(["xdg-open", root])  # noqa: S603,S607
 
     # -- queue / scheduling --------------------------------------------------
+    def _pipeline_live(self) -> bool:
+        """Is a pipeline ACTUALLY running right now?
+
+        ``is_processing()`` is ``bool(controller._active_stages)``, which empties
+        between stages -- so it alone would read "idle" mid-run and let a second
+        job start on top of the first. The controller's current_stage covers that
+        gap.
+        """
+        if self.is_processing():
+            return True
+        return getattr(self.controller, "current_stage", None) is not None
+
+    def _start_queue_if_idle(self) -> None:
+        """Start the next queued job when nothing is running.
+
+        The queue only ever drained from _promote_next, and _promote_next is only
+        called when a job ENDS (completion, failure, cancel). Nothing drained it
+        when the app was already idle, so queueing a lecture -- by dropping it on
+        Process, or with the queue's own play button -- left it sitting at
+        "Queued" forever while the app reported Idle and "No lecture loaded".
+        The UI said "queued for processing" and meant it; nothing was coming.
+
+        This is deliberately NOT _promote_next: that releases the active slot for
+        current_job first, which is right when a job just finished and wrong here,
+        where current_job is merely the lecture the workspace happens to show.
+        """
+        if self._pipeline_live():
+            return
+        if self.queue.active is not None:
+            return                      # a slot is held; promote_next would refuse anyway
+        pending = self.queue.queued()
+        if not pending:
+            return
+        # Look BEFORE promoting. promote_next() pops the front into the active
+        # slot, so bailing afterwards would either strand the slot or drop the job
+        # out of the queue entirely. Checking first means an unstartable job simply
+        # stays queued, visible, and loses nothing.
+        head = pending[0]
+        job = self._reload_job(head)
+        if job is None:
+            self._log("[engine]", "Queued lecture could not be loaded — not started.",
+                      "error")
+            return
+        # No source video means run_pipeline dies in the inspect stage on
+        # manifest["source"]. Auto-start must not turn a queued item into a crash
+        # nobody asked for.
+        try:
+            source = (job.manifest.get("source") or {}).get("original_path")
+        except Exception:
+            source = None
+        if not source:
+            self._log("[engine]", "Queued lecture has no source video — not started.",
+                      "error")
+            return
+        nxt = self.queue.promote_next()
+        if nxt != head:                 # raced with something else; leave it alone
+            return
+        self._push_queue()
+
+        def _go():
+            self._pending_job = job
+            self._set_active_job(job)
+            self.controller.set_job(job)
+            self.start_processing(self._mode_for_job(job), preserve_preset=True)
+
+        QTimer.singleShot(0, _go)
+
     def enqueue_job(self, job_id: str):
         job = self._reload_job(job_id)
         if job is not None:
@@ -2287,13 +2354,49 @@ class LecturePackAdapter(EngineAdapter):
         self.queue.enqueue(job_id)
         self._push_queue()
 
+    def queue_jobs(self, payload_json: str) -> str:
+        """Queue existing lectures AND start them when nothing is running.
+
+        This is the UI's drop-a-lecture-on-Process path. app.js
+        queueExistingJobIds already called `queue_jobs` first, falling back to
+        enqueue_job per id when the slot was missing -- which it was, until now.
+
+        Deliberately NOT folded into enqueue_job. That is the low-level
+        bookkeeping primitive, used for jobs merely being placed in line,
+        including ones with no source yet; kicking the queue from there starts a
+        real pipeline for anything anyone enqueues for any reason, and it did --
+        running inspect on a stub job with no manifest["source"]. The intent to
+        RUN belongs on the intent-shaped calls: this one and run_now.
+        """
+        try:
+            payload = json.loads(payload_json or "{}")
+        except (TypeError, ValueError):
+            return json.dumps({"ok": False, "error": "bad payload", "count": 0})
+        ids = [str(i) for i in (payload.get("job_ids") or []) if i]
+        queued = 0
+        for job_id in ids:
+            job = self._reload_job(job_id)
+            if job is None:
+                continue
+            job.settings["preset"] = self._slide_detection_preset()
+            job.save()
+            self.queue.enqueue(job_id)
+            queued += 1
+        self._push_queue()
+        self._push_jobs()
+        self._start_queue_if_idle()
+        return json.dumps({"ok": True, "count": queued})
+
     def reorder_queue(self, job_id: str, index: int):
         self.queue.reorder(job_id, int(index))
         self._push_queue()
 
     def run_now(self, job_id: str):
+        # "Process now" only reordered the queue: with nothing running there was
+        # no "next" to be first in, so the button did nothing observable at all.
         self.queue.run_now(job_id)
         self._push_queue()
+        self._start_queue_if_idle()
 
     def remove_from_queue(self, job_id: str):
         self.queue.remove(job_id)

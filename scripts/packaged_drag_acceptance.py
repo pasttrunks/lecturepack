@@ -367,6 +367,13 @@ def main() -> int:
         # its slides/transcript/Study pack. That confirmation is correct
         # behaviour, so assert it appeared, then decline it.
         modal = _dismiss_modal(run, "Cancel")
+
+        # NOTE for whoever extends this gate: everything above proves the drop was
+        # ANNOUNCED and QUEUED. That is not the same as processed, and the gap let
+        # DEF-036 ship -- a queued lecture sat at "Queued" forever on an idle app
+        # because nothing drained the queue unless another job had just ended.
+        # The queue-actually-starts assertion lives below, after the confirmation
+        # is accepted rather than declined.
         report["reprocess_confirmation"] = modal
         check("reprocess drop asked before replacing existing work", bool(modal.get("modal")), modal)
         check("confirmation dismissed cleanly", not modal.get("still_open"), modal)
@@ -402,6 +409,39 @@ def main() -> int:
             "a drop on nothing reports failure out loud",
             bool(null_drop["lifted"]) and "not moved" in said_null.lower(),
             {"lifted": null_drop["lifted"], "said": said_null},
+        )
+
+        # DEF-036: queued is not processed. Drop on Process, ACCEPT the reprocess
+        # confirmation this time, and require the pipeline to actually begin.
+        run.stage = "queued-work-actually-starts"
+        run.click(".lp-nav[data-nav='home']")
+        run.wait_for(lambda m: m.get("screen") == "home", "home before start", 20)
+        _drag(run, "[data-lp-drag='lecture']", ".lp-nav[data-nav='process']")
+        accepted = _dismiss_modal(run, "Process again")
+        report["reprocess_accepted"] = accepted
+
+        started = {}
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            started = run.cdp.evaluate(  # type: ignore[union-attr]
+                "(() => {"
+                "  const f = document.getElementById('status-footer');"
+                "  const q = (LP.data.queue && LP.data.queue.queue) || [];"
+                "  return {status: f ? (f.dataset.status || '') : '',"
+                "          label: (document.getElementById('status-state')||{}).textContent || '',"
+                "          active: !!(LP.data.queue && LP.data.queue.active),"
+                "          queued: q.length,"
+                "          stages: document.querySelectorAll('#pipeline-stages .stage').length};"
+                "})()"
+            ) or {}
+            if started.get("status") == "processing" or started.get("active"):
+                break
+            time.sleep(1.0)
+        report["queue_started"] = started
+        check(
+            "a lecture dropped on Process actually STARTS, not just queues",
+            started.get("status") == "processing" or bool(started.get("active")),
+            started,
         )
 
     except Exception as exc:

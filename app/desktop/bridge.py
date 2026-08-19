@@ -71,7 +71,7 @@ class Backend(QObject):
         "import_media_url", "cancel_media_url", "start_processing", "open_job", "delete_job",
         "start_demo_job", "end_demo_job",
         "set_job_group", "delete_jobs", "set_jobs_group", "cancel_job", "pause_job", "resume_job",
-        "restart_job", "retry_stage", "enqueue_job", "reorder_queue", "run_now", "remove_from_queue",
+        "restart_job", "retry_stage", "enqueue_job", "queue_jobs", "reorder_queue", "run_now", "remove_from_queue",
         "schedule_job", "unschedule_job", "get_notification_prefs", "set_notification_prefs",
         "test_notification", "run_diagnostics", "open_job_folder", "get_post_completion", "set_slide_state",
         "save_corrections", "repair_selection", "ask_ai", "generate_quiz", "cancel_quiz",
@@ -774,6 +774,16 @@ class Backend(QObject):
     @Slot(str)
     def enqueue_job(self, job_id: str):
         self._adapter.enqueue_job(job_id)
+
+    @Slot(str, result=str)
+    def queue_jobs(self, payload_json: str) -> str:
+        """Queue existing lectures and start them if the app is idle.
+
+        Takes a JSON string, like delete_jobs/set_jobs_group -- NOT a live object.
+        A JS object handed to a str slot arrives stringified and unusable, which is
+        how a job_id passed inside one was silently dropped before.
+        """
+        return self._adapter.queue_jobs(payload_json)
 
     @Slot(str, int)
     def reorder_queue(self, job_id: str, index: int):

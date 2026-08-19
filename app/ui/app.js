@@ -3005,7 +3005,7 @@
     if (!lpBridge.connected()) { toast('Preview mode — existing lectures were not queued.'); return Promise.resolve(null); }
     var request = { job_ids: unique };
     if (opts && opts.reprocess) request.reprocess = true;
-    return lpBridge.call('queue_jobs', request).then(function (result) {
+    return lpBridge.call('queue_jobs', JSON.stringify(request)).then(function (result) {
       // Older desktop bridges expose the same normal queue one job at a time.
       // This fallback still sends each existing ID exactly once and never
       // routes an internal drag through file import.
