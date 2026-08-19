@@ -315,6 +315,30 @@ def main() -> int:
         run.click(".lp-nav[data-nav='home']")
         run.wait_for(lambda m: m.get("screen") == "home", "home before drag", 20)
 
+        # Anything modal left over from the import/processing run covers the page,
+        # so the first press would land on its scrim and read as a dead drag.
+        # Record WHAT was open before clearing it -- an unexpected dialog here is a
+        # product finding, not a harness detail.
+        blocking = run.cdp.evaluate(  # type: ignore[union-attr]
+            "(() => {"
+            "  const ov = document.querySelector('.lp-modal-ov, .lp-scrim');"
+            "  if (!ov) return null;"
+            "  return {cls: (ov.className||'').toString().slice(0,60),"
+            "          text: (ov.textContent||'').trim().slice(0,160),"
+            "          buttons: Array.from(ov.querySelectorAll('button'))"
+            "            .map(b => (b.textContent||'').trim()).filter(Boolean).slice(0,6)};"
+            "})()"
+        )
+        report["modal_open_before_drag"] = blocking
+        if blocking:
+            for label in ("Cancel", "Close", "Done", "OK"):
+                if _dismiss_modal(run, label).get("still_open") is False:
+                    break
+            run.cdp.evaluate(  # type: ignore[union-attr]
+                "(() => {const ov = document.querySelector('.lp-modal-ov, .lp-scrim');"
+                " if (ov && ov.parentNode) ov.parentNode.removeChild(ov); return true;})()"
+            )
+
         inventory = run.cdp.evaluate(INVENTORY_JS)  # type: ignore[union-attr]
         report["inventory"] = inventory
         check("drag sources exist in the packaged DOM", bool(inventory.get("sources")), inventory)
