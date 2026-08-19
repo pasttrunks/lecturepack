@@ -416,32 +416,43 @@ def main() -> int:
         run.stage = "queued-work-actually-starts"
         run.click(".lp-nav[data-nav='home']")
         run.wait_for(lambda m: m.get("screen") == "home", "home before start", 20)
+
+        # Record the ENGINE LOG rather than sampling status. Reprocessing an
+        # already-finished lecture replays entirely from cache and is over in well
+        # under a second, so polling `status == "processing"` loses the race and
+        # reports "never started" for a run that already finished -- which is
+        # exactly what it did on the first attempt at this check.
+        run.cdp.evaluate(  # type: ignore[union-attr]
+            "(() => {"
+            "  window.__lpRun = [];"
+            "  if (window.lpBridge && lpBridge.on) {"
+            "    lpBridge.on('log_line', p => window.__lpRun.push(String(p)));"
+            "  }"
+            "  return true;"
+            "})()"
+        )
         _drag(run, "[data-lp-drag='lecture']", ".lp-nav[data-nav='process']")
         accepted = _dismiss_modal(run, "Process again")
         report["reprocess_accepted"] = accepted
 
-        started = {}
+        RAN = ("pipeline complete", "loaded backend", "product mode")
+        FAILED = ("no job loaded", "no video selected", "not started")
+        lines: list[str] = []
         deadline = time.time() + 120
         while time.time() < deadline:
-            started = run.cdp.evaluate(  # type: ignore[union-attr]
-                "(() => {"
-                "  const f = document.getElementById('status-footer');"
-                "  const q = (LP.data.queue && LP.data.queue.queue) || [];"
-                "  return {status: f ? (f.dataset.status || '') : '',"
-                "          label: (document.getElementById('status-state')||{}).textContent || '',"
-                "          active: !!(LP.data.queue && LP.data.queue.active),"
-                "          queued: q.length,"
-                "          stages: document.querySelectorAll('#pipeline-stages .stage').length};"
-                "})()"
-            ) or {}
-            if started.get("status") == "processing" or started.get("active"):
+            lines = run.cdp.evaluate("(window.__lpRun || []).slice(-60)") or []  # type: ignore[union-attr]
+            blob = " ".join(lines).lower()
+            if any(tok in blob for tok in RAN) or any(tok in blob for tok in FAILED):
                 break
-            time.sleep(1.0)
-        report["queue_started"] = started
+            time.sleep(0.5)
+        blob = " ".join(lines).lower()
+        report["queue_started"] = {"log_lines": lines[-12:]}
         check(
             "a lecture dropped on Process actually STARTS, not just queues",
-            started.get("status") == "processing" or bool(started.get("active")),
-            started,
+            any(tok in blob for tok in RAN) and not any(tok in blob for tok in FAILED),
+            {"matched": [t for t in RAN if t in blob],
+             "failures": [t for t in FAILED if t in blob],
+             "tail": lines[-6:]},
         )
 
     except Exception as exc:
