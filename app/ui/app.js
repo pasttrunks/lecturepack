@@ -9715,9 +9715,20 @@
           return;
         }
       }
-      // Review mode keyboard stamping shortcuts (J / K / Space)
+      /* Review keyboard macros. These are ADDITIVE: every one of them drives the
+         existing on-screen control rather than reimplementing it, so the buttons
+         stay the source of truth and a macro can never drift from what the button
+         does. Arrows navigate, J/K stamp, Space is the fast path (stamp + move on).
+         Nothing here overrides an existing binding -- Space and the arrows are
+         already claimed on the flashcards screen, which is `screen === 'study'`,
+         and the guard below keeps these to Review only. */
       if (LP.state.screen === 'review' && !editing && !overlay) {
         var rk = String(e.key || '').toLowerCase();
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+          var navBtn = $(e.key === 'ArrowRight' ? 'btn-next-slide' : 'btn-prev-slide');
+          if (navBtn && !navBtn.disabled) { e.preventDefault(); navBtn.click(); }
+          return;
+        }
         if (rk === 'j') {
           e.preventDefault();
           var btnKeep = $('btn-keep');

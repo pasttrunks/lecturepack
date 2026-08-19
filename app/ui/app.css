@@ -941,7 +941,11 @@ p,.lp-sub,.lp-meta{text-wrap:pretty}
    elementFromPoint, which must see through the card being carried. */
 .lp-drag-proxy{position:fixed;left:0;top:0;z-index:305;pointer-events:none;
   will-change:transform;transform-origin:50% 50%;
-  filter:drop-shadow(0 14px 22px rgba(0,0,0,.28)) drop-shadow(0 3px 0 var(--border))}
+  /* Neobrutalist elevation: ONE hard offset, zero blur, in the shadow ink --
+     the same language as --shadow-hard, just thrown further because the card is
+     literally lifted. A blurred drop-shadow was the only soft shadow in the
+     file and read as a different app. */
+  filter:drop-shadow(7px 7px 0 var(--shadow-ink))}
 .lp-drag-proxy-face{box-shadow:none!important;opacity:1!important;border-style:solid!important}
 .lp-drag-proxy.is-ok .lp-drag-proxy-face{border-color:var(--orange)!important}
 .lp-drag-proxy.is-bad .lp-drag-proxy-face{border-color:var(--red)!important;border-style:dashed!important}
@@ -2072,15 +2076,18 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
 
 @keyframes lpDropStamp {
   0% {
-    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.35);
+    box-shadow: 0 0 0 0 var(--shadow-ink);
     transform: scale(1.03);
+    opacity: 1;
   }
   40% {
-    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 0 0 5px var(--shadow-ink);
+    opacity: .55;
   }
   100% {
-    box-shadow: 0 0 0 8px rgba(0, 0, 0, 0);
+    box-shadow: 0 0 0 9px var(--shadow-ink);
     transform: scale(1);
+    opacity: 0;
   }
 }
 
@@ -2091,7 +2098,7 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
   background: var(--orange);
   background-image: repeating-linear-gradient(45deg, var(--orange) 0, var(--orange) 3px, rgba(255, 107, 0, 0.4) 3px, rgba(255, 107, 0, 0.4) 6px);
   border-radius: 2px;
-  box-shadow: 0 0 8px rgba(255, 107, 0, 0.6);
+  box-shadow: 2px 2px 0 var(--shadow-ink);
   z-index: 10001;
   pointer-events: none;
   transition: opacity 120ms var(--motion-ease), transform 120ms var(--motion-ease);
@@ -2114,13 +2121,13 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
 }
 
 @keyframes lpEdgeFlashGreen {
-  0% { box-shadow: inset 0 0 0 3px #2ecc71; opacity: 1; }
-  100% { box-shadow: inset 0 0 0 0 #2ecc71; opacity: 0; }
+  0% { box-shadow: inset 0 0 0 4px var(--green); opacity: 1; }
+  100% { box-shadow: inset 0 0 0 0 var(--green); opacity: 0; }
 }
 
 @keyframes lpEdgeFlashRed {
-  0% { box-shadow: inset 0 0 0 3px #e74c3c; opacity: 1; }
-  100% { box-shadow: inset 0 0 0 0 #e74c3c; opacity: 0; }
+  0% { box-shadow: inset 0 0 0 4px var(--red); opacity: 1; }
+  100% { box-shadow: inset 0 0 0 0 var(--red); opacity: 0; }
 }
 
 /* Magnifying Loupe on Slide Hover */
@@ -2132,7 +2139,9 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
   border: 2px solid var(--border);
   border-radius: 10px;
   padding: 8px;
-  box-shadow: var(--shadow);
+  /* was var(--shadow), which this file never defines -- so the loupe rendered
+     with no shadow at all. The hard token is also the correct look. */
+  box-shadow: var(--shadow-hard);
   pointer-events: none;
   opacity: 0;
   transform: scale(0.96);
@@ -2179,7 +2188,7 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
 /* Scrubber Timeline Snap Tick Pulse */
 .lp-tick.is-snapped {
   transform: scaleY(1.35) !important;
-  box-shadow: 0 0 8px var(--orange) !important;
+  box-shadow: 0 0 0 2px var(--shadow-ink) !important;
   z-index: 5;
 }
 
