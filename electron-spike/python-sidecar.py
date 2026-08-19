@@ -2398,6 +2398,14 @@ class Sidecar:
         job_id = str(payload.get("job_id") or "")
         ok = self.electron_backend.run_now(self.queue, job_id)
         self._push_queue()
+        # run_now only REORDERS -- it moves the job to the front and deliberately
+        # cannot preempt an active job. With nothing running there is no "next" to
+        # be first in, so the queue's play button reordered a list and did nothing
+        # observable. queue_jobs and queue_existing_jobs already resume here; this
+        # did not, and the button is new in 2.0.7, so it would have shipped inert.
+        # _maybe_resume_queue is a no-op while a pipeline is live, so the
+        # one-active-job invariant is untouched.
+        self._maybe_resume_queue()
         self._respond(request_id, command, job_id=job_id, ok=ok)
 
     def _remove_from_queue(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
