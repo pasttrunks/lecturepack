@@ -33,7 +33,7 @@
   for, and what it fails on.
 
 .EXAMPLE
-  pwsh -File scripts/open_app.ps1 -SourceTree "C:\Users\marsh\Documents\LecturePack-worktrees\microinteractions-polish"
+  pwsh -File scripts/open_app.ps1 -SourceTree "<path-to-a-worktree>"
 #>
 [CmdletBinding()]
 param(

@@ -2071,10 +2071,16 @@
     var audioCtx = null;
 
     function soundEnabled() {
-      try {
-        if (localStorage.getItem('lecturepack.sound.enabled') === 'off') return false;
-        return true;
-      } catch (e) { return true; }
+      /* Opt-IN, matching the drag cue ('lecturepack.drag.sound' === 'on') further
+         down. This defaulted to ON with an off-switch nothing ever wrote: no
+         Settings control exists, and the key appeared exactly once in the whole
+         codebase -- this read. The listener that calls playClick() matches
+         `button, .lp-hit, .nav-item, [role="button"], .export-chip, [data-lp-drag]`,
+         i.e. effectively every press, so a student running the app for hours got an
+         unmutable click track. Audible feedback nobody asked for and cannot turn
+         off is a defect; the cue itself stays, reachable by setting the key. */
+      try { return localStorage.getItem('lecturepack.sound.enabled') === 'on'; }
+      catch (e) { return false; }
     }
 
     function getContext() {
@@ -2105,22 +2111,6 @@
       } catch (e) {}
     }
 
-    function playDrop() {
-      try {
-        var ctx = getContext();
-        if (!ctx) return;
-        var now = ctx.currentTime;
-        var osc = ctx.createOscillator();
-        var gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(180, now);
-        osc.frequency.exponentialRampToValueAtTime(55, now + 0.12);
-        gain.gain.setValueAtTime(0.08, now);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.start(now); osc.stop(now + 0.13);
-      } catch (e) {}
-    }
 
     function playRatchet() {
       try {
@@ -2165,7 +2155,6 @@
 
     return {
       playClick: playClick,
-      playDrop: playDrop,
       playRatchet: playRatchet,
       playToggle: playToggle,
       soundEnabled: soundEnabled
@@ -2177,9 +2166,43 @@
      Smooth vertical digit reels for percentages and counters.
      ====================================================================== */
   var LPNumberRoller = (function () {
+    /* Rolls a number's digits like an odometer.
+
+       Two things were wrong with this before it was wired up. It was never called
+       at all -- the whole module, and ~35 lines of .lp-odometer CSS, were
+       unreachable. And rebuilding innerHTML on every update defeats the very
+       transition it depends on: a brand-new ribbon element has no previous
+       transform to animate FROM, so each digit rendered instantly at its final
+       position. Rolling requires the SAME element to persist and only its
+       transform to change, which is what the fast path below does. */
     function setRolling(el, numText) {
       if (!el) return;
-      var str = String(numText || '');
+      var str = String(numText == null ? '' : numText);
+      if (el.dataset.rollValue === str) return;      // nothing changed
+      var ribbons = el.querySelectorAll('.lp-odometer-digit');
+      var same = el.firstChild && ribbons.length &&
+        el.dataset.rollShape === str.replace(/[0-9]/g, '#');
+      if (same) {
+        /* Same shape ("12" -> "34", but not "9" -> "10"): move the existing
+           ribbons, so the CSS transition has somewhere to travel from. */
+        var di = 0, ok = true;
+        for (var k = 0; k < str.length; k++) {
+          var c = str.charAt(k);
+          if (!/[0-9]/.test(c)) continue;
+          var rib = ribbons[di] && ribbons[di].querySelector('.lp-odometer-ribbon');
+          var hid = ribbons[di] && ribbons[di].querySelector('.lp-odometer-hidden');
+          if (!rib) { ok = false; break; }
+          ribbons[di].dataset.digit = c;
+          rib.style.transform = 'translateY(-' + (parseInt(c, 10) * 10) + '%)';
+          if (hid) hid.textContent = c;
+          di++;
+        }
+        var od = el.querySelector('.lp-odometer');
+        if (od) od.setAttribute('aria-label', str);
+        if (ok) { el.dataset.rollValue = str; return; }
+      }
+      el.dataset.rollValue = str;
+      el.dataset.rollShape = str.replace(/[0-9]/g, '#');
       var digits = str.split('');
       var html = '<span class="lp-odometer" aria-label="' + esc(str) + '">';
       for (var i = 0; i < digits.length; i++) {
@@ -2647,7 +2670,6 @@
       } else { return false; }
       didDrop = false;
       armed = null;
-      justDragged = true;
       dragVelocity.lastX = x;
       dragVelocity.lastTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       dragVelocity.vx = 0;
@@ -2754,6 +2776,7 @@
       didDrop = true;
       clearTargetPaint(); hideInsert();
       dragCue('drop');
+      try {
       /* The card flies to where it landed and the action runs when it arrives,
          so a library rerender can never yank the proxy out mid-flight. */
       snapProxy(target.rect, function () {
@@ -2780,7 +2803,12 @@
           else toast('Preview mode — the queue was not reordered.');
         }
       });
-      finish();
+      } finally {
+        /* snapProxy runs its callback SYNCHRONOUSLY under prefers-reduced-motion,
+           so a throw inside the drop action skipped finish() entirely and left the
+           UI carrying a phantom card with external file drop dead. */
+        finish();
+      }
     }
 
     /* Released over nothing, or cancelled. THE anti-silent-failure rule, now
@@ -2805,6 +2833,7 @@
       document.body.classList.remove('lp-drag-in-flight');
       active = null; armed = null; pending = null; sourceRect = null;
       internalJobDragIds = [];
+      justDragged = false;   // any exit route disarms; onPointerUp re-arms on release
     }
 
     function settle(el) {
@@ -2842,6 +2871,16 @@
         var src = pending.src;
         pending = null;
         if (!beginDrag(src, e.clientX, e.clientY)) return;
+        /* Capture the pointer to the source. Without it the drag depends on
+           pointerup arriving at the window: if it does not, `active` stays set,
+           the proxy stays in the DOM, and -- the part that outlives the gesture --
+           internalJobDragIds stays populated, which makes the window drop handler
+           bail and kills EXTERNAL file drop for the rest of the session (the
+           DEF-025 failure, by a new route). Capture also guarantees the release
+           lands here when the pointer ends up over another element. */
+        if (src.setPointerCapture && e.pointerId !== undefined) {
+          try { src.setPointerCapture(e.pointerId); } catch (err) {}
+        }
       }
       if (!active) return;
       e.preventDefault();          // no text selection, no native image drag
@@ -2859,6 +2898,13 @@
       e.preventDefault();
       updateAt(e.clientX, e.clientY);
       commit();
+      /* Arm the click-swallow HERE, not in beginDrag. A browser emits the stray
+         click after a pointer RELEASE, so that is the only case worth swallowing.
+         Setting it at lift meant a drag cancelled by window blur (Alt+Tab while
+         carrying a card) left it armed with no click ever coming -- and the user's
+         next click anywhere in the app was silently eaten. commit()/abandon() run
+         finish(), which clears it, so this must come after. */
+      justDragged = true;
     }
     function onPointerCancel() { pending = null; if (active) abandon(); }
     function onKeyDown(e) {
@@ -3194,7 +3240,7 @@
          route to this same capability, and drag is only an accelerator on top
          of them. */
       return '<div class="q-card" data-lp-drag="queue" data-lp-drop="queue-reorder"' +
-        ' data-queueid="' + esc(row.id) + '" title="Drag to reorder the queue">' +
+        ' data-queueid="' + esc(row.id) + '">' +
         '<div class="q-thumb">' + posterHtml(job) +
         '<span class="q-pos" aria-hidden="true">' + (i + 1) + '</span>' +
         '<button type="button" class="lp-drag-grip" tabindex="-1" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></button></div>' +
@@ -3350,7 +3396,7 @@
           (ids.length === 1 ? ' lecture in ' : ' lectures in ') + name);
       });
     });
-    $('jobs-count').textContent = LP.data.jobs.length;
+    LPNumberRoller.setRolling($('jobs-count'), LP.data.jobs.length);
     renderContinueCard();
     if (typeof LP !== 'undefined' && LP.state && LP.state.screen === 'subjects') renderSubjects();
   }

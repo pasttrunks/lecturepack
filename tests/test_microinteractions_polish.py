@@ -30,13 +30,31 @@ CSS = read_ui("app.css")
 HTML = read_ui("index.html")
 
 
-def test_lpaudio_engine_present_and_has_all_cues() -> None:
+def test_lpaudio_engine_present_and_every_cue_it_exports_is_actually_used() -> None:
+    """Presence is not the contract -- being reached is.
+
+    This used to assert that `playDrop:` appeared in the source, and it did: the
+    cue was defined, exported, documented in its own header comment... and never
+    called from anywhere. It has been removed rather than wired, because the drop
+    sound already belongs to `dragCue('drop')` in the drag layer, which is opt-in
+    behind 'lecturepack.drag.sound'. Two audio paths for one event is why nobody
+    noticed one of them was dead.
+
+    The assertion is now "every cue this module exports is invoked somewhere" --
+    which a source-text test can genuinely check, and which would have caught the
+    dead cue instead of certifying it.
+    """
     assert "var LPAudio = (function () {" in APP
-    assert "playClick:" in APP
-    assert "playDrop:" in APP
-    assert "playRatchet:" in APP
-    assert "playToggle:" in APP
     assert "soundEnabled:" in APP
+
+    exported = set(re.findall(r"^\s*(play[A-Za-z]+):\s*\1,?\s*$", APP, re.M))
+    assert exported, "expected LPAudio to export at least one play* cue"
+
+    for cue in sorted(exported):
+        assert re.search(rf"LPAudio\.{cue}\s*\(", APP), (
+            f"LPAudio exports {cue} but nothing ever calls it -- wire it up or "
+            f"delete it; shipping it pretends a feature exists"
+        )
 
 
 def test_lpnumber_roller_present_and_formats_odometer() -> None:

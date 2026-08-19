@@ -1792,21 +1792,6 @@ class LecturePackAdapter(EngineAdapter):
         if job is None:
             self._log("[error]", "No video selected.", "error")
             return
-        # The controller owns the job the PIPELINE runs; this adapter owns the job
-        # the WORKSPACE shows. They are separate, and only the internal queue
-        # promotion path (_promote_next) ever bothered to sync them -- so starting
-        # an already-imported lecture from a Home card resolved a job here, logged
-        # its product mode, and then died in run_pipeline() with
-        # "Pipeline failed: No job loaded." A fresh import worked only because the
-        # import path had already called set_job itself.
-        #
-        # Syncing here rather than at each call site: every caller that resolves a
-        # job through this method now gets a controller that agrees with it, and no
-        # future caller has to remember. Guarded so re-starting the SAME job cannot
-        # reset controller state mid-run.
-        if getattr(self.controller, "job", None) is None or \
-                getattr(self.controller.job, "job_id", None) != job.job_id:
-            self.controller.set_job(job)
         # Explicit user starts snapshot the current Settings choice. Internal
         # queue promotion preserves the valid choice captured when queued or
         # scheduled, so a later global Settings change cannot rewrite it.
@@ -1874,6 +1859,23 @@ class LecturePackAdapter(EngineAdapter):
                       "Whisper executable/model not configured — set them in "
                       "Settings before processing (or choose Slides Only).", "error")
             return
+
+        # The controller owns the job the PIPELINE runs; this adapter owns the job
+        # the WORKSPACE shows. They are separate objects, and only the internal queue
+        # promotion path (_promote_next) ever synced them -- so starting an
+        # already-imported lecture resolved a job here and then died inside
+        # run_pipeline() with "Pipeline failed: No job loaded." (DEF-033).
+        #
+        # This sync MUST stay below every early return above. The controller has no
+        # local copy of its job: run_next_stage and _handle_backend_detected read and
+        # WRITE through self.job for the whole run. Syncing before the queue-behind
+        # return therefore redirected a still-running pipeline's stage writes and
+        # save() into whichever lecture the user started SECOND -- silent corruption
+        # of a real lecture's slides, transcript and Study pack. Only the path that
+        # actually starts a pipeline may touch it.
+        if getattr(self.controller, "job", None) is None or \
+                getattr(self.controller.job, "job_id", None) != job.job_id:
+            self.controller.set_job(job)
 
         # Fresh pipeline model.
         skipped = constants.__dict__.get("STAGES_SKIPPED_BY_MODE", {})
