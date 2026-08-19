@@ -417,6 +417,68 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### DEF-033 — processing did nothing for EVERY already-imported lecture   ✅ FIXED (verified on the packaged binary; 4 tests, checked they fail without the fix)
+- **Area:** `app/desktop/engine_adapter.py` (`start_processing`),
+  `lecturepack/controllers/job_controller.py` (the `self.job` it reads).
+- **Symptom (user):** "it fails to run processing." Pressing Start on any lecture already
+  in the library did nothing visible.
+- **Root cause:** the adapter owns the job the WORKSPACE shows (`current_job`); the
+  controller owns the job the PIPELINE runs (`controller.job`). Two separate objects, and
+  only the internal queue-promotion path (`_promote_next`) ever synced them. So
+  `start_processing` resolved a job, logged its product mode, and then died inside
+  `run_pipeline()`. From the packaged app's own log:
+
+      [review]  opened job Heinrich Schliemann ...
+      [engine]  Product mode: Study Pack (slides + transcript)
+      [error]   Pipeline failed: No job loaded.
+
+- **Why it survived so long:** a fresh import masked it completely — the import path calls
+  `set_job` itself. The packaged acceptance gate imports a video and then processes it, so
+  the gate exercised the ONE path that worked. Coverage existed and pointed the wrong way.
+- **Fix:** sync the controller inside `start_processing`, at the single point every caller
+  passes through, guarded on `job_id` so re-starting the same job cannot reset controller
+  state mid-run. Not at the call sites: that is what left the UI path out in the first place.
+- **Lesson:** when two objects both hold "the current X", the bug is not if they diverge but
+  when. And a gate that only ever drives the happy path certifies the happy path.
+- **Files:** `app/desktop/engine_adapter.py`, `tests/test_start_processing_controller_sync.py`.
+
+### DEF-034 — the microinteraction polish shipped outside the design system   ✅ FIXED (guarded by tests)
+- **Area:** `app/ui/app.css` (drag proxy, drop stamp, drop insert, timeline tick, edge
+  flashes, slide loupe), `app/ui/app.js` (Review key macros).
+- **Where it came from:** a parallel worktree (`antigravity/microinteractions-polish`).
+  The behaviour was good and was kept — cherry-picked, authorship preserved — but it was
+  written against no design system at all.
+- **Five defects, all invisible in a screenshot:**
+  1. `box-shadow: var(--shadow)` on the slide loupe. That token does not exist. CSS drops
+     an undefined custom property silently, so the loupe shipped with NO shadow and nothing
+     reported it.
+  2. `drop-shadow(0 14px 22px rgba(0,0,0,.28))` on the carried drag card — the only blurred
+     shadow in a file that has hard tokens (`--shadow-hard`, `--shadow-ink`) and otherwise
+     zero blur. It read as a different application.
+  3. Drop-stamp rings in `rgba(0,0,0,.35)`, which all but vanish on a dark ground.
+  4. Glows (`0 0 8px`) on the drop-insert bar and the snapped timeline tick. Glows belong to
+     `#glowing-demo-card`, which is named for it.
+  5. Hardcoded `#2ecc71` / `#e74c3c` in the keep/reject flashes, bypassing the palette and
+     BUG-05's contrast work.
+  Plus 222 lines of animation CSS with ZERO `prefers-reduced-motion` neutralization, which
+  §8 of app.css calls out by name as an incomplete change, and four bare `ease` keywords
+  instead of the shared token curve.
+- **Fix:** hard offsets in `--shadow-ink`, palette tokens throughout, a reduced-motion block
+  that keeps colour (information) and drops motion, and
+  `tests/test_css_tokens_defined.py` — which fails on any `var(--token)` app.css does not
+  define (JS-owned tokens discovered from `setProperty` calls rather than hand-listed) and
+  on any blurred shadow outside the deliberately-glowing selectors. Verified it fails when
+  the loupe bug is reintroduced.
+- **Also fixed:** `Space` in Review was an exact duplicate of `J` — same button, same flash,
+  no advance — so triaging a deck re-stamped the first slide forever. It now keeps and
+  advances. Arrow keys were added for navigation so the macros are additive; every macro
+  drives the existing on-screen control rather than reimplementing it, so a macro cannot
+  drift from what its button does.
+- **Lesson:** an undefined CSS token is not an error, it is a silent no-op — the one class of
+  visual bug that survives review by looking almost right. Assert the vocabulary, not the
+  appearance.
+- **Files:** `app/ui/app.css`, `app/ui/app.js`, `tests/test_css_tokens_defined.py`.
+
 ### DEF-031 — the packaged visual acceptance GATE was itself dead, and had been for four releases   ✅ FIXED (both gates now run to completion on the frozen binary)
 - **Area:** `scripts/packaged_visual_acceptance.py`, plus a new
   `scripts/packaged_drag_acceptance.py`.

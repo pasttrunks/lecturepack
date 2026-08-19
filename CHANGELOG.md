@@ -9,6 +9,42 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.0.7] — 2026-08-18
+
+**Lectures you already imported can be processed again.** Everything in 2.0.6 is
+included.
+
+Pressing Start on a lecture that was already in your library did nothing. The
+part of the app that runs the pipeline was never told which lecture to work on,
+so it stopped immediately. Only freshly imported videos worked, which is why
+this went unnoticed. Any lecture in your library now starts when you tell it to.
+
+**Dragging lectures around actually works now, everywhere.** Dropping a lecture
+on a subject files it there. Dropping it on Process queues it. Dropping it on
+nothing tells you so and puts the card back, instead of silently doing nothing.
+Dragging near the edge of a long library scrolls, so you can reach the Process
+tab without letting go. Grab a card anywhere that isn't a button, or use the six
+dots in its corner.
+
+**Reprocessing still asks first.** Dropping a finished lecture on Process warns
+you that its slides, transcript and Study pack will be replaced before anything
+happens.
+
+New in this release:
+
+- Queued lectures have a ▶ button to start them right away, instead of having to
+  reorder the queue and wait.
+- In Review, arrow keys move between slides, `J` keeps, `K` rejects, and `Space`
+  keeps and moves on — so a deck can be triaged one-handed. The buttons work
+  exactly as before.
+- Slide thumbnails magnify under the pointer while you scan the filmstrip.
+- Slide counts roll instead of jumping, and the footer shows a moving bar while
+  a lecture is processing.
+- Cards tilt as you drag them and land with a stamp.
+
+If you turn off animations in Windows, all of the above holds still — colours
+still tell you what happened, nothing moves.
+
 ## [2.0.6] — 2026-08-17
 
 **Dragging a video into LecturePack works again.** Everything in 2.0.5 is
