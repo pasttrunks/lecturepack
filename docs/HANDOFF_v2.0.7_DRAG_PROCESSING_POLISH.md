@@ -1,9 +1,16 @@
 # Handoff — LecturePack v2.0.7: internal drag, the processing fix, and the polish merge
 
-**Date:** 2026-08-18
-**Branch:** `claude/lecturepack-universal-drag-drop-13c2d5` (NOT pushed, NOT tagged)
+**Date:** 2026-08-18, released 2026-08-19
+**Branch:** `claude/lecturepack-universal-drag-drop-13c2d5` — merged to `main` (fast-forward), tagged `v2.0.7`
 **Base:** `668c1d6` = v2.0.6
-**Status:** release candidate built and gated locally; **awaiting the owner's go-ahead to publish**
+**Status:** **RELEASED.** See the RELEASED section at the end of this document for the
+published assets, the release procedure, and what was never verified.
+
+> The first half of this document was written while the release was still a candidate.
+> It is kept as-is because its findings still stand, but its "Open" section is
+> superseded by the RELEASED section below — most importantly the discovery that the
+> published product is the Electron shell, not the PySide6 app the earlier sections
+> are about.
 
 ## What this was
 
