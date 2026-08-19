@@ -3202,6 +3202,9 @@
         '<div class="q-title">' + esc(_jobName(row.id)) + '</div>' +
         '<div class="q-meta">' + esc(_optionsLabel(job)) + ' · Queued</div>' +
         '<div class="q-actions">' +
+          /* The 'runnow' handler existed with nothing to trigger it: promoting a
+             queued lecture meant reordering it to the front and waiting. */
+          qbtn('runnow', '&#9654;', 'Process now', false) +
           qbtn('up', '&#8593;', 'Move up', i === 0) +
           qbtn('down', '&#8595;', 'Move down', i === q.length - 1) +
           qbtn('remove', '&#10005;', 'Remove from queue', false) +
@@ -9223,7 +9226,9 @@
       var qid = q.dataset.queueid, qa = q.dataset.queueact;
       var rows = (LP.data.queue && LP.data.queue.queue) || [];
       var idx = rows.map(function (r) { return r.id; }).indexOf(qid);
-      if (qa === 'runnow') lpBridge.call('run_now', qid);
+      /* Follow the job being promoted: Process then shows its live progress
+         rather than leaving the user on a queue row that silently vanished. */
+      if (qa === 'runnow') { selectJob(qid, { screen: 'process' }); lpBridge.call('run_now', qid); }
       else if (qa === 'remove') lpBridge.call('remove_from_queue', qid);
       else if (qa === 'up' && idx > 0) lpBridge.call('reorder_queue', qid, idx - 1);
       else if (qa === 'down' && idx >= 0) lpBridge.call('reorder_queue', qid, idx + 1);
@@ -9732,11 +9737,17 @@
           return;
         }
         if (rk === ' ' || e.code === 'Space') {
+          /* Space was an exact duplicate of J -- same button, same flash, no
+             advance -- so triaging a deck with it re-stamped one slide forever.
+             It is the fast-path key, so it keeps AND advances: one key, straight
+             down the deck. */
           e.preventDefault();
           var btnKeep2 = $('btn-keep');
           if (btnKeep2) {
             btnKeep2.click();
             flashViewport('keep');
+            var nextSlideBtn = $('btn-next-slide');
+            if (nextSlideBtn && !nextSlideBtn.disabled) nextSlideBtn.click();
           }
           return;
         }

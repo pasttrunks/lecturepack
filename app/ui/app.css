@@ -2094,7 +2094,7 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
   box-shadow: 0 0 8px rgba(255, 107, 0, 0.6);
   z-index: 10001;
   pointer-events: none;
-  transition: opacity 120ms ease, transform 120ms ease;
+  transition: opacity 120ms var(--motion-ease), transform 120ms var(--motion-ease);
 }
 
 /* Viewport Edge-Flash for Keyboard Stamping */
@@ -2136,7 +2136,7 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
   pointer-events: none;
   opacity: 0;
   transform: scale(0.96);
-  transition: opacity 100ms ease, transform 100ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  transition: opacity 100ms var(--motion-ease), transform 100ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 
 .lp-slide-loupe.is-visible {
@@ -2236,7 +2236,7 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
   height: 8px;
   background: var(--orange);
   border-radius: 1.5px;
-  transition: height 150ms ease, background 150ms ease;
+  transition: height 150ms var(--motion-ease), background 150ms var(--motion-ease);
 }
 
 #status-footer[data-status="idle"] .lp-wave-bar,
@@ -2266,7 +2266,7 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
 .export-chip,
 .lp-export-chip,
 #export-formats label.lp-hit {
-  transition: background var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) var(--motion-spring), box-shadow var(--motion-fast) ease;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-spring), box-shadow var(--motion-fast) var(--motion-ease);
 }
 
 .export-chip:hover,
@@ -2284,3 +2284,42 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
   color: var(--panel) !important;
 }
 
+
+/* =======================================================================
+   prefers-reduced-motion for the microinteraction polish above.
+
+   §8 of this file's own rules: every animated class must be neutralized
+   here, or the change is incomplete. The polish commit added four
+   keyframe animations and several transitions without this block, which
+   is the DEF-020 lesson (a reduced-motion gap shipped once already).
+
+   The split follows §4.5: COLOUR is information and stays; MOTION goes.
+   The keep/reject edge flash is the clearest case -- it answers "did my
+   keystroke register?", so the tint remains and only the pulsing stops.
+   JS removes those elements on its own timer, so with animation:none they
+   simply appear and vanish rather than animating.
+   ======================================================================= */
+@media (prefers-reduced-motion:reduce){
+  /* decorative: the landing ring and the footer equalizer carry no
+     information that the static state does not already carry. */
+  .lp-drop-stamp{animation:none;display:none}
+  .lp-wave-bar{animation:none}
+  .lp-status-waveform .lp-wave-bar{animation:none}
+
+  /* informational: keep the colour, drop the pulse. */
+  .lp-viewport-flash,
+  .lp-viewport-flash-keep,
+  .lp-viewport-flash-reject{animation:none;transition:none}
+
+  /* mechanical rollers snap instead of rolling. */
+  .lp-odometer-ribbon,.lp-odometer-digit,.lp-odometer-char{transition:none}
+
+  /* the loupe is user-driven, so it stays -- but it must not ease. */
+  .lp-slide-loupe,.lp-loupe-inner,.lp-loupe-img-wrap,
+  .lp-loupe-badge,.lp-loupe-meta{transition:none}
+
+  /* queue drop preview and timeline ticks. */
+  .lp-drop-insert{transition:none;animation:none}
+  .lp-tick{transition:none}
+  .export-chip,.lp-export-chip{transition:none}
+}

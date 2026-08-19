@@ -167,6 +167,17 @@ def build_first_run_checklist(
     remediation, action, url, download or repair field of any kind (D-14).
     """
     components: Mapping[str, Mapping[str, Any]] = getattr(result, "components", result)
+    # A plain assessment dict (no ``.components`` attribute) nests the component
+    # map one level down alongside sibling keys like "inventory" and
+    # "active_runtime". Iterating the outer dict then fed "inventory" to
+    # checklist_group_for and raised, killing get_bootstrap before the first-run
+    # checklist could render -- reproducible from source with a fresh data dir.
+    #
+    # Unwrapping is the fix; the ValueError below is NOT relaxed on purpose, so a
+    # genuinely new inventory entry still cannot be silently dropped from the
+    # checklist (which is the whole reason it raises).
+    if isinstance(components, Mapping) and isinstance(components.get("components"), Mapping):
+        components = components["components"]
 
     windows_check = supported_windows_version(windows_version)
     windows_item = {
