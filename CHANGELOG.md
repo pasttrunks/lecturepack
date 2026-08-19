@@ -9,24 +9,33 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
-## [2.0.7] — 2026-08-18
+## [2.0.7] — 2026-08-19
 
-**Lectures you already imported can be processed again.** Everything in 2.0.6 is
-included.
+**Lectures actually process now.** Everything in 2.0.6 is included.
 
-Pressing Start on a lecture that was already in your library did nothing. The
-part of the app that runs the pipeline was never told which lecture to work on,
-so it stopped immediately. Only freshly imported videos worked, which is why
-this went unnoticed. Any lecture in your library now starts when you tell it to.
+Two separate faults, both of which ended with nothing happening.
 
-**Dragging lectures around actually works now, everywhere.** Dropping a lecture
-on a subject files it there. Dropping it on Process queues it. Dropping it on
-nothing tells you so and puts the card back, instead of silently doing nothing.
-Dragging near the edge of a long library scrolls, so you can reach the Process
-tab without letting go. Grab a card anywhere that isn't a button, or use the six
-dots in its corner.
+Pressing Start on a lecture already in your library did nothing: the part of the
+app that runs the pipeline was never told which lecture to work on, so it stopped
+immediately. Only freshly imported videos worked, which is why it went unnoticed.
 
-**Reprocessing still asks first.** Dropping a finished lecture on Process warns
+And anything that reached the queue stayed there. The queue was only ever emptied
+when some *other* lecture finished, so with nothing already running there was
+nothing to trigger it — a queued lecture sat at "Queued" while the app sat at
+Idle, indefinitely. Queue a lecture now and it starts.
+
+**Dragging lectures around works, and lands where you'd expect.** Drop a lecture
+on a subject to file it there. Drop it on the queue to line it up behind what is
+already waiting. Drop it on nothing and it says so and flies back, instead of
+silently doing nothing. Dragging near the edge of a long library scrolls, so you
+can reach your target without letting go. Grab a card anywhere that isn't a
+button, or use the six dots in its corner.
+
+The queue is only on screen when it is actually holding something, and Process is
+no longer a drop target — dropping a lecture onto a sidebar tab never explained
+itself.
+
+**Reprocessing still asks first.** Dropping a finished lecture on the queue warns
 you that its slides, transcript and Study pack will be replaced before anything
 happens.
 
