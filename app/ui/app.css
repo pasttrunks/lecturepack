@@ -2367,3 +2367,74 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
   .lp-tick{transition:none}
   .export-chip,.lp-export-chip{transition:none}
 }
+
+/* ===========================================================================
+   3.9  Transient layer + shortcut discoverability (2.0.9)
+   Every rule here reuses the existing vocabulary deliberately: the toast action
+   borrows the pill it already lives in, the key caps borrow .lp-press-sm's
+   resting shape, and the Study stamp flash borrows Review's keyframes at a
+   narrower box. Nothing new is invented; the point is family resemblance.
+   =========================================================================== */
+
+/* -- toast: dismissible, with one optional trailing action ---------------- */
+.lp-toast{cursor:pointer}
+.lp-toast:hover{color:var(--bg)}
+.lp-toast-rule{display:inline-block;width:1.5px;height:13px;margin:0 10px;
+  background:var(--muted);opacity:.4;vertical-align:middle}
+/* No border and no fill on the action: a button inside a 36px pill reads as a
+   box in a box. Orange is the one accent legible on the ink fill unaided. */
+.lp-toast-action{background:none;border:0;padding:0;cursor:pointer;
+  font:600 12px 'JetBrains Mono';color:var(--orange);vertical-align:middle}
+.lp-toast-action:hover{text-decoration:underline}
+
+/* -- palette rows: the shortcut is metadata, not a key cap ---------------- */
+/* Deliberately plain text. Bordered caps belong in the cheat sheet, where keys
+   are the subject; forty of them in a scrolling list out-shouts every label. */
+.lp-palette-hint{margin-left:auto;padding-left:14px;
+  font:500 12px 'JetBrains Mono';letter-spacing:.04em;color:var(--muted)}
+/* --ink, NOT --blue: the row already says "selected" with a blue border, and a
+   second blue element competes with it for the same signal. */
+[data-palette-selected] .lp-palette-hint{color:var(--ink)}
+
+/* -- cheat sheet: here keys ARE objects ----------------------------------- */
+.lp-key{display:inline-block;font:500 12px 'JetBrains Mono';color:var(--ink);
+  background:var(--bg);border:2px solid var(--ink);border-radius:2px;
+  padding:4px 7px;box-shadow:var(--shadow-hard-sm)}
+.lp-key-join{font:500 12px 'JetBrains Mono';color:var(--muted);margin:0 5px}
+.lp-shortcut-group{font:500 12px 'JetBrains Mono';color:var(--muted);
+  text-transform:uppercase;letter-spacing:.08em;margin:0 0 9px}
+.lp-shortcut-row{display:flex;align-items:center;gap:14px;padding:7px 0}
+.lp-shortcut-row>span:first-child{font:500 14px 'Space Grotesk';color:var(--ink)}
+.lp-shortcut-keys{margin-left:auto;white-space:nowrap}
+
+/* -- a quiet copy control that recedes while reading ---------------------- */
+/* Persistent, not hover-revealed: hover-reveal fails touch and keyboard, and
+   makes the control unfindable in a feed where you cannot see what is hoverable. */
+.lp-copy-inline{font:500 12px 'JetBrains Mono';color:var(--muted);
+  background:transparent;border:1.5px solid var(--muted);border-radius:7px;
+  padding:4px 10px;cursor:pointer;
+  transition:color var(--motion-fast) var(--motion-ease-soft),
+             border-color var(--motion-fast) var(--motion-ease-soft)}
+.lp-copy-inline:hover{color:var(--ink);border-color:var(--ink)}
+.lp-copy-inline.is-copied{color:var(--orange);border-color:var(--orange)}
+.study-answer-actions{display:flex;align-items:center;gap:8px;margin-top:10px}
+
+/* -- Study stamp flash: Review's gesture, scoped to what was graded ------- */
+/* Scoped on purpose. Review's full-viewport flash confirms the viewport's only
+   subject was stamped; Study's screen also holds the scope bar, progress and
+   the concept list, and flashing all of it would claim the whole screen was
+   graded. Same colours as Review -- a second green/red pair for correctness
+   would be a distinction nobody perceives as intentional. */
+.lp-stamp-flash{position:relative}
+.lp-stamp-flash-keep{animation:lpEdgeFlashGreen 140ms ease-out forwards}
+.lp-stamp-flash-reject{animation:lpEdgeFlashRed 140ms ease-out forwards}
+
+@media (prefers-reduced-motion: reduce){
+  /* Same treatment as .lp-viewport-flash: the ring lives in the keyframes, so
+     animation:none alone would leave the grade with no feedback at all. State
+     it statically -- the JS timer removes the class, so it appears and
+     vanishes without animating. */
+  .lp-stamp-flash-keep{animation:none;box-shadow:inset 0 0 0 4px var(--green)}
+  .lp-stamp-flash-reject{animation:none;box-shadow:inset 0 0 0 4px var(--red)}
+  .lp-copy-inline{transition:none}
+}

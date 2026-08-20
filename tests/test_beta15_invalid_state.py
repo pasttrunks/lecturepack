@@ -205,7 +205,12 @@ def test_load_sample_jobs_is_now_try_the_demo_lecture() -> None:
 # --------------------------------------------------------------------------- #
 def test_toasts_auto_dismiss_and_clear_on_navigation() -> None:
     app = read(APP)
-    assert "_toastT = setTimeout(dismissToast, 5000);" in app
+    # The 5s literal moved into a named constant when the toast gained an
+    # optional action (which buys 8s -- see test_transient_layer_polish). The
+    # N-5 contract is unchanged: an ORDINARY toast still auto-dismisses at ~5s.
+    assert "TOAST_LIFE_PLAIN = 5000" in app
+    assert "_toastLife = action ? TOAST_LIFE_ACTION : TOAST_LIFE_PLAIN" in app
+    assert "_toastT = setTimeout(dismissToast, _toastLife);" in app
     assert "function dismissToast()" in app
     screen = block(app, "function setScreen(name) {", "function applyTheme(")
     assert "dismissToast();" in screen

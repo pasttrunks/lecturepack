@@ -22,6 +22,28 @@ wrong; asking the same thing again simply took the full wait a second time
 instead of coming back instantly. Answers written during that window are now
 kept.
 
+**Slide triage stopped skipping slides.** Space is the fast key in Review — keep
+this one and move on. It was moving on twice, so every second slide went by
+without ever being shown, keeping whatever LecturePack had guessed for it. One
+press now moves one slide.
+
+**And a keep or reject can be taken back.** Stamping now says what it did and
+offers Undo, and a fast run of them collapses into a single "Rejected 6 slides ·
+Undo all" rather than a stack of messages. Ctrl+Z does the same thing whether or
+not the message is still on screen, and either way you land back on the slide
+where the mistake happened.
+
+**LecturePack will now tell you its shortcuts.** Press ? for the full list, and
+the command palette shows the shortcut beside any command that has one.
+
+**Copy an answer.** Ask and Teach Me answers have a Copy button, for pasting
+into your own notes.
+
+**Small things.** Messages at the bottom of the window can be clicked away
+instead of waited out, and hovering one stops its countdown. Answering a quiz
+question or grading a flashcard now flashes green or red the way keeping or
+rejecting a slide does.
+
 **Saving app state is safer when two parts of LecturePack write at once.** Every
 settings, queue and lecture file is written to a scratch file first and then
 swapped in, so a crash mid-write can never leave you with half a file. All of

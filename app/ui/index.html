@@ -1018,6 +1018,21 @@
     </div>
   </div>
 
+  <!-- ===== KEYBOARD SHORTCUTS CHEAT SHEET ===== -->
+  <!-- Deliberately NOT palette chrome. The palette is a filtering instrument
+       with a focused input; this is a static reference you read once. Reusing
+       the palette's shape would imply you can type into it, and that is the
+       first thing anyone would try. -->
+  <div id="shortcuts-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" class="lp-scrim" style="position:fixed;inset:0;z-index:70;background:rgba(8,10,14,.55);display:flex;align-items:center;justify-content:center;padding:40px 24px">
+    <div id="shortcuts-panel" class="lp-pop" style="width:520px;max-width:100%;background:var(--bg);border:2px solid var(--ink);border-radius:16px;box-shadow:var(--shadow-hard);padding:22px 24px;max-height:80vh;overflow-y:auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <h2 id="shortcuts-title" style="font:700 19px 'Space Grotesk';color:var(--ink);margin:0">Keyboard shortcuts</h2>
+        <span style="font:600 10px 'JetBrains Mono';color:var(--muted);border:1.5px solid var(--line);border-radius:6px;padding:3px 7px">ESC</span>
+      </div>
+      <div id="shortcuts-body"></div>
+    </div>
+  </div>
+
   <!-- ===== GLOBAL TRANSCRIPT SEARCH ===== -->
   <div id="search-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="search-title" class="lp-scrim" style="position:fixed;inset:0;z-index:65;background:rgba(8,10,14,.55);display:flex;align-items:flex-start;justify-content:center;padding:56px 24px">
     <div id="search-panel" class="lp-pop" style="width:560px;max-width:100%;background:var(--panel);border:2px solid var(--border);border-radius:16px;box-shadow:var(--shadow-hi);overflow:hidden">

@@ -707,24 +707,57 @@
   // Toast discipline (N-5): ordinary toasts auto-dismiss after ~5s, the
   // singleton caps the visible stack at one, navigation clears stale
   // transient messages, and no toast may linger once its condition is gone.
-  var _toastT = null, _toastClearT = null;
-  function toast(msg) {
+  var _toastT = null, _toastClearT = null, _toastLife = 5000;
+  // A message is read; an action must be read, decided on, and aimed at. 5s is
+  // short for that, and a missed Undo is a lost edit -- so an action buys 8s,
+  // and hovering the pill stops the clock entirely.
+  var TOAST_LIFE_PLAIN = 5000, TOAST_LIFE_ACTION = 8000;
+  function toast(msg, action) {
     var t = $('lp-toast');
     if (!t) {
       t = document.createElement('div'); t.id = 'lp-toast'; t.className = 'lp-toast';
+      t.setAttribute('role', 'status');
       t.style.cssText = 'position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:130;background:var(--ink);color:var(--bg);font:600 13px \'Space Grotesk\';padding:10px 18px;border-radius:10px;box-shadow:var(--shadow-hi);opacity:0;transition:opacity .2s';
       document.body.appendChild(t);
+      // Click anywhere on the pill dismisses it. No X glyph: a close control in
+      // a five-second pill is permanent clutter for an affordance nobody hunts.
+      t.addEventListener('click', function () { dismissToast(); });
+      // Stop the clock while the pointer is on the pill, so an action cannot
+      // expire out from under someone who is reaching for it.
+      t.addEventListener('mouseenter', function () { if (_toastT) { clearTimeout(_toastT); _toastT = null; } });
+      t.addEventListener('mouseleave', function () { if (t.style.opacity === '1') _toastT = setTimeout(dismissToast, _toastLife); });
     }
-    t.textContent = msg; t.style.opacity = '1';
+    t.textContent = msg;
+    if (action && action.label && typeof action.run === 'function') {
+      var rule = document.createElement('span');
+      rule.className = 'lp-toast-rule';
+      rule.setAttribute('aria-hidden', 'true');
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lp-toast-action';
+      btn.textContent = action.label;
+      btn.addEventListener('click', function (e) {
+        // MUST swallow its own click. An Undo that also dismisses is fine; an
+        // Undo that fires dismiss INSTEAD is the one real bug this can have.
+        e.stopPropagation();
+        dismissToast();
+        action.run();
+      });
+      t.appendChild(rule);
+      t.appendChild(btn);
+    }
+    t.style.opacity = '1';
     if (!LP.motion.reduced()) {
       t.classList.remove('lp-toast');
       void t.offsetWidth;
       t.classList.add('lp-toast');
     }
+    _toastLife = action ? TOAST_LIFE_ACTION : TOAST_LIFE_PLAIN;
     if (_toastT) clearTimeout(_toastT);
     if (_toastClearT) { clearTimeout(_toastClearT); _toastClearT = null; }
-    _toastT = setTimeout(dismissToast, 5000);
+    _toastT = setTimeout(dismissToast, _toastLife);
   }
+
   function dismissToast() {
     if (_toastT) { clearTimeout(_toastT); _toastT = null; }
     var t = $('lp-toast');
@@ -735,6 +768,56 @@
     // be read back out of the DOM on another screen.
     _toastClearT = setTimeout(function () { _toastClearT = null; if (t.style.opacity === '0') t.textContent = ''; }, 240);
   }
+  /* Copying a Study answer confirms IN PLACE, not with a toast.
+     The toast is bottom-centre; a click in the upper feed would send the eye
+     travelling to confirm something it already knows. Reserve the pill for
+     events that happen away from the cursor. */
+  function copyTextQuiet(text, onDone) {
+    text = text || '';
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      var ok = true;
+      try { document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.remove();
+      onDone(ok);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { onDone(true); }, fallback);
+    } else { fallback(); }
+  }
+
+  function copyControlHtml(kind) {
+    // aria-live on the button itself, so the label swap is announced rather
+    // than being a purely visual confirmation.
+    return '<div class="study-answer-actions"><button type="button" class="lp-copy-inline"' +
+      ' data-lp-copy="' + kind + '" aria-live="polite">Copy</button></div>';
+  }
+
+  // The text a copy control owns. Kept next to the control so the two cannot
+  // drift: a button whose source resolver has gone stale copies the wrong
+  // answer, which is worse than no button.
+  function copySourceText(btn) {
+    var kind = btn.getAttribute('data-lp-copy');
+    if (kind === 'ask') {
+      var answer = btn.closest('.study-ask-answer');
+      if (!answer) return '';
+      // Clone and strip the control before reading, or the copied answer ends
+      // with the word "Copy" -- the button lives INSIDE the bubble it copies.
+      var clone = answer.cloneNode(true);
+      var actions = clone.querySelector('.study-answer-actions');
+      if (actions) actions.remove();
+      return clone.textContent;
+    }
+    if (kind === 'teach') {
+      var result = studyV2.teachResult || {};
+      return [result.explanation || '', result.analogy ? 'Analogy: ' + result.analogy : '']
+        .filter(Boolean).join('\n\n');
+    }
+    return '';
+  }
+
   function copyText(text, okMsg) {
     text = text || '';
     function fallback() {
@@ -2243,6 +2326,25 @@
     el.className = 'lp-viewport-flash lp-viewport-flash-' + tone;
     setTimeout(function () {
       el.className = 'lp-viewport-flash';
+    }, 140);
+  }
+
+  /* Review's stamp gesture, scoped to what was actually graded.
+     NOT the full-viewport flash: Review's viewport holds one slide, so flashing
+     all of it says "that slide was stamped". Study's screen also holds the
+     scope bar, progress and the concept list -- flashing the lot would claim
+     the whole screen was graded. Same keyframes, narrower box: the gesture is
+     what carries the family resemblance, not the extent.
+     Colours are Review's unchanged. A second green/red pair for correctness
+     would be a distinction nobody perceives as intentional, and the semantics
+     genuinely match -- both are a binary affirm/negate stamp. */
+  function flashStamp(el, tone) {
+    if (!el) return;
+    el.classList.remove('lp-stamp-flash-keep', 'lp-stamp-flash-reject');
+    void el.offsetWidth;
+    el.classList.add('lp-stamp-flash', 'lp-stamp-flash-' + tone);
+    setTimeout(function () {
+      el.classList.remove('lp-stamp-flash-keep', 'lp-stamp-flash-reject');
     }, 140);
   }
 
@@ -4697,7 +4799,7 @@
   function topOverlay() {
     var open = [];
     ['runtime-setup-overlay', 'all-slides-overlay', 'onb-overlay', 'whatsnew-overlay',
-      'batch-overlay', 'search-overlay', 'palette-overlay'].forEach(function (id) {
+      'batch-overlay', 'search-overlay', 'palette-overlay', 'shortcuts-overlay'].forEach(function (id) {
       var el = $(id);
       if (el && !el.hidden) open.push(el);
     });
@@ -6711,6 +6813,10 @@
     studyV2.flashRevealed = false;
     studyV2PersistView();
     renderStudyFlashcards();
+    // After the render, not before: recordFlashReview advances the deck, so the
+    // card element the grade was given on is already gone by now. The flash
+    // belongs on the container, which survives.
+    flashStamp($('study-flashcards-root'), correct ? 'keep' : 'reject');
   }
 
   function quickStudyItemData(item) {
@@ -7079,6 +7185,7 @@
           }).then(function () { studyV2Load(); }).catch(function () {});
         }
         studyV2PersistView();
+        flashStamp($('study-quiz-root'), correct ? 'keep' : 'reject');
         var srcHtml = studyItemSourcesHtml(q);
         var fb = $('study-quiz-feedback');
         fb.innerHTML = (correct ? '<div style="color:var(--green);font-weight:700;font-size:15px;margin-bottom:6px">✓ Correct</div>' : '<div style="color:var(--red);font-weight:700;font-size:15px;margin-bottom:6px">✕ Not quite</div>') +
@@ -7171,6 +7278,7 @@
       '<div><div style="font:700 22px Space Grotesk;margin-bottom:8px">' + escText(concept.title || 'Concept') + '</div><div style="font-size:15px;line-height:1.65;color:var(--secondary-text)">' + escText(result.explanation || '') + '</div></div>' +
       (result.analogy ? '<div class="study-guide-section"><h3>Try this analogy</h3><p>' + escText(result.analogy) + '</p></div>' : '') +
       (studyItemSourcesHtml(result) ? '<div class="study-provenance-row">' + studyItemSourcesHtml(result) + '</div>' : '') +
+      copyControlHtml('teach') +
       '<div class="study-guide-section"><h3>Check your understanding</h3><p style="margin-bottom:10px">' + escText(result.check_question || '') + '</p>' +
       '<textarea id="study-teach-answer" class="study-short-answer" placeholder="Explain it in your own words"' + (grade ? ' disabled' : '') + '></textarea>' +
       '<button id="btn-study-teach-grade" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;margin-top:10px"' + (grade ? ' disabled' : '') + '>Check answer</button>' +
@@ -7216,7 +7324,14 @@
     answer.classList.add('study-ask-answer');
     studyV2.askAnswer = String(text == null ? '' : text);
     answer.textContent = studyV2.askAnswer || 'I could not find that in this lecture.';
-    if (done) studyV2.askStreaming = false;
+    if (done) {
+      studyV2.askStreaming = false;
+      // Only once the answer is final: a Copy button beside a half-streamed
+      // answer copies half an answer.
+      if (studyV2.askAnswer && !answer.querySelector('.study-answer-actions')) {
+        answer.insertAdjacentHTML('beforeend', copyControlHtml('ask'));
+      }
+    }
     feed.scrollTop = feed.scrollHeight;
   }
 
@@ -9440,9 +9555,50 @@
       LP.state.viewingSlide = (LP.state.viewingSlide + 1) % LP.data.slides.length;
       renderSlides();
     });
+    /* Stamping a slide is undoable.
+       Space keeps AND advances, so a mis-stamp happens at speed and is already
+       two slides behind by the time it registers. The toast is the affordance,
+       but Ctrl+Z is the real undo -- it works whether or not the pill is still
+       up, which is why the toast mostly exists to TEACH it.
+       Runs coalesce: the toast is a singleton, so a fast sweep would otherwise
+       replace the pill on every keypress and each one would offer to undo a
+       single slide. Consecutive stamps of the same kind accumulate into one
+       run, and Undo rewinds the whole run to where it started. */
+    var stampRun = { kind: '', entries: [] };
+    function recordStamp(index, kind, previous) {
+      if (stampRun.kind !== kind) stampRun = { kind: kind, entries: [] };
+      stampRun.entries.push({ index: index, state: previous.state, sel: previous.sel });
+      var count = stampRun.entries.length;
+      var noun = count === 1 ? 'slide' : 'slides';
+      toast((kind === 'accepted' ? 'Kept ' : 'Rejected ') + count + ' ' + noun,
+        { label: count === 1 ? 'Undo' : 'Undo all', run: undoStampRun });
+    }
+    function undoStampRun() {
+      if (!stampRun.entries.length) return;
+      var first = stampRun.entries[0].index;
+      // Reverse order: a run can stamp the same slide twice, and only the
+      // oldest entry holds the state it had before the run began.
+      for (var i = stampRun.entries.length - 1; i >= 0; i--) {
+        var entry = stampRun.entries[i];
+        var slide = LP.data.slides[entry.index];
+        if (!slide) continue;
+        slide.state = entry.state;
+        slide.sel = entry.sel;
+        lpBridge.call('set_slide_state', entry.index, entry.state);
+      }
+      stampRun = { kind: '', entries: [] };
+      // Put the user back where the mistake happened, not where the sweep has
+      // since travelled to.
+      if (LP.data.slides[first]) LP.state.viewingSlide = first;
+      renderSlides();
+    }
+    LP.undoStampRun = undoStampRun;
+    LP.hasStampToUndo = function () { return stampRun.entries.length > 0; };
+
     $('btn-keep').addEventListener('click', function () {
       var s = LP.data.slides[LP.state.viewingSlide];
       if (!s) return;   // N-1: no slide selected / no lecture loaded
+      recordStamp(LP.state.viewingSlide, 'accepted', { state: s.state, sel: s.sel });
       s.state = 'accepted'; s.sel = true;
       lpBridge.call('set_slide_state', LP.state.viewingSlide, 'accepted');
       // Advance after judging: the user is working THROUGH the deck, so keeping
@@ -9457,6 +9613,7 @@
     $('btn-reject').addEventListener('click', function () {
       var s = LP.data.slides[LP.state.viewingSlide];
       if (!s) return;   // N-1: no slide selected / no lecture loaded
+      recordStamp(LP.state.viewingSlide, 'rejected', { state: s.state, sel: s.sel });
       s.state = 'rejected'; s.sel = false;
       lpBridge.call('set_slide_state', LP.state.viewingSlide, 'rejected');
       // Advance after judging: the user is working THROUGH the deck, so keeping
@@ -9702,6 +9859,35 @@
         else if (e.key === 'ArrowUp') { e.preventDefault(); paletteIndex = Math.max(paletteIndex - 1, 0); renderPalette(this.value); }
       });
     }
+    /* One delegated handler for every copy control. Study re-renders whole
+       subtrees on almost every interaction, so per-button listeners would be
+       re-bound constantly and leak the ones the render replaced. */
+    document.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest && e.target.closest('[data-lp-copy]');
+      if (!btn) return;
+      var text = copySourceText(btn);
+      if (!text) return;
+      copyTextQuiet(text, function (ok) {
+        if (!ok) { toast('Copy failed'); return; }
+        btn.textContent = 'Copied';
+        btn.classList.add('is-copied');
+        setTimeout(function () {
+          // Guard the revert: the render may have replaced this node, and
+          // writing to a detached button is harmless but pointless.
+          if (!btn.isConnected) return;
+          btn.textContent = 'Copy';
+          btn.classList.remove('is-copied');
+        }, 1400);
+      });
+    });
+
+    var shortcutsOverlayEl = $('shortcuts-overlay');
+    if (shortcutsOverlayEl) shortcutsOverlayEl.addEventListener('click', function (e) {
+      // Only the backdrop dismisses. Clicking the panel must not close a
+      // reference the user is mid-read of.
+      if (e.target === shortcutsOverlayEl) closeShortcuts();
+    });
+
     var paletteOverlayEl = $('palette-overlay');
     if (paletteOverlayEl) paletteOverlayEl.addEventListener('click', function (e) {
       var item = e.target.closest('[data-palette-item]');
@@ -9722,8 +9908,20 @@
         else openPalette();
         return;
       }
+      // "?" toggles the cheat sheet. Shift is not tested: on several layouts the
+      // character requires it, on others it does not, so the KEY is the contract.
+      if (String(e.key || '') === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        var askTag = (e.target && e.target.tagName) || '';
+        var askEditing = /INPUT|TEXTAREA|SELECT/.test(askTag) || (e.target && e.target.isContentEditable);
+        if (!askEditing) {
+          e.preventDefault();
+          if (shortcutsOpen()) closeShortcuts(); else openShortcuts();
+          return;
+        }
+      }
       // Escape closes the palette / search / batch overlays.
       if (e.key === 'Escape') {
+        if (shortcutsOpen()) { closeShortcuts(); return; }
         if ($('all-slides-overlay') && !$('all-slides-overlay').hidden) { closeAllSlides(true); return; }
         if (paletteOverlayEl && !paletteOverlayEl.hidden) { closePalette(); return; }
         if ($('search-overlay') && !$('search-overlay').hidden) { closeGlobalSearch(); return; }
@@ -9774,6 +9972,14 @@
          and the guard below keeps these to Review only. */
       if (LP.state.screen === 'review' && !editing && !overlay) {
         var rk = String(e.key || '').toLowerCase();
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && rk === 'z') {
+          // The real undo. Works whether or not the toast is still on screen --
+          // the toast teaches this key, it is not the only way to reach it.
+          e.preventDefault();
+          if (LP.hasStampToUndo && LP.hasStampToUndo()) LP.undoStampRun();
+          else toast('Nothing to undo yet.');
+          return;
+        }
         if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
           var navBtn = $(e.key === 'ArrowRight' ? 'btn-next-slide' : 'btn-prev-slide');
           if (navBtn && !navBtn.disabled) { e.preventDefault(); navBtn.click(); }
@@ -9801,14 +10007,18 @@
           /* Space was an exact duplicate of J -- same button, same flash, no
              advance -- so triaging a deck with it re-stamped one slide forever.
              It is the fast-path key, so it keeps AND advances: one key, straight
-             down the deck. */
+             down the deck.
+             That advance now comes from btn-keep itself, which grew its own
+             "advance after judging" step. Clicking next as well moved TWO slides
+             per press, so a Space sweep kept every other slide and skipped the
+             rest without ever showing them -- silent, and exactly the deck-wide
+             damage this key exists to avoid. Do not re-add the extra click:
+             J, K and Space all advance because the button does. */
           e.preventDefault();
           var btnKeep2 = $('btn-keep');
           if (btnKeep2) {
             btnKeep2.click();
             flashViewport('keep');
-            var nextSlideBtn = $('btn-next-slide');
-            if (nextSlideBtn && !nextSlideBtn.disabled) nextSlideBtn.click();
           }
           return;
         }
@@ -11329,21 +11539,81 @@
   // ---- Feature 5: Ctrl+K command palette ----
   var paletteIndex = 0;
   var paletteCommands = [
-    { label: 'Import video', run: function () { if (lpBridge.connected()) lpBridge.call('browse_video'); else setOnb('drop'); } },
+    { label: 'Import video', hint: 'Ctrl+O', run: function () { if (lpBridge.connected()) lpBridge.call('browse_video'); else setOnb('drop'); } },
     { label: 'Search all transcripts', run: function () { openGlobalSearch(); } },
     { label: 'Paste link', run: function () { linkImportDialog(); } },
-    { label: 'Go to Home', run: function () { setScreen('home'); } },
-    { label: 'Go to Process', run: function () { setScreen('process'); } },
-    { label: 'Go to Review', run: function () { setScreen('review'); } },
-    { label: 'Go to Transcript', run: function () { setScreen('transcript'); } },
-    { label: 'Go to Study', run: function () { setScreen('study'); } },
-    { label: 'Go to Exports', run: function () { setScreen('exports'); } },
+    { label: 'Go to Home', hint: '1', run: function () { setScreen('home'); } },
+    { label: 'Go to Process', hint: '2', run: function () { setScreen('process'); } },
+    { label: 'Go to Review', hint: '3', run: function () { setScreen('review'); } },
+    { label: 'Go to Transcript', hint: '4', run: function () { setScreen('transcript'); } },
+    { label: 'Go to Study', hint: '5', run: function () { setScreen('study'); } },
+    { label: 'Go to Exports', hint: '6', run: function () { setScreen('exports'); } },
     { label: 'Next lecture', run: function () { selectAdjacentJob(1); } },
     { label: 'Previous lecture', run: function () { selectAdjacentJob(-1); } },
     { label: 'Copy transcript', run: function () { if (LP.data.transcript && LP.data.transcript.blocks) copyText(formatTranscriptPlain(LP.data.transcript.blocks), 'Transcript copied'); } },
-    { label: 'Export Study Pack', run: function () { if (lpBridge.connected()) lpBridge.call('export_all', JSON.stringify(['pdf', 'html', 'txt', 'srt', 'md'])); } },
-    { label: 'Open Settings', run: function () { setScreen('settings'); } }
+    { label: 'Export Study Pack', hint: 'Ctrl+E', run: function () { if (lpBridge.connected()) lpBridge.call('export_all', JSON.stringify(['pdf', 'html', 'txt', 'srt', 'md'])); } },
+    { label: 'Open Settings', hint: '7', run: function () { setScreen('settings'); } }
   ];
+
+  /* The keyboard shortcut cheat sheet.
+     This list is the ONLY place the bindings are written down for the user, so
+     it must be edited in the same commit as any binding change -- a cheat sheet
+     that lies is worse than none. Keys are rendered as caps here (they are the
+     subject); in the palette the same bindings are quiet mono text (they are
+     metadata about a row). Same information, two registers, on purpose. */
+  var SHORTCUT_GROUPS = [
+    { title: 'Global', items: [
+      { keys: ['Ctrl', 'K'], what: 'Command palette' },
+      { keys: ['Ctrl', 'O'], what: 'Import a video' },
+      { keys: ['Ctrl', 'E'], what: 'Export the study pack' },
+      { keys: ['1'], what: 'Jump to a screen (1-7)' },
+      { keys: ['F'], what: 'Focus mode' },
+      { keys: ['?'], what: 'This list' },
+      { keys: ['Esc'], what: 'Close whatever is open' }
+    ] },
+    { title: 'Review', items: [
+      { keys: ['Space'], what: 'Keep the slide and move on' },
+      { keys: ['J'], what: 'Keep' },
+      { keys: ['K'], what: 'Reject' },
+      { keys: ['Ctrl', 'Z'], what: 'Undo the last keep or reject' },
+      { keys: ['Left'], what: 'Previous slide' },
+      { keys: ['Right'], what: 'Next slide' }
+    ] }
+  ];
+
+  function renderShortcuts() {
+    var host = $('shortcuts-body');
+    if (!host) return;
+    host.innerHTML = SHORTCUT_GROUPS.map(function (group) {
+      return '<div style="margin-bottom:18px"><div class="lp-shortcut-group">' + esc(group.title) + '</div>' +
+        group.items.map(function (item) {
+          var keys = item.keys.map(function (key) {
+            return '<span class="lp-key">' + esc(key) + '</span>';
+          }).join('<span class="lp-key-join">+</span>');
+          return '<div class="lp-shortcut-row"><span>' + esc(item.what) + '</span>' +
+            '<span class="lp-shortcut-keys">' + keys + '</span></div>';
+        }).join('') + '</div>';
+    }).join('');
+  }
+
+  function openShortcuts() {
+    var overlay = $('shortcuts-overlay');
+    if (!overlay) return;
+    // One overlay at a time. Opening this from inside the palette would leave
+    // the palette's input focused underneath a dialog that cannot be typed in.
+    closePalette();
+    renderShortcuts();
+    overlay.hidden = false;
+    focusFirst(overlay);
+  }
+  function closeShortcuts() {
+    var overlay = $('shortcuts-overlay');
+    if (overlay) overlay.hidden = true;
+  }
+  function shortcutsOpen() {
+    var overlay = $('shortcuts-overlay');
+    return !!(overlay && !overlay.hidden);
+  }
 
   function openPalette() {
     var overlay = $('palette-overlay');
@@ -11385,7 +11655,7 @@
     }
     paletteIndex = Math.max(0, Math.min(paletteIndex, items.length - 1));
     host.innerHTML = items.map(function (item, i) {
-      return '<button data-palette-item data-index="' + i + '" style="display:block;width:100%;text-align:left;background:' + (i === paletteIndex ? 'var(--blue-tint)' : 'transparent') + ';border:1.5px solid ' + (i === paletteIndex ? 'var(--blue)' : 'transparent') + ';border-radius:8px;padding:9px 13px;cursor:pointer;color:var(--ink);font:500 13px \'Space Grotesk\'">' + esc(item.label) + '</button>';
+      return '<button data-palette-item' + (i === paletteIndex ? ' data-palette-selected' : '') + ' data-index="' + i + '" style="display:flex;align-items:center;width:100%;text-align:left;background:' + (i === paletteIndex ? 'var(--blue-tint)' : 'transparent') + ';border:1.5px solid ' + (i === paletteIndex ? 'var(--blue)' : 'transparent') + ';border-radius:8px;padding:9px 13px;cursor:pointer;color:var(--ink);font:500 13px \'Space Grotesk\'">' + esc(item.label) + (item.hint ? '<span class=\'lp-palette-hint\'>' + esc(item.hint) + '</span>' : '') + '</button>';
     }).join('');
     host._items = items;
   }

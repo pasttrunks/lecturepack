@@ -417,6 +417,31 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### DEF-043 — Space kept every OTHER slide and skipped the rest without showing them   ✅ FIXED (verified in a real browser)
+- **Area:** `app/ui/app.js`, the Review keyboard macros (Space branch).
+- **Found:** 2026-08-20, while adding undo to the same handler. Not reported by a
+  user, and no test caught it.
+- **Symptom:** triaging a deck with the fast-path key advanced TWO slides per press.
+  Every second slide was never displayed, and its detector default was kept silently.
+- **Root cause:** the two halves of the behaviour were added in different releases.
+  `btn-keep` grew its own "advance after judging" step (beta.5); the Space branch was
+  written later (`e9ff280`, 2.0.7) against a J that did *not* advance, so it clicked
+  `btn-next-slide` itself. Once the button advanced too, the branch advanced twice.
+  The comment above it still described the old world, which is how it survived review.
+- **Why no test caught it:** every test asserted the *stamped state*, which was
+  correct -- the slide Space landed on really was kept. Nothing asserted the cursor
+  moved exactly one step, and that was the whole defect.
+- **Fix:** delete the extra `btn-next-slide` click. J, K and Space all advance
+  because the button does. The comment now says so, and says not to re-add it.
+- **Test:** `test_space_advances_once_not_twice`, which asserts `btn-next-slide` is
+  absent from the Space branch rather than asserting the resulting state.
+- **Verified (2026-08-20)** by driving the real renderer over HTTP in Chromium: one
+  Space press moves the cursor 0 -> 1, a second moves it 1 -> 2.
+- **Lesson:** **when a behaviour is split across a button and a key that drives it,
+  moving the behaviour into one moves it into both.** Assert the delta (one step),
+  not the destination state.
+- **Files:** `app/ui/app.js`, `tests/test_transient_layer_polish.py`.
+
 ### BUG-47 — the study content file had an unlocked read-modify-write; a student's Ask/Teach Me answer could be silently discarded   🟡 FIXED (not yet exercised on a real pack)
 - **Area:** `lecturepack/services/ai_study_service.py` (`_expand_material`,
   `_basic_partial_refresh`, `_partial_state`, `_record_interaction_error`),
