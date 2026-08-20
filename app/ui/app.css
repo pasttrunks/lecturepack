@@ -2425,7 +2425,11 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
    the concept list, and flashing all of it would claim the whole screen was
    graded. Same colours as Review -- a second green/red pair for correctness
    would be a distinction nobody perceives as intentional. */
-.lp-stamp-flash{position:relative}
+/* No position:relative. The flash is an inset box-shadow on the element
+   itself, so it needs no containing block -- and flashStamp only removes the
+   tone class, so a `position` set here would persist after the first grade and
+   permanently change the containing block for any absolutely positioned
+   descendant. A one-off 140ms tint must not leave layout behind it. */
 .lp-stamp-flash-keep{animation:lpEdgeFlashGreen 140ms ease-out forwards}
 .lp-stamp-flash-reject{animation:lpEdgeFlashRed 140ms ease-out forwards}
 

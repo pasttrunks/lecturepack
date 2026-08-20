@@ -237,3 +237,17 @@ def test_the_cheat_sheet_is_reachable_without_knowing_the_shortcut() -> None:
     assert "$('btn-shortcuts')" in JS
     # And a palette row, for the person who reaches for Ctrl+K to hunt features.
     assert "{ label: 'Keyboard shortcuts', hint: '?'" in JS
+
+
+def test_the_stamp_flash_leaves_no_layout_behind_it() -> None:
+    """A 140ms tint must not permanently change its container.
+
+    flashStamp only removes the TONE class, so anything else it adds outlives
+    the flash. A `position` on a Study root would silently become the
+    containing block for every absolutely positioned descendant after the
+    student's first graded card.
+    """
+    assert ".lp-stamp-flash{position:relative}" not in CSS
+    block = JS.split("function flashStamp(el, tone)", 1)[1].split("\n  }", 1)[0]
+    assert "el.classList.add('lp-stamp-flash-' + tone)" in block
+    assert "'lp-stamp-flash'," not in block, "adds a class the timer never removes"

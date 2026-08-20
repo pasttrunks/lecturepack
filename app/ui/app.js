@@ -2342,7 +2342,10 @@
     if (!el) return;
     el.classList.remove('lp-stamp-flash-keep', 'lp-stamp-flash-reject');
     void el.offsetWidth;
-    el.classList.add('lp-stamp-flash', 'lp-stamp-flash-' + tone);
+    // Only the tone class, and it is fully removed again below: nothing this
+    // adds may outlive the 140ms, or a transient tint becomes permanent state
+    // on a container the rest of the screen lays out inside.
+    el.classList.add('lp-stamp-flash-' + tone);
     setTimeout(function () {
       el.classList.remove('lp-stamp-flash-keep', 'lp-stamp-flash-reject');
     }, 140);
