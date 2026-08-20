@@ -417,7 +417,7 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
-### DEF-044 — the runtime-setup gate crashed on exactly the failure it exists to explain   🟡 FIXED (not yet seen in a packaged build)
+### DEF-044 — the runtime-setup gate crashed on exactly the failure it exists to explain   🟡 FIXED (shipped in 2.0.9; the packaged build's own runtime is healthy, so the fixed path is still unexercised there)
 - **Area:** `lecturepack/services/first_run_checklist.py::build_first_run_checklist`,
   reached from `app/desktop/bridge.py::get_bootstrap`.
 - **Found:** 2026-08-20, by the user, on a source run of the 2.0.9 candidate.
@@ -478,7 +478,7 @@ re-debug the same thing from scratch.
   not the destination state.
 - **Files:** `app/ui/app.js`, `tests/test_transient_layer_polish.py`.
 
-### BUG-47 — the study content file had an unlocked read-modify-write; a student's Ask/Teach Me answer could be silently discarded   🟡 FIXED (not yet exercised on a real pack)
+### BUG-47 — the study content file had an unlocked read-modify-write; a student's Ask/Teach Me answer could be silently discarded   🟡 FIXED (shipped in 2.0.9; not yet exercised on a real pack against a live gateway)
 - **Area:** `lecturepack/services/ai_study_service.py` (`_expand_material`,
   `_basic_partial_refresh`, `_partial_state`, `_record_interaction_error`),
   `lecturepack/services/study_v2.py::save_content_preserving_cache`.
@@ -514,7 +514,7 @@ re-debug the same thing from scratch.
 - **Files:** `lecturepack/services/study_v2.py`, `lecturepack/services/ai_study_service.py`,
   `tests/test_ai_study_service.py`.
 
-### BUG-48 — every atomic JSON write shared one temp file name   🟡 FIXED (not yet exercised on a real pack)
+### BUG-48 — every atomic JSON write shared one temp file name   🟡 FIXED (shipped in 2.0.9)
 - **Area:** `lecturepack/infrastructure/file_manager.py::write_json_atomic`,
   `lecturepack/services/reset_service.py::reset_data_root`.
 - **Found:** 2026-08-20, as the "related" note on BUG-47.

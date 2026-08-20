@@ -3,7 +3,8 @@
 **Date:** 2026-08-20
 **Branch:** `claude/release-2-0-8-maintenance-13e69e`
 **Base:** `b58f8f7` = v2.0.8 (tagged)
-**Status:** **BUILT AND VERIFIED.** Installer, portable zip, hashes and manifest all
+**Status:** **RELEASED** 2026-08-20 — https://github.com/pasttrunks/lecturepack/releases/tag/v2.0.9
+(stable, not draft, not prerelease; four assets). Installer, portable zip, hashes and manifest all
 produced from a clean release venv; packaged self-test green on all twelve checks.
 Not signed (no Authenticode credentials — accepted by the owner for this release).
 
@@ -107,6 +108,12 @@ cursor moved one step (the actual defect).
 - **The runtime setup gate had to be hidden** to reach the app in a plain browser (no
   bridge means its checks never pass). That is the known dev-only workaround, not a
   finding.
+- **Step 14 was verified from the feed, not from a running old build.** The published
+  release is what the updater reads (latest, non-draft, x64 Setup asset present), the
+  served manifest's SHA-256 matches the published installer byte-for-byte, and
+  `updater.compareVersions` puts the installed build below 2.0.9. What was NOT done is
+  launching the installed copy and watching it offer, download and apply the update.
+  Note the machine's installed build is **2.0.2**, not 2.0.8 as assumed earlier.
 - **No Authenticode signing.** `AUTHENTICODE SIGNING: NOT AVAILABLE` — unchanged, no valid
   credentials exist in this repo.
 - Steps 4–14 of `RELEASING.md` (Rust Study Core build, sidecar package, installer build,
