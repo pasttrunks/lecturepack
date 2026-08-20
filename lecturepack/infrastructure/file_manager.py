@@ -1,18 +1,40 @@
 import os
 import json
 import shutil
+import tempfile
 
 class FileManager:
     @staticmethod
     def write_json_atomic(filepath, data):
-        """Writes JSON data to a file atomically using a temporary file and rename."""
-        temp_filepath = filepath + ".tmp"
-        # Ensure directories exist
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        with open(temp_filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-        # Atomic replace
-        os.replace(temp_filepath, filepath)
+        """Writes JSON data to a file atomically using a temporary file and rename.
+
+        The temporary file gets a unique name in the destination directory. A
+        fixed ``filepath + ".tmp"`` made the *temp file itself* a shared
+        resource: two writers racing on the same path (the sidecar and the UI
+        process both persist job state) would interleave their partial writes
+        into one buffer, and the loser's ``os.replace`` could publish the
+        winner's half-written bytes. ``reset_service`` sweeps both this shape
+        and the historical one.
+        """
+        directory = os.path.dirname(filepath) or "."
+        os.makedirs(directory, exist_ok=True)
+        descriptor, temp_filepath = tempfile.mkstemp(
+            prefix=f".{os.path.basename(filepath)}.", suffix=".tmp", dir=directory,
+        )
+        try:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as f:
+                descriptor = -1
+                json.dump(data, f, indent=4, ensure_ascii=False)
+            # Atomic replace
+            os.replace(temp_filepath, filepath)
+        finally:
+            if descriptor != -1:
+                os.close(descriptor)
+            if os.path.exists(temp_filepath):
+                try:
+                    os.remove(temp_filepath)
+                except OSError:
+                    pass
 
     @staticmethod
     def read_json_safe(filepath, default=None):

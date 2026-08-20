@@ -4,11 +4,13 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import threading
 from types import SimpleNamespace
+from unittest import mock
 
 from lecturepack.infrastructure.config_manager import ConfigManager
 from lecturepack.models.job import Job
@@ -81,6 +83,46 @@ def test_reset_removes_owned_state_but_preserves_model_and_external_source(tmp_p
     assert (data_root / "models" / "ggml-base.en.bin").read_bytes() == b"model"
     assert (data_root / "keep-me.txt").exists()
     assert hashlib.sha256(external.read_bytes()).hexdigest() == before
+
+
+def test_atomic_json_writes_do_not_share_one_temp_file(tmp_path):
+    """A fixed ``<name>.tmp`` made the scratch file itself a shared resource.
+
+    Two writers to the same path would interleave into one buffer and the
+    loser's rename could publish half of the winner's bytes.
+    """
+    from lecturepack.infrastructure.file_manager import FileManager
+
+    target = tmp_path / "state" / "config.json"
+    seen: set[str] = set()
+    original_replace = os.replace
+
+    def capture(src, dst):
+        seen.add(os.path.basename(src))
+        return original_replace(src, dst)
+
+    with mock.patch("lecturepack.infrastructure.file_manager.os.replace", capture):
+        for index in range(3):
+            FileManager.write_json_atomic(str(target), {"n": index})
+
+    assert len(seen) == 3, f"temp names were reused: {seen}"
+    assert json.loads(target.read_text(encoding="utf-8")) == {"n": 2}
+    assert list((tmp_path / "state").iterdir()) == [target]
+
+
+def test_reset_sweeps_both_shapes_of_leftover_atomic_temp_file(tmp_path):
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    legacy = data_root / "config.json.tmp"
+    current = data_root / ".config.json.a1b2c3.tmp"
+    legacy.write_text("crashed writer", encoding="utf-8")
+    current.write_text("crashed writer", encoding="utf-8")
+
+    result = reset_service.reset_data_root(data_root)
+
+    assert result["ok"] is True
+    assert not legacy.exists()
+    assert not current.exists()
 
 
 def test_demo_reconciliation_removes_marked_demo_only(tmp_path):

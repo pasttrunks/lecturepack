@@ -351,6 +351,42 @@ def save_content(job, data: dict[str, Any]) -> None:
         FileManager.write_json_atomic(content_path(job), clean)
 
 
+def save_content_preserving_cache(job, data: dict[str, Any]) -> None:
+    """Save a snapshot without discarding answers cached while it was held.
+
+    BUG-47: background growth (``_expand_material``, partial refresh) loads the
+    content file, spends up to ~50s in a gateway call, then saves. The pack is
+    already live, so a student's Ask/Teach Me answer can be cached in that
+    window -- and the save writes back a dict that predates it. Holding
+    ``_job_lock`` across the gateway call would stall every UI read for the
+    duration, so the writer re-reads and merges at save time instead, taking
+    only the cache keys it never saw.
+
+    Deliberately narrow. It re-adds only keys ABSENT from the snapshot, and
+    then drops any of those whose concepts no longer exist in the content being
+    written. That second filter is what keeps a purposeful prune from being
+    undone: a snapshot cannot distinguish "someone else added this key" from "I
+    deleted this key", and ``delete_concept`` -- the only caller that removes
+    cached answers -- removes the concept along with them.
+    """
+    with _job_lock(job):
+        snapshot = list(data.get("cached_responses") or [])
+        known = {item.get("key") for item in snapshot if isinstance(item, dict)}
+        live = {str(concept.get("id") or "")
+                for concept in data.get("concepts") or [] if isinstance(concept, dict)}
+        merged = list(snapshot)
+        for item in load_content(job).get("cached_responses", []):
+            if not isinstance(item, dict) or item.get("key") in known:
+                continue
+            ids = {str(value) for value in item.get("concept_ids") or []}
+            if live and not ids.intersection(live):
+                continue
+            merged.append(item)
+        clean = dict(data)
+        clean["cached_responses"] = merged[-24:]
+        save_content(job, clean)
+
+
 def load_progress(job) -> dict[str, Any]:
     path = progress_path(job)
     data = FileManager.read_json_safe(path, None)

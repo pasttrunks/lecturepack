@@ -671,3 +671,73 @@ def test_copied_diagnostics_revalidate_local_metadata(lecture):
     assert diagnostics["last_successful_stage"] == ""
     assert diagnostics["error_category"] == ""
     assert "private transcript" not in serialized
+
+
+def test_expansion_does_not_discard_an_answer_cached_while_it_ran(lecture):
+    """BUG-47: background growth held a snapshot across a ~50s gateway call.
+
+    The pack is already ready and live in the UI during that window, so a
+    student's Ask can land in the content file before the expansion writes its
+    snapshot back. It used to be overwritten -- silently, and only visible as
+    the same question costing a second full round trip.
+    """
+    content, _client = _prepare(lecture)
+
+    class _StudentAsksMidExpansion(_Client):
+        """Ask exactly once, during the first expansion call.
+
+        Once, not every call: a student who re-asks on every iteration would
+        keep re-writing the entry and mask the lost update.
+        """
+
+        asked = False
+        served = 0
+
+        def request(self, task, payload, request_id=None):
+            if task != "expand_concept_material":
+                return super().request(task, payload, request_id)
+            if not self.asked:
+                self.asked = True
+                study_v2.cache_concept_response(
+                    lecture, "ask", "asked while the pack was still growing",
+                    ["c2"], {"answer": "cached mid-expansion"})
+            # Unique material per call, so the expansion actually appends and
+            # SAVES. The shared fixture returns one fixed card, which the pack
+            # built in _prepare already contains -- dedup would skip every
+            # save and the test would pass without exercising the hazard.
+            self.served += 1
+            index = self.served
+            response = super().request(task, payload, request_id)
+            card = response["result"]["flashcards"][0]
+            card["id"] = f"fc-extra-{index}"
+            card["front"] = f"Extra card {index}: what does sea ice cost?"
+            question = response["result"]["quiz"][0]
+            question["id"] = f"qz-extra-{index}"
+            question["question"] = f"Extra question {index}: why is the swim costly?"
+            return response
+
+    client = _StudentAsksMidExpansion()
+    ai_study_service._expand_material(lecture, client, content)
+
+    cache = study_v2.load_content(lecture)["cached_responses"]
+    assert any(item["response"].get("answer") == "cached mid-expansion"
+               for item in cache), "the student's cached answer was overwritten"
+
+
+def test_preserving_save_does_not_resurrect_cache_for_a_deleted_concept(lecture):
+    """The merge cannot resurrect what delete_concept pruned.
+
+    A snapshot cannot say whether a key missing from it was added by someone
+    else (keep it) or deleted by the snapshot's own author (do not). The one
+    caller that deletes cached answers -- delete_concept -- deletes the concept
+    with them, so the merge drops any entry whose concepts are gone.
+    """
+    _content, _client = _prepare(lecture)
+    study_v2.cache_concept_response(
+        lecture, "ask", "about the concept being deleted", ["c2"], {"answer": "stale"})
+    assert study_v2.delete_concept(lecture, "c2") is True
+
+    survivor = study_v2.load_content(lecture)
+    study_v2.save_content_preserving_cache(lecture, survivor)
+    cache = study_v2.load_content(lecture)["cached_responses"]
+    assert all("c2" not in item.get("concept_ids", []) for item in cache)

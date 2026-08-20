@@ -38,30 +38,6 @@ re-debug the same thing from scratch.
 
 *(newest first)*
 
-### BUG-47 — the study content file has an unlocked read-modify-write; a student's Ask/Teach Me answer can be silently discarded   🔴 OPEN (pre-existing, found by review 2026-08-19)
-- **Area:** `lecturepack/services/ai_study_service.py` (`_expand_material`,
-  `regenerate_affected`), `lecturepack/services/study_v2.py` (`save_content`,
-  `cache_concept_response`).
-- **Symptom (predicted, not yet observed in the wild):** a student uses Ask or Teach Me
-  while the pack is still growing in the background; their cached answer vanishes. Next
-  identical question costs a full gateway round trip again. Nothing errors.
-- **Root cause:** `_expand_material` does `load_content` → gateway call (up to ~50s) →
-  `save_content` **without holding `_job_lock` across that window**, while the pack is
-  already `STUDY_READY` and live in the UI. `cache_concept_response` correctly takes
-  `_job_lock` for its own read-modify-write, but that cannot help: the expansion loop's
-  save writes back a `content` dict snapshotted before the student's write existed.
-  Classic lost update — the lock protects each writer individually, not the interleaving.
-- **Related:** `FileManager.write_json_atomic` uses a fixed `filepath + ".tmp"`, so two
-  concurrent writers to the same path also collide on the temp file itself.
-- **Why it is not DEF-036:** DEF-036 was the same hazard between the pre-warm and the loop,
-  fixed by ordering. Ordering cannot fix this one, because the competing writer is the
-  *user*, whose timing we do not control. This needs either the lock held across the
-  read-modify-write, or a merge-on-save that re-reads and reconciles `cached_responses`
-  instead of overwriting.
-- **Do NOT "fix" by widening `_job_lock` naively:** holding it across a ~50s gateway call
-  would block the UI thread's reads for the whole expansion. The right shape is almost
-  certainly re-read-and-merge at save time, touching only the keys this pass owns.
-
 ### BUG-41 — guided-demo overlay: the four dim regions OVERLAPPED, showing a hard seam   ✅ FIXED (verified in the packaged app)
 - **Area:** `app/ui/app.js::positionTourSpotlight`, `app/ui/app.css` (3.8a guided tour).
 - **Found:** 2026-08-12, from user screenshots of the packaged guided demo.
@@ -440,6 +416,61 @@ re-debug the same thing from scratch.
 - **Files:** `app/ui/app.js`, `app/desktop/assets.py`.
 
 ## FIXED THIS SESSION
+
+### BUG-47 — the study content file had an unlocked read-modify-write; a student's Ask/Teach Me answer could be silently discarded   🟡 FIXED (not yet exercised on a real pack)
+- **Area:** `lecturepack/services/ai_study_service.py` (`_expand_material`,
+  `_basic_partial_refresh`, `_partial_state`, `_record_interaction_error`),
+  `lecturepack/services/study_v2.py::save_content_preserving_cache`.
+- **Symptom (predicted, never observed in the wild):** a student uses Ask or Teach Me
+  while the pack is still growing in the background; their cached answer vanishes. The
+  next identical question costs a full gateway round trip again. Nothing errors.
+- **Root cause:** `_expand_material` did `load_content` → gateway call (up to ~50s) →
+  `save_content` **without holding `_job_lock` across that window**, while the pack was
+  already `STUDY_READY` and live in the UI. `cache_concept_response` correctly takes
+  `_job_lock` for its own read-modify-write, but that cannot help: the expansion loop's
+  save writes back a `content` dict snapshotted before the student's write existed.
+  Classic lost update — the lock protects each writer individually, not the interleaving.
+- **Rejected fix — do not retry:** widening `_job_lock` across the gateway call. It makes
+  the lost update impossible and blocks every UI read for ~50s. That is the trade the
+  original entry warned about.
+- **Fix:** merge-on-save. `save_content_preserving_cache` re-reads the file under the
+  lock at save time and re-adds only the `cached_responses` keys the snapshot never saw,
+  then drops any of those whose concepts are absent from the content being written. That
+  last filter is what keeps a *purposeful* prune from being undone: a snapshot cannot
+  distinguish "someone else added this key" from "I deleted this key", and
+  `delete_concept` — the only caller that removes cached answers — removes the concept
+  along with them. All four slow-window writers in `ai_study_service` use it.
+- **Test:** `test_expansion_does_not_discard_an_answer_cached_while_it_ran` drives a real
+  expansion pass whose gateway client caches an answer mid-call, exactly once.
+  **The first version of this test passed against the unfixed code** — the shared fixture
+  client returns one fixed card that the pack already contained, so dedup skipped every
+  save and the hazard was never reached. It only became a real test once the client
+  served unique material per call. Confirmed failing without the fix, passing with it.
+- **Lesson:** **a lock per writer is not a transaction.** When the competing writer is
+  the user, ordering cannot save you, and the fix belongs at save time, not lock scope.
+  And: a concurrency test that passes on the broken code is testing nothing — always run
+  it against the unfixed line.
+- **Files:** `lecturepack/services/study_v2.py`, `lecturepack/services/ai_study_service.py`,
+  `tests/test_ai_study_service.py`.
+
+### BUG-48 — every atomic JSON write shared one temp file name   🟡 FIXED (not yet exercised on a real pack)
+- **Area:** `lecturepack/infrastructure/file_manager.py::write_json_atomic`,
+  `lecturepack/services/reset_service.py::reset_data_root`.
+- **Found:** 2026-08-20, as the "related" note on BUG-47.
+- **Symptom (predicted):** rare corruption or a silently reverted save of any JSON state
+  the app owns — `config.json`, `queue.json`, a job manifest, Study content.
+- **Root cause:** the temp path was a fixed `filepath + ".tmp"`. `os.replace` is atomic,
+  but the *scratch file* was a shared resource: two writers to the same path (the sidecar
+  and the UI process both persist job state) interleave their partial writes into one
+  buffer, and the loser's rename can publish half of the winner's bytes. Per-job locks do
+  not help — they are per-process.
+- **Fix:** `tempfile.mkstemp` in the destination directory, so every writer gets its own
+  buffer; the rename stays atomic. `reset_data_root` now sweeps both the new
+  `.<name>.<random>.tmp` shape and the historical `<name>.tmp` left by older builds.
+- **Tests:** `test_atomic_json_writes_do_not_share_one_temp_file`,
+  `test_reset_sweeps_both_shapes_of_leftover_atomic_temp_file`.
+- **Files:** `lecturepack/infrastructure/file_manager.py`,
+  `lecturepack/services/reset_service.py`, `tests/test_polish_backend.py`.
 
 ### DEF-040 — the new stemmer DELETED content words whose stem is a stopword   ✅ FIXED (caught in review; every test still passed)
 - **Area:** `lecturepack/services/ai_study_service.py::_terms`.

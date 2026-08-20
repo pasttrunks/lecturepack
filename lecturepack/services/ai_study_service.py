@@ -1302,7 +1302,7 @@ def _record_interaction_error(job, task: str, error: Exception) -> None:
         "message": str(error)[:500],
         "diagnostics": sanitize_diagnostics(getattr(error, "diagnostics", {})),
     }
-    study_v2.save_content(job, content)
+    study_v2.save_content_preserving_cache(job, content)
 
 
 def diagnostics(job) -> dict[str, Any]:
@@ -1354,7 +1354,7 @@ def _partial_state(job, callback: ProgressCallback | None, *, status: str,
             "diagnostics": sanitize_diagnostics(getattr(error, "diagnostics", {})),
         }
     metadata["partial_refresh"] = partial
-    study_v2.save_content(job, content)
+    study_v2.save_content_preserving_cache(job, content)
     if callback:
         callback({
             "job_id": getattr(job, "job_id", ""),
@@ -1415,7 +1415,7 @@ def _basic_partial_refresh(job, changed_segment_ids: list[str], *,
     if cancelled and cancelled():
         return study_v2.load_content(job)
     study_v2.preserve_mastery_for_replacement(job, old, merged)
-    study_v2.save_content(job, merged)
+    study_v2.save_content_preserving_cache(job, merged)
     return study_v2.load_content(job)
 
 
@@ -1633,7 +1633,7 @@ def _expand_material(job, client: GatewayClient, content: dict[str, Any], *,
             content.setdefault("quiz", []).append(item)
             added_quiz += 1
 
-        study_v2.save_content(job, content)
+        study_v2.save_content_preserving_cache(job, content)
         if progress:
             progress({
                 "job_id": getattr(job, "job_id", ""),

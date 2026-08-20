@@ -84,7 +84,11 @@ def reset_data_root(data_dir: str | Path) -> dict[str, Any]:
     targets = [root / name for name in OWNED_DIRECTORIES]
     targets.extend(root / name for name in OWNED_FILES)
     # Atomic writers can leave a sibling temporary file after a process crash.
+    # Two shapes exist: the historical fixed ``<name>.tmp`` and the unique
+    # ``.<name>.<random>.tmp`` that FileManager.write_json_atomic writes now.
     targets.extend(root / f"{name}.tmp" for name in OWNED_FILES)
+    for name in OWNED_FILES:
+        targets.extend(sorted(root.glob(f".{name}.*.tmp")))
 
     for target in targets:
         try:
