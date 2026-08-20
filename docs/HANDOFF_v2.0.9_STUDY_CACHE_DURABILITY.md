@@ -17,7 +17,8 @@ the whole target.
 | Commit | What |
 | --- | --- |
 | `7f05d10` | BUG-47 merge-on-save + BUG-48 unique atomic temp files, with regression tests |
-| _this one_ | 2.0.9 version bump, changelog, handoff |
+| `8ff567e` | 2.0.9 version bump, changelog, handoff |
+| `844a5e0` | UI polish pass: transient layer, shortcut discoverability, DEF-043 |
 
 ## The two findings
 
@@ -49,14 +50,49 @@ never reached. It became a real test only once the client served unique material
 A concurrency test must be run against the unfixed line before it is trusted — a green
 test on broken code is worse than no test, because it retires the suspicion.
 
+## The UI polish pass (`844a5e0`)
+
+Six small additions, designed against the existing system rather than invented —
+Claude Design was consulted for the visual integration and its guidance is what
+the code follows. No new tokens: the toast action reuses the pill it lives in,
+the cheat sheet's key caps reuse `.lp-press-sm`'s resting shape, and Study's
+stamp flash reuses Review's keyframes at a narrower box.
+
+- **toast** — click to dismiss; an optional trailing action; 5s → 8s when it
+  carries one; the countdown stops on hover.
+- **Review undo** — stamping is undoable, runs coalesce into one offer, `Ctrl+Z`
+  works with no toast on screen, and undo returns the cursor to the mistake.
+- **shortcut discoverability** — `?` opens a cheat sheet; palette rows show their
+  binding as quiet mono metadata. Same information, two registers.
+- **Copy** on Ask / Teach Me answers, confirming in place.
+- **Study stamp flash** — grading a card or answering a question flashes the
+  graded region green/red the way Review flashes a slide.
+
+**DEF-043, found while doing it:** `Space` advanced two slides per press, because
+`btn-keep` grew its own advance in beta.5 and the Space branch — written later
+against a J that did not advance — clicked `btn-next-slide` as well. Every second
+slide was kept at its detector default without ever being displayed. Every test
+passed: they all asserted the stamped state (correct) and none asserted the
+cursor moved one step (the actual defect).
+
 ## Verified
 
-- Full Python suite: **1921 passed, 25 skipped** (was 1917 at v2.0.8; +4 new tests).
+- Full Python suite: **1937 passed, 25 skipped** (was 1917 at v2.0.8; +20 new tests).
   The 25 skips are the documented build-asset gates (packaged onedir fixture, the 148 MB
   Whisper model), absent on a bare checkout.
 - `npm run validate` in `electron-spike/` — clean, and reports `lecturepack@2.0.9`.
 - BUG-47's regression test confirmed **failing** with the fix reverted at the expansion
   save site, passing with it.
+- **The UI additions were driven in a real Chromium**, not just asserted against the
+  source: the renderer was served over HTTP and exercised through its own handlers.
+  Space moves the cursor exactly one slide (0→1→2); a run of rejects coalesces to
+  "Rejected 2 slides / Undo all"; `Ctrl+Z` restores both slides and returns the cursor
+  to slide 0; the toast action undoes **and** dismisses; Copy copies the answer text
+  without its own button label and swaps to "Copied" with the orange border for 1400ms;
+  the cheat sheet lays out at 520px with keys flush right, key caps carrying the 2px ink
+  border and hard offset shadow, an `rgba` backdrop, and no horizontal overflow. The
+  only console error is `qrc:///qtwebchannel/qwebchannel.js` failing to load, which is
+  expected outside Qt.
 
 ## NOT verified
 
@@ -64,6 +100,12 @@ test on broken code is worse than no test, because it retires the suspicion.
 - **The fix has never run against a real pack on a real gateway.** Both entries are 🟡 in
   the ledger for that reason. The hazard is a race whose window is a live gateway call;
   the test drives it deterministically, which is not the same as observing it in the app.
+- **No screenshot of the new UI.** The browser pane would not composite frames in this
+  session, so every visual claim above is computed-style and geometry, not a picture.
+  Worth one look at the cheat sheet and the toast action in the built app.
+- **The runtime setup gate had to be hidden** to reach the app in a plain browser (no
+  bridge means its checks never pass). That is the known dev-only workaround, not a
+  finding.
 - **No Authenticode signing.** `AUTHENTICODE SIGNING: NOT AVAILABLE` — unchanged, no valid
   credentials exist in this repo.
 - Steps 4–14 of `RELEASING.md` (Rust Study Core build, sidecar package, installer build,
