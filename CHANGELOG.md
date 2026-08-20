@@ -39,8 +39,9 @@ Undo all" rather than a stack of messages. Ctrl+Z does the same thing whether or
 not the message is still on screen, and either way you land back on the slide
 where the mistake happened.
 
-**LecturePack will now tell you its shortcuts.** Press ? for the full list, and
-the command palette shows the shortcut beside any command that has one.
+**LecturePack will now tell you its shortcuts.** There is a ? button in the
+header for the full list — also reachable by pressing ?, or from the command
+palette — and the palette shows the shortcut beside any command that has one.
 
 **Copy an answer.** Ask and Teach Me answers have a Copy button, for pasting
 into your own notes.

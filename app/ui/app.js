@@ -9881,6 +9881,11 @@
       });
     });
 
+    var shortcutsBtn = $('btn-shortcuts');
+    if (shortcutsBtn) shortcutsBtn.addEventListener('click', function () {
+      if (shortcutsOpen()) closeShortcuts(); else openShortcuts();
+    });
+
     var shortcutsOverlayEl = $('shortcuts-overlay');
     if (shortcutsOverlayEl) shortcutsOverlayEl.addEventListener('click', function (e) {
       // Only the backdrop dismisses. Clicking the panel must not close a
@@ -11552,6 +11557,7 @@
     { label: 'Previous lecture', run: function () { selectAdjacentJob(-1); } },
     { label: 'Copy transcript', run: function () { if (LP.data.transcript && LP.data.transcript.blocks) copyText(formatTranscriptPlain(LP.data.transcript.blocks), 'Transcript copied'); } },
     { label: 'Export Study Pack', hint: 'Ctrl+E', run: function () { if (lpBridge.connected()) lpBridge.call('export_all', JSON.stringify(['pdf', 'html', 'txt', 'srt', 'md'])); } },
+    { label: 'Keyboard shortcuts', hint: '?', run: function () { openShortcuts(); } },
     { label: 'Open Settings', hint: '7', run: function () { setScreen('settings'); } }
   ];
 

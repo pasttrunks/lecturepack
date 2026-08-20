@@ -222,3 +222,18 @@ def test_new_css_obeys_the_ad20_ban() -> None:
         assert banned not in section, "AD-20 violation: %s" % banned
     for geometry in ("transition:left", "transition:top", "transition:width", "transition:height"):
         assert geometry not in section
+
+
+def test_the_cheat_sheet_is_reachable_without_knowing_the_shortcut() -> None:
+    """A shortcut that only announces itself via a shortcut announces itself
+    to nobody. There must be a surface a mouse can find.
+    """
+    # A persistent header control, always visible, with the key in its tooltip
+    # so the button also teaches the shortcut.
+    assert 'id="btn-shortcuts"' in HTML
+    header_btn = HTML.split('id="btn-shortcuts"', 1)[1].split(">", 1)[0]
+    assert 'title="Keyboard shortcuts (?)"' in header_btn
+    assert 'aria-label="Keyboard shortcuts"' in header_btn
+    assert "$('btn-shortcuts')" in JS
+    # And a palette row, for the person who reaches for Ctrl+K to hunt features.
+    assert "{ label: 'Keyboard shortcuts', hint: '?'" in JS
