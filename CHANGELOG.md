@@ -9,6 +9,29 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.0.9] — 2026-08-20
+
+**Answers you get while a pack is still filling in now stay put.** Everything in
+2.0.8 is included.
+
+A study pack keeps growing in the background after it opens — LecturePack adds
+extra flashcards and practice questions concept by concept. If you asked a
+question or opened Teach Me during that stretch, the answer was saved, and then
+the next batch of practice material could quietly write over it. Nothing looked
+wrong; asking the same thing again simply took the full wait a second time
+instead of coming back instantly. Answers written during that window are now
+kept.
+
+**Saving app state is safer when two parts of LecturePack write at once.** Every
+settings, queue and lecture file is written to a scratch file first and then
+swapped in, so a crash mid-write can never leave you with half a file. All of
+those writes shared one scratch file name, which meant two of them happening at
+the same moment could tread on each other. Each write now gets its own, and
+clearing your data cleans up scratch files left behind by an earlier crash.
+
+Nothing about how your lectures are processed changed: video, audio and slide
+capture stay on your machine.
+
 ## [2.0.8] — 2026-08-19
 
 **Study packs build faster, and Study AI answers land on the right part of the
