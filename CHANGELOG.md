@@ -22,6 +22,12 @@ wrong; asking the same thing again simply took the full wait a second time
 instead of coming back instantly. Answers written during that window are now
 kept.
 
+**The runtime setup screen no longer breaks on the problem it is there to
+report.** If LecturePack could not inspect its own processing tools at all — a
+missing or damaged install rather than one bad file — the setup screen listed
+nothing, its Retry button did nothing, and diagnostics were blank. It now names
+what is wrong and Retry works.
+
 **Slide triage stopped skipping slides.** Space is the fast key in Review — keep
 this one and move on. It was moving on twice, so every second slide went by
 without ever being shown, keeping whatever LecturePack had guessed for it. One

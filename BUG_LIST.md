@@ -417,6 +417,42 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### DEF-044 — the runtime-setup gate crashed on exactly the failure it exists to explain   🟡 FIXED (not yet seen in a packaged build)
+- **Area:** `lecturepack/services/first_run_checklist.py::build_first_run_checklist`,
+  reached from `app/desktop/bridge.py::get_bootstrap`.
+- **Found:** 2026-08-20, by the user, on a source run of the 2.0.9 candidate.
+- **Symptom:** "Runtime needs repair" with **no components listed**, **Retry doing
+  nothing at all**, and diagnostics reading "No additional diagnostics are available."
+  Three separate-looking faults, one cause.
+- **Root cause:** `RuntimeBootstrapService.assess` has two early returns that describe a
+  failure of the WHOLE payload rather than of any component — `{"inventory": …}` when
+  the inventory resolver raises, and `{"active_runtime": …}` when the runtime root
+  cannot be resolved. Neither is a canonical inventory entry, so `checklist_group_for`
+  raised `ValueError` and took `get_bootstrap` down with it. The renderer therefore
+  never received a bootstrap payload: the component list stayed empty (the markup even
+  has a "could not be listed" empty state for it), and **Retry stayed dead because the
+  button re-enables inside the `.then()` of a promise that never resolved**.
+- **Why it matters:** this is the first-run path on a machine whose payload is missing
+  or damaged — the exact audience the screen is written for.
+- **Prior art in the same file:** a comment above the fix already described unwrapping a
+  nested `components` map for this same class of shape mismatch. That guard did not
+  cover a result whose `.components` IS the sentinel map.
+- **Fix:** recognise the two sentinels before grouping and render all three payload rows
+  as needs-attention carrying the real reason. The `ValueError` for a genuinely unknown
+  entry is deliberately NOT relaxed — it is what stops a future inventory addition being
+  silently dropped from the checklist.
+- **Tests:** `test_whole_payload_failure_renders_a_checklist_instead_of_raising` and
+  `test_an_unknown_inventory_entry_still_raises` (the guard must survive its own fix).
+  Confirmed failing with the fix reverted.
+- **Still open, separately:** "Repair all" from a **source run** starts a worker that
+  fetches a published runtime for the current version. 2.0.9 is not published, so it
+  cannot succeed from a checkout. Whether it behaves correctly in a packaged build is
+  UNVERIFIED and needs the built app.
+- **Lesson:** **an error-reporting screen must be tested against its own error paths.**
+  Every test here fed the checklist a well-formed component map, which is the one shape
+  the screen never sees in the situation it exists for.
+- **Files:** `lecturepack/services/first_run_checklist.py`, `tests/test_first_run_checklist_ui.py`.
+
 ### DEF-043 — Space kept every OTHER slide and skipped the rest without showing them   ✅ FIXED (verified in a real browser)
 - **Area:** `app/ui/app.js`, the Review keyboard macros (Space branch).
 - **Found:** 2026-08-20, while adding undo to the same handler. Not reported by a

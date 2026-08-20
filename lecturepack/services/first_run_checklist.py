@@ -132,6 +132,19 @@ def checklist_group_for(inventory_entry: str) -> str:
     raise ValueError(f"unrecognized canonical inventory entry, cannot map to a checklist group: {inventory_entry!r}")
 
 
+# Not inventory entries: sentinels for a payload that could not be inspected.
+_WHOLE_PAYLOAD_SENTINELS = frozenset({"active_runtime", "inventory"})
+
+
+def _data_directory_item(data_dir: str | Path | None) -> dict[str, Any]:
+    check = data_directory_writable(data_dir)
+    return {
+        "id": "data_directory",
+        "verdict": VERDICT_READY if check["writable"] else VERDICT_NEEDS_ATTENTION,
+        "detail": check["detail"],
+    }
+
+
 def _group_item(item_id: str, members: list[tuple[str, Mapping[str, Any]]]) -> dict[str, Any]:
     if not members:
         return {"id": item_id, "verdict": VERDICT_NEEDS_ATTENTION, "detail": f"no components mapped to {item_id}"}
@@ -186,6 +199,25 @@ def build_first_run_checklist(
         "detail": windows_check["detail"],
     }
 
+    # Two of RuntimeBootstrapService.assess's early returns describe a failure of
+    # the WHOLE payload rather than of one component: "active_runtime" when the
+    # runtime root cannot be resolved at all, and "inventory" when the inventory
+    # itself raises. Neither is a canonical inventory entry, so feeding either to
+    # checklist_group_for raised and killed get_bootstrap -- which meant the
+    # screen whose entire job is to explain a missing runtime was the one screen
+    # a missing runtime could crash. Reproducible on any source run without the
+    # bin/ payload, and the first thing a fresh install would hit.
+    payload_failures = {name: evidence for name, evidence in components.items()
+                        if name in _WHOLE_PAYLOAD_SENTINELS}
+    if payload_failures:
+        name, evidence = next(iter(payload_failures.items()))
+        reason = evidence.get("reason", "runtime payload unavailable")
+        detail = f"{name} failed: {reason}"
+        return [windows_item] + [
+            {"id": item_id, "verdict": VERDICT_NEEDS_ATTENTION, "detail": detail}
+            for item_id in ("ffmpeg_ffprobe", "whisper_runtime", "bundled_model")
+        ] + [_data_directory_item(data_dir)]
+
     groups: dict[str, list[tuple[str, Mapping[str, Any]]]] = {
         "ffmpeg_ffprobe": [],
         "whisper_runtime": [],
@@ -198,11 +230,5 @@ def build_first_run_checklist(
     whisper_item = _group_item("whisper_runtime", groups["whisper_runtime"])
     model_item = _group_item("bundled_model", groups["bundled_model"])
 
-    data_check = data_directory_writable(data_dir)
-    data_item = {
-        "id": "data_directory",
-        "verdict": VERDICT_READY if data_check["writable"] else VERDICT_NEEDS_ATTENTION,
-        "detail": data_check["detail"],
-    }
-
-    return [windows_item, ffmpeg_item, whisper_item, model_item, data_item]
+    return [windows_item, ffmpeg_item, whisper_item, model_item,
+            _data_directory_item(data_dir)]

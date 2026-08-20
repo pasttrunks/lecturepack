@@ -13,6 +13,9 @@ import json
 from pathlib import Path
 import re
 import subprocess
+from types import SimpleNamespace
+
+import pytest
 
 from lecturepack.services.first_run_checklist import FIRST_RUN_CHECKLIST_ITEMS
 
@@ -702,3 +705,52 @@ def test_no_regression_in_settings_bridge_demo_isolation_and_gate_suites() -> No
         cwd=ROOT, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# --------------------------------------------------------------------------- #
+# DEF-044: the whole-payload sentinels crashed the screen that explains them
+# --------------------------------------------------------------------------- #
+
+def test_whole_payload_failure_renders_a_checklist_instead_of_raising() -> None:
+    """RuntimeBootstrapService.assess has two early returns that name no
+    component: ``inventory`` (the inventory resolver raised) and
+    ``active_runtime`` (the runtime root could not be resolved at all).
+
+    Feeding either to checklist_group_for raised ValueError inside
+    Backend.get_bootstrap, so the screen whose whole job is to explain a
+    missing runtime was the one screen a missing runtime could kill -- and
+    Retry stayed dead, because the button re-enables inside the .then() of a
+    promise that never resolved.
+    """
+    from lecturepack.services.first_run_checklist import build_first_run_checklist
+
+    for sentinel in ("inventory", "active_runtime"):
+        result = SimpleNamespace(
+            state="SETUP_REQUIRED",
+            validation_mode="light",
+            components={sentinel: {"healthy": False, "reason": "bin/ payload missing"}},
+        )
+        items = build_first_run_checklist(result, data_dir=str(ROOT))
+        assert [item["id"] for item in items] == list(FIRST_RUN_CHECKLIST_ITEMS)
+        payload_items = [i for i in items
+                         if i["id"] in ("ffmpeg_ffprobe", "whisper_runtime", "bundled_model")]
+        assert all(i["verdict"] == "needs_attention" for i in payload_items)
+        # The reason must survive to the user, or the row says nothing useful.
+        assert all("bin/ payload missing" in i["detail"] for i in payload_items)
+
+
+def test_an_unknown_inventory_entry_still_raises() -> None:
+    """The sentinel fix must not relax the guard it sits next to.
+
+    checklist_group_for raises on purpose so a future inventory addition
+    cannot be silently dropped from the checklist.
+    """
+    from lecturepack.services.first_run_checklist import build_first_run_checklist
+
+    result = SimpleNamespace(
+        state="SETUP_REQUIRED",
+        validation_mode="light",
+        components={"bin/../escape.exe": {"healthy": False}, "tools/new-thing.exe": {"healthy": False}},
+    )
+    with pytest.raises(ValueError):
+        build_first_run_checklist(result, data_dir=str(ROOT))
