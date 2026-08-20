@@ -3,8 +3,9 @@
 **Date:** 2026-08-20
 **Branch:** `claude/release-2-0-8-maintenance-13e69e`
 **Base:** `b58f8f7` = v2.0.8 (tagged)
-**Status:** **CANDIDATE.** Code, tests, changelog and version surfaces are ready for
-`v2.0.9`. Nothing has been built, packaged, signed, tagged or published.
+**Status:** **BUILT AND VERIFIED.** Installer, portable zip, hashes and manifest all
+produced from a clean release venv; packaged self-test green on all twelve checks.
+Not signed (no Authenticode credentials — accepted by the owner for this release).
 
 ## What this was
 
@@ -110,6 +111,30 @@ cursor moved one step (the actual defect).
   credentials exist in this repo.
 - Steps 4–14 of `RELEASING.md` (Rust Study Core build, sidecar package, installer build,
   packaged self-test, updater E2E, release gates, tag, publish) are all outstanding.
+
+## Building it: two traps, both worth knowing before the next release
+
+**Never build the sidecar with the system interpreter.** The first attempt used the
+system Python and PyInstaller collected everything installed on the machine — the
+candidate carried `jedi`, `django-stubs` and `sklearn` into `LecturePackSidecar`. It was
+only caught because those deeply nested stub paths blew MAX_PATH and aborted ISCC; on a
+shorter path it would have built and shipped. Build from a `.venv` created solely from
+`requirements-release.txt` (plus the Study Core wheel), as `RELEASING.md` says.
+
+**Inno Setup cannot build from a worktree path.** `…/.claude/worktrees/<name>/` adds ~50
+characters over a normal checkout, and ISCC has no long-path support, so it aborts part
+way through compression with "The system cannot find the path specified" — the D-23
+failure recurring for a new reason. The fix used here: copy the packaged candidate to a
+short path (`C:\lp29\cand`, verified byte-identical), run ISCC against that, then
+`build_electron_release.py --hashes-only` so the published hashes describe the real
+bytes. Everything before the installer step builds fine in place.
+
+**`smoke/runtime-smoke.wav` is a build asset that exists in no checkout.** The runtime
+inventory requires it, so a build cannot proceed without one. It was regenerated for this
+release from 4 seconds of the demo lecture's own audio — real speech, which Whisper
+transcribes correctly ("Behold the polar bear. Its fur is not white, but…"). Do NOT
+substitute a tone: `_whisper_smoke_check` only asserts the process exits cleanly, so a
+tone passes even against a broken model and quietly weakens the gate.
 
 ## To cut 2.0.9
 
