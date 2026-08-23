@@ -68,7 +68,25 @@ def test_the_switcher_is_still_the_only_caller_without_an_explicit_screen():
              if "selectJob(" in line and "function selectJob" not in line]
     implicit = [line.strip() for line in calls
                 if "screen:" not in line]
-    # selectAdjacentJob's `{}` and the silent auto-follow.
-    assert len(implicit) == 2, f"unexpected implicit-screen selectJob calls: {implicit}"
+    # Three, each deliberate:
+    #   1. selectAdjacentJob's `{}` — the header switcher, the original case.
+    #   2. the silent auto-follow of the active job.
+    #   3. followActiveProcessingJob (2.1.1, BUG-62) — Process opening on the
+    #      lecture that is actually running.
+    #
+    # (3) is safe for a specific, checkable reason: it runs from INSIDE
+    # setScreen's nav callback, which assigns LP.state.screen = 'process'
+    # before that branch. applyResumeState therefore sees alreadyInWorkspace
+    # true and skips its screen restore, so the auto-follow cannot bounce the
+    # student off Process to wherever that lecture was last left. If setScreen
+    # is ever reordered so the assignment happens later, this becomes a real
+    # navigation bug and this comment is the trail back to it.
+    assert len(implicit) == 3, f"unexpected implicit-screen selectJob calls: {implicit}"
     assert any("{}" in line for line in implicit)
-    assert any("silent: true" in line for line in implicit)
+    assert sum("silent: true" in line for line in implicit) == 2
+    # The ordering guarantee (3) depends on.
+    nav = APP_JS.split("LP.motion.nav(function () {", 1)[1]
+    assert nav.index("LP.state.screen = name") < nav.index("followActiveProcessingJob()"), (
+        "setScreen assigns LP.state.screen AFTER the Process auto-follow; the "
+        "follow can now renavigate away from Process (see BUG-62)"
+    )

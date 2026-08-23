@@ -1832,6 +1832,9 @@
   var subjectFilterQuery = '';
 
   function renderSubjects() {
+    // Subject cards are both drag sources and drop targets; rebuilding them
+    // mid-gesture drops the candidate highlights and the carried row.
+    if (deferWhileDragging('subjects', renderSubjects)) return;
     var grid = $('subjects-grid'), empty = $('subjects-empty'), countLabel = $('subjects-summary-count');
     if (!grid) return;
     var allJobs = (typeof LP !== 'undefined' && LP.data && LP.data.jobs) || [];
@@ -1870,9 +1873,11 @@
            the gesture this screen is for, and dragging the row itself is more
            direct than opening the lecture to change its group. It carries
            data-job (not just data-jobid) because the drag layer resolves a
-           lecture by that attribute everywhere else. Only a lecture the
-           pipeline could act on is draggable -- same predicate as the library,
-           so the grip never appears on a row that would refuse to lift. */
+           lecture by that attribute everywhere else. Same predicate as the
+           library, so the grip never appears on a row that would refuse to
+           lift -- and since that predicate no longer excludes queued lectures,
+           a lecture waiting to process can still be moved between subjects,
+           which is exactly when a student is most likely to be organising. */
         var mDraggable = _jobIsDraggable(m);
         return '<div class="subject-member-row' + (isViewing ? ' active' : '') + '" data-jobid="' + esc(m.id) + '"' +
           (mDraggable ? ' data-lp-drag="lecture" data-job="' + esc(m.id) + '"' : '') + '>' +
@@ -2219,8 +2224,25 @@
   function _jobIsReprocessable(j) {
     return !!j && !!j.id && REPROCESSABLE_STATUSES[j.status] === true && !_jobInQueue(j.id);
   }
-  function _jobIsDraggable(j) {
+  /* Which lectures the PROCESS target can accept: only one that is not
+     already waiting in the queue and is not mid-run. */
+  function _jobIsQueueable(j) {
     return _jobIsReady(j) || _jobIsReprocessable(j);
+  }
+  /* Which lectures can be PICKED UP at all.
+     This used to be _jobIsQueueable, which conflated two unrelated things.
+     Filing a lecture under a subject is a LABEL change -- it has nothing to do
+     with the pipeline -- but both of those predicates end in
+     `&& !_jobInQueue(j.id)`, so the moment a lecture was queued it could no
+     longer be dragged anywhere at all. Queue a couple of lectures (i.e. use
+     the app normally) and the entire library went inert: cards would not lift,
+     subjects would not accept anything, and nothing on screen said why. Only
+     the queue's own reorder rows still worked, because they are a different
+     drag kind.
+     Every lecture can be picked up now. The PROCESS target refuses the ones it
+     cannot queue, in words, at the moment the student hovers it. */
+  function _jobIsDraggable(j) {
+    return !!j && !!j.id;
   }
   function internalDragIdsFor(sourceId) {
     var selected = LP.state.selecting && LP.state.selected[sourceId];
@@ -2980,6 +3002,24 @@
         say('move ' + active.label + ' to position ' + (finalIndex + 1) + ' of ' + order.length, 'ok');
         return;
       }
+      if (desc.drop === 'process') {
+        /* Now that a queued lecture can still be PICKED UP (so it can be
+           filed), this target has to say no itself rather than relying on the
+           card having been unliftable. */
+        var queueing = active.ids.map(_jobById).filter(Boolean);
+        var blocked = queueing.filter(function (job) { return !_jobIsQueueable(job); });
+        if (blocked.length) {
+          armed = null; clearTargetPaint(); hideInsert();
+          host.classList.add('lp-drop-bad');
+          paintProxy('bad');
+          say(blocked.length === 1 && queueing.length === 1
+            ? (_jobInQueue(blocked[0].id)
+                ? active.label + ' is already in the queue'
+                : active.label + ' cannot be queued right now')
+            : 'some of those lectures are already queued', 'bad');
+          return;
+        }
+      }
       if (desc.drop === 'group') {
         var moving = active.ids.map(_jobById).filter(Boolean);
         var target = host.dataset.group || '';
@@ -3069,6 +3109,11 @@
       active = null; armed = null; pending = null; sourceRect = null;
       internalJobDragIds = [];
       justDragged = false;   // any exit route disarms; onPointerUp re-arms on release
+      /* Every list render that arrived during the gesture was deferred so the
+         carried card would not be rebuilt out from under the pointer. `active`
+         is already null above, so these run for real now. MUST be last: the
+         renders read LPDrag.dragging(). */
+      try { flushDeferredRenders(); } catch (e) {}
     }
 
     function settle(el) {
@@ -3339,7 +3384,14 @@
     if (!opts.screen || opts.screen === 'review' || opts.screen === 'transcript' || opts.screen === 'study') {
       applyResumeState(jobId);
     }
-    if (opts.screen) setScreen(opts.screen);
+    if (opts.screen) {
+      /* Tell setScreen that this navigation carries a CHOSEN lecture, so the
+         Process screen does not immediately follow the running job over the
+         top of it. Clicking a queued lecture must land on that lecture and
+         show "Waiting to process - Position 2". */
+      _screenChangeCarriesJob = true;
+      try { setScreen(opts.screen); } finally { _screenChangeCarriesJob = false; }
+    }
     // setScreen intentionally no-ops when the screen name is unchanged. A
     // lecture switch made while already in Study still needs the new job's
     // scoped content and progress.
@@ -3462,7 +3514,31 @@
     var panel = $('proc-completion'); if (panel) panel.hidden = false;
     _applyLpState(panel, 'complete');
   }
+  /* Rebuilding a list UNDER an active drag is what makes the gesture shudder.
+     The queue re-renders on every queue_changed / pipeline_changed tick -- which
+     while a lecture is transcribing means several times a second -- and each
+     rebuild throws away the row the student is carrying, the insert indicator,
+     and the candidate highlights, then recreates them a frame later. The proxy
+     survives (it lives on <body>) so what you see is the LIST flickering out
+     from under a card that stays put.
+     Nothing is lost by waiting: the drag is at most a couple of seconds, and
+     LPDrag.settle() re-renders once the gesture ends. */
+  var _renderDeferred = {};
+  function deferWhileDragging(key, fn) {
+    if (typeof LPDrag === 'undefined' || !LPDrag.dragging || !LPDrag.dragging()) return false;
+    _renderDeferred[key] = fn;
+    return true;
+  }
+  function flushDeferredRenders() {
+    var pending = _renderDeferred;
+    _renderDeferred = {};
+    Object.keys(pending).forEach(function (key) {
+      try { pending[key](); } catch (e) { /* one bad render must not strand the rest */ }
+    });
+  }
+
   function renderQueue() {
+    if (deferWhileDragging('queue', renderQueue)) return;
     var wrap = $('home-queue'), list = $('queue-list');
     if (!wrap || !list) return;
     var q = (LP.data.queue && LP.data.queue.queue) || [];
@@ -3529,6 +3605,9 @@
     }).join('');
   }
   function renderJobs() {
+    // Same reason as renderQueue: the library must not be rebuilt out from
+    // under a card the student is carrying.
+    if (deferWhileDragging('jobs', renderJobs)) return;
     var g = $('jobs-grid');
     var empty = !(LP.data.jobs || []).length;
     setJobsEmpty(empty);
@@ -4833,6 +4912,29 @@
 
   var CRUMBS = { home: 'Home', subjects: 'Subjects', process: 'Process', review: 'Review', transcript: 'Transcript', study: 'Study', exports: 'Exports', settings: 'Settings', demo: 'Guided demo' };
 
+  /* The lecture Process should open on: the one actually running, else the
+     one at the head of the queue, else leave the selection alone. Reads the
+     job list rather than LP.state.pipelineRunning, because that flag describes
+     the VIEWED lecture and the whole point here is to find a different one. */
+  function followActiveProcessingJob() {
+    var jobs = LP.data.jobs || [];
+    var running = jobs.filter(function (j) { return j && j.status === 'running'; })[0];
+    var next = running;
+    if (!next) {
+      // Nothing running: the head of the queue is what happens next, which is
+      // still more use than an unrelated idle lecture.
+      var queued = ((LP.data.queue && LP.data.queue.queue) || [])[0];
+      if (queued && queued.id) next = _jobById(queued.id) || null;
+    }
+    if (!next || !next.id || next.id === LP.state.jobId) return;
+    // silent: this is the app following the work, not the student navigating,
+    // so it must not overwrite their remembered per-lecture view state.
+    selectJob(next.id, { silent: true });
+  }
+
+  /* Set only while a job pick is driving a screen change (see below). */
+  var _screenChangeCarriesJob = false;
+
   function setScreen(name) {
     if (LP.state.screen === name) return;
     if (name !== 'review') closeAllSlides(false);
@@ -4873,7 +4975,17 @@
       if (name === 'subjects') {
         renderSubjects();
       }
-      if (name === 'process') renderSlideDetectionPreset();
+      if (name === 'process') {
+        /* Opening Process from the sidebar used to show whichever lecture
+           happened to be selected -- often an idle one -- so the student had
+           to hunt for the lecture that was actually running. Process is the
+           screen about work in progress: if work is in progress, show it.
+           Navigation that CARRIES a lecture (clicking a card, clicking a queue
+           row) is left alone, because there the student named the lecture they
+           wanted and is entitled to its real state, queued position included. */
+        if (!_screenChangeCarriesJob) followActiveProcessingJob();
+        renderSlideDetectionPreset();
+      }
       if (name === 'exports') updateExportPdfDescription();
       if (name === 'study') {
         studyV2Load();   // load grounded Study V2 content + progress

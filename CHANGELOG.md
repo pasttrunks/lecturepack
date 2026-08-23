@@ -9,6 +9,29 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.1.1] — 2026-08-23
+
+**Dragging works again while lectures are queued.** Everything in 2.1.0 is included.
+
+**You can file a lecture into a subject while it's waiting to process.** This is
+the big one. If any lecture was sitting in the processing queue, nothing in your
+library could be dragged at all — cards wouldn't lift, subjects wouldn't accept
+anything, and the Subjects screen couldn't do the one thing it exists for. The
+app was treating "can this be queued?" and "can this be moved into a subject?"
+as the same question. They aren't: filing a lecture under a subject is just a
+label, and it has nothing to do with processing. Every lecture can be picked up
+now, and if you drop one on Process that's already queued, it tells you so.
+
+**Dragging is smooth.** The queue redraws several times a second while a lecture
+is transcribing, and each redraw threw away the card you were carrying and rebuilt
+it — which is what made the whole gesture stutter. The lists now hold still until
+you let go.
+
+**Process opens on the lecture that's actually processing.** Going to Process from
+the sidebar used to show whichever lecture was last selected, so you had to hunt
+for the one that was running. It follows the work now. Clicking a specific lecture
+still takes you to that lecture and shows its real state, queue position included.
+
 ## [2.1.0] — 2026-08-23
 
 **LecturePack no longer tells you something worked when it didn't.** Everything

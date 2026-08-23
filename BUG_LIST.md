@@ -887,34 +887,99 @@ re-debug the same thing from scratch.
   self-test 12/12, packaged acceptance 16/16, launch smoke, and the packaged UI confirmed
   byte-identical to source.
 
-### OBS-01 — library cards briefly could not be dragged on Home   🟠 SEEN ONCE, NOT REPRODUCED (2.1.0)
-- **Area:** unknown. Reported against the 2.1.0 candidate.
-- **Symptom (reported):** "can't drag drop anything now inside home, except those in
-  queue." Resolved on its own before any change was made; the owner confirmed it works.
-- **Ruled out by inspection — do not re-derive these:**
-  - The entire pointer-drag module is **byte-identical to 2.0.9**: `onPointerDown`,
-    `onPointerMove`, `beginDrag`, `internalDragIdsFor`, the grip selector, and the
-    `data-lp-drag` / `data-existing-job-drag` attributes on the card.
-  - `_jobIsDraggable`, `_jobIsReady`, `_jobIsReprocessable`, `UNSTARTED_STATUSES` and
-    `REPROCESSABLE_STATUSES` are all unchanged.
-  - The only `pointer-events:none` rule added in 2.1.0 is `.lp-ctl-off`, which `setCtl`
-    applies to exactly eleven named buttons (keep, reject, prev/next slide, save
-    corrections, repair, three exports, pause, cancel). It cannot reach a lecture card.
-  - The F-38 change lives inside `dragScroll.update`, runs only during an ACTIVE drag,
-    and `dragScroll.stop()` does null `target`, so it leaves no stale state between drags.
-- **The benign explanation that fits the wording exactly:** `_jobIsDraggable` returns false
-  for any job that is IN THE QUEUE (`!_jobInQueue(j.id)`), while the queue's own rows stay
-  draggable for reorder. A library whose lectures are queued therefore presents as "nothing
-  drags except the queue". That is 2.0.9 behaviour, not a regression — but it reads as
-  broken, and is worth designing away rather than explaining away.
-- **Why this could not be reproduced:** the renderer served over plain HTTP never wires the
-  drag layer, because the runtime setup gate blocks boot without a bridge and marks the app
-  shell `pointer-events:none` (`app.js` ~L5287) -- which produces this exact symptom in a
-  test harness and is a false lead. The packaged app refuses `--remote-debugging-port`, so
-  CDP was unavailable too. **There is currently no way to drive a real drag against the
-  packaged build.** That gap is the thing to fix before this can be chased properly.
-- **If it recurs, capture:** the status badge on the cards that would not lift, whether
-  anything was processing, and whether the queue was non-empty.
+### BUG-60 — a queued lecture could not be dragged ANYWHERE   🟢 FIXED (2.1.1)
+- **Area:** `app/ui/app.js::_jobIsDraggable`. **Supersedes OBS-01**, which was filed on
+  2026-08-23 as "seen once, not reproduced" with a note offering the queue rule as the
+  *benign* explanation. **The benign explanation was the bug.** A second report with a
+  screen recording made it obvious in minutes.
+- **Symptom:** with lectures queued, nothing in the library could be dragged — cards would
+  not lift, subject cards accepted nothing, and the Subjects screen's whole purpose (moving
+  a lecture between subjects) was dead. Only the processing queue's own reorder rows still
+  worked, because those are a different drag kind.
+- **Root cause:** `_jobIsDraggable` was `_jobIsReady(j) || _jobIsReprocessable(j)`, and
+  **both** of those end in `&& !_jobInQueue(j.id)`. That test belongs to "can this be
+  QUEUED", which is a Process-target question. Filing a lecture under a subject is a label
+  change with nothing to do with the pipeline. Queue two lectures — i.e. use the app the
+  way it is meant to be used — and the entire library went inert with nothing on screen
+  saying why.
+- **Fix:** `_jobIsDraggable` is now `!!j && !!j.id`. The old predicate survives as
+  `_jobIsQueueable` and the **Process drop target** refuses what it cannot queue, in words,
+  at hover time ("… is already in the queue").
+- **Proven before and after** against the shipped 2.1.0 renderer with two queued jobs:
+  before, both Home cards rendered with no `data-lp-drag` and no grip; after, both carry
+  `lecture` and a grip, and so do the Subjects rows, with the subject cards lit as targets.
+- **Tests:** `test_bug60_being_queued_does_not_make_a_lecture_undraggable` and the three
+  beside it in `tests/test_v211_drag_and_process_focus.py`.
+- **The lesson, which is the reusable part:** OBS-01 reasoned from source that the drag
+  path was byte-identical to 2.0.9 and concluded there was probably no bug. The code WAS
+  identical — the defect predates 2.1.0 — but "unchanged" is not "correct", and a
+  user-visible report should not be closed on a diff. It was also unreproducible only
+  because the test harness could not drive a drag at all (see below), which should have
+  been read as "I cannot test this" rather than "this is probably fine".
+
+### BUG-61 — the drag shuddered because the list was rebuilt underneath it   🟢 FIXED (2.1.1)
+- **Area:** `app/ui/app.js::renderQueue` / `renderJobs` / `renderSubjects`.
+- **Symptom:** dragging in the processing queue stuttered and flickered badly — described
+  as "the frames shutter". Worst in the queue, which is where dragging still worked.
+- **Root cause:** the queue re-renders on every `queue_changed` / `pipeline_changed` tick,
+  which while a lecture is transcribing is several times a second. Each rebuild discarded
+  the carried row, the insert indicator and the candidate highlights and recreated them a
+  frame later. The proxy survives (it lives on `<body>`), so what the eye sees is the LIST
+  flickering out from under a card that stays put.
+- **Fix:** `deferWhileDragging()` — while `LPDrag.dragging()` is true a render records
+  itself and returns; `finish()` flushes them once the gesture ends, after `active` is
+  cleared. Nothing is lost: a drag lasts a second or two.
+- **Tests:** `test_bug61_lists_are_not_rebuilt_during_a_drag`,
+  `test_bug61_deferred_renders_run_when_the_drag_ends`.
+
+### BUG-62 — Process did not show the lecture that was actually processing   🟢 FIXED (2.1.1)
+- **Area:** `app/ui/app.js::setScreen` / new `followActiveProcessingJob`.
+- **Symptom:** opening Process from the sidebar showed whichever lecture happened to be
+  selected — often an idle one — so the student had to click around to find the lecture
+  that was actually running.
+- **Fix:** direct navigation to Process follows the running job (falling back to the head
+  of the queue). Navigation that CARRIES a chosen lecture — clicking a card, clicking a
+  queue row — is left alone, because there the student named the lecture they wanted and is
+  entitled to its real state, "Waiting to process · Position 2" included. `_screenChangeCarriesJob`
+  distinguishes the two, and is cleared in a `finally`.
+- **Tests:** `test_bug62_*` (three).
+
+### OBS-02 — the taskbar icon shows the Electron logo   🟠 NOT A CODE DEFECT (investigated 2.1.1)
+- **Reported as:** "the LecturePack icon on the taskbar is still the Electron logo, we
+  changed this hundreds of times."
+- **Everything on the app side is already correct, verified on the machine showing it:**
+  - the built `LecturePack.exe` carries the LecturePack icon (extracted and rendered — the
+    orange rounded square), and its version resource reads LecturePack / 2.1.0;
+  - `app/packaging/lecturepack.ico` is a well-formed ICO with all seven sizes
+    (16/24/32/48/64/128/256, 32bpp PNG);
+  - `resources/lecturepack.ico` ships in the packaged tree and `applicationIcon()` resolves
+    it, so `BrowserWindow` gets an explicit icon — and the **window title bar in the user's
+    own recording shows the correct icon**;
+  - `app.setAppUserModelId('LecturePack.LecturePack')` runs before any window is created,
+    and the installer's `[Icons]` entries set the **same** AppUserModelID;
+  - both Start Menu shortcuts point at the running 2.1.0 exe with `IconLocation=,0`
+    (i.e. the target's own icon).
+- **Therefore:** Windows is serving a cached icon. `%LOCALAPPDATA%\Microsoft\Windows  Explorer\iconcache_*.db` were last written before the current build. The taskbar icon
+  for an AUMID-grouped app is cached per identity, and the identity string has never
+  changed, so an icon cached during an early build persists across every rebuild. **That
+  is exactly why changing it in code "hundreds of times" never took.**
+- **Do NOT keep changing code for this.** The remedy is on the machine: clear the Explorer
+  icon cache and restart `explorer.exe`, or install to a fresh path. If it is ever seen on
+  a **clean** machine, that is a different bug and this entry does not apply.
+
+### OBS-03 — nothing can drive a real drag against the packaged build   🔴 OPEN, TOOLING GAP
+- Raised while chasing BUG-60, and the reason OBS-01 was mis-filed as unreproducible.
+- The renderer served over plain HTTP never wires the drag layer: the runtime setup gate
+  blocks boot without a bridge and marks the app shell `pointer-events:none`
+  (`app.js` ~L5287), which **fakes the exact symptom** and is a false lead. Synthetic
+  `PointerEvent`s do not start a drag even with the gate released. The packaged app refuses
+  `--remote-debugging-port`, so CDP is unavailable.
+- BUG-60 was ultimately proven by driving `jobs_changed`/`queue_changed` through the real
+  bridge stub and asserting on the RENDERED attributes — good enough for "can it lift",
+  useless for "does the gesture feel right".
+- **Until this is closed, any drag report has to be judged from a recording.** Fixing it —
+  a debug-port build flag, or a headless harness that boots the renderer with a stub
+  bridge — would pay for itself the next time.
 
 ### F-07 — NOT A DEFECT (verified 2026-08-22)
 - Reported as a missing space in guided-demo step 3 ("...that slide.Fix a mis-heard...").
