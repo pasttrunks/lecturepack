@@ -95,18 +95,74 @@ passes: `app/desktop/version.py`, `app/packaging/lecturepack.iss`,
 
 ---
 
+## 4b. Verified against the PACKAGED build (added after the first pass)
+
+The first draft of this handoff listed the packaged verification as outstanding. It is not.
+
+- **Release build produced**: installer 372.7 MB, portable zip 481.3 MB, SHA256SUMS,
+  release-manifest.json. All four in `dist/releases/2.1.0/`.
+- **Packaged self-test: 12/12 green**, including `study_core.ok == true` against a freshly
+  built Rust core.
+- **Packaged launch smoke**: window shown after 0.61s.
+- **Packaged UI is byte-identical to source** (`app.js`, `app.css`, `index.html`,
+  `bridge.js` all `cmp`-clean), so every renderer fix is in the shipped payload.
+- **Full packaged acceptance gate: PASS on all 16 checks** — real import, real processing,
+  transcript generated, export completed with 13 files, clean exit, relaunch, job restored,
+  no orphan processes, no renderer failures, no bridge errors.
+- **BUG-49 (transcript corrections) proven in the packaged build.** Drove the frozen
+  sidecar through a real run, then saved corrections: `working.json` holds both segments
+  with `edited=true` and the probe's marker text, `edited.json` mirrors both overrides,
+  the edit **survived a full restart**, and the corrections badge read 2 — the counter
+  F-35 reported as permanently stuck. A deliberately mismatched row count was refused
+  with "the transcript on screen no longer matches the saved one (1 lines shown,
+  2 saved)" instead of silently truncating.
+- **DEF-056 (grader self-contradiction) proven against the LIVE production gateway**, using
+  Addendum A1's exact repro. Before: `score=0` with feedback calling the student's
+  transparent-fur statement incorrect while `ideal_answer` said the same thing. Now:
+  `score=0.33` (1 of 3 rubric points, which the instruction always asked for and was not
+  getting) and feedback that credits what was right and names only the two rubric points
+  actually missing. No contradiction.
+- **Updater ordering for the real upgrade path**: `2.0.9 -> 2.1.0` compares `-1`, so an
+  installed 2.0.9 is offered this build. `2.1.0` also leaves `2.2.0` and `2.10.0` ordering
+  correctly for later.
+
+### The acceptance gate was broken, not the build
+
+The gate failed on first run: `transcript_generated`, `export_completed`,
+`export_file_count` and `restore_passed` all FAIL. **None of that was a regression.** The
+gate imported its fixture with `bundled_demo: True`, which marks the job as a guided-demo
+job — and a guided-demo job is deleted the instant its pipeline completes, by design
+(`_cleanup_demo_session`, the behaviour BUG-56 makes visible rather than removes). The gate
+was then asking for the transcript and export directory of a job the app had already
+deleted, so those checks could never pass however healthy the build was.
+
+Proven by driving the packaged sidecar both ways: `bundled_demo=False` yields 2 transcript
+segments and 13 export files; `bundled_demo=True` yields no job directory at all. The gate
+now imports as an ordinary video — it is a test of the packaged RUNTIME, not of the guided
+demo — and passes 16/16.
+
+This is worth remembering: a release gate that cannot pass is worse than no gate, because
+its red is indistinguishable from a real regression. It had presumably never been run
+green; 2.0.9's handoff records steps 4–14 as outstanding.
+
+---
+
 ## 5. NOT verified — read this before shipping
 
-- **Nothing has been built or packaged.** No installer, no portable zip, no hashes, no
-  manifest. `RELEASING.md` steps 4–14 (Rust Study Core, sidecar package, installer,
-  packaged self-test, updater E2E, gates, tag, publish) are all outstanding.
-- **No fix has been exercised against the packaged app.** Everything above is the suite,
-  the source, and the renderer in a plain browser. The stress test that found these ran
-  against an *installed* build; the remediation has not.
-- **The three backend data fixes have not run against a real job on a real gateway.**
-  BUG-49 (transcript save), BUG-50 (failure persistence) and BUG-52 (subject rename) are
-  driven deterministically by tests. That is not the same as observing them in the app.
-  These are the three to exercise first in any packaged verification.
+- **Steps 11–14 of `RELEASING.md` are outstanding**: tag, push, publish the GitHub
+  release, and confirm an installed 2.0.9 actually offers the update. The artifacts exist
+  and the version comparison is proven; what has NOT happened is a real feed round trip.
+- **BUG-50 (failure persistence) and BUG-52 (subject rename) have not run in the packaged
+  app.** Both are covered by tests — BUG-50's were confirmed failing against the unfixed
+  line — but neither has been observed end to end in the built product. BUG-49 has, so
+  these two are what remains of that category.
+- **Nothing that needs a human eye has been judged.** Whether the new copy reads well,
+  whether the demo badge lands, whether the disabled-control toast is helpful rather than
+  noisy — none of that is machine-checkable, and it is what the retest script is for.
+- **The installer cannot be built from this worktree directly.** Its path is ~48 characters
+  longer than the normal repo root and Inno Setup hits MAX_PATH mid-compression — the exact
+  hazard `lecturepack.iss`'s own header warns about. Build through a short junction
+  (`mklink /J C:\lp210src <dist>`); this is how 2.1.0's installer was produced.
 - **F-32 is mitigated, not fixed.** See the ledger entry. If the app vanishes again, the
   log will now carry the stack; until then the root cause is unknown.
 - **No Authenticode signing.** Unchanged — no valid credentials exist in this repo.

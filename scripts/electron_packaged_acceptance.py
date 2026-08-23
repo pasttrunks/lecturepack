@@ -748,8 +748,22 @@ def _run_sidecar_gate(
             isinstance(item, dict) and item.get("ok") is True for item in packaged_checks
         )
 
+        # bundled_demo=True marks this as a GUIDED-DEMO job, and a guided-demo
+        # job is deleted the moment its pipeline completes (see
+        # python-sidecar.py::_cleanup_demo_session -- that is the whole point
+        # of it, and BUG-56 is about making the deletion visible rather than
+        # stopping it). So this gate imported the fixture, processed it, and
+        # then asked for a transcript and an export directory belonging to a
+        # job the app had already removed: transcript_generated, export_completed
+        # and export_file_count could never pass, no matter how healthy the
+        # build. Verified against 2.1.0 by driving the packaged sidecar both
+        # ways -- bundled_demo=False yields 2 transcript segments and 13 export
+        # files, bundled_demo=True yields no job directory at all.
+        #
+        # This gate is about the packaged RUNTIME, not about the guided demo,
+        # so it imports the fixture as an ordinary video.
         imported = session.request(
-            "import_video", {"path": str(demo_video), "bundled_demo": True}
+            "import_video", {"path": str(demo_video), "bundled_demo": False}
         )
         job_id = str(imported.get("job_id") or "")
 
