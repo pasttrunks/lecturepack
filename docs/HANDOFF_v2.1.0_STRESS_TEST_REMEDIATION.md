@@ -209,3 +209,41 @@ green; 2.0.9's handoff records steps 4–14 as outstanding.
    is a ready-made acceptance script.
 4. Updater E2E from an installed 2.0.9 → 2.1.0.
 5. Tag and publish.
+
+---
+
+## 8. 2.1.1 — the four things reported against the shipped 2.1.0 (2026-08-23)
+
+Reported with a screen recording after 2.1.0 shipped.
+
+- **BUG-60, the important one.** A queued lecture could not be dragged ANYWHERE.
+  `_jobIsDraggable` was `_jobIsReady || _jobIsReprocessable`, and both end in
+  `&& !_jobInQueue(j.id)` — a Process-target question applied to every drag. Queue
+  anything and the whole library went inert. **This supersedes OBS-01, which I filed the
+  day before as "seen once, not reproduced" while offering the queue rule as the *benign*
+  explanation. The benign explanation was the bug.** OBS-01 reasoned from a diff, found the
+  drag path byte-identical to 2.0.9, and concluded there was probably nothing wrong. The
+  code *was* identical — the defect predates 2.1.0 — but unchanged is not correct, and a
+  user-visible report must not be closed on a diff. It was unreproducible only because
+  nothing can drive a drag against this app (OBS-03), which should have been read as "I
+  cannot test this", not "this is probably fine".
+- **BUG-61** — the gesture shuddered because the queue rebuilt itself under the pointer
+  several times a second while a lecture transcribed. Renders defer during a drag now.
+- **BUG-62** — Process opens on the lecture that is actually running. Navigation carrying a
+  chosen lecture is left alone, guarded by `_screenChangeCarriesJob`; the ordering it
+  depends on inside `setScreen` is now pinned by a test.
+- **OBS-02, the taskbar icon: NOT a code defect.** Every app-side surface is correct (exe
+  icon, seven-size .ico, shipped resource, window icon visible in the user's own recording,
+  AUMID set pre-window and matching the installer shortcuts, shortcuts using the target's
+  icon). Windows is serving a cached icon keyed to an identity string that has never
+  changed, which is precisely why changing code for it repeatedly never worked. **Do not
+  change code for this again** unless it appears on a clean machine.
+
+Verified: suite 2011 passed / 7 skipped / 0 failed; packaged self-test 12/12; packaged
+acceptance **16/16 including app_launched and restore_passed**; launch smoke 0.61s; UI
+byte-identical to source; hashes agree across installer, SHA256SUMS and updater manifest.
+
+**Testing note for next time:** the acceptance gate and launch smoke both fail with
+`app_launched=False` / "exited after 0.6s with code 0" if a copy of LecturePack is already
+running — `requestSingleInstanceLock` hands off and exits. That is correct behaviour, not a
+build failure. Close the app before running either.
