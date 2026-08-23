@@ -9,6 +9,98 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.1.0] — 2026-08-23
+
+**LecturePack no longer tells you something worked when it didn't.** Everything
+in 2.0.9 is included.
+
+An adversarial test pass went through the whole app looking for places where it
+said one thing and did another, and found thirty. Most of the serious ones turned
+out to be the same mistake wearing different clothes: a confirmation that was
+written before anyone checked the result. This release is the fix for all of
+them.
+
+**Transcript corrections are saved, or they say they weren't.** On some lectures
+you could edit a mis-heard word, press Save corrections, watch it stay put while
+you moved around the app — and find it gone the next time you opened
+LecturePack. The edit was reaching the app and being dropped on the way to disk,
+and the app said "saved" anyway. It doesn't any more: if a correction can't be
+stored, LecturePack tells you instead of pretending. Lectures that have no saved
+transcript to correct no longer offer the edit at all.
+
+**Renaming a subject moves the whole subject.** Renaming a group of three
+lectures could move two of them, leave the third behind under the old name, and
+still report "3 lectures updated". Now all of them move, and if any can't, the
+message says how many did.
+
+**Studying a subject shows that subject.** Picking a subject to study could show
+you a completely different lecture's guide, flashcards and quiz underneath the
+subject's own heading — believable, and wrong. A subject that can't be prepared
+now looks empty rather than looking like someone else's lecture, and Rebuild Map
+tells you whether it worked.
+
+**Checking for updates works.** Settings said "Updates are not available in this
+build" on every check, including the successful ones. Two separate faults, both
+fixed: the check now reads the answer it's given, and a slow network no longer
+overwrites a real result with a wrong one.
+
+**A lecture that failed still looks failed after a restart.** Failed lectures
+came back as though they had never been processed, so you'd re-run something
+already known to be broken with no idea why it kept happening. And one lecture
+could show three different statuses at once across the sidebar, the banner and
+the footer, with Pause and Cancel offered on a job that wasn't running. Status
+now comes from one place and survives a restart.
+
+**Pasting several links imports several lectures.** Two links separated by a
+space imported one and silently discarded the other. Check link also now shows
+that it's working — it does a lookup per link, which can take a few seconds —
+instead of looking like a button that does nothing.
+
+**Files LecturePack can't import now say so.** Sending it four files and getting
+two lectures used to come with no explanation for the other two. The reason for
+each one is listed beside the imports that worked.
+
+**Errors are in English.** "ffmpeg exited with status ExitStatus.NormalExit and
+code -22" is gone. The most common cause — a video with no audio track, which is
+easy to end up with when downloading from a link — is now named as such.
+
+**You can undo more than your last action in Review.** Undo went exactly one run
+of keeps or rejects deep, and then said "Nothing to undo yet", which suggested it
+might work later. It reaches back through the whole session now.
+
+**Comprehension checks can be retried.** Answering a Teach Me check locked the
+box permanently and wiped what you wrote, so one stray Enter cost you the
+attempt. Your answer stays, and you can check it again. Feedback also no longer
+marks something wrong that its own model answer agrees with.
+
+**The guided demo lecture says it's temporary.** It's a sample, and LecturePack
+removes it when the tour finishes — which, if you'd spent time triaging it,
+looked exactly like losing your work. The card now says so, and its removal is
+announced.
+
+**The Exports panel describes what it actually writes.** It offered DOCX and TSV,
+which LecturePack has never produced, and its tick boxes changed nothing — every
+export writes the full set regardless. It now lists the seven transcript formats
+you really get, and says that.
+
+**Light theme is readable.** Four labels — the LecturePack wordmark, Home's
+Continue heading, the Transcript badge and Review's timeline label — were below
+the accessibility contrast minimum on the light background. Every visible label
+on every screen now passes.
+
+**Smaller things.** The breadcrumb no longer reads "Home › Home". Scroll bars are
+visible before you touch them, so lists that continue below the fold look
+scrollable instead of cut off — the keyboard shortcut sheet and the home page's
+getting-started row were both affected. Disabled buttons look disabled instead of
+looking like the main action, and tell you why they're unavailable when you click
+them. The status bar stops showing a processing step that finished long ago. The
+sidebar's free-space figure isn't cut off mid-word. Dragging a lecture card to the
+bottom of a long library scrolls the list. Interrupted lectures can be restarted
+from the Process screen. The shortcut sheet no longer misdescribes what J and K do.
+
+**Under the hood.** If something goes badly wrong inside LecturePack it now
+writes it down instead of closing the window without a word.
+
 ## [2.0.9] — 2026-08-20
 
 **Answers you get while a pack is still filling in now stay put.** Everything in

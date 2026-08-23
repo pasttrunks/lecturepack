@@ -514,6 +514,354 @@ re-debug the same thing from scratch.
 - **Files:** `lecturepack/services/study_v2.py`, `lecturepack/services/ai_study_service.py`,
   `tests/test_ai_study_service.py`.
 
+<!-- ===================================================================== -->
+<!-- 2.1.0 — the 2.0.9 adversarial stress test (F-01 .. F-38)              -->
+<!-- ===================================================================== -->
+
+> **The theme of this whole batch.** Nearly every P1 here is the same bug wearing
+> different clothes: **the app reported success for work it had not done.** A save that
+> could not land said `saved=true`. A rename that moved two of three lectures said "3
+> lectures updated". An update check that succeeded said the build could not update. A
+> failure that happened was never written down. When triaging anything in this family,
+> ask *"who confirmed this, and did they wait for the answer?"* before anything else.
+
+### BUG-49 — transcript corrections were accepted, confirmed, and thrown away   🟡 FIXED (2.1.0)
+- **Area:** `electron-spike/python-sidecar.py::_save_corrections`; `app/ui/app.js::renderReviewTranscript`.
+- **Found:** 2026-08-22, stress test F-35. Reproduced end-to-end: edit → Save → survives
+  navigation → **gone after restart**.
+- **Symptom:** editing a transcript line and pressing Save corrections reported success,
+  the text stayed on screen across navigation, and the edit was gone at the next launch.
+  The "0 corrections" badge never incremented either.
+- **Root cause:** the handler zips incoming row texts against the SAVED segments.
+  `zip()` stops at the shorter side, so for any job whose backend transcript layers are
+  empty it produced **zero pairs**: nothing was marked changed, `save_working` rewrote the
+  empties, and the response still said `saved=true, changed=0`. The edit crossed the
+  bridge and died at the zip. `edited.json` written as `{}` proves the round trip happened.
+- **Fix:** a save that cannot land raises instead of claiming success — empty backend
+  segments and a length mismatch are both errors now, not silent truncation. The renderer
+  also stops offering the caret and the Save button on a lecture with no persisted
+  transcript, so the failure is not reachable by accident.
+- **Do NOT "fix" this by seeding the working layer from the rendered rows.** The renderer's
+  rows can come from the demo fixture, which has no timings and is not this lecture's data;
+  seeding from them would write fabricated content into a real transcript.
+- **Tests:** `test_f35_saving_into_an_empty_transcript_raises`,
+  `test_f35_the_caret_is_not_offered_without_a_saved_transcript`.
+
+### BUG-50 — a failed job came back from a restart looking like it had never run   🟡 FIXED (2.1.0)
+- **Area:** `lecturepack/models/job.py::set_stage_status`; `electron-spike/python-sidecar.py::_on_pipeline_failed`.
+- **Found:** 2026-08-21, stress test F-17 (and the "Queued" third of F-16).
+- **Symptom:** a job that failed with a visible error was presented after relaunch as a
+  fresh "Queued / Ready to process", with no notification, doomed to fail identically.
+- **Root cause — TWO independent holes, either sufficient on its own:**
+  1. `set_stage_status` recomputes `overall_status` from the stage table, and
+     `all_statuses` **deliberately excludes `STAGE_REVIEW_READY`**. A job that failed
+     there set `failed` on that call, then the very next stage write recomputed over a
+     table in which nothing had failed and fell into the `else`: `pending`.
+  2. `_on_pipeline_failed` only ANNOUNCED the failure — it emitted `job_failed` and
+     `status_changed`, both renderer-only — and never wrote it to the authoritative
+     lifecycle, so startup reconciliation had nothing to preserve.
+- **Fix:** a terminal verdict is sticky against recomputation (only real progress — a
+  stage actually going `running`/`completed` — leaves it), and the sidecar persists the
+  failed lifecycle **before** announcing it.
+- **Worth carrying forward:** the three regression tests were confirmed FAILING against
+  the unfixed line first, reproducing `'pending' == 'failed'` exactly. 2.0.9's handoff
+  records a regression test that passed against broken code; this one was not trusted
+  until it had been seen to fail.
+- **Tests:** `test_f17_a_failure_on_review_ready_is_not_recomputed_away`,
+  `test_f17_the_erased_failure_does_not_survive_a_reload`,
+  `test_f17_a_cancelled_job_is_equally_sticky`,
+  `test_f17_an_explicit_retry_can_still_leave_a_terminal_state`,
+  `test_f17_the_sidecar_persists_the_failure_before_announcing_it`.
+
+### BUG-51 — one lecture, three simultaneous contradictory statuses   🟡 FIXED (2.1.0)
+- **Area:** `app/ui/app.js`, the `pipeline_changed` handler.
+- **Found:** 2026-08-21, stress test F-16.
+- **Symptom:** Home banner "Processing", sidebar "Queued", Process "Ready to process ·
+  0%", footer "IDLE", `queue.json` empty — for ONE job. Pause and Cancel both enabled and
+  both inert.
+- **Root cause:** the renderer decided a job was RUNNING from *"not every stage is
+  done"*. That is a different fact: a job that has never started has all stages `pending`
+  and satisfies it. Combined with BUG-50 (which reset failed jobs to pending) this
+  painted dead jobs as live.
+- **Fix:** running means a stage is actually `active`, with the job list's own status as
+  the tiebreaker for a stale payload.
+- **Tests:** `test_f16_running_means_a_stage_is_actually_active`.
+
+### BUG-52 — renaming a subject split it, and the toast hid that it had   🟡 FIXED (2.1.0)
+- **Area:** `electron-spike/python-sidecar.py::_set_jobs_group`; `app/ui/app.js::handleGroupRename`.
+- **Found:** 2026-08-22, stress test F-30. Confirmed on disk across navigation.
+- **Symptom:** renaming "tone" → "Renamed Tone Subject" toasted "(3 lectures updated)";
+  only 2 moved, and the old subject persisted forever holding the third.
+- **Root cause:** `_set_job_group` (singular) updates the loaded job's **in-memory**
+  manifest after writing it; `_set_jobs_group` (plural) did not. Renaming a subject that
+  contained the currently-open lecture wrote that manifest to disk and then had
+  `_emit_job_payloads` serialise the stale in-memory copy straight back over it. The
+  toast made it invisible: it fired *before* the backend answered, counting what was
+  asked for rather than what happened.
+- **Fix:** the bulk path updates the in-memory manifest too, and the toast waits for the
+  real count and names the shortfall when there is one.
+- **Tests:** `test_f30_bulk_group_write_updates_the_loaded_job_too`,
+  `test_f30_the_rename_toast_reports_what_happened`.
+
+### BUG-53 — subject-scope Study rendered a DIFFERENT lecture's content   🟡 FIXED (2.1.0)
+- **Area:** `app/ui/app.js::studyV2GroupLoad`.
+- **Found:** 2026-08-22, stress test F-29. **This is BUG-08's wrong-lecture class
+  recurring at subject altitude — check BUG-08 before touching scope code.**
+- **Symptom:** the scope header correctly named the subject; the Study Guide, Quick Study
+  and Flashcards below it showed an unrelated single lecture's material. Rebuild Map was
+  a silent no-op.
+- **Root cause:** only the `res.ok` branch replaced `studyV2.content`. A failed prepare, a
+  subject with no ready lectures, or a null response all left the previously-open
+  LECTURE's content on screen under the SUBJECT's header. A null response also returned
+  early without clearing `loading`, so the scope sat on "Collecting member lectures"
+  forever — which is what made Rebuild Map look dead.
+- **Fix:** content is dropped on the way IN, so an unpainted subject is visibly empty
+  rather than convincingly wrong. Null is handled as the failure it is, and Rebuild Map
+  reports both outcomes.
+- **Tests:** `test_f29_entering_a_subject_drops_the_previous_lecture_content`,
+  `test_f29_rebuild_map_reports_both_outcomes`.
+
+### BUG-54 — the updater declared the build incapable of updating   🟡 FIXED (2.1.0)
+- **Area:** `app/ui/app.js`, the `btn-check-updates` handler.
+- **Found:** 2026-08-22, stress test F-34. **Same message class as DEF-020/BUG-31
+  (2.0.4–2.0.6). Different cause — do not assume the old fix regressed.**
+- **Symptom:** Settings → Updates said "Updates are not available in this build." on a
+  production install with auto-check enabled.
+- **Root cause — TWO independent, either sufficient:**
+  1. **Contract mismatch.** `checkForUpdates()` in `production-main.js` answers
+     `{ok, status:'uptodate'|'available'|'error'|'untrusted'}`. The renderer tested
+     `result.available` and `result.phase`, both always `undefined`, and fell through to
+     the build-is-incapable string on EVERY outcome including success. The `update_state`
+     EVENT does carry `phase` and painted the right answer a moment before the promise
+     overwrote it.
+  2. **A timer that raced the answer.** An unconditional 4s `setTimeout` called
+     `settle()` with that same string regardless of what had already happened;
+     `settle()` guarded against a *superseded* check but not against one that had already
+     *answered*. A GitHub round trip routinely exceeds 4s.
+- **Fix:** `settle()` is one-shot, the vocabulary is the host's, the timeout is 20s and
+  says it timed out, and "no update exists" is no longer worded as "this build cannot
+  update" — different facts, only one of which is a reason to stop looking.
+- **Tests:** `test_f34_the_check_reads_the_contract_the_host_actually_speaks`,
+  `test_f34_no_timer_may_overwrite_an_answer_that_already_arrived`.
+
+### BUG-55 — multi-link import discarded every link but the first   🟡 FIXED (2.1.0)
+- **Area:** `app/ui/app.js::mediaUrls` + the Check link handler; `python-sidecar.py::_probe_media_url`.
+- **Found:** 2026-08-21, stress test F-15.
+- **Symptom:** (a) newline-separated links produced no visible response at all;
+  (b) space-separated links were accepted but the confirm step read "Download 1".
+- **Root cause:** (b) `mediaUrls` split on newlines only, and the validity test
+  `/^https?:\/\/.+/` has a `.+` that spans a space — so `"https://a https://b"` passed as
+  ONE url. (a) was not a dead button: the probe does a network lookup **per link** on a
+  background thread, nothing disabled the button, showed progress, or bounded the wait,
+  so a slow two-link probe was indistinguishable from nothing happening.
+- **Note on the evidence:** the report cited a HAR capture showing zero network requests
+  as proof the button was dead. That was a false lead — `probe_media_url` crosses the
+  IPC bridge to the sidecar and never appears in a renderer HAR. Do not re-derive this.
+- **Fix:** split on any whitespace and require `\S+`; the sidecar splits the same way.
+  Check link shows "Checking…", refuses re-entry, and reports a timeout.
+- **Tests:** `test_f15_links_separated_by_any_whitespace_are_separate_links`,
+  `test_f15_a_slow_probe_is_visible_and_bounded`.
+
+### BUG-56 — the guided-demo lecture deleted itself with no warning   🟡 FIXED (2.1.0)
+- **Area:** `python-sidecar.py::_cleanup_demo_session` (behaviour unchanged); `app/ui/app.js`.
+- **Found:** 2026-08-21, stress test F-20 (filed P2, flagged P0-candidate).
+- **Symptom:** a processed and hand-triaged demo lecture vanished from the library
+  mid-session. No confirmation (the normal delete flow has one), no recycle-bin trace.
+- **Root cause:** **working as designed** — the demo job is temporary and the tour deletes
+  it on completion. Nothing ever said so, so from the student's side it was data loss.
+- **Fix:** the deletion stays; the silence does not. Job summaries carry `is_demo`, the
+  card is badged "Demo · temporary", and the removal is announced. `demo_session` also had
+  to be declared in the bridge contract — it was fired to the renderer but not declared,
+  so subscribing to it failed `test_every_frontend_signal_is_in_contract`.
+- **Tests:** `test_f20_the_demo_lecture_announces_that_it_is_temporary`,
+  `test_f20_demo_session_is_a_declared_contract_signal`.
+
+### BUG-57 — a disabled control kept its signal fill and answered clicks with silence   🟡 FIXED (2.1.0)
+- **Area:** `app/ui/app.js::setCtl`; `app/ui/app.css::.lp-ctl-off`.
+- **Found:** 2026-08-21, stress test F-06.
+- **Symptom:** with no lecture, "Export PDF" rendered vivid orange (adjacent "Export HTML"
+  correctly dimmed) and clicking it did nothing at all.
+- **Root cause:** `setCtl` faded to 45% opacity only. A saturated orange fill at 45% is
+  still the brightest thing on a cream screen. And Chromium does not dispatch `click` on
+  a disabled button *and* does not show its `title` — so the reason, which existed, was
+  unreachable by every route.
+- **Fix:** disabled controls drop to the neutral surface BEFORE fading, and one delegated
+  listener finds the control under the pointer and says the reason out loud.
+- **Trap for the next person:** the first attempt hit-tested with `elementsFromPoint`.
+  `pointer-events:none` removes an element from hit testing entirely, so it never found
+  the control. It geometry-tests `[data-ctl-tip]` rects instead, and verifies nothing is
+  covering them.
+- **Tests:** `test_f06_disabled_controls_lose_their_signal_fill`,
+  `test_f06_a_disabled_control_says_why_when_clicked`.
+
+### BUG-58 — Study with no lecture showed the design-time placeholder chrome   🟡 FIXED (2.1.0)
+- **Area:** `app/ui/app.js::studyV2Load` / `studyV2ShowEmpty`; `app/ui/index.html`.
+- **Found:** 2026-08-21, stress test F-03. **This is the BUG-04/BUG-15 placeholder class
+  again — the third time. Any screen whose renderer early-returns is a candidate.**
+- **Symptom:** on an empty library, Study showed "READY TO STUDY / Your progress 0%" with
+  two ENABLED CTAs; "Continue studying" landed on an empty Flashcards tab reading "This
+  lecture has no flashcards yet" when there was no lecture at all.
+- **Root cause:** `studyV2Load()` returns early when there is no job, so nothing ever
+  overwrote the markup `index.html` ships with.
+- **Fix:** a real empty state, with the mode tabs disabled and every panel hidden.
+- **Tests:** `test_f03_study_has_a_real_empty_state`.
+
+### DEF-045 — undo was one run deep and said "yet"   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/app.js`, the Review stamp/undo closure. Stress test F-11.
+- **Root cause:** a single `stampRun`; once a Ctrl+Z consumed it the next answered
+  "Nothing to undo yet." while a wrong reject from 30s earlier stayed applied.
+- **Fix:** completed runs go on a stack and unwind newest-first — the only SAFE order,
+  because a later run can re-stamp a slide an earlier one touched, so LIFO is what makes
+  each run's remembered previous state the right one to restore. Verified live in a real
+  Chromium: two keeps, one reject, undo, undo → all four slides back to pending.
+- **Tests:** `test_undo_reaches_past_the_most_recent_run`.
+
+### DEF-046 — the footer pinned a finished stage name forever   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/app.js::renderProcessingStatus` / `restoreStatusRight`. Stress test F-10.
+- **Root cause:** the footer's right slot is the runtime's identity; a running stage
+  borrows it. Nothing gave it back, so Review sat at "Ready to export" with "Detecting
+  slides" beside it for the rest of the session.
+- **Fix:** only a live stage may write there; the slot is restored the moment nothing runs.
+
+### DEF-047 — "ffmpeg exited with status ExitStatus.NormalExit and code -22"   ✅ FIXED (2.1.0)
+- **Area:** `lecturepack/infrastructure/ffmpeg_wrapper.py::_handle_finished`. Stress test F-18.
+- **Root cause:** a Qt enum's repr and an errno, shown to a student as a toast. The actual
+  cause was a link-imported video with **no audio track** (yt-dlp fetched video-only).
+- **Fix:** the wrapper probes for an audio stream before extracting and says so in words;
+  the raw text is kept as `last_error_detail` for the log. `friendlyErrorMessage` also maps
+  the old string, because jobs that failed under earlier builds still carry it on disk.
+
+### DEF-048 — the Exports panel offered two formats that do not exist   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/app.js::exportFormats`. Stress test F-33/F-06/F-27.
+- **Root cause:** DOCX and TSV were offered and `export_service.py` has never written
+  either — no code path exists. And the toggles gated nothing: `align_and_export` writes
+  its whole set and never reads the selection, so unticking VTT still produced
+  `transcript.vtt`.
+- **Fix:** the list is an accurate inventory of the seven transcript files an export
+  writes, and says so instead of pretending to be a picker. The test cross-checks each
+  advertised key against `export_service.py`, so adding a format to the UI without
+  writing it fails.
+
+### DEF-049 — validating Vulkan produced no verdict of any kind   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/app.js::setComputeReadyFallback`. Stress test F-36.
+- **Root cause:** **the same shape as BUG-54's 4s timer.** A 1500ms `setTimeout` fired
+  unconditionally after Validate and replaced the still-pending check with "CPU · AVX2
+  ready" — a line that says nothing about Vulkan. Engine detection routinely exceeds 1.5s.
+- **Fix:** the fallback waits 15s, says the check did not answer rather than implying one
+  was made, and any real response always yields a verdict — including the
+  `vulkan_benchmark_ok` state the config already tracked and never showed.
+
+### DEF-050 — four light-theme labels failed WCAG AA   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/index.html`. Stress test F-37.
+- **Root cause:** a FILL token used as ink. `--orange` measures 3.41:1 and `--blue`
+  2.15:1 on the light background. `--orange-ink` (4.94) and `--blue-ink` (5.81) already
+  existed for exactly this.
+- **Fix:** four call sites repointed. Dark is unaffected (7.58 / 13.48). A programmatic
+  sweep of every visible text node across all eight screens plus the header returns zero
+  AA failures in light theme.
+
+### DEF-051 — scrollable regions read as clipped   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/app.css`. Stress test F-04 + F-05, one root cause.
+- **Root cause:** the scrollbar thumb was fully transparent until the pointer entered the
+  pane, so anything below the fold looked severed rather than scrollable — the cheat
+  sheet's last row and the home empty state's step hints were both cut mid-glyph.
+- **Fix:** the thumb rests at `--line` and brightens on approach. The cheat sheet also
+  became a column (title fixed, list scrolls, gutter reserved) and the home empty card
+  gave back 16px so its hints clear the footer at the default window size.
+
+### DEF-052 — the Process screen had no state for jobs that stopped   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/app.js::renderProcessJobState`. Stress test F-19.
+- **Root cause:** no branch for interrupted/failed/cancelled; it fell through to hiding
+  its banner. Paging the job switcher onto an interrupted lecture therefore showed
+  NOTHING, which is indistinguishable from the switcher refusing to land on it. Home
+  offered Resume/Restart; Process offered silence.
+- **Fix:** those states get a banner that names them and a Restart that works.
+
+### DEF-053 — the import banner lied during file selection   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/app.js::beginBrowseImport` / `setImporting`. Stress test F-13.
+- **Root cause:** `browse_video`'s promise does not settle until the native dialog
+  closes, so "Importing video…" span the whole selection and vanished silently on cancel.
+- **Fix:** the banner says what is actually happening, and cancelling says so.
+
+### DEF-054 — files the app refused were dropped on the floor   ✅ FIXED (2.1.0)
+- **Area:** `electron-spike/production-main.js::importMultiplePaths`. Stress test F-14.
+- **Root cause:** `expandImportPaths` records exactly why each path was rejected and
+  `importMultiplePaths` **destructured that array away**. Four files in, two lectures out,
+  nothing said about the other two.
+- **Fix:** the reasons reach the renderer and are listed in the batch modal. The sidecar's
+  per-file `failures` (reached the pipeline and failed it) are merged with the host's
+  `skipped` (never forwarded at all) — both are files the student sent and did not get back.
+
+### DEF-055 — the comprehension check allowed exactly one attempt   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/app.js::renderStudyTeach`. Stress test F-31.
+- **Root cause:** grading disabled the textarea AND the button and wiped what was typed.
+  One accidental Enter burned the attempt for that concept.
+- **Correction to the original report:** F-31 claimed it "grades an EMPTY submission".
+  It does not and cannot — the client blocks empty answers and the server rejects them.
+  A parallel session reproduced the 0% headlessly with the tester's real answer text: it
+  was a genuine grade of a rubric-incomplete answer. Do not chase the empty-submit theory.
+- **Fix:** the answer survives the re-render, the field stays editable, the button invites
+  another go, and an empty submit says so instead of reading as a dead button.
+
+### DEF-056 — the grader called a statement wrong that its own ideal answer states   ✅ FIXED (2.1.0)
+- **Area:** `ai-gateway/src/tasks.js`, the `grade_short_answer` instruction. Addendum A1.
+- **Root cause:** with a rubric-incomplete answer the feedback called the student's
+  "transparent fur" statement incorrect while its own `ideal_answer` field said
+  "fur is transparent hollow hair over black skin". Scoring was defensible; the wording
+  was not, and feedback that contradicts itself costs trust in every later grade.
+- **Fix:** the instruction forbids it explicitly — credit what appears in `ideal_answer`,
+  then name only what was actually missing.
+
+### DEF-057 — drag auto-scroll died at the bottom of the window   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/app.js::dragScroll.update`. Stress test F-38.
+- **Correction to the original report:** F-38 concluded auto-scroll "does not exist".
+  It does, it is wired into the pointer path, and it uses `scrollTop +=` rather than the
+  `scrollBy` that was grepped for. Do not re-derive this.
+- **Root cause:** the container is resolved FROM THE POINTER and the edge zone reaches
+  72px BEYOND the container's rect — so the last part of the gesture, where the user
+  pushes past the bottom of the list, puts the pointer over the status footer. The footer
+  scrolls nothing, the document scroller does not either, `containerAt` returned null, and
+  scrolling stopped exactly where it was needed.
+- **Fix:** keep working the container the gesture was already on; the existing bounds test
+  releases it.
+
+### DEF-058 — the breadcrumb read "Home > Home"   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/app.js::setCrumbJob`. Stress test F-01/F-02/F-08.
+- **Root cause:** the trail is `[Lecture] > Screen` and the lecture segment fell back to
+  the literal string "Home" — duplicated on Home, and naming a nonexistent lecture
+  everywhere else. `demo` was also missing from `CRUMBS` and rendered as its own lowercase
+  route id beside eight capitalised siblings.
+- **Fix:** one writer; the segment and its separator hide when no lecture is loaded. The
+  test enumerates `data-screen` attributes from the markup, so a new screen without a
+  label fails.
+
+### DEF-059 — the cheat sheet misstated the bindings it exists to teach   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/app.js::SHORTCUT_GROUPS`. Stress test F-12.
+- **Root cause:** J and K stamp AND advance (they have since `btn-keep` grew its own
+  advance, DEF-043), and the sheet said they only stamp.
+
+### DEF-060 — the sidebar storage figure truncated mid-word   ✅ FIXED (2.1.0)
+- **Area:** `app/ui/index.html`. Stress test F-09. The 2.0.3 wrap fix traded wrap for
+  truncation; the caption and the figure shared one 190px row. They stack now.
+
+### F-32 — suspected whole-app crash on an AI call   🟠 MITIGATED, NOT REPRODUCED (2.1.0)
+- **Area:** `electron-spike/production-main.js`.
+- **Symptom (reported):** around the first Teach Me invocation every LecturePack process
+  vanished and relaunched with fresh PIDs. Not reproducible; an external kill could not be
+  ruled out.
+- **What was found:** the main process had **no process-level error handler at all**. An
+  unhandled promise rejection terminates the process outright on modern Node, so any
+  rejection on an async host path would take the whole app down instantly leaving nothing
+  in the log — precisely the shape of an unreproducible whole-app disappearance.
+- **Action:** `unhandledRejection` and `uncaughtException` are logged rather than fatal.
+  **This is a mitigation, not a root-cause fix.** If it recurs, the log will now carry the
+  stack the original report could not produce. Leave this entry open until then.
+
+### F-07 — NOT A DEFECT (verified 2026-08-22)
+- Reported as a missing space in guided-demo step 3 ("...that slide.Fix a mis-heard...").
+  The space is present in `index.html`, in the packaged copy, and **in the reporter's own
+  screenshot** (`m1-19-demo-step3.png`). Misread. Recorded so it is not "fixed" later.
+
 ### BUG-48 — every atomic JSON write shared one temp file name   🟡 FIXED (shipped in 2.0.9)
 - **Area:** `lecturepack/infrastructure/file_manager.py::write_json_atomic`,
   `lecturepack/services/reset_service.py::reset_data_root`.
