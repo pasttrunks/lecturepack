@@ -126,7 +126,11 @@ def test_terminal_status_settles_complete_ready() -> None:
     app = read(APP)
     settle = block(app, "function settleTerminalStatus(kind)", "// Main slide preview")
     assert "label.textContent = 'Complete'" in settle
-    assert "right.textContent = 'Ready'" in settle
+    # F-10: the right slot is the RUNTIME's identity, which a running stage
+    # borrows. Settling hands it back rather than stamping a third value
+    # over it; 'Ready' survives only as the fallback when no label was ever
+    # captured.
+    assert "right.textContent = runtimeBackendLabel || 'Ready'" in settle
     assert "setFill('status-bar', 100)" in settle
     assert "'Complete', 'var(--green)'" in settle or "hasJob ? 'Complete' : 'Idle'" in settle
     # status_changed terminal branch paints the settled state directly.

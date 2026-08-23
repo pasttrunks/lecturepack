@@ -1710,6 +1710,42 @@ if (hasSingleInstanceLock) {
     }
   });
 
+  /* F-32: a tester watched every LecturePack process disappear and relaunch
+     with fresh PIDs around a Teach Me call, and could not reproduce it. The
+     main process had NO process-level error handler, and an unhandled promise
+     rejection terminates the process outright on modern Node -- so any
+     rejection on an async host path (a gateway request, an updater fetch, an
+     fs call) would take the entire app down instantly, leaving nothing in the
+     log to find afterwards. That is exactly the shape of an unreproducible
+     whole-app vanishing.
+
+     Logging instead of dying is the right trade here: the alternative is not
+     a clean crash, it is the student losing the window mid-sentence with no
+     record of why. If this ever fires, the next session has the stack the
+     original report could not produce. */
+  process.on('unhandledRejection', (reason) => {
+    try {
+      const logger = (activeSession && activeSession.logger) || null;
+      const detail = {
+        message: String((reason && reason.message) || reason || 'unknown').slice(0, 1000),
+        stack: String((reason && reason.stack) || '').slice(0, 4000)
+      };
+      if (logger) logger.write('unhandled_rejection', detail);
+      else console.error('[lecturepack] unhandled rejection', detail);
+    } catch (_) { /* the handler must never itself throw */ }
+  });
+  process.on('uncaughtException', (error) => {
+    try {
+      const logger = (activeSession && activeSession.logger) || null;
+      const detail = {
+        message: String((error && error.message) || error || 'unknown').slice(0, 1000),
+        stack: String((error && error.stack) || '').slice(0, 4000)
+      };
+      if (logger) logger.write('uncaught_exception', detail);
+      else console.error('[lecturepack] uncaught exception', detail);
+    } catch (_) { /* the handler must never itself throw */ }
+  });
+
   app.whenReady().then(() => {
   // The production window is a focused desktop surface, not a browser shell.
   // Removing the application menu also prevents Alt from resurrecting the

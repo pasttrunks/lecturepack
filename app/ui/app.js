@@ -1430,7 +1430,12 @@
       (_jobIsReprocessable(j) ? 'data-reprocess="true" ' : '') +
       'data-status="' + esc(displayStatus) + '" style="position:relative;background:var(--panel);border:2px solid ' + border + ';border-radius:14px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:' + (draggable ? 'grab' : 'pointer') + '">' +
       '<div style="height:118px;background:var(--sunk);border-bottom:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;position:relative">' + posterHtml(j) + (selecting ? selbox : menu) + badge + grip + '</div>' +
-      '<div style="padding:14px 16px">' + body + '</div></div>';
+      '<div style="padding:14px 16px">' +
+        /* The demo lecture is deleted when the tour ends. Say so on the card,
+           so a student does not invest an hour of triage in a lecture the app
+           is going to remove (F-20). */
+        (j.is_demo ? '<div title="The guided demo lecture is a temporary sample. LecturePack removes it when the tour finishes." style="display:inline-flex;align-items:center;gap:5px;margin-bottom:7px;font:600 10px JetBrains Mono;letter-spacing:.08em;text-transform:uppercase;color:var(--secondary-text);background:var(--secondary-surface);border:1.5px solid var(--secondary-border);border-radius:6px;padding:2px 7px">Demo · temporary</div>' : '') +
+        body + '</div></div>';
   }
 
   /* ==================== import from a link (yt-dlp) ====================
@@ -10689,6 +10694,18 @@
       $('storage-label').textContent = usedLabel + ' · ' + freeLabel + ' free';
       setFill('storage-bar', s.pct != null ? s.pct : s.percent || 0);
       w.hidden = false;
+    });
+
+    /* The guided-demo lecture is deleted when the tour ends -- by design, it
+       is a temporary sample job. Nothing ever said so. A student who had
+       processed it, triaged its slides by hand and built a study pack on it
+       watched all of that disappear from the library mid-session, with no
+       confirmation dialog (the normal delete flow has one) and no trace in the
+       recycle bin (F-20). The deletion stays; the silence does not. */
+    lpBridge.on('demo_session', function (json) {
+      var d = parseBridgePayload(json, null);
+      if (!d || d.status !== 'cleaned') return;
+      toast('The guided demo lecture has been removed — it is a temporary sample, not one of your lectures. Your own lectures are untouched.');
     });
 
     lpBridge.on('jobs_changed', function (json) {

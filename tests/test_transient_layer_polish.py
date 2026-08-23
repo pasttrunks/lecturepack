@@ -60,7 +60,11 @@ def test_stamping_a_slide_is_undoable_and_a_run_coalesces() -> None:
             "%s records its undo state after mutating it" % button)
     # A fast sweep must not offer to undo one slide at a time: the toast is a
     # singleton, so each stamp would replace the last one's offer.
-    assert "if (stampRun.kind !== kind) stampRun = { kind: kind, entries: [] }" in JS
+    # A change of kind CLOSES the current run onto the history stack and
+    # opens a new one -- coalescing still holds, and F-11 added the stack
+    # so an earlier run stays reachable.
+    assert "if (stampRun.kind !== kind) {" in JS
+    assert "closeStampRun();" in JS
     assert "'Undo all'" in JS
     # Ctrl+Z is the real undo and works with no toast on screen.
     assert "LP.hasStampToUndo && LP.hasStampToUndo()" in JS
@@ -69,9 +73,33 @@ def test_stamping_a_slide_is_undoable_and_a_run_coalesces() -> None:
 def test_undo_restores_in_reverse_and_returns_the_cursor() -> None:
     """A run can stamp one slide twice; only its oldest entry holds the truth."""
     block = JS.split("function undoStampRun()", 1)[1].split("renderSlides();", 1)[0]
-    assert "for (var i = stampRun.entries.length - 1; i >= 0; i--)" in block
+    assert "for (var i = run.entries.length - 1; i >= 0; i--)" in block
     # Back to where the mistake happened, not where the sweep has travelled to.
     assert "LP.state.viewingSlide = first" in block
+
+
+def test_undo_reaches_past_the_most_recent_run() -> None:
+    """F-11: undo was one run deep.
+
+    Once a Ctrl+Z consumed the current run, the next answered "Nothing to undo
+    yet." while a wrong reject from thirty seconds earlier stayed applied --
+    and "yet" promised a later success that never came. Completed runs go on a
+    stack and unwind newest-first, which is also the only SAFE order: a later
+    run can re-stamp a slide an earlier one touched, so LIFO is what makes
+    each run's remembered previous state the right one to restore.
+    """
+    assert "var stampHistory = []" in JS
+    assert "stampHistory.push(stampRun)" in JS
+    # The current run first, then the newest completed one.
+    undo = JS.split("function undoStampRun()", 1)[1].split("renderSlides();", 1)[0]
+    assert "stampRun.entries.length ? stampRun : stampHistory.pop()" in undo
+    # hasStampToUndo must see the stack, or Ctrl+Z refuses work it can do.
+    has = JS.split("LP.hasStampToUndo = function ()", 1)[1].split("};", 1)[0]
+    assert "stampHistory.length" in has
+    # The dead-end wording is gone from the message the student actually sees
+    # (the phrase survives in the comment explaining why it was wrong).
+    assert "toast('Nothing to undo yet.')" not in JS
+    assert "toast('Nothing left to undo.')" in JS
 
 
 def test_space_advances_once_not_twice() -> None:

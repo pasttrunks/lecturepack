@@ -1053,6 +1053,12 @@ class Sidecar:
         return {
             "id": job.job_id,
             "name": job.manifest.get("title") or source.get("filename") or "Lecture",
+            # The guided-demo lecture is a TEMPORARY job: the tour deletes it
+            # on completion by design. Nothing said so, so a student who
+            # processed and hand-triaged it watched real work disappear from
+            # the library with no confirmation and no trace (F-20). The card
+            # can only warn them if it knows.
+            "is_demo": bool(self._is_demo_job(job)),
             "file": source.get("filename", ""),
             "source_title": source.get("filename", ""),
             "status": status,

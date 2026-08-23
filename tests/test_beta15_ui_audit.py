@@ -97,7 +97,12 @@ def test_d07_compute_has_a_ready_cpu_fallback() -> None:
     html = read(HTML)
     assert "CPU · AVX2 ready" in html
     assert "function setComputeReadyFallback()" in app
-    assert "setTimeout(setComputeReadyFallback, 1500);" in app
+    # F-36: this fallback used to fire at 1500ms and overwrite a still-
+    # pending Vulkan check with a line that says nothing about Vulkan.
+    # It is a last resort, so it must wait well past a real detection and
+    # must not claim a check was made.
+    assert "setTimeout(setComputeReadyFallback, 15000);" in app
+    assert "Vulkan check did not answer" in app
     assert "Checking compute backend…" in block(app, "$('btn-validate-vulkan').addEventListener", "$('btn-cuda-pack-install')")
 
 
@@ -195,7 +200,11 @@ def test_d16_breadcrumb_uses_the_friendly_job_name() -> None:
     # a raw job id can never reach the breadcrumb.
     assert "selectJob(a.id, { silent: true })" in active
     assert "friendlyJobName(id)" in block(app, "function setActiveJob", "function ownsPayload")
-    assert "crumb-job" in chrome
+    # F-01/F-08: the lecture segment has ONE writer, setCrumbJob, which also
+    # hides the segment (and its separator) when no lecture is loaded so the
+    # trail cannot render "Home > Home".
+    assert "setCrumbJob(" in chrome
+    assert "crumb-job" in block(app, "function setCrumbJob", "function renderJobChrome")
     assert "looksLikeJobId" in app
 
 
