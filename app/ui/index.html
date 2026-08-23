@@ -273,6 +273,11 @@
             <div id="proc-waiting" class="lp-proc-waiting" hidden>
               <span style="width:8px;height:8px;border-radius:50%;background:var(--blue-ink);flex:none"></span>
               <span id="proc-waiting-text">Waiting to process</span>
+              <!-- Interrupted / failed / cancelled jobs had NO branch in
+                   renderProcessJobState, so switching to one on Process showed
+                   nothing at all and the job read as unreachable from this
+                   screen (F-19). They get a state and a way out of it. -->
+              <button id="btn-proc-restart" class="lp-hit lp-press-sm" hidden type="button" style="margin-left:auto;font:700 12px 'Space Grotesk';background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:8px;padding:6px 13px;cursor:pointer">Restart</button>
             </div>
             <div id="pipeline-stages" style="display:flex;flex-direction:column;gap:12px"></div>
             <div id="proc-completion" hidden class="lp-reveal" style="margin-top:18px;padding-top:16px;border-top:1.5px solid var(--line)">
@@ -713,7 +718,7 @@
           </div>
         </div>
         <div style="background:var(--panel);border:2px solid var(--border);border-radius:13px;box-shadow:var(--shadow-soft);padding:20px 22px;margin-bottom:26px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:15px"><div style="font-weight:700;font-size:16px">Transcript formats</div><span style="font:500 11px 'JetBrains Mono';color:var(--muted)">select to include</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:15px"><div style="font-weight:700;font-size:16px">Transcript formats</div><span style="font:500 11px 'JetBrains Mono';color:var(--muted)">every export writes all of these</span></div>
           <div id="export-formats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px"></div>
         </div>
         <div id="export-idle">

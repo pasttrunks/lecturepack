@@ -18,6 +18,10 @@ class FFmpegWrapper(QObject):
         self.ffprobe_path = ""
         self.process = None
         self.last_cancel_report = None
+        # Set per extraction; lets _handle_finished explain a non-zero exit
+        # instead of quoting an errno at the student (F-18).
+        self._source_has_audio = True
+        self.last_error_detail = ""
         self.detect_binaries()
 
     def detect_binaries(self):
@@ -115,6 +119,17 @@ class FFmpegWrapper(QObject):
             self.finished.emit(False, "ffmpeg.exe not found.")
             return
 
+        # Remember whether the source HAS audio, so a non-zero exit can be
+        # explained rather than reported as an errno (F-18). inspect_video is
+        # a short ffprobe call and already runs at import; a failure to probe
+        # is not itself fatal here -- assume audio and let ffmpeg decide.
+        try:
+            self._source_has_audio = (
+                str(self.inspect_video(video_path).get("audio_codec", "none")) != "none"
+            )
+        except Exception:  # noqa: BLE001 - probing must never break extraction
+            self._source_has_audio = True
+
         os.makedirs(os.path.dirname(output_wav_path), exist_ok=True)
 
         self.process = QProcess()
@@ -155,5 +170,20 @@ class FFmpegWrapper(QObject):
     def _handle_finished(self, exit_code, exit_status):
         if exit_status == QProcess.ExitStatus.NormalExit and exit_code == 0:
             self.finished.emit(True, "")
+            return
+        # "ffmpeg exited with status ExitStatus.NormalExit and code -22" was
+        # surfaced to the student verbatim, as a toast (F-18). That is a Qt
+        # enum's repr and an errno, and it names neither what went wrong nor
+        # what to do. The overwhelmingly common cause here is a source with no
+        # audio track at all -- a video-only download, a screen recording made
+        # without audio -- so say that, and keep the technical text for the
+        # log rather than the pill.
+        detail = f"ffmpeg exited with status {exit_status} and code {exit_code}"
+        if not self._source_has_audio:
+            message = ("This video has no audio track, so there is nothing to "
+                       "transcribe. Slides will still be detected.")
         else:
-            self.finished.emit(False, f"ffmpeg exited with status {exit_status} and code {exit_code}")
+            message = ("The audio could not be extracted from this video. "
+                       "The file may be incomplete or in an unsupported format.")
+        self.last_error_detail = detail
+        self.finished.emit(False, message)

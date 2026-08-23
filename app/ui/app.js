@@ -326,9 +326,18 @@
           { q: 'What made a right angle before Pythagoras?', a: 'A 3-4-5 triangle — known to the Egyptians for a 90° corner.' }
         ]
       },
+      /* This list is an INVENTORY of what an export writes, not a picker.
+         DOCX and TSV were in it and export_service.py has never written
+         either: four export sets across three lectures and two days produced
+         zero .docx and zero .tsv files, because no code path exists to make
+         them. Worse, the toggles gated nothing at all -- align_and_export
+         writes its whole set regardless of what is selected -- so the panel
+         lied twice: about which formats exist, and about the student having a
+         choice (F-33). The two fictional formats are gone, the rest are the
+         transcript files actually written, and the panel now says so. */
       exportFormats: [
-        { key: 'TXT', sel: true }, { key: 'SRT', sel: true }, { key: 'VTT', sel: false }, { key: 'MD', sel: true },
-        { key: 'JSON', sel: false }, { key: 'CSV', sel: false }, { key: 'DOCX', sel: false }, { key: 'TSV', sel: false }
+        { key: 'TXT', sel: true }, { key: 'SRT', sel: true }, { key: 'VTT', sel: true }, { key: 'MD', sel: true },
+        { key: 'JSON', sel: true }, { key: 'JSONL', sel: true }, { key: 'CSV', sel: true }
       ],
       exportFiles: ['slides.pdf', 'study_pack.html', 'transcript.txt', 'transcript.srt', 'transcript.md']
     },
@@ -1016,6 +1025,15 @@
       if (command === 'pause_job' || command === 'resume_job' || command === 'cancel_job') return 'No lecture is processing right now.';
       return 'Load a lecture first — there is nothing to process yet.';
     }
+    // Defence in depth for F-18: the wrapper now emits student copy, but a
+    // job that failed under an older build still carries the raw string in its
+    // persisted state, and this is the last place before it reaches a toast.
+    if (/ffmpeg exited with status/i.test(cleaned)) {
+      return 'The audio could not be extracted from this video. It may have no audio track, or be incomplete.';
+    }
+    if (/whisper.*exited with status|exitstatus\./i.test(cleaned)) {
+      return 'Transcription stopped unexpectedly. Try processing this lecture again.';
+    }
     if (lower.indexOf('sidecar command failed') >= 0) {
       if (lower.indexOf('repair_selection') >= 0) return 'Load a lecture before repairing slide selections.';
       if (lower.indexOf('export') >= 0) return 'The export could not be completed. Try again.';
@@ -1076,14 +1094,22 @@
     return looksLikeJobId(raw) ? (raw === LP.state.jobId ? (LP.state.jobTitle || 'Lecture') : 'Lecture') : raw;
   }
 
+  /* This ran 1500ms after Validate, unconditionally, and replaced a still-
+     pending Vulkan check with "CPU · AVX2 ready" -- a line that is not a
+     Vulkan verdict at all. Engine detection can easily outlast 1.5s, so
+     validating Vulkan reliably produced no pass, no fail, no benchmark and no
+     error: exactly the symptom in F-36, and the same shape of bug as the
+     updater's 4s timer in F-34. It is a LAST RESORT now: it waits far longer,
+     it never speaks over a real answer, and when it does speak it says that
+     the check did not answer rather than implying one was made. */
   function setComputeReadyFallback() {
     var vulkan = $('vulkan-status'), cuda = $('cuda-status');
     if (vulkan && /checking/i.test(vulkan.textContent || '')) {
-      vulkan.textContent = 'CPU · AVX2 ready';
-      vulkan.style.color = 'var(--secondary-text)';
+      vulkan.textContent = 'Vulkan check did not answer — using CPU · AVX2';
+      vulkan.style.color = 'var(--muted)';
     }
     if (cuda && /checking/i.test(cuda.textContent || '')) {
-      cuda.textContent = 'CUDA unavailable in this build · CPU · AVX2 ready';
+      cuda.textContent = 'CUDA check did not answer — using CPU · AVX2';
       cuda.style.color = 'var(--muted)';
     }
   }
@@ -3366,8 +3392,26 @@
   function renderProcessJobState() {
     var el = $('proc-waiting'), text = $('proc-waiting-text');
     if (!el || !text) return;
+    var restart = $('btn-proc-restart');
+    if (restart) restart.hidden = true;
     var job = _jobById(LP.state.jobId);
     if (!job || job.status === 'running') { el.hidden = true; return; }
+    /* Interrupted, failed and cancelled jobs had no branch here at all and
+       fell through to `el.hidden = true`. The Process screen then showed
+       NOTHING for them -- no state, no reason, no way forward -- so paging the
+       job switcher onto an interrupted lecture looked exactly like the
+       switcher refusing to land on it (F-19). Home already offered
+       Resume/Restart; Process offered silence. */
+    if (job.status === 'interrupted' || job.status === 'failed' || job.status === 'cancelled') {
+      text.textContent = job.status === 'interrupted'
+        ? 'Interrupted — this lecture stopped when the app closed mid-run. Its finished work was kept.'
+        : job.status === 'failed'
+          ? 'Failed — this lecture did not finish processing.'
+          : 'Cancelled — you stopped this lecture before it finished.';
+      if (restart) restart.hidden = false;
+      el.hidden = false;
+      return;
+    }
     if (job.status === 'queued' && _jobInQueue(job.id)) {
       // The backend reports 0-based queue positions; the visible queue list is
       // 1-based ("Position 1" is first in line). Normalize to 1-based here, and
@@ -4750,11 +4794,11 @@
   function renderExportFormats() {
     $('export-formats').innerHTML = LP.data.exportFormats.map(function (f, i) {
       if (f.sel) {
-        return '<label class="lp-hit" data-fmt="' + i + '" style="display:flex;align-items:center;gap:8px;border:1.5px solid var(--blue);border-radius:9px;padding:10px 12px;background:var(--blue-tint);cursor:pointer"><span style="width:16px;height:16px;background:var(--blue);border-radius:5px;flex:none;display:flex;align-items:center;justify-content:center">' + CHECK_SVG + '</span><span style="font:700 12px \'JetBrains Mono\'">' + esc(f.key) + '</span></label>';
+        return '<label class="lp-hit" data-fmt="' + i + '" style="display:flex;align-items:center;gap:8px;border:1.5px solid var(--blue);border-radius:9px;padding:10px 12px;background:var(--blue-tint);cursor:default"><span style="width:16px;height:16px;background:var(--blue);border-radius:5px;flex:none;display:flex;align-items:center;justify-content:center">' + CHECK_SVG + '</span><span style="font:700 12px \'JetBrains Mono\'">' + esc(f.key) + '</span></label>';
       }
       return '<label class="lp-hit" data-fmt="' + i + '" style="display:flex;align-items:center;gap:8px;border:1.5px solid var(--line);border-radius:9px;padding:10px 12px;cursor:pointer"><span style="width:16px;height:16px;border:1.5px solid var(--muted);border-radius:5px;flex:none"></span><span style="font:700 12px \'JetBrains Mono\';color:var(--muted)">' + esc(f.key) + '</span></label>';
     }).join('');
-    var n = LP.data.exportFormats.filter(function (f) { return f.sel; }).length;
+    var n = LP.data.exportFormats.length;
     $('export-all-desc').textContent = 'PDF + HTML + ' + n + ' transcript formats';
     updateExportPdfDescription();
   }
@@ -9173,11 +9217,22 @@
       if (!data || typeof data !== 'object') return;
       var id = kind === 'cuda' ? 'cuda-status' : 'vulkan-status', el = $(id);
       if (!el || data.state === 'checking') return;
+      var label = kind === 'cuda' ? 'CUDA' : 'Vulkan';
       var message = data.message || data.detail;
-      if (!message && data.state === 'available') message = kind === 'cuda' ? 'CUDA available' : 'Vulkan available';
-      if (!message && data.state === 'unavailable') message = kind === 'cuda' ? 'CUDA unavailable · CPU · AVX2 ready' : 'Vulkan unavailable · CPU · AVX2 ready';
-      if (message) el.textContent = friendlyProcessingLabel(message) || message;
+      if (!message && data.state === 'available') message = label + ' available';
+      if (!message && data.state === 'unavailable') message = label + ' unavailable · CPU · AVX2 ready';
+      if (!message && data.state === 'error') message = label + ' could not be checked on this machine.';
+      // Never leave the row on "Checking…" because the payload had no words in
+      // it: a validate that answers must always produce a verdict (F-36).
+      if (!message) message = label + ' check returned no result.';
+      el.textContent = friendlyProcessingLabel(message) || message;
       el.style.color = data.state === 'available' || data.state === 'loaded' ? 'var(--secondary-text)' : 'var(--muted)';
+      if (kind === 'vulkan' && data.available && data.benchmark_ok === false) {
+        // The config already tracked vulkan_benchmark_ok and the student was
+        // never shown it, so they could not know whether Vulkan would actually
+        // work before committing to it (F-36).
+        el.textContent += ' · not yet benchmarked on this machine';
+      }
     }
     $('btn-validate-vulkan').addEventListener('click', function () {
       ['vulkan-status', 'cuda-status'].forEach(function (id) {
@@ -9194,7 +9249,7 @@
       // A backend may report through its event channel rather than the command
       // response. This bounded fallback guarantees the CPU path is never left
       // behind a permanent spinner if either response is unavailable.
-      setTimeout(setComputeReadyFallback, 1500);
+      setTimeout(setComputeReadyFallback, 15000);
     });
     $('btn-cuda-pack-install').addEventListener('click', function () {
       if (!lpBridge.connected()) { toast('Preview mode — needs the app'); return; }
@@ -9584,6 +9639,10 @@
         job_id: jobId
       });
     }
+    var procRestart = $('btn-proc-restart');
+    if (procRestart) procRestart.addEventListener('click', function () {
+      if (LP.state.jobId) startJobFromCard(LP.state.jobId);
+    });
     $('jobs-grid').addEventListener('click', function (e) {
       // Select mode owns the click: toggle instead of opening the lecture.
       if (LP.state.selecting) {
@@ -10046,12 +10105,14 @@
     });
 
     // exports
+    /* These rows used to toggle. The toggle did nothing -- align_and_export
+       writes its whole set and never reads the selection -- so unticking VTT
+       and then finding transcript.vtt on disk anyway was the second half of
+       F-33. The list is an inventory now, so it does not pretend to be a
+       control; a click explains what it is instead of faking a choice. */
     $('export-formats').addEventListener('click', function (e) {
-      var l = e.target.closest('[data-fmt]');
-      if (!l) return;
-      var f = LP.data.exportFormats[+l.dataset.fmt];
-      f.sel = !f.sel;
-      renderExportFormats();
+      if (!e.target.closest('[data-fmt]')) return;
+      toast('Every export writes all of these transcript formats.');
     });
     $('btn-export-all').addEventListener('click', startExport);
     // Re-running the export is the whole point of this button; resetting the
@@ -10837,8 +10898,22 @@
       // _on_pipeline_completed sets every stage to "done" before its final
       // emit, so this naturally clears on success too; the failure path
       // clears via the terminal status_changed label below.
-      var running = Array.isArray(p.stages) &&
-        p.stages.some(function (st) { return st && st.state !== 'done'; });
+      /* "not every stage is done" is NOT the same fact as "this job is
+         running", and treating it as one is what produced three contradictory
+         statuses for one lecture (F-16). A job that has never started has all
+         stages `pending`, which satisfies this test -- so the Home banner said
+         "Processing", Pause and Cancel were enabled, and both were inert
+         because there was nothing to pause. A stage must actually be ACTIVE,
+         and the job list's own status is the tiebreaker for a job whose stage
+         payload is stale. */
+      var listStatus = String((_jobById(owner) || {}).status || '');
+      var stageActive = Array.isArray(p.stages) &&
+        p.stages.some(function (st) {
+          var state = st && String(st.state || '');
+          return state === 'running' || state === 'active' || state === 'in_progress';
+        });
+      var terminalByList = ['done', 'failed', 'cancelled', 'interrupted'].indexOf(listStatus) >= 0;
+      var running = stageActive && !terminalByList;
       runningByJob[owner] = running;
       if (viewed) {
         LP.state.pipelineRunning = running;

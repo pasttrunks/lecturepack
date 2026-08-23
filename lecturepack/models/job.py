@@ -184,6 +184,16 @@ class Job:
             self.state["overall_status"] = "running"
         elif any(s == "failed" for s in all_statuses):
             self.state["overall_status"] = "failed"
+        elif self.state.get("overall_status") in {"failed", "cancelled"}:
+            # A recomputation must never ERASE a terminal verdict. all_statuses
+            # deliberately excludes STAGE_REVIEW_READY, so a job that failed
+            # there recomputed straight to "pending" on the next stage write:
+            # the failure vanished, and after a restart the job presented as a
+            # fresh "Queued / Ready to process" that was doomed to fail the
+            # same way, with no notification and no explanation (F-17).
+            # Reaching a terminal state is a decision; only an explicit retry
+            # (which resets the stages) may take it back.
+            pass
         else:
             self.state["overall_status"] = "pending"
 

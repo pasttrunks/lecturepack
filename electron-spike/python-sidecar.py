@@ -4938,6 +4938,21 @@ class Sidecar:
         if self.current_job is not None:
             demo_failed = self._is_demo_job(self.current_job) and getattr(self, "_demo_session", None) is not None
             self.current_stage = ""
+            # A failure was ANNOUNCED and never RECORDED: this handler emitted
+            # job_failed and status_changed, both of which live only in the
+            # renderer, and nothing wrote the verdict to the authoritative
+            # lifecycle. The next launch reconciled the job from a lifecycle
+            # that had never left its pre-run state and presented it as a fresh
+            # "Queued", so the student re-ran a job that was already known to
+            # be doomed, with no notification that it had failed at all (F-17,
+            # and the "Queued" half of the three contradictory statuses in
+            # F-16). Persist it before telling anyone about it.
+            try:
+                self.current_job.set_lifecycle("failed")
+            except Exception:  # noqa: BLE001 - an illegal edge must not swallow the report
+                self.current_job.state["lifecycle"] = "failed"
+                self.current_job.state["overall_status"] = "failed"
+                self.current_job.save()
             self._emit({
                 "event": "job_failed",
                 "job_id": self.current_job.job_id,
