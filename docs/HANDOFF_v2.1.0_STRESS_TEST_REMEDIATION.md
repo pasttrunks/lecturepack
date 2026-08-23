@@ -3,7 +3,8 @@
 **Date:** 2026-08-23
 **Branch:** `claude/lecturepack-2-10-release-6b5fb5`
 **Base:** `e2ca2cf` = v2.0.9 (released 2026-08-20)
-**Status:** code complete, suite green, **NOT yet built, NOT yet tagged, NOT yet published**
+**Status:** code complete, suite green, **built and verified against the packaged build**;
+NOT yet tagged, NOT yet published
 **Source of work:** `C:\LecturePackScratch\results\stress-test-209\FINDINGS.md` (F-01 … F-38
 plus Addendum A/B), an adversarial QA pass against the installed 2.0.9.
 
