@@ -7,12 +7,21 @@ body{width:100%;height:100vh;overflow-y:auto;background-color:var(--bg)}
 #app{min-width:0;min-height:100vh;background-color:var(--bg)}
 [hidden]{display:none !important}
 
-/* thin glowing scrollbars */
+/* thin glowing scrollbars.
+   The thumb used to be fully transparent until the pointer entered the pane.
+   That made every scrollable region look CLIPPED rather than scrollable: the
+   home empty state's step hints (F-05) and the last row of the shortcut cheat
+   sheet (F-04) were both cut mid-glyph with nothing on screen saying there was
+   more below. The thumb now rests at low contrast and brightens on approach --
+   three steps (rest / pane hover / thumb hover) instead of two. */
 ::-webkit-scrollbar{width:11px;height:11px}
-::-webkit-scrollbar-thumb{background:transparent;border:4px solid transparent;background-clip:padding-box;border-radius:20px;transition:background var(--motion-medium) var(--motion-ease)}
+::-webkit-scrollbar-thumb{background:var(--line);border:4px solid transparent;background-clip:padding-box;border-radius:20px;transition:background var(--motion-medium) var(--motion-ease)}
 *:hover::-webkit-scrollbar-thumb{background:var(--muted);background-clip:padding-box}
 ::-webkit-scrollbar-thumb:hover{background:var(--blue);background-clip:padding-box;box-shadow:0 0 10px var(--blue)}
 ::-webkit-scrollbar-track{background:transparent}
+/* Nothing should sit flush against the status footer -- the last row of a
+   scrolled screen needs a gutter to read as finished rather than severed. */
+.lp-main{padding-bottom:20px}
 
 #lecture-switcher button:hover,#lecture-context-menu button:hover{background:var(--panel2)!important}
 .lp-download-action button{font:600 11px 'Space Grotesk';padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;background:var(--panel);color:var(--ink);cursor:pointer}
@@ -58,6 +67,19 @@ button,[role="button"],.lp-nav,.lp-tab,.lp-theme-btn{
 button:active:not(:disabled),[role="button"]:active,.lp-nav:active,.lp-tab:active{
   transform:translateY(1px)}
 button:disabled{cursor:not-allowed}
+/* The single disabled look for every job-dependent control (see setCtl).
+   Neutralise the fill before fading it: a 45%-opacity orange button is still
+   the loudest thing on the screen (F-06). pointer-events:none lets the click
+   fall through to the document listener that speaks the reason aloud. */
+.lp-ctl-off{
+  background:var(--secondary-surface) !important;
+  color:var(--secondary-text) !important;
+  border-color:var(--secondary-border) !important;
+  box-shadow:none !important;
+  opacity:.55;
+  cursor:not-allowed;
+  pointer-events:none;
+}
 
 /* --- keyboard focus (added 2026-07-25) --------------------------------------
    There were ZERO :focus-visible rules in this stylesheet, so keyboard
@@ -2406,6 +2428,16 @@ body.lp-text-select .q-card,body.lp-text-select .subject-card{user-select:text;-
 .lp-shortcut-row{display:flex;align-items:center;gap:14px;padding:7px 0}
 .lp-shortcut-row>span:first-child{font:500 14px 'Space Grotesk';color:var(--ink)}
 .lp-shortcut-keys{margin-left:auto;white-space:nowrap}
+
+/* F-04: the cheat sheet is taller than its panel on short windows, and the
+   global scrollbar thumb is transparent until the pointer is over it -- so the
+   last rows were cut mid-glyph with nothing on screen saying "there is more".
+   The panel is a column now: the title bar stays put, only the list scrolls,
+   the gutter is reserved so nothing reflows when the bar appears, and inside
+   this dialog the thumb is visible at rest. */
+#shortcuts-body{overflow-y:auto;min-height:0;scrollbar-gutter:stable;padding-right:2px}
+#shortcuts-body::-webkit-scrollbar-thumb{background:var(--muted);background-clip:padding-box}
+#shortcuts-body>div:last-child{margin-bottom:0}
 
 /* -- a quiet copy control that recedes while reading ---------------------- */
 /* Persistent, not hover-revealed: hover-reveal fails touch and keyboard, and

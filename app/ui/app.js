@@ -567,6 +567,20 @@
     renderExportPhase();
   }
 
+  /* The breadcrumb is `[Lecture ▾] › Screen`. With no lecture loaded the left
+     segment used to fall back to the literal string "Home", which on the Home
+     screen rendered "Home › Home" (F-01) and everywhere else named a lecture
+     that does not exist. There is nothing to switch to, so the segment and its
+     separator are hidden outright and the trail is just the screen name -- one
+     breadcrumb model on every screen (F-08). */
+  function setCrumbJob(name) {
+    var btn = $('lecture-switcher-toggle'), sep = $('crumb-sep'), span = $('crumb-job');
+    var has = !!name;
+    if (span) span.textContent = name || '';
+    if (btn) btn.hidden = !has;
+    if (sep) sep.hidden = !has;
+  }
+
   /* Sidebar chip + breadcrumb: name the lecture the workspace is scoped to, so
      content is never anonymous. Idle when nothing is loaded. */
   function renderJobChrome() {
@@ -576,7 +590,7 @@
       return;
     }
     $('side-job-name').textContent = name || 'Untitled lecture';
-    $('crumb-job').textContent = name || 'Lecture';
+    setCrumbJob(name || 'Untitled lecture');
     renderSidePoster(LP.state.jobId);
   }
 
@@ -3574,6 +3588,16 @@
    // "Detecting slides".
    var runtimeBackendLabel = (($('status-right') || {}).textContent || '').trim();
 
+   /* Hand the right slot back. Only a RUNNING stage may borrow it; the moment
+      nothing is running it belongs to the runtime again. Without this the
+      corner kept whichever stage happened to finish last -- Review sat at
+      "Ready to export" with "Detecting slides" pinned beside it for the rest
+      of the session (F-10). */
+   function restoreStatusRight() {
+     var right = $('status-right');
+     if (right && runtimeBackendLabel) right.textContent = runtimeBackendLabel;
+   }
+
    function processingRaf(fn) {
      return (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(fn);
    }
@@ -3798,11 +3822,20 @@
       if (s.detail !== undefined) {
         $('status-detail').textContent = hold ? hold.detail : (friendlyProcessingLabel(s.detail) || s.detail);
       }
-      if (s.right !== undefined) $('status-right').textContent = friendlyProcessingLabel(s.right) || s.right;
+      // Only a live stage may borrow the runtime's slot (F-10). A status
+      // payload that arrives after the pipeline stopped must not re-pin the
+      // stage name that restoreStatusRight() just cleared.
+      if (s.right !== undefined) {
+        if (LP.state.pipelineRunning || guidedDemo.snapshot().active) {
+          $('status-right').textContent = friendlyProcessingLabel(s.right) || s.right;
+        } else {
+          restoreStatusRight();
+        }
+      }
       if (s.job !== undefined && LP.state.jobId) {
         var jobName = friendlyJobName(s.job);
         $('side-job-name').textContent = jobName || 'Untitled lecture';
-        $('crumb-job').textContent = jobName || 'Lecture';
+        setCrumbJob(jobName || 'Untitled lecture');
       }
      if (s.side !== undefined) setStatusDotText($('side-job-status'), s.side, 'var(--orange)', true);
    }
@@ -3814,10 +3847,50 @@
    function setCtl(id, enabled, disabledTip) {
      var el = $(id); if (!el) return;
      el.disabled = !enabled;
-     el.style.opacity = enabled ? '' : '.45';
-     el.style.cursor = enabled ? '' : 'not-allowed';
+     /* Fading a control was not enough. `Export PDF` carries a solid --orange
+        fill; at 45% opacity it was still the brightest thing on the Exports
+        screen and read as the primary call to action while refusing every
+        click (F-06). `lp-ctl-off` drops the signal fill to the neutral surface
+        FIRST and fades second, so a disabled control looks disabled whatever
+        it looks like when enabled. */
+     el.classList.toggle('lp-ctl-off', !enabled);
+     el.style.opacity = '';
+     el.style.cursor = '';
      if (enabled) { if (el.dataset.ctlTip) { el.removeAttribute('title'); delete el.dataset.ctlTip; } }
      else { el.title = disabledTip || 'Load a lecture first.'; el.dataset.ctlTip = '1'; }
+   }
+
+   /* A disabled button does not dispatch click in Chromium, so pressing one
+      produced literally nothing -- no toast, no error, no cursor change that
+      survives a touchpad tap (F-06). The reason already exists on `title`, but
+      a tooltip needs a hover the pointer may never make. `lp-ctl-off` sets
+      pointer-events:none, so the click lands on whatever is underneath; this
+      listener looks back up the hit stack, finds the control the student was
+      actually aiming at, and says the reason out loud. */
+   function wireDisabledControlSpeech() {
+     document.addEventListener('click', function (e) {
+       // detail === 0 is a synthesised click (el.click() from our own code)
+       // with no real coordinates -- hit-testing 0,0 would answer for a
+       // control the student never aimed at.
+       if (!e.detail) return;
+       var hit = null;
+       Array.prototype.forEach.call(document.querySelectorAll('[data-ctl-tip]'), function (el) {
+         if (hit || el.offsetParent === null) return;
+         var r = el.getBoundingClientRect();
+         if (e.clientX >= r.left && e.clientX <= r.right &&
+             e.clientY >= r.top && e.clientY <= r.bottom) hit = el;
+       });
+       if (!hit) return;
+       // The click fell THROUGH the disabled control onto whatever is behind
+       // it. If that element is not one of the control's own ancestors then
+       // something (a modal, an overlay) is covering the control and the click
+       // belongs to that instead.
+       var top = document.elementFromPoint(e.clientX, e.clientY);
+       if (!top || !top.contains(hit)) return;
+       e.preventDefault();
+       e.stopPropagation();
+       toast(hit.title || 'That is not available yet.');
+     }, true);
    }
    function refreshControlStates() {
      var hasSlides = LP.data.slides.length > 0;
@@ -3848,7 +3921,7 @@
      var hasJob = !!LP.state.jobId;
      var label = $('status-state'), pct = $('status-detail'), right = $('status-right');
      if (pct) pct.textContent = '';
-     if (right) right.textContent = 'Ready';
+     if (right) right.textContent = runtimeBackendLabel || 'Ready';
      if (kind === 'complete') {
        if (label) label.textContent = 'Complete';
        setFill('status-bar', 100);
@@ -4612,7 +4685,7 @@
 
   /* ======================= screen switching / chrome ======================= */
 
-  var CRUMBS = { home: 'Home', subjects: 'Subjects', process: 'Process', review: 'Review', transcript: 'Transcript', study: 'Study', exports: 'Exports', settings: 'Settings' };
+  var CRUMBS = { home: 'Home', subjects: 'Subjects', process: 'Process', review: 'Review', transcript: 'Transcript', study: 'Study', exports: 'Exports', settings: 'Settings', demo: 'Guided demo' };
 
   function setScreen(name) {
     if (LP.state.screen === name) return;
@@ -5637,7 +5710,7 @@
   function resetJobChrome() {
     $('side-job-name').textContent = 'No lecture loaded';
     $('side-job-status').innerHTML = 'Idle';
-    $('crumb-job').textContent = 'Home';
+    setCrumbJob('');
     $('proc-source-name').textContent = 'No lecture loaded';
     $('proc-status-meta').textContent = '';
     // BUG-15: these ship with the demo lecture's real numbers baked in
@@ -6238,15 +6311,42 @@
     return esc(v);
   }
 
+  /* Study with no lecture behind it (F-03). Every panel on this screen is
+     populated by studyV2Load(), which returns early when there is no job -- so
+     what stayed on screen was the placeholder markup index.html ships with:
+     "Ready to study", a 0% progress bar, and two live CTAs that walked the
+     student into an empty Flashcards tab and told them "this lecture has no
+     flashcards yet" when there was no lecture at all. Nothing here is a real
+     readout until there is a pack, so nothing here is shown until there is
+     one. */
+  function studyV2ShowEmpty(empty) {
+    var blank = $('study-empty');
+    if (blank) blank.hidden = !empty;
+    var nav = document.querySelector('.study-mode-nav');
+    if (nav) nav.hidden = !!empty;
+    document.querySelectorAll('.study-mode-tab').forEach(function (b) { b.disabled = !!empty; });
+    if (!empty) {
+      setStudyV2Mode(studyV2.mode || 'overview', true);
+      return;
+    }
+    ['overview', 'flashcards', 'quiz', 'ask', 'quick', 'teach'].forEach(function (m) {
+      var el = $('study-mode-' + m); if (el) el.hidden = true;
+    });
+    ['study-generation-panel', 'study-scope-header'].forEach(function (id) {
+      var el = $(id); if (el) el.hidden = true;
+    });
+  }
+
   function studyV2Load() {
     if (studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all' && studyV2.scope.groupName) {
       renderStudyScopeHeader();
       studyV2GroupLoad(studyV2.scope.groupName);
       return;
     }
-    if (!lpBridge.connected()) return;
+    if (!lpBridge.connected()) { studyV2ShowEmpty(true); return; }
     var requestedJobId = LP.state.jobId || '';
-    if (!requestedJobId) return;
+    if (!requestedJobId) { studyV2ShowEmpty(true); return; }
+    studyV2ShowEmpty(false);
     lpBridge.call('study_v2_status', { job_id: requestedJobId }).then(function (res) {
       if (studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all') return;
       if (!res || !res.content) return;
@@ -7450,6 +7550,10 @@
         }
         setStudyV2Mode(btn.dataset.studyMode);
       });
+    });
+    var emptyImport = $('btn-study-empty-import');
+    if (emptyImport) emptyImport.addEventListener('click', function () {
+      if (lpBridge.connected()) lpBridge.call('browse_video'); else setScreen('home');
     });
     var quick = $('btn-study-quick');
     if (quick) quick.addEventListener('click', function () {
@@ -9733,6 +9837,7 @@
       startExport();
     });
     $('btn-open-folder').addEventListener('click', function () { lpBridge.call('open_export_folder'); });
+    wireDisabledControlSpeech();
     $('btn-export-pdf').addEventListener('click', function () { exportOne('pdf', 'PDF'); });
     $('btn-export-html').addEventListener('click', function () { exportOne('html', 'HTML'); });
 
@@ -10499,6 +10604,7 @@
       runningByJob[owner] = running;
       if (viewed) {
         LP.state.pipelineRunning = running;
+        if (!running) restoreStatusRight();
         schedulePipelineRender();
         renderSlideDetectionPreset();
       }
@@ -11582,8 +11688,8 @@
     ] },
     { title: 'Review', items: [
       { keys: ['Space'], what: 'Keep the slide and move on' },
-      { keys: ['J'], what: 'Keep' },
-      { keys: ['K'], what: 'Reject' },
+      { keys: ['J'], what: 'Keep the slide and move on' },
+      { keys: ['K'], what: 'Reject the slide and move on' },
       { keys: ['Ctrl', 'Z'], what: 'Undo the last keep or reject' },
       { keys: ['Left'], what: 'Previous slide' },
       { keys: ['Right'], what: 'Next slide' }
