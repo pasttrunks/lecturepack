@@ -857,6 +857,36 @@ re-debug the same thing from scratch.
   **This is a mitigation, not a root-cause fix.** If it recurs, the log will now carry the
   stack the original report could not produce. Leave this entry open until then.
 
+### BUG-59 — the "authoritative" release workflow has never once succeeded   🔴 OPEN (found 2.1.0)
+- **Area:** `.github/workflows/release-electron.yml`.
+- **Found:** 2026-08-23, dispatching it for the 2.1.0 release.
+- **Symptom:** the run dies at "Build the Electron release candidate" with
+  `Required sidecar runtime file is missing: D:\lecturepack\lecturepackinfmpeg.exe`.
+- **Root cause:** the packaged sidecar needs `bin/` (ffmpeg, ffprobe, whisper-cli, the ggml
+  DLLs, deno) and `models/ggml-base.en.bin` — roughly 150 MB of third-party binaries that
+  are **deliberately gitignored** (`.gitignore:21-22`). A CI checkout therefore has none of
+  them, and the workflow contains **no step that fetches or restores them**. It cannot
+  succeed as written, on any commit, ever.
+- **Evidence it never has:** all five runs of this workflow are failures
+  (2026-08-15 x2, 2026-08-19 x2, 2026-08-23). v2.0.9's four assets were published
+  2026-08-20 with no successful run behind them, so they were uploaded from a local build.
+- **Why this matters more than it looks:** the file's own header calls it "THE single
+  authoritative LecturePack desktop application release path" and "the ONLY workflow
+  permitted to publish" the four assets. A reader trusts that. In reality every release
+  including 2.0.9 has been hand-built and uploaded with `gh release create`, which means
+  the signing step, the FINAL-hashes-from-signed-bytes step, and the four-asset assertion
+  have never actually run for a shipped build. **This is the same class as the acceptance
+  gate fixed earlier in 2.1.0: a gate that cannot pass, whose red is indistinguishable
+  from a real regression.**
+- **Fix (not done — needs a decision that is not the agent's to make):** either give CI the
+  runtime (a release asset it downloads and checksums, a self-hosted runner, or a private
+  bucket + secret), or delete the workflow and make `RELEASING.md` describe the local build
+  that is actually used. Do not leave it claiming authority it does not have.
+- **Until then:** 2.1.0 was built locally and published with `gh release create`, exactly as
+  2.0.9 was. The local build was verified further than any prior release — packaged
+  self-test 12/12, packaged acceptance 16/16, launch smoke, and the packaged UI confirmed
+  byte-identical to source.
+
 ### OBS-01 — library cards briefly could not be dragged on Home   🟠 SEEN ONCE, NOT REPRODUCED (2.1.0)
 - **Area:** unknown. Reported against the 2.1.0 candidate.
 - **Symptom (reported):** "can't drag drop anything now inside home, except those in
