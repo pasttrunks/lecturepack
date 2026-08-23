@@ -2143,6 +2143,25 @@ class Sidecar:
         if not isinstance(texts, list):
             raise ValueError("transcript corrections must be an array")
         segments = self.transcript_store.load_working(job.paths)
+        # zip() stops at the shorter side. When the backend transcript layers
+        # are empty -- which is the case for any job whose rendered transcript
+        # came from somewhere other than a real Whisper run -- that produced
+        # ZERO pairs: nothing was marked changed, save_working rewrote the
+        # empties, and the response still said saved=true. The student's edits
+        # crossed the bridge, survived navigation in renderer memory, and were
+        # gone at the next launch (F-35). A save that cannot land must say so,
+        # never claim success.
+        if texts and not segments:
+            raise RuntimeError(
+                "this lecture has no saved transcript to correct - "
+                "re-run transcription before editing it"
+            )
+        if len(texts) != len(segments):
+            raise RuntimeError(
+                "the transcript on screen no longer matches the saved one "
+                f"({len(texts)} lines shown, {len(segments)} saved) - "
+                "reload the lecture and try again"
+            )
         changed = 0
         changed_segment_ids: list[str] = []
         for index, (segment, value) in enumerate(zip(segments, texts)):
@@ -2486,9 +2505,20 @@ class Sidecar:
             except json.JSONDecodeError:
                 ids = []
         group = str(payload.get("group") or "")
+        requested = [str(i) for i in (ids or []) if i]
         count = self.electron_backend.set_jobs_group(str(self.data_dir), ids, group)
+        # The singular path (_set_job_group) also updates the LOADED job's
+        # in-memory manifest; this one did not. So renaming a subject that
+        # contained the currently-open lecture wrote that lecture's manifest on
+        # disk and then had _emit_job_payloads immediately serialise the stale
+        # in-memory copy straight back over it. The lecture snapped back to the
+        # old subject name, which is why "3 lectures updated" moved 2 and left
+        # an orphaned subject behind holding the third (F-30).
+        if self.current_job is not None and self.current_job.job_id in requested:
+            self.current_job.manifest["group"] = group
         self._emit_job_payloads()
-        self._respond(request_id, command, count=count, group=group, ok=count > 0)
+        self._respond(request_id, command, count=count,
+                      requested=len(requested), group=group, ok=count > 0)
 
     def _rename_job(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         job_id = str(payload.get("job_id") or "")

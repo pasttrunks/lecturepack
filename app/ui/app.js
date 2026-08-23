@@ -1918,21 +1918,48 @@
         var allJobs = (typeof LP !== 'undefined' && LP.data && LP.data.jobs) || [];
         var memberIds = allJobs.filter(function (j) { return (jobGroup(j) || 'General') === oldGroup; }).map(function (j) { return j.id; });
         if (memberIds.length) {
-          if (lpBridge.connected()) lpBridge.call('set_jobs_group', JSON.stringify(memberIds), nextGroup);
-          allJobs.forEach(function (j) {
-            if (memberIds.indexOf(j.id) >= 0) j.group = nextGroup;
-          });
-          // Study keeps its own copy of the scope; without this the Subject
-          // Overview headline kept showing the pre-rename name.
-          if (typeof studyV2 !== 'undefined' && studyV2.scope && studyV2.scope.groupName === oldGroup) {
-            studyV2.scope.groupName = nextGroup;
-            if (LP.state.screen === 'study') {
-              renderStudyScopeHeader();
-              renderStudyV2Overview();
+          /* The toast used to fire here with memberIds.length, BEFORE the
+             backend had answered -- so it claimed "3 lectures updated" even
+             when set_jobs_group had moved two and skipped one, and the student
+             was left with an orphaned subject under the old name and no idea
+             why (F-30). Report what actually happened, not what was asked for. */
+          var asked = memberIds.length;
+          function announce(moved) {
+            allJobs.forEach(function (j) {
+              if (memberIds.indexOf(j.id) >= 0) j.group = nextGroup;
+            });
+            if (typeof studyV2 !== 'undefined' && studyV2.scope && studyV2.scope.groupName === oldGroup) {
+              studyV2.scope.groupName = nextGroup;
+              if (LP.state.screen === 'study') {
+                renderStudyScopeHeader();
+                renderStudyV2Overview();
+              }
             }
+            if (moved < asked) {
+              toast('Renamed subject to ' + nextGroup + ' — ' + moved + ' of ' + asked +
+                    ' lectures moved. The rest stayed under “' + oldGroup + '”; try again.');
+            } else {
+              toast('Renamed subject to ' + nextGroup + ' (' + moved +
+                (moved === 1 ? ' lecture updated)' : ' lectures updated)'));
+            }
+            renderSubjects();
+            renderJobs();
           }
-          toast('Renamed subject to ' + nextGroup + ' (' + memberIds.length +
-            (memberIds.length === 1 ? ' lecture updated)' : ' lectures updated)'));
+          if (lpBridge.connected()) {
+            lpBridge.call('set_jobs_group', JSON.stringify(memberIds), nextGroup)
+              .then(function (value) {
+                var res = parseBridgeResult(value) || {};
+                var moved = typeof res.count === 'number' ? res.count : asked;
+                announce(moved);
+              }, function () {
+                toast('That subject could not be renamed. Try again.');
+                renderSubjects();
+                renderJobs();
+              });
+          } else {
+            announce(asked);
+          }
+          return;
         }
       }
       renderSubjects();
@@ -3901,7 +3928,16 @@
      setCtl('btn-reject', hasSlides, reviewTip);
      setCtl('btn-prev-slide', hasSlides, reviewTip);
      setCtl('btn-next-slide', hasSlides, reviewTip);
-     setCtl('btn-save-corrections', hasSlides, reviewTip);
+     /* Corrections are saved by index against the SAVED transcript, so a
+        transcript that exists only in renderer memory has nothing to save
+        into: every edit was accepted, reported saved, and lost at the next
+        launch (F-35). Gate the control on there being a persisted transcript,
+        and stop offering the caret at all in renderReviewTranscript. */
+     var hasTranscript = !!(LP.data.transcript && LP.data.transcript.segments > 0) &&
+                         LP.data.reviewSegments.length > 0;
+     setCtl('btn-save-corrections', hasSlides && hasTranscript,
+            hasSlides ? 'This lecture has no saved transcript yet — corrections cannot be saved.'
+                      : reviewTip);
      setCtl('btn-repair', hasSlides, 'Load a lecture before repairing slide selections.');
      var exportTip = 'Load a lecture first — there is nothing to export yet.';
      setCtl('btn-export-all', hasJob, exportTip);
@@ -4230,12 +4266,14 @@
   }
 
   function renderReviewTranscript() {
+    // Only offer the caret where the edit can actually be persisted (F-35).
+    var editable = !!(LP.data.transcript && LP.data.transcript.segments > 0);
     $('review-transcript').innerHTML = LP.data.reviewSegments.map(function (s, i) {
       var last = i === LP.data.reviewSegments.length - 1;
       var row = 'display:flex;padding:11px 13px;' + (last ? '' : 'border-bottom:1px solid var(--line);') + 'gap:11px';
       var tColor = 'var(--muted)';
       if (s.hot) { row += ';background:var(--blue-tint);border-left:3px solid var(--blue)'; tColor = 'var(--blue-ink)'; }
-      return '<div style="' + row + '"><span style="width:104px;flex:none;min-width:104px;white-space:nowrap;font:500 11px \'JetBrains Mono\';color:' + tColor + '">' + esc(s.t) + '</span><span contenteditable="true" style="flex:1;min-width:0;overflow-wrap:anywhere;font-size:13px;line-height:1.5">' + esc(s.text) + '</span></div>';
+      return '<div style="' + row + '"><span style="width:104px;flex:none;min-width:104px;white-space:nowrap;font:500 11px \'JetBrains Mono\';color:' + tColor + '">' + esc(s.t) + '</span><span contenteditable="' + (editable ? 'true' : 'false') + '" style="flex:1;min-width:0;overflow-wrap:anywhere;font-size:13px;line-height:1.5">' + esc(s.text) + '</span></div>';
     }).join('');
   }
 
@@ -9098,11 +9136,36 @@
     var updateCheckToken = 0;
     $('btn-reset-lecturepack').addEventListener('click', confirmResetLecturePack);
     $('btn-check-updates').addEventListener('click', function () {
+      /* This handler used to report EVERY outcome as "Updates are not
+         available in this build." (F-34) for two independent reasons, either
+         of which was enough on its own.
+
+         One: it read a contract the host does not speak. checkForUpdates()
+         in production-main.js answers {ok, status:'uptodate'|'available'|
+         'error'|'untrusted'}; this code tested `result.available` and
+         `result.phase`, both always undefined, and fell through to the
+         build-is-incapable string. The `update_state` EVENT does carry
+         `phase`, and it painted the right answer a moment before the promise
+         overwrote it.
+
+         Two: an unconditional 4s timer called settle() with that same string
+         no matter what had already happened. settle() only guarded against a
+         SUPERSEDED check, not against a check that had already answered, so a
+         correct "An update is available." was replaced four seconds later by
+         a claim that this build cannot update at all. A GitHub round-trip
+         routinely takes longer than four seconds.
+
+         settle() is one-shot now, the status vocabulary is the host's, and
+         "no update exists" is no longer worded as "this build cannot
+         update" -- they are different facts and only one of them is a
+         reason to stop looking. */
       var token = ++updateCheckToken, button = $('btn-check-updates'), status = $('update-status');
       if (status) status.textContent = 'Checking…';
       if (button) button.disabled = true;
+      var settled = false;
       function settle(message) {
-        if (token !== updateCheckToken) return;
+        if (settled || token !== updateCheckToken) return;
+        settled = true;
         if (status) status.textContent = message;
         if (button) button.disabled = false;
       }
@@ -9112,18 +9175,32 @@
       Promise.resolve(request).then(function (value) {
         var result = parseBridgeResult(value);
         if (!result) { settle('Updates are not available in this build.'); return; }
-        if (result.error) { settle('Update check failed: ' + result.error); return; }
-        if (result.available === false || result.phase === 'unavailable' || result.phase === 'not_available') {
+        // A structured refusal from the bridge is the ONLY thing that means
+        // this build genuinely cannot update.
+        if (result.code === 'FEATURE_UNAVAILABLE' || result.available === false ||
+            result.phase === 'unavailable' || result.phase === 'not_available') {
           settle(result.message || 'Updates are not available in this build.'); return;
         }
-        if (result.available === true || result.phase === 'available') {
+        if (result.error) { settle('Update check failed: ' + result.error); return; }
+        var state = String(result.status || result.phase || '');
+        if (state === 'available' || result.available === true) {
           settle(result.message || 'An update is available.'); return;
         }
-        settle(result.message || 'Updates are not available in this build.');
+        if (state === 'uptodate') { settle('You’re up to date.'); return; }
+        if (state === 'untrusted') {
+          settle('An update was found but could not be verified. It was not downloaded.'); return;
+        }
+        if (state === 'error') { settle('Update check failed. Check your connection and try again.'); return; }
+        // Unknown but successful: the update_state event has already painted
+        // the real answer, so say nothing more rather than contradict it.
+        settle(result.message || (status ? status.textContent : ''));
       }, function (error) {
         settle('Update check failed: ' + (error && error.message || 'unknown error'));
       });
-      setTimeout(function () { settle('Updates are not available in this build.'); }, 4000);
+      // A slow network is not a broken updater. Say what actually happened.
+      setTimeout(function () {
+        settle('The update check timed out. Check your connection and try again.');
+      }, 20000);
     });
 
     // Smart Study setup (§5): install flow + built-in continue + engine install.
