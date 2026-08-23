@@ -28,11 +28,18 @@
   // Shared import-state helpers: used by the home import handlers (wire) and
   // the bridge onboarding listener (wireBridge).
   var importingFile = null;
-  function setImporting(on, name) {
+  /* `verb` exists because this banner used to claim an import was UNDERWAY
+     while the native file picker was still open and nothing had been chosen --
+     the promise from browse_video does not settle until the dialog closes, so
+     "Importing video…" sat there spinning through the whole selection and
+     then vanished without a word if the student cancelled (F-13). The picker
+     state says what is actually true; only a real file switches to Importing. */
+  function setImporting(on, name, verb) {
     LP.state.importing = !!on;
-    var el = $('home-importing'), nm = $('importing-name');
+    var el = $('home-importing'), nm = $('importing-name'), vb = $('importing-verb');
     if (el) el.hidden = !on;
-    if (nm && name) nm.textContent = name;
+    if (nm) nm.textContent = name || '';
+    if (vb) vb.textContent = verb || 'Importing';
   }
 
   /* ======================= demo session model =======================
@@ -8268,6 +8275,18 @@
     return {
       update: function (clientX, clientY) {
         var el = containerAt(clientX, clientY);
+        /* The container is resolved FROM THE POINTER, and the edge zone
+           extends EDGE px BEYOND the container's own rect -- so the last
+           stretch of the gesture, the part where the user pushes past the
+           bottom of the list to ask it to come to them, puts the pointer over
+           the status footer instead. The footer scrolls nothing, the document
+           scroller does not scroll either, containerAt returned null, and
+           auto-scroll stopped exactly where it was needed most: cards below
+           the fold stayed unreachable as drop targets (F-38). Keep scrolling
+           the container the gesture was already working, as long as the
+           pointer is still inside its edge zone; the bounds test below is what
+           finally releases it. */
+        if (!el && target) el = target;
         if (!el) { this.stop(); return; }
         var rect = (el === document.scrollingElement || el === document.documentElement)
           ? { top: 0, left: 0, bottom: window.innerHeight, right: window.innerWidth }
@@ -9323,10 +9342,12 @@
     var dz = $('dropzone');
     function beginBrowseImport() {
       if (!lpBridge.connected()) { setOnb('drop'); return; }
-      setImporting(true, 'video');
+      setImporting(true, 'a video in the file picker', 'Waiting for you to choose');
       lpBridge.call('browse_video').then(function (result) {
         setImporting(false);
-        if (result && result.cancelled) return;
+        // Cancelling used to clear the banner in silence, which reads as the
+        // button having failed rather than as the student's own choice.
+        if (result && result.cancelled) { toast('Import cancelled — no video was chosen.'); return; }
         if (result && result.ok === false) {
           var message = friendlyImportError(result);
           if (message) toast(message);
@@ -10496,7 +10517,17 @@
       var d = parseBridgePayload(json, null);
       if (!d || typeof d !== 'object') return;
       var jobs = (d && d.jobs) || [];
-      if (jobs.length) openBatchImport(jobs);
+      // The sidecar names its rejects `failures` (a file that reached the
+      // import pipeline and failed it, e.g. a zero-byte .mp4); the Electron
+      // host names its own `skipped` (a path it would not even forward, e.g.
+      // a .txt). Both are files the student sent and did not get back, so
+      // both are shown (F-14).
+      var skipped = (d.failures || []).concat(d.skipped || []);
+      if (jobs.length) openBatchImport(jobs, skipped);
+      else if (skipped.length) {
+        toast(skipped.length + ' file' + (skipped.length === 1 ? '' : 's') +
+              ' could not be imported: ' + String(skipped[0].error || 'unsupported file type'));
+      }
     });
 
     lpBridge.on('study_progress', function (json) {
@@ -11460,19 +11491,25 @@
         return;
       }
       var jobs = (result && result.jobs) || [];
+      var skipped = ((result && result.failures) || []).concat((result && result.skipped) || []);
       if (!jobs.length) {
-        if (result.failures && result.failures.length) toast('None of the selected videos could be imported.');
+        if (skipped.length) {
+          toast('None of the selected videos could be imported: ' +
+                String(skipped[0].error || 'unsupported file type'));
+        }
         return;
       }
-      openBatchImport(jobs);
+      openBatchImport(jobs, skipped);
     }, function () {
       setImporting(false);
       importingFile = null;
     });
   }
 
-  function openBatchImport(jobs) {
+  var batchSkipped = [];
+  function openBatchImport(jobs, skipped) {
     batchJobs = jobs.map(function (j) { return { id: j.id, name: j.name || j.file || 'Lecture' }; });
+    batchSkipped = Array.isArray(skipped) ? skipped : [];
     var remembered = batchPresetStore.load();
     batchMode = remembered.mode; batchQuality = remembered.quality;
     var overlay = $('batch-overlay');
@@ -11484,8 +11521,23 @@
         '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>' +
         '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(j.name) + '</span></div>';
     }).join('');
+    /* Files the app refused were dropped on the floor: the modal simply said
+       "Import 2 lectures" and a student whose .wmv or zero-byte file vanished
+       got no explanation at all (F-14). The host now sends the reasons; name
+       them here, beside the ones that worked. */
+    if (batchSkipped.length) {
+      list.innerHTML += batchSkipped.map(function (f) {
+        var why = String(f.error || 'This file could not be imported.');
+        return '<div title="' + esc(why) + '" style="display:flex;align-items:center;gap:9px;font:500 12px Space Grotesk;background:var(--red-soft);border:1.5px solid var(--red);border-radius:8px;padding:7px 10px;color:var(--ink)">' +
+          '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg>' +
+          '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(why) + '</span></div>';
+      }).join('');
+    }
     setBatchStyles();
-    $('batch-msg').textContent = 'Each lecture keeps its own controls — change one before starting it.';
+    $('batch-msg').textContent = batchSkipped.length
+      ? batchSkipped.length + ' file' + (batchSkipped.length === 1 ? ' was' : 's were') +
+        ' skipped — the rest keep their own controls, change one before starting it.'
+      : 'Each lecture keeps its own controls — change one before starting it.';
     overlay.hidden = false;
   }
 

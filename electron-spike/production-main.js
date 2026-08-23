@@ -951,12 +951,24 @@ function expandImportPaths(paths) {
 // existing import pipeline, duplicate detection, and clean-title behavior.
 async function importMultiplePaths(session, paths) {
   if (!session || !paths || !paths.length) return { ok: true, imported: 0 };
-  const { mediaFiles } = expandImportPaths(paths);
+  // expandImportPaths already knows exactly WHY each rejected path was
+  // rejected -- missing, a directory that held nothing, an unsupported type.
+  // That array used to be destructured away here, so a student who sent four
+  // files and got two lectures was told nothing about the other two: no toast,
+  // no error, no skipped count anywhere (F-14). Carry it to the renderer.
+  const { mediaFiles, failures } = expandImportPaths(paths);
   if (!mediaFiles.length) {
-    return { ok: false, error: 'LecturePack could not find any supported videos in that selection.' };
+    return {
+      ok: false,
+      error: 'LecturePack could not find any supported videos in that selection.',
+      skipped: failures
+    };
   }
-  session.logger.write('import_paths', { paths: paths.length, media_files: mediaFiles.length });
-  return sendCommand(session, 'import_videos', { paths: mediaFiles });
+  session.logger.write('import_paths', {
+    paths: paths.length, media_files: mediaFiles.length, skipped: failures.length
+  });
+  const result = await sendCommand(session, 'import_videos', { paths: mediaFiles });
+  return Object.assign({}, result, { skipped: failures });
 }
 
 async function openJobFolder(session, command, payload) {
