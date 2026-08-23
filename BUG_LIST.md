@@ -857,6 +857,35 @@ re-debug the same thing from scratch.
   **This is a mitigation, not a root-cause fix.** If it recurs, the log will now carry the
   stack the original report could not produce. Leave this entry open until then.
 
+### OBS-01 — library cards briefly could not be dragged on Home   🟠 SEEN ONCE, NOT REPRODUCED (2.1.0)
+- **Area:** unknown. Reported against the 2.1.0 candidate.
+- **Symptom (reported):** "can't drag drop anything now inside home, except those in
+  queue." Resolved on its own before any change was made; the owner confirmed it works.
+- **Ruled out by inspection — do not re-derive these:**
+  - The entire pointer-drag module is **byte-identical to 2.0.9**: `onPointerDown`,
+    `onPointerMove`, `beginDrag`, `internalDragIdsFor`, the grip selector, and the
+    `data-lp-drag` / `data-existing-job-drag` attributes on the card.
+  - `_jobIsDraggable`, `_jobIsReady`, `_jobIsReprocessable`, `UNSTARTED_STATUSES` and
+    `REPROCESSABLE_STATUSES` are all unchanged.
+  - The only `pointer-events:none` rule added in 2.1.0 is `.lp-ctl-off`, which `setCtl`
+    applies to exactly eleven named buttons (keep, reject, prev/next slide, save
+    corrections, repair, three exports, pause, cancel). It cannot reach a lecture card.
+  - The F-38 change lives inside `dragScroll.update`, runs only during an ACTIVE drag,
+    and `dragScroll.stop()` does null `target`, so it leaves no stale state between drags.
+- **The benign explanation that fits the wording exactly:** `_jobIsDraggable` returns false
+  for any job that is IN THE QUEUE (`!_jobInQueue(j.id)`), while the queue's own rows stay
+  draggable for reorder. A library whose lectures are queued therefore presents as "nothing
+  drags except the queue". That is 2.0.9 behaviour, not a regression — but it reads as
+  broken, and is worth designing away rather than explaining away.
+- **Why this could not be reproduced:** the renderer served over plain HTTP never wires the
+  drag layer, because the runtime setup gate blocks boot without a bridge and marks the app
+  shell `pointer-events:none` (`app.js` ~L5287) -- which produces this exact symptom in a
+  test harness and is a false lead. The packaged app refuses `--remote-debugging-port`, so
+  CDP was unavailable too. **There is currently no way to drive a real drag against the
+  packaged build.** That gap is the thing to fix before this can be chased properly.
+- **If it recurs, capture:** the status badge on the cards that would not lift, whether
+  anything was processing, and whether the queue was non-empty.
+
 ### F-07 — NOT A DEFECT (verified 2026-08-22)
 - Reported as a missing space in guided-demo step 3 ("...that slide.Fix a mis-heard...").
   The space is present in `index.html`, in the packaged copy, and **in the reporter's own
