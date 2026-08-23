@@ -1407,9 +1407,15 @@
      existing New-job overlay takes over from there. */
   var mediaLink = { available: false, version: '', done: null, downloads: [] };
 
+  /* Split on ANY whitespace, not just newlines. Pasting two links separated by
+     a space produced ONE entry "https://a https://b", and the validity test
+     below is /^https?:\/\/.+/ whose `.+` happily spans the space -- so it
+     passed as a single URL, the confirm step read "Download 1", and the second
+     lecture was discarded without a word (F-15b). Any run of whitespace
+     separates links; no legal URL contains one. */
   function mediaUrls(text) {
     var seen = {};
-    return String(text || '').split(/\r?\n/).map(function (url) { return url.trim(); })
+    return String(text || '').split(/\s+/).map(function (url) { return url.trim(); })
       .filter(function (url) { if (!url || seen[url]) return false; seen[url] = true; return true; });
   }
 
@@ -1434,7 +1440,7 @@
     var inp = 'width:100%;box-sizing:border-box;font:500 13px \'JetBrains Mono\';padding:10px 12px;border:2px solid var(--border);border-radius:8px;background:var(--sunk);color:var(--ink)';
     var body =
       '<label for="link-url" style="display:block;font:600 11px \'JetBrains Mono\';text-transform:uppercase;color:var(--muted);margin-bottom:6px">Video links</label>' +
-      '<textarea id="link-url" rows="5" spellcheck="false" placeholder="One https:// link per line" style="' + inp + ';resize:vertical"></textarea>' +
+      '<textarea id="link-url" rows="5" spellcheck="false" placeholder="One https:// link per line (or paste several, separated by spaces)" style="' + inp + ';resize:vertical"></textarea>' +
       '<div id="link-msg" role="status" style="min-height:18px;font-size:12px;color:var(--muted);margin-top:9px"></div>' +
       '<div style="font-size:12px;line-height:1.5;color:var(--muted);margin-top:4px">Downloads the recording to your computer so it can be processed here. Only fetch lectures you have the right to download.</div>';
     var m = lpModal({
@@ -1443,10 +1449,32 @@
       actions: [
         { label: 'Cancel' },
         { label: 'Check link', primary: true, onClick: function () {
+          // Re-entry guard: the probe runs a network lookup PER LINK on a
+          // background thread, so two links routinely take longer than a
+          // student waits before clicking again (F-15a). Every extra click
+          // used to start another full probe run.
+          if (mediaLink.probing) return true;
           var urls = mediaUrls(($('link-url') || {}).value || '');
-          if (!urls.length || urls.some(function (url) { return !/^https?:\/\/.+/i.test(url); })) { setLinkMsg('Enter one full http(s) link per line.', true); return true; }
-          setLinkMsg('Looking up ' + urls.length + (urls.length === 1 ? ' video…' : ' videos…'));
+          var bad = urls.filter(function (url) { return !/^https?:\/\/\S+$/i.test(url); });
+          if (!urls.length || bad.length) {
+            setLinkMsg(bad.length
+              ? 'This is not a full link: ' + bad[0].slice(0, 60)
+              : 'Enter one full http(s) link per line.', true);
+            return true;
+          }
+          setLinkMsg('Looking up ' + urls.length + (urls.length === 1 ? ' video…' : ' videos… this can take a few seconds each.'));
           mediaLink.pending = urls;
+          mediaLink.probing = true;
+          setLinkChecking(true);
+          // A probe that never answers left the dialog silent forever, which is
+          // indistinguishable from a dead button. Say what happened.
+          clearTimeout(mediaLink.probeTimer);
+          mediaLink.probeTimer = setTimeout(function () {
+            if (!mediaLink.probing) return;
+            mediaLink.probing = false;
+            setLinkChecking(false);
+            setLinkMsg('Those links did not answer in time. Check your connection and try again.', true);
+          }, 20000 + urls.length * 15000);
           lpBridge.call('probe_media_url', { urls: urls });
           return true;                 // keep the dialog open while we wait
         } }
@@ -1454,6 +1482,29 @@
     });
     mediaLink.probeModal = m;
     setTimeout(function () { var i = $('link-url'); if (i) i.focus(); }, 40);
+  }
+
+  /* The Check button gave no sign it had been pressed while the probe ran.
+     Disable it and say so, so a slow lookup reads as work in progress rather
+     than as nothing having happened (F-15a). */
+  function setLinkChecking(busy) {
+    var modal = mediaLink.probeModal;
+    if (!modal || !modal.overlay) return;
+    var buttons = modal.overlay.querySelectorAll('button');
+    var check = buttons[buttons.length - 1];
+    if (!check) return;
+    if (busy) {
+      if (!check.dataset.idleLabel) check.dataset.idleLabel = check.textContent;
+      check.textContent = 'Checking…';
+      check.disabled = true;
+      check.style.opacity = '.6';
+      check.style.cursor = 'progress';
+    } else {
+      check.textContent = check.dataset.idleLabel || 'Check link';
+      check.disabled = false;
+      check.style.opacity = '';
+      check.style.cursor = 'pointer';
+    }
   }
 
   function setLinkMsg(text, isError) {
@@ -3232,6 +3283,7 @@
       studyV2.teachResult = null;
       studyV2.teachLoading = false;
       studyV2.teachGrade = null;
+      studyV2.teachAnswer = '';
       studyV2.quizGrading = false;
       studyV2.quizGrades = {};
       studyV2.quizGradingQuestionId = '';
@@ -5812,6 +5864,7 @@
     teachResult: null,
     teachLoading: false,
     teachGrade: null,
+    teachAnswer: '',
     quizGrading: false,
     quizGradingQuestionId: '',
     loadError: '',
@@ -5929,13 +5982,38 @@
     studyV2.scope.error = '';
     studyV2.scope.reason = '';
 
+    /* Whatever is in studyV2.content right now belongs to the SINGLE lecture
+       that was open before this subject was picked. Only the res.ok branch
+       below replaces it, so every other outcome -- a failed prepare, a subject
+       with no ready lectures, a null response -- left that lecture's study
+       guide, flashcards and quiz on screen underneath a header naming the
+       subject. The student read one lecture's material believing it was the
+       whole group's (F-29, the BUG-08 wrong-lecture class at subject
+       altitude). Content is dropped on the way IN, so an unpainted subject is
+       visibly empty rather than convincingly wrong. */
+    studyV2.content = { concepts: [], flashcards: [], quiz: [], study_status: 'preparing' };
+    studyV2.progress = { concepts: {}, flashcard_results: {}, quiz_attempts: [] };
+    studyV2.summary = {};
+
     renderStudyScopeHeader();
     renderStudyGenerationState();
+    renderStudyV2Overview();
 
     lpBridge.call('study_v2_group_prepare', { group: groupName, force: !!opts.force })
       .then(function (res) {
-        if (!res) return;
         if (studyV2.scope.groupName.toLowerCase() !== groupName.toLowerCase()) return;
+        if (!res) {
+          // A silent null left the scope stuck on "Collecting member lectures"
+          // forever, which is what made Rebuild Map look like a dead button.
+          studyV2.scope.loading = false;
+          studyV2.scope.status = 'failed';
+          studyV2.scope.reason = 'prepare_failed';
+          studyV2.scope.error = 'Subject study could not be prepared. Try Rebuild Map again.';
+          renderStudyScopeHeader();
+          renderStudyGenerationState();
+          if (opts.force) toast('The subject map could not be rebuilt.');
+          return;
+        }
         studyV2.scope.loading = false;
         if (res.ok) {
           studyV2.scope.status = 'ready';
@@ -5964,6 +6042,12 @@
         if (studyV2.scope.status === 'ready' && studyV2.scope.selectedJobId === 'all') {
           renderStudyV2Overview();
         }
+        // Rebuild Map produced no map and said nothing either way (F-29).
+        if (opts.force) {
+          toast(studyV2.scope.status === 'ready'
+            ? 'Subject map rebuilt from ' + (studyV2.scope.members || []).length + ' lectures.'
+            : (studyV2.scope.error || 'The subject map could not be rebuilt.'));
+        }
       })
       .catch(function (err) {
         if (studyV2.scope.groupName.toLowerCase() !== groupName.toLowerCase()) return;
@@ -5973,6 +6057,7 @@
         studyV2.scope.error = 'Group Study could not be prepared: ' + (err && err.message ? err.message : String(err));
         renderStudyScopeHeader();
         renderStudyGenerationState();
+        if (opts.force) toast('The subject map could not be rebuilt.');
       });
   }
 
@@ -7421,8 +7506,14 @@
       (studyItemSourcesHtml(result) ? '<div class="study-provenance-row">' + studyItemSourcesHtml(result) + '</div>' : '') +
       copyControlHtml('teach') +
       '<div class="study-guide-section"><h3>Check your understanding</h3><p style="margin-bottom:10px">' + escText(result.check_question || '') + '</p>' +
-      '<textarea id="study-teach-answer" class="study-short-answer" placeholder="Explain it in your own words"' + (grade ? ' disabled' : '') + '></textarea>' +
-      '<button id="btn-study-teach-grade" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;margin-top:10px"' + (grade ? ' disabled' : '') + '>Check answer</button>' +
+      /* Grading used to disable the textarea AND the button and wipe what was
+         typed, so a concept got exactly ONE attempt for the life of the teach
+         invocation -- an accidental Enter burned it, and the only way back was
+         to switch concepts and return. A comprehension check exists to be
+         retried after reading the feedback. The answer is kept, the field
+         stays editable, and the button invites another go (F-31). */
+      '<textarea id="study-teach-answer" class="study-short-answer" placeholder="Explain it in your own words">' + escText(studyV2.teachAnswer || '') + '</textarea>' +
+      '<button id="btn-study-teach-grade" class="lp-hit lp-press" style="font:700 13px Space Grotesk;background:var(--orange);color:var(--on-signal);border:2px solid var(--orange-ink);border-radius:9px;padding:9px 16px;cursor:pointer;margin-top:10px">' + (grade ? 'Check again' : 'Check answer') + '</button>' +
       (grade ? '<div style="margin-top:13px;padding:12px 14px;background:var(--panel);border-radius:8px"><div style="font-weight:700;color:' + (grade.correct ? 'var(--green)' : 'var(--red)') + '">' + (grade.correct ? 'You have it' : 'Keep working') + studyScoreSuffix(grade.score) + '</div><div style="font-size:13px;line-height:1.55;color:var(--secondary-text);margin-top:5px">' + escText(grade.feedback || '') + '</div></div>' : '') +
       '</div></div>';
   }
@@ -7666,6 +7757,7 @@
       studyV2.teachConceptId = teachSelect.value;
       studyV2.teachResult = null;
       studyV2.teachGrade = null;
+      studyV2.teachAnswer = '';
       studyV2PersistView();
       renderStudyTeach();
     });
@@ -7675,6 +7767,7 @@
       studyV2.teachLoading = true;
       studyV2.teachResult = null;
       studyV2.teachGrade = null;
+      studyV2.teachAnswer = '';
       renderStudyTeach();
       // Subject scope: teach the owning lecture's real concept row.
       var teachConcept = ((studyV2.content && studyV2.content.concepts) || []).filter(function (c) {
@@ -7834,7 +7927,13 @@
       var gradeButton = e.target.closest('#btn-study-teach-grade');
       if (!gradeButton || !studyV2.teachResult || !lpBridge.connected()) return;
       var answer = (($('study-teach-answer') || {}).value || '').trim();
-      if (!answer) return;
+      if (!answer) {
+        // Silently ignoring an empty submit reads as a dead button.
+        toast('Write your answer first, then check it.');
+        return;
+      }
+      // Survive the re-render that the grade result triggers (F-31).
+      studyV2.teachAnswer = answer;
       gradeButton.disabled = true;
       gradeButton.textContent = 'Checking…';
       lpBridge.call('study_v2_grade_short_answer', {
@@ -9748,9 +9847,29 @@
        replace the pill on every keypress and each one would offer to undo a
        single slide. Consecutive stamps of the same kind accumulate into one
        run, and Undo rewinds the whole run to where it started. */
+    /* Undo was exactly ONE run deep. Once a Ctrl+Z consumed the current run,
+       the next one answered "Nothing to undo yet." while a wrong reject from
+       thirty seconds earlier stayed applied -- and the word "yet" promised it
+       would work later, which it never would. A student who stamps three runs
+       and then spots a mistake in the first had no recovery path at all
+       (F-11). Completed runs go on a stack now and unwind newest-first, which
+       is also the only order that is safe: a later run can re-stamp a slide an
+       earlier one touched, so LIFO is what makes each run's remembered
+       "previous" state the right one to restore. */
+    var STAMP_HISTORY_MAX = 60;
+    var stampHistory = [];
     var stampRun = { kind: '', entries: [] };
+    function closeStampRun() {
+      if (!stampRun.entries.length) return;
+      stampHistory.push(stampRun);
+      if (stampHistory.length > STAMP_HISTORY_MAX) stampHistory.shift();
+      stampRun = { kind: '', entries: [] };
+    }
     function recordStamp(index, kind, previous) {
-      if (stampRun.kind !== kind) stampRun = { kind: kind, entries: [] };
+      if (stampRun.kind !== kind) {
+        closeStampRun();
+        stampRun = { kind: kind, entries: [] };
+      }
       stampRun.entries.push({ index: index, state: previous.state, sel: previous.sel });
       var count = stampRun.entries.length;
       var noun = count === 1 ? 'slide' : 'slides';
@@ -9758,26 +9877,34 @@
         { label: count === 1 ? 'Undo' : 'Undo all', run: undoStampRun });
     }
     function undoStampRun() {
-      if (!stampRun.entries.length) return;
-      var first = stampRun.entries[0].index;
+      var run = stampRun.entries.length ? stampRun : stampHistory.pop();
+      if (!run || !run.entries.length) return;
+      var first = run.entries[0].index;
       // Reverse order: a run can stamp the same slide twice, and only the
       // oldest entry holds the state it had before the run began.
-      for (var i = stampRun.entries.length - 1; i >= 0; i--) {
-        var entry = stampRun.entries[i];
+      for (var i = run.entries.length - 1; i >= 0; i--) {
+        var entry = run.entries[i];
         var slide = LP.data.slides[entry.index];
         if (!slide) continue;
         slide.state = entry.state;
         slide.sel = entry.sel;
         lpBridge.call('set_slide_state', entry.index, entry.state);
       }
-      stampRun = { kind: '', entries: [] };
+      if (run === stampRun) stampRun = { kind: '', entries: [] };
       // Put the user back where the mistake happened, not where the sweep has
       // since travelled to.
       if (LP.data.slides[first]) LP.state.viewingSlide = first;
       renderSlides();
+      var count = run.entries.length;
+      var left = stampHistory.length;
+      toast('Undid ' + count + (count === 1 ? ' slide' : ' slides') +
+            (left ? ' · ' + left + (left === 1 ? ' earlier run' : ' earlier runs') + ' can still be undone' : ''),
+        left ? { label: 'Undo again', run: undoStampRun } : null);
     }
     LP.undoStampRun = undoStampRun;
-    LP.hasStampToUndo = function () { return stampRun.entries.length > 0; };
+    LP.hasStampToUndo = function () {
+      return stampRun.entries.length > 0 || stampHistory.length > 0;
+    };
 
     $('btn-keep').addEventListener('click', function () {
       var s = LP.data.slides[LP.state.viewingSlide];
@@ -10167,7 +10294,7 @@
           // the toast teaches this key, it is not the only way to reach it.
           e.preventDefault();
           if (LP.hasStampToUndo && LP.hasStampToUndo()) LP.undoStampRun();
-          else toast('Nothing to undo yet.');
+          else toast('Nothing left to undo.');
           return;
         }
         if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -10546,6 +10673,9 @@
 
     lpBridge.on('media_probe', function (json) {
       var info = parseBridgePayload(json || '{}', {});
+      mediaLink.probing = false;
+      clearTimeout(mediaLink.probeTimer);
+      setLinkChecking(false);
       var hasReady = Array.isArray(info.items) && info.items.some(function (item) { return item && item.ok; });
       if (!info.ok && !hasReady) {
         // N-6: map yt-dlp's technical stderr to student copy; keep the raw
@@ -10946,6 +11076,8 @@
         studyV2.teachConceptId = payload.concept_id || studyV2.teachConceptId;
         studyV2.teachResult = payload.result;
         studyV2.teachGrade = null;
+        studyV2.teachAnswer = '';
+      studyV2.teachAnswer = '';
       } else {
         toast(payload.error || 'Teach Me could not prepare this lesson.');
       }

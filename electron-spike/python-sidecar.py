@@ -4268,7 +4268,10 @@ class Sidecar:
     def _probe_media_url(self, request_id: str | None, command: str, payload: dict[str, Any]) -> None:
         raw_urls = payload.get("urls")
         if isinstance(raw_urls, str):
-            raw_urls = raw_urls.splitlines()
+            # Any whitespace separates links, matching mediaUrls() in the
+            # renderer. splitlines() alone let "https://a https://b" through as
+            # one URL, which then failed to resolve as a whole (F-15).
+            raw_urls = raw_urls.split()
         if not isinstance(raw_urls, list):
             raw_urls = [payload.get("url")]
         urls = []
