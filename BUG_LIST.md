@@ -1089,6 +1089,46 @@ re-debug the same thing from scratch.
   distinguishes the two, and is cleared in a `finally`.
 - **Tests:** `test_bug62_*` (three).
 
+### OBS-04 — the packaged acceptance gate fails ~50% of runs on shutdown   🔴 OPEN (found 2.1.2)
+- **Found:** 2026-08-24, running the release gate against the 2.1.2 packaged build before
+  publishing. **This blocked the 2.1.2 publish.**
+- **Symptom:** `scripts/electron_packaged_acceptance.py` reports
+  `unexpected_errors: ['packaged app exit code 1']` and `overall FAIL`, while **every other
+  check passes** — app_launched, sidecar_ready, job_started/completed, slides, transcript,
+  export (13 files), first_exit_clean, restore_passed, no orphans, no renderer failures, no
+  bridge errors. Only the second (restore) session's process exit code is wrong.
+- **Rate: 2 failures in 4 consecutive runs**, same build, same machine, nothing else
+  changed. It is a coin flip, not a state-dependent failure.
+- **Where the exit code comes from:** the harness posts `WM_CLOSE`, waits 20s, then
+  `proc.kill()` — and a Windows kill *is* exit code 1. So "exit code 1" means "the app did
+  not finish quitting within 20 seconds", not "the app returned an error".
+- **Evidence, and it points at the quit outliving the bound:**
+  - Failing run 1: the session log's last line is `update_none` — the process was killed
+    with an update check having just completed and no `session_closed` ever written.
+  - Failing run 2: `session_closed` **was** written cleanly, and the process was still
+    killed. So the session tears down fine and the *process* lingers afterwards.
+  - Passing runs: identical logs, ending in `sidecar_exit` → `production_document_removed`
+    → `session_closed`.
+  - `requestQuit()` chains `stopSession` then `app.quit()`. Nothing sets a non-zero exit
+    anywhere in `production-main.js`. The most likely holder is an in-flight update check —
+    `update_check_started` fires seconds before shutdown in these runs — keeping the event
+    loop alive past the bound. **Not proven.**
+- **This is NOT a 2.1.2 regression.** 2.1.2 changed the renderer and the engine; the
+  shutdown path in `production-main.js` is untouched by this release.
+- **But it does cast doubt backwards.** The 2.1.1 handoff records "packaged acceptance
+  16/16". At a 50% failure rate, **one green run is what a coin flip looks like.** A gate
+  that is only ever run once cannot distinguish "passes" from "passed this time". Treat any
+  single-run acceptance result in this project's history as unconfirmed.
+- **Next:** decide whether the app is slow to quit (a real product nit — quitting should
+  not wait on a network call) or whether the harness's 20s bound is simply too tight for a
+  cold machine. Instrument `requestQuit()`/`app.quit()` with timestamps and run the gate
+  ten times. **Do not "fix" this by raising the timeout until it is known which of the two
+  it is** — raising the bound on a genuinely slow quit hides it from the only gate that
+  looks.
+- **Process lesson:** run this gate more than once before believing it. It was run four
+  times here only because the first run failed; had the first run passed, 2.1.2 would have
+  been published over a gate that fails half the time.
+
 ### OBS-02 — the taskbar icon shows the Electron logo   🟠 NOT A CODE DEFECT (investigated 2.1.1)
 - **Reported as:** "the LecturePack icon on the taskbar is still the Electron logo, we
   changed this hundreds of times."

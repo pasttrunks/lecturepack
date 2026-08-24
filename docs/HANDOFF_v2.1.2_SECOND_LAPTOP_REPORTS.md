@@ -4,7 +4,7 @@
 **Branch:** `claude/electrapack-ui-bugs-1866cc` (worktree `study-ai-performance-47ffd0`)
 **Base:** 2.1.1 (`767ccaa`)
 **Status:** code complete, **suite green (2015 passed / 23 skipped / 0 failed)**,
-NOT packaged, NOT tagged, NOT published
+**packaged and self-test green**, **NOT tagged, NOT published — blocked by OBS-04**
 
 ---
 
@@ -115,6 +115,28 @@ this toolchain. Do not spend time trying to force it with colour directives.
 - Nothing here has run in the **packaged** app. BUG-66 in particular touches the live
   pipeline and has only been driven at the controller.
 - BUG-67, as above.
+
+---
+
+## 5b. The publish is BLOCKED — OBS-04
+
+The 2.1.2 artifacts are built and their self-test is green, but
+`scripts/electron_packaged_acceptance.py` **fails 2 runs in 4** on the same build with
+`packaged app exit code 1`. Every other check passes in every run, including
+`restore_passed`. The harness posts `WM_CLOSE`, waits 20s and then kills — and a Windows
+kill is exit code 1 — so the failure means "the app did not finish quitting in time", not
+"the app errored". Evidence points at the quit outliving the bound while an update check is
+in flight; not proven. Full detail in `BUG_LIST.md` under OBS-04.
+
+It is **not** a 2.1.2 regression: this release changed the renderer and the engine, not the
+shutdown path. But at a 50% failure rate, 2.1.1's recorded "packaged acceptance 16/16" is
+what a single lucky run of a coin flip looks like. **Run this gate repeatedly before
+believing it.**
+
+Artifacts are at `C:\LecturePackScratchuildselease-2.1.2` (installer, portable zip,
+SHA256SUMS, release manifest; hashes verified against the bytes on disk).
+
+**AUTHENTICODE SIGNING: NOT AVAILABLE.**
 
 ---
 
