@@ -111,10 +111,21 @@ this toolchain. Do not spend time trying to force it with colour directives.
   welcome page was launched and captured.
 - All four authoritative version surfaces agree at 2.1.2.
 
+- **The packaged build succeeded** and its embedded self-test is green: FFmpeg, ffprobe,
+  Whisper runtime/smoke/model, Rust Study Core, yt-dlp, yt-dlp-ejs, Deno, data directory,
+  controller. Rust Study Core: `cargo test --release`, 11 passed.
+- **Artifact hashes were recomputed from the bytes on disk** and agree with both
+  SHA256SUMS and the updater's release manifest.
+
 ### NOT verified
-- Nothing here has run in the **packaged** app. BUG-66 in particular touches the live
-  pipeline and has only been driven at the controller.
+- **The acceptance gate does not pass reliably — see 5b / OBS-04. That is why nothing is
+  published.**
+- BUG-66 has still never been watched against a **real lecture**; the acceptance run uses
+  the bundled demo video. The meters are the whole point of that fix and no human has seen
+  them move.
+- BUG-63/64/65 have not been exercised by hand in the packaged app.
 - BUG-67, as above.
+- Updater E2E (RELEASING.md step 9) and the clean-machine script (step 10) were not run.
 
 ---
 
@@ -133,7 +144,7 @@ shutdown path. But at a 50% failure rate, 2.1.1's recorded "packaged acceptance 
 what a single lucky run of a coin flip looks like. **Run this gate repeatedly before
 believing it.**
 
-Artifacts are at `C:\LecturePackScratchuildselease-2.1.2` (installer, portable zip,
+Artifacts are at `C:\LecturePackScratch\builds\release-2.1.2` (installer, portable zip,
 SHA256SUMS, release manifest; hashes verified against the bytes on disk).
 
 **AUTHENTICODE SIGNING: NOT AVAILABLE.**
@@ -142,10 +153,13 @@ SHA256SUMS, release manifest; hashes verified against the bytes on disk).
 
 ## 6. Next session
 
-1. `RELEASING.md` from step 4: Rust Study Core, sidecar, installer, portable zip, packaged
-   self-test.
+1. **OBS-04 first — it is the gate that decides whether anything may ship.** Instrument
+   `requestQuit()`/`app.quit()` and run the acceptance gate ten times. Decide whether the
+   quit is genuinely slow or the harness bound is too tight; do not raise the bound before
+   knowing which.
 2. Run a **real lecture** end to end and watch the two meters against the log. That is the
-   only way BUG-66 gets confirmed.
+   only way BUG-66 gets confirmed. (RELEASING.md steps 4-6 are already done: the 2.1.2
+   artifacts exist and are hash-verified.)
 3. Exercise BUG-63/64/65 in the packaged app: queue two lectures and press the Process nav;
    answer a demo quiz question; ask something in two lectures and switch between them.
 4. Have the reporter run the 2.1.2 installer on the laptop that showed BUG-67.
