@@ -887,6 +887,151 @@ re-debug the same thing from scratch.
   self-test 12/12, packaged acceptance 16/16, launch smoke, and the packaged UI confirmed
   byte-identical to source.
 
+### BUG-63 — the Process nav was a dead click for anyone already on Process   🟢 FIXED (2.1.2)
+- **Area:** `app/ui/app.js::setScreen`. **Re-opens BUG-62**, which is marked FIXED (2.1.1)
+  and whose fix is still present and still correct — it just never ran on this path.
+- **Reported:** 2026-08-24, from a fresh 2.1.1 install on a second laptop.
+- **Symptom:** click a queued lecture (which navigates to Process showing that lecture),
+  then press Process in the sidebar to get back to the lecture actually running. Nothing
+  happens. The screen stays on "Waiting to process · Position 2" and there is no way back
+  to the running lecture except hunting through the library.
+- **Root cause:** `setScreen` opened with `if (LP.state.screen === name) return;`. BUG-62's
+  follow was placed inside the body that runs *after* that guard, so it only fires when the
+  screen CHANGES. Arriving at Process by clicking a queue row leaves you on Process, so
+  every subsequent press of the Process nav was swallowed whole.
+- **The lesson, and it is the same one OBS-01 taught in reverse:** BUG-62 was verified by
+  three tests, all of which assert on `followActiveProcessingJob` and on the carries-a-job
+  flag. Not one of them asked whether the function is *reachable* from the button the user
+  actually presses. A fix verified only at the function it changed is verified against the
+  wrong thing.
+- **Fix:** the early return now runs the same follow, behind the same
+  `_screenChangeCarriesJob` guard, before returning. Entrance motion still does not replay
+  — which is the only reason the early return exists.
+- **Tests:** `test_bug63_*` (three). Confirmed FAILING against 2.1.1's source first.
+
+### BUG-64 — every Study answer flashed the whole screen   🟢 FIXED (2.1.2)
+- **Area:** `app/ui/app.js` — the `study_v2_record_quiz` / `study_v2_record_flashcard`
+  call sites, and the new `studyV2RefreshProgress`.
+- **Reported:** 2026-08-24. Seen on the cached guided-demo lecture, where no AI call is
+  involved at all — which is what makes it unmistakably a render problem, not latency.
+- **Symptom:** click a quiz option and the whole Study screen blanks and repaints; the
+  "Correct" verdict appears only *after* the flash, so the answer reads as unstable.
+- **Root cause:** both record calls chained `.then(function () { studyV2Load(); })`.
+  `studyV2Load` re-fetches all Study CONTENT and then re-renders the scope header, the
+  generation state, the overview and the active mode pane from scratch. The click handler
+  had already written the verdict into `#study-quiz-feedback` synchronously; the reload
+  wiped it and painted it again a moment later. Recording an answer changes PROGRESS, and
+  content was being reloaded to collect it.
+- **Attempts:** 1) debouncing the reload → **rejected**: it makes the flash later, not
+  absent, and a slower wrong repaint is harder to reason about. 2) A progress-only refresh
+  that never touches the pane the student is interacting with → **worked**.
+- **Fix:** `studyV2RefreshProgress()` fetches the same status payload, updates
+  `studyV2.progress`/`summary`, and repaints the overview **only when the overview is the
+  visible pane**. It keeps `studyV2Load`'s in-flight owner guard, so a late response for
+  the previous lecture still cannot repaint this one. The three Quick Study record sites
+  were already fire-and-forget and are unchanged.
+- **Tests:** `test_bug64_*` (three), including a count of all five record sites so a new
+  one cannot quietly reintroduce the reload.
+
+### BUG-65 — Ask showed the PREVIOUS lecture's conversation   🟢 FIXED (2.1.2)
+- **Area:** `app/ui/app.js::setActiveJob`, new `askFeedSnapshot` / `restoreAskFeed`.
+  **Re-opens BUG-08.**
+- **Reported:** 2026-08-24, with the note "we made this fixed before, but I don't know how
+  it got lost in the code". It was never lost. It was fixed on a different surface.
+- **Symptom:** ask a question about lecture A, open lecture B, and B's Ask pane still shows
+  A's conversation. A brand-new lecture should be blank and a previously-used one should
+  show its own history.
+- **Root cause:** BUG-08 built the per-lecture workspace — `LP.byJob`, `snapshotWorkspace`,
+  `applyWorkspace`, owner-stamped payloads — and `setActiveJob` clears `LP.state.chat` on
+  every switch. But `LP.state.chat` belongs to the **old** chat surface (`#chat-feed`) that
+  Study V2 replaced. The live Ask pane is `#study-ask-feed`, whose entire history lives in
+  the DOM and in nothing else: `studyAskSend` appends markup, `appendStudyAskText` mutates
+  the last bubble. Nothing snapshotted it and nothing cleared it, so it simply stayed on
+  screen across the switch. **The fix was still there, applied to a surface that had
+  stopped being used** — which is exactly what "it got lost in the code" feels like from
+  the outside.
+- **Fix:** the feed is snapshotted into the outgoing lecture's `LP.byJob` blob and restored
+  from the incoming one. Stored as markup rather than as a message model **because every
+  control inside the feed — suggestion chips, source chips, copy buttons — is bound by
+  delegation** (on `#study-ask-feed` or on `document`), so restored markup is fully live.
+  A test asserts that property; if a per-element listener is ever added inside the feed,
+  this has to become a real message model. A "Thinking…" bubble left mid-stream is rewritten
+  as interrupted before it is stored, so a restored feed never shows a permanent
+  "Thinking…", and `askStreaming` is cleared on the switch. With NO lecture the feed stays
+  bare — suggestion chips inviting "Explain this lecture simply" with nothing loaded would
+  be BUG-58 again.
+- **Tests:** `test_bug65_*` (five).
+
+### BUG-66 — the progress meters did not correspond to the live log   🟢 FIXED (2.1.2)
+- **Area:** `lecturepack/controllers/job_controller.py`,
+  `lecturepack/infrastructure/cv_engine.py`.
+- **Reported:** 2026-08-24 — "it's detecting slides in the live log, but the slide meter is
+  not moving; it's transcribing, and the transcribe meter is not moving."
+- **Symptom:** the log streams while the meter beside it sits still, so the app looks hung
+  during the two longest stages of a run.
+- **Root cause — two separate holes, same shape.** The log and the meters are fed by
+  different signals (`stage_log` vs `stage_progress`) and **only Detect Slides and Export
+  were ever wired to a `progress` signal at all**:
+  1. **Transcribe emitted no `stage_progress` whatsoever.** The bar sat at 0 for the entire
+     stage — on a long lecture, for most of the run.
+  2. **Detect Slides reached 100% roughly two-thirds of the way through its work.** The
+     sampling scan owned the whole 0–100 range; deduplication and the full-resolution
+     capture pass ran afterwards, emitting `status_message` the whole time against a bar
+     already pinned at 100.
+- **Fix:**
+  1. `_emit_transcribe_progress` derives a percentage from live segment end timestamps
+     against the known source duration. It is monotonic (the chunked online backend
+     interleaves segments), clamped to 99 (`_on_stage_finished` writes the 100), and
+     **claims nothing when the duration is unknown or a segment carries no timestamp** —
+     the bar holds its last real value rather than showing a guess. A meter that invents a
+     number is the "reported success for work it had not done" family from 2.1.0.
+  2. `cv_engine` reserves headroom: `SCAN_PCT = 85` for the sampling scan, `DEDUP_PCT = 92`
+     for deduplication, and the capture pass reports per written frame up to 100. Applied
+     to both decode paths (FFmpeg and the legacy cv2 fallback).
+- **Not fixed here:** Inspect, Extract Audio and Align still report no percentage. They are
+  short enough that no one has reported them, and inventing progress for them would be the
+  same defect this entry is about.
+- **Tests:** `test_bug66_*` (six), driving the controller directly. Confirmed FAILING
+  against 2.1.1 first.
+
+### BUG-67 — the installer's task checkbox was clipped on a scaled display   🟠 MITIGATED, NOT CONFIRMED (2.1.2)
+- **Area:** `app/packaging/lecturepack.iss` — but the defect is in Inno Setup's own Setup
+  binary, not in this project's code.
+- **Reported:** 2026-08-24 — the "Create a desktop shortcut" checkbox and its label on the
+  installer's "Select Additional Tasks" page rendered running into the line above it, with
+  only part of the text visible.
+- **What was actually verified, and what was not.** The page was compiled from an .iss
+  carrying the identical `[Setup]`/`[Tasks]` block, launched, and captured **at 96 DPI on a
+  1920×1080 display: it renders correctly.** So this is a scaling failure, and it has NOT
+  been reproduced. The compiled `Setup.exe` manifest was read directly and declares
+  `<dpiAware>true</dpiAware>` **and nothing else** — system DPI awareness only, no
+  `PerMonitorV2`. The wizard is therefore laid out for the DPI in force when the process
+  started and bitmap-scaled by Windows afterwards, at which point fonts no longer fit the
+  control rectangles measured for them. That is consistent with the report. **No `.iss`
+  directive can change that manifest.**
+- **Mitigation:** `WizardSizePercent=120` gives every caption headroom over its measured
+  width — Inno's own documented remedy for text that does not fit. `WizardResizable=yes`
+  was tried alongside it and **removed**: this Inno version compiles it to "obsolete and
+  ignored" (the wizard is resizable regardless). It was caught only because the probe build
+  was read for warnings rather than just for "Successful compile". A directive that
+  produces nothing but a build warning is worse than none, because the ledger would have
+  recorded a mitigation that was never in force.
+- **Also addressed while here:** the wizard now carries LecturePack's own artwork
+  (`make_wizard_images.py` → `wizard-large-*.bmp` / `wizard-small-*.bmp`, the mark from
+  `make_icon.py` on the dark shell colour) at **all six of Inno's DPI sizes**. That is not
+  only cosmetic: the same system-DPI-awareness limit that clips captions also resamples any
+  artwork Inno was not given at the right size. Only the banner and header icon can be
+  themed — the wizard body uses system colours, and a fully dark wizard needs a custom VCL
+  style (.vsf) that this toolchain cannot author. Verified by launching the compiled probe
+  and capturing the welcome page.
+- **This entry stays OPEN.** A mitigation reasoned from a manifest is not a confirmed fix,
+  and closing a user-visible report on inspection is precisely what OBS-01 got wrong. It
+  needs the reporter's laptop, at its real scaling, running the 2.1.2 installer.
+- **Tooling gap, related to OBS-03:** driving the wizard here required `SendKeys` against
+  the live desktop, and one keystroke batch landed in an unrelated foreground window. Do
+  not automate the real desktop again for this; build the probe and have a human look.
+- **Tests:** `test_bug67_the_wizard_is_not_sized_to_the_millimetre` pins the two directives.
+
 ### BUG-60 — a queued lecture could not be dragged ANYWHERE   🟢 FIXED (2.1.1)
 - **Area:** `app/ui/app.js::_jobIsDraggable`. **Supersedes OBS-01**, which was filed on
   2026-08-23 as "seen once, not reproduced" with a note offering the queue rule as the

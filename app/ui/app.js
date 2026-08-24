@@ -466,6 +466,46 @@
     WORKSPACE_KEYS.forEach(function (k) { LP.data[k] = snap[k]; });
   }
 
+  /* BUG-65: Ask history is per-lecture, and it lives ONLY in the DOM.
+     Every other workspace surface is a blob in LP.byJob that setActiveJob
+     snapshots and restores (BUG-08). #study-ask-feed was never part of that,
+     so the feed simply stayed on screen across a lecture switch and lecture B
+     opened showing lecture A's conversation. LP.state.chat -- the OLD chat
+     surface, which Study V2 replaced -- was being cleared instead, which is
+     why this reads as "we fixed this before": the fix was applied to the
+     surface that stopped being used.
+
+     The feed is stored as markup rather than as a message model because every
+     control inside it (suggestion chips, source chips, copy buttons) is bound
+     by DELEGATION -- on #study-ask-feed itself or on document -- so restored
+     markup is fully live. If a per-button listener is ever added inside the
+     feed, this has to become a real message model. */
+  function askFeedSnapshot() {
+    var feed = $('study-ask-feed');
+    if (!feed) return '';
+    // A "Thinking…" bubble left mid-stream must not be frozen into the
+    // snapshot: coming back to this lecture an hour later, the answer is
+    // never arriving, and a permanent "Thinking…" is a lie.
+    Array.prototype.forEach.call(feed.querySelectorAll('.study-ask-thinking'), function (el) {
+      el.classList.remove('study-ask-thinking');
+      el.textContent = 'Answer interrupted — you switched lecture before it finished.';
+    });
+    return feed.innerHTML;
+  }
+
+  function restoreAskFeed(html, hasLecture) {
+    var feed = $('study-ask-feed');
+    if (!feed) return;
+    feed.innerHTML = html || '';
+    feed.scrollTop = feed.scrollHeight;
+    // Empty feed => renderStudyAsk paints the suggestion chips again, which is
+    // exactly what a lecture with no Ask history should show. With NO lecture
+    // it must stay bare: chips inviting "Explain this lecture simply" when no
+    // lecture is loaded is the same design-time-chrome-with-no-owner defect as
+    // BUG-58.
+    if (hasLecture && !feed.children.length && typeof renderStudyAsk === 'function') renderStudyAsk();
+  }
+
   // Per-job live status memory. status_changed / pipeline_changed payloads for
   // jobs other than the one being viewed are accumulated here (and in the
   // per-job workspace blob below) so switching back shows the latest state
@@ -503,13 +543,26 @@
       renderJobChrome();
       return;
     }
-    if (LP.state.jobId) LP.byJob[LP.state.jobId] = snapshotWorkspace();
+    if (LP.state.jobId) {
+      var outgoing = snapshotWorkspace();
+      outgoing.askFeedHtml = askFeedSnapshot();
+      LP.byJob[LP.state.jobId] = outgoing;
+    }
     LP.state.jobId = id;
     LP.state.jobTitle = '';
     LP.state.jobTitle = title && !looksLikeJobId(title) ? title : friendlyJobName(id);
-    applyWorkspace(id && LP.byJob[id] ? LP.byJob[id] : emptyWorkspace());
+    var incoming = id && LP.byJob[id] ? LP.byJob[id] : emptyWorkspace();
+    applyWorkspace(incoming);
     // Per-lecture view state must not leak across lectures either.
     LP.state.chat = [];
+    restoreAskFeed(incoming.askFeedHtml || '', !!id);
+    // A stream in flight belonged to the OUTGOING lecture. Its tokens are
+    // already dropped by the owner guard on ai_token/ai_done; clearing the
+    // flag stops the next lecture's first answer from being appended into a
+    // bubble that no longer exists.
+    studyV2.askStreaming = false;
+    studyV2.askAnswer = null;
+    studyV2.askJobId = '';
     LP.state.quiz.phase = 'setup';
     LP.state.quiz.index = 0;
     LP.state.quiz.answers = {};
@@ -4936,7 +4989,18 @@
   var _screenChangeCarriesJob = false;
 
   function setScreen(name) {
-    if (LP.state.screen === name) return;
+    if (LP.state.screen === name) {
+      /* BUG-63: re-selecting the screen you are already on is not a no-op for
+         Process. Clicking a queue row navigates to Process CARRYING that
+         lecture (correctly -- the student named it), and the Process nav
+         button is then the only way back to the lecture that is actually
+         running. The early return swallowed that click, so Process stayed
+         pinned to "Waiting to process - Position 2" with no way out but
+         hunting through the library. Same guard as the entry path below: a
+         carried navigation still never overrides the student's choice. */
+      if (name === 'process' && !_screenChangeCarriesJob) followActiveProcessingJob();
+      return;
+    }
     if (name !== 'review') closeAllSlides(false);
     // Home's Continue card must reflect the screen the student just left in
     // this same session, not only state captured during a job switch or app
@@ -6628,6 +6692,35 @@
     });
   }
 
+  /* BUG-64: recording an answer must not repaint the whole Study screen.
+     study_v2_record_quiz / study_v2_record_flashcard used to chain into
+     studyV2Load(), which rebuilds the scope header, the generation state, the
+     overview AND re-renders the active mode pane from scratch -- so every
+     click on an option wiped the "Correct" feedback that had just been written
+     into #study-quiz-feedback and repainted it a moment later. That is the
+     full-screen flash the student sees, and it happens on the cached demo too
+     because the reload is unconditional.
+
+     Recording an answer changes PROGRESS, never CONTENT. Refresh progress and
+     leave the pane the student is mid-interaction with alone; the overview is
+     repainted only when it is the pane actually on screen. */
+  function studyV2RefreshProgress() {
+    if (!lpBridge.connected()) return;
+    if (studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all') return;
+    var requestedJobId = LP.state.jobId || '';
+    if (!requestedJobId) return;
+    lpBridge.call('study_v2_status', { job_id: requestedJobId }).then(function (res) {
+      if (!res || !res.content) return;
+      // Same in-flight ownership guard studyV2Load uses: a response for the
+      // lecture that was viewed when the request started must never repaint a
+      // different lecture selected while it was travelling.
+      if (LP.state.jobId !== requestedJobId || (res.job_id && res.job_id !== requestedJobId)) return;
+      studyV2.progress = res.progress || studyV2.progress;
+      studyV2.summary = res.summary || studyV2.summary;
+      if (studyV2.mode === 'overview') renderStudyV2Overview();
+    }).catch(function () {});
+  }
+
   function studyV2Load() {
     if (studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all' && studyV2.scope.groupName) {
       renderStudyScopeHeader();
@@ -7201,7 +7294,7 @@
         card_id: card.id,
         concept_ids: card.concept_ids || [],
         correct: correct
-      }).then(function () { studyV2Load(); }).catch(function () {});
+      }).then(function () { studyV2RefreshProgress(); }).catch(function () {});
     }
     studyV2.flashIndex++;
     studyV2.flashRevealed = false;
@@ -7576,7 +7669,7 @@
             question_id: q.id,
             concept_ids: q.concept_ids || [],
             correct: correct
-          }).then(function () { studyV2Load(); }).catch(function () {});
+          }).then(function () { studyV2RefreshProgress(); }).catch(function () {});
         }
         studyV2PersistView();
         flashStamp($('study-quiz-root'), correct ? 'keep' : 'reject');

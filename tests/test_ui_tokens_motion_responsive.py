@@ -308,8 +308,14 @@ def test_navigation_only_runs_entrance_for_a_changed_screen():
     start = JS.index("function setScreen(name)")
     end = JS.index("function applyTheme", start)
     body = JS[start:end]
-    assert "if (LP.state.screen === name) return;" in body
-    assert body.index("if (LP.state.screen === name) return;") < body.index("LP.motion.nav")
+    # The guard's contract is "re-selecting the current screen never replays
+    # the entrance animation", not one literal line. BUG-63 gave the guard a
+    # body (re-clicking Process re-follows the running lecture) and it still
+    # returns before LP.motion.nav, which is the part that matters.
+    guard = "if (LP.state.screen === name) {"
+    assert guard in body
+    guard_return = body.index("return;", body.index(guard))
+    assert guard_return < body.index("LP.motion.nav")
     assert "main [data-screen]:not([hidden])" in CSS
     assert "animation:lprail var(--motion-seat) var(--motion-spring) both" in CSS
 

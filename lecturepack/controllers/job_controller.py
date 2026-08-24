@@ -78,6 +78,9 @@ class JobController(QObject):
         self._requested_transcription_backend = BACKEND_LOCAL_WHISPERCPP
         self._online_fallback_attempted = False
         self._fallback_output_prefix = None
+        # Highest Transcribe percentage already reported (see
+        # _emit_transcribe_progress). Reset at the start of every transcribe run.
+        self._transcribe_pct = 0
 
         self.job = None
         self.current_stage = None
@@ -561,6 +564,7 @@ class JobController(QObject):
         self._stage_done(STAGE_EXTRACT_AUDIO, success, error_msg)
 
     def _run_transcribe(self, parallel=False):
+        self._transcribe_pct = 0
         audio_wav = os.path.join(self.job.paths["audio"], "lecture-16khz-mono.wav")
 
         whisper_settings = self.job.settings.get("whisper", {})
@@ -639,7 +643,53 @@ class JobController(QObject):
 
     def _handle_transcript_segment(self, segment):
         """Relay a live segment dict from the backend to the UI, unchanged."""
+        self._emit_transcribe_progress(segment)
         self.transcript_segment.emit(segment)
+
+    def _emit_transcribe_progress(self, segment):
+        """Derive a Transcribe percentage from live segment timestamps.
+
+        Transcribe was the one long stage that never emitted ``stage_progress``
+        at all -- only Detect Slides and Export are wired to a worker
+        ``progress`` signal. So the transcript log streamed for the whole run
+        beside a meter frozen at 0%: the log said the app was working and the
+        meter said it was not, and the meter is the surface people believe.
+
+        Both the local and the online backends report each segment's end
+        timestamp, and the source duration is known before the stage starts, so
+        ``segment end / source duration`` is a measured fraction, not an
+        animation. Nothing is invented: with no usable duration or no
+        timestamp, NO percent is claimed and the meter holds its last real
+        value rather than showing a guess. The value is clamped to 99 because
+        the stage is not complete until the backend says so --
+        ``_on_stage_finished`` is what writes 100.
+        """
+        job = self.job
+        if job is None:
+            return
+        try:
+            duration = float((job.source or {}).get("duration", 0.0) or 0.0)
+        except (AttributeError, TypeError, ValueError):
+            return
+        if duration <= 0:
+            return
+        if isinstance(segment, dict):
+            end_ms = segment.get("end_ms")
+        else:
+            end_ms = getattr(segment, "end_ms", None)
+        if end_ms is None:
+            return
+        try:
+            pct = int(min(99.0, max(0.0, (float(end_ms) / 1000.0) / duration * 100.0)))
+        except (TypeError, ValueError):
+            return
+        # Monotonic. The chunked online backend uploads several slices
+        # concurrently and their segments interleave, so an out-of-order
+        # segment must never make the bar run backwards.
+        if pct <= self._transcribe_pct:
+            return
+        self._transcribe_pct = pct
+        self.stage_progress.emit(STAGE_TRANSCRIBE, pct)
 
     def _handle_whisper_finished(self, success, error_msg):
         """Backward-compatible entry point for older tests/tools."""

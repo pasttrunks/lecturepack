@@ -9,6 +9,47 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.1.2] — 2026-08-24
+
+**Five things reported from a fresh install on a second laptop.** Everything in
+2.1.1 is included.
+
+**Process opens on the lecture that's actually running — every time.** 2.1.1
+made this work when you arrived at Process from another screen, but not when you
+were already there. So if you clicked a queued lecture (which takes you to
+Process showing that lecture, correctly), pressing Process in the sidebar did
+nothing at all and you were stuck looking at "Waiting to process". The sidebar
+button now always takes you to the lecture doing the work. Clicking a specific
+lecture still shows you that lecture.
+
+**The progress meters follow the log.** Transcribe never reported a percentage
+at all — the transcript streamed past for the whole run beside a bar sitting at
+zero. It now moves with the audio actually transcribed. Slide detection used to
+reach 100% and then keep working for a while — deduplicating and re-decoding
+your slides at full resolution — with the log scrolling beside a frozen bar. That
+tail is measured now too. Neither bar invents a number: if a lecture's duration
+isn't known, the bar holds still rather than guessing.
+
+**Study stops flashing when you answer.** Picking a quiz option or grading a
+flashcard reloaded the entire Study screen, so the whole thing blanked and
+repainted before "Correct" appeared. Answering a question updates your progress
+now; it doesn't rebuild the page under your hands.
+
+**Ask remembers each lecture separately.** Asking a question about one lecture
+and then opening another showed you the first lecture's conversation. Each
+lecture keeps its own Ask history: a new lecture opens blank, an old one opens
+where you left it. If you switch away mid-answer, the reply is marked as
+interrupted rather than sitting on "Thinking…" forever.
+
+**A LecturePack installer, not a generic one.** The setup wizard now opens with
+LecturePack's own mark on the dark background the app uses, drawn sharp at every
+display scaling rather than stretched from one small image.
+
+**Installer text on scaled displays.** The setup wizard's "Create a desktop
+shortcut" checkbox was reported with its label clipped and overlapping the line
+above it. The wizard's pages now leave room around their text. This one could not
+be reproduced here and may need another look on the machine that saw it.
+
 ## [2.1.1] — 2026-08-23
 
 **Dragging works again while lectures are queued.** Everything in 2.1.0 is included.
