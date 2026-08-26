@@ -1,7 +1,7 @@
 {
   "name": "lecturepack",
   "productName": "LecturePack",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "private": true,
   "description": "LecturePack \u2014 local lecture transcription, slides, and study packs.",
   "main": "production-main.js",

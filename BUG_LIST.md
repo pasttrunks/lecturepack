@@ -994,6 +994,14 @@ re-debug the same thing from scratch.
 - **Tests:** `test_bug66_*` (six), driving the controller directly. Confirmed FAILING
   against 2.1.1 first.
 
+### BUG-68 — yt-dlp link download returned caption sidecar (.vtt) as the media file   🟢 FIXED (2.1.3)
+- **Area:** `lecturepack/services/media_fetch.py::MediaFetcher.download`, `_path_from_info`, progress hook.
+- **Reported:** 2026-08-25 — video download with published captions succeeded and showed transcript in the Transcript screen, but pipeline processing failed on Inspect/Extract Audio/Detect Slides with "Audio extraction failed: This video has no audio track" and 0x0 video dimensions.
+- **Symptom:** YouTube videos with captions populated the transcript, but the job failed during pipeline processing. The video had 0x0 dimensions, no thumbnail poster, audio extraction failed, and slide detection produced 0 slides.
+- **Root cause:** yt-dlp's download progress hook fires for every downloaded component, including subtitle tracks (`.vtt`, `.srt`). Because subtitle downloads finish *after* the video track, `hook(d)` with `status == "finished"` set `state["path"] = d.get("filename")`, overwriting the video file path with the `.en-orig.vtt` caption path. `_path_from_info(info)` similarly lacked filtering against `SIDECAR_SUFFIXES`. As a result, `MediaFetcher.download()` returned the `.vtt` file as the job's video source. Downstream FFprobe, FFmpeg audio extraction, and OpenCV slide detection were executed against a `.vtt` subtitle file rather than the downloaded media file.
+- **Fix:** Filter out files matching `SIDECAR_SUFFIXES` in the download progress hook, in `_path_from_info`, and in `download()`'s fallback path so only legitimate media files are ever returned as the download result.
+- **Tests:** `test_download_hook_and_info_never_return_caption_sidecar` in `tests/test_source_captions.py`.
+
 ### BUG-67 — the installer's task checkbox was clipped on a scaled display   🟠 MITIGATED, NOT CONFIRMED (2.1.2)
 - **Area:** `app/packaging/lecturepack.iss` — but the defect is in Inno Setup's own Setup
   binary, not in this project's code.

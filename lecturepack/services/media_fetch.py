@@ -38,6 +38,10 @@ DEFAULT_FORMAT = "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best"
 
 _UNSAFE_FS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
+SIDECAR_SUFFIXES = (".vtt", ".srt", ".ass", ".ssa", ".lrc", ".json3", ".srv1",
+                    ".srv2", ".srv3", ".ttml", ".description", ".info.json")
+CAPTION_SUFFIXES = (".vtt", ".srt")
+
 
 class MediaFetchError(RuntimeError):
     """A fetch failed for a reason worth showing the user."""
@@ -268,15 +272,17 @@ class MediaFetcher:
             # Never reach out for extra components at runtime on a customer
             # machine: everything EJS needs is bundled in the installer.
             "remote_components": [],
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "mweb", "web"],
+                },
+            },
         }
         # Point yt-dlp at LecturePack's own FFmpeg so merges/remuxes work on a
         # machine with no system FFmpeg.
         location = ffmpeg_location()
         if location:
             opts["ffmpeg_location"] = location
-        # No forced player_client. The Android client override that used to
-        # live here predates EJS; it bypasses the JS-challenge path that
-        # YouTube now requires, so it would defeat the bundled runtime.
         return opts
 
     # ------------------------------------------------------------------- probe
@@ -349,7 +355,9 @@ class MediaFetcher:
                     pass
             status = d.get("status") or ""
             if status == "finished":
-                state["path"] = d.get("filename") or state["path"]
+                filename = d.get("filename") or ""
+                if filename and not filename.lower().endswith(SIDECAR_SUFFIXES):
+                    state["path"] = filename
             if progress_cb is None:
                 return
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
@@ -410,12 +418,14 @@ class MediaFetcher:
         # audio as before.
         _discard_translated_captions(dest_dir, info)
 
-        path = state["path"] or _path_from_info(info)
-        if not path or not os.path.isfile(path):
+        path = state["path"]
+        if not path or path.lower().endswith(SIDECAR_SUFFIXES) or not os.path.isfile(path):
+            path = _path_from_info(info)
+        if not path or path.lower().endswith(SIDECAR_SUFFIXES) or not os.path.isfile(path):
             # yt-dlp may report a pre-merge name; fall back to the newest file.
             path = _newest_media(dest_dir, not_before=started_at) or ""
-        if not path or not os.path.isfile(path):
-            raise MediaFetchError("The download finished but no file was written.")
+        if not path or path.lower().endswith(SIDECAR_SUFFIXES) or not os.path.isfile(path):
+            raise MediaFetchError("The download finished but no media file was written.")
         return path
 
 
@@ -423,14 +433,16 @@ def _path_from_info(info) -> str:
     if not isinstance(info, dict):
         return ""
     reqs = info.get("requested_downloads")
-    if isinstance(reqs, list) and reqs and isinstance(reqs[0], dict):
-        return reqs[0].get("filepath") or reqs[0].get("_filename") or ""
-    return info.get("_filename") or ""
-
-
-SIDECAR_SUFFIXES = (".vtt", ".srt", ".ass", ".ssa", ".lrc", ".json3", ".srv1",
-                    ".srv2", ".srv3", ".ttml", ".description", ".info.json")
-CAPTION_SUFFIXES = (".vtt", ".srt")
+    if isinstance(reqs, list) and reqs:
+        for req in reqs:
+            if isinstance(req, dict):
+                p = req.get("filepath") or req.get("_filename") or ""
+                if p and not p.lower().endswith(SIDECAR_SUFFIXES):
+                    return p
+    fn = info.get("_filename") or ""
+    if fn and not fn.lower().endswith(SIDECAR_SUFFIXES):
+        return fn
+    return ""
 
 
 def _discard_translated_captions(dest_dir: str, info) -> None:

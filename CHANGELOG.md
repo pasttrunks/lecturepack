@@ -9,6 +9,12 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.1.3] — 2026-08-26
+
+**YouTube link download media selection fixed.**
+
+- **Link downloads no longer mistake captions for video files.** When downloading videos with published captions/subtitles via yt-dlp, the download progress hook and completion resolution previously accepted the subtitle (`.vtt`/`.srt`) file as the job's video source because subtitles finished downloading after the video track. This caused thumbnail generation to fail and the processing pipeline to abort during audio extraction and slide detection. The downloader now strictly filters out caption sidecars so the media file is always returned, while keeping full support for reusing published captions in the transcript.
+
 ## [2.1.2] — 2026-08-24
 
 **Five things reported from a fresh install on a second laptop.** Everything in
