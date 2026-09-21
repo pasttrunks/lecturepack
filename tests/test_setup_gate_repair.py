@@ -149,3 +149,42 @@ def test_dom_controller_renders_the_same_model_that_node_executes() -> None:
     assert "eventModel.snapshot()" in controller
     for transition in ("bootstrap(", "begin(", "confirm()", "diagnostics()", "back()", "retry()", "retryResult(", "requestCancel()", "event("):
         assert transition in controller
+
+
+def test_gate_lists_components_from_the_map_shape_the_bridge_actually_sends() -> None:
+    """DEF-045: the gate's component list must survive the real payload shape.
+
+    ``get_runtime_health_snapshot`` sends ``components`` as a MAP keyed by
+    component name. ``componentRows`` accepted only an Array, so it returned []
+    for every genuine failure and the gate rendered its "could not be listed"
+    empty state -- on the one screen whose whole job is naming what broke.
+    This executes the shipped functions against the exact payload observed on
+    a real SETUP_REQUIRED run.
+    """
+    source = read_ui("app.js")
+    labels = "var COMPONENT_LABELS" + source.split("var COMPONENT_LABELS", 1)[1].split("function componentRows", 1)[0]
+    rows_fn = "function componentRows" + source.split("function componentRows", 1)[1].split("function setUnderlyingInert", 1)[0]
+    program = labels + rows_fn + r'''
+      const fail = (n) => process.exit(n);
+      // The verbatim snapshot from a source run missing bin/ffmpeg.exe.
+      bootstrapSnapshot = {components:{inventory:{healthy:false,reason:'missing or empty required runtime payload: bin/ffmpeg.exe'}}};
+      const rows = componentRows();
+      if (rows.length !== 1) fail(1);
+      const label = friendlyComponent(rows[0]);
+      if (label.indexOf('Runtime files') !== 0) fail(2);
+      if (label.indexOf('bin/ffmpeg.exe') === -1) fail(3);   // the reason must reach the user
+
+      // A healthy entry is not an "affected component".
+      bootstrapSnapshot = {components:{a:{healthy:true},b:{healthy:false,reason:'x'}}};
+      if (componentRows().length !== 1) fail(4);
+
+      // The list shape must keep working, so this cannot silently blank twice.
+      bootstrapSnapshot = {components:['ffmpeg_exe']};
+      if (friendlyComponent(componentRows()[0]) !== 'Media tools (FFmpeg)') fail(5);
+
+      bootstrapSnapshot = null; if (componentRows().length !== 0) fail(6);
+      process.exit(0);
+    '''
+    program = "var bootstrapSnapshot = null;\n" + program
+    result = subprocess.run(["node", "-e", program], capture_output=True, text=True)
+    assert result.returncode == 0, f"check {result.returncode} failed: {result.stderr}"

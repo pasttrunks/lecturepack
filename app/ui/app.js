@@ -5441,14 +5441,45 @@
     }
     function text(id, value) { var el = $(id); if (el) el.textContent = value == null ? '' : String(value); }
     function announce(id, value) { text(id, value); }
+    /* The bridge sends `components` as a MAP keyed by component name
+       ({"inventory": {healthy:false, reason:"..."}}), NOT a list. The original
+       `Array.isArray(list) ? list : []` therefore discarded every real payload
+       and the gate fell through to its "could not be listed" empty state on
+       EVERY failure -- the one situation this screen exists for. This is the
+       same map-vs-list shape mismatch DEF-044 fixed in the checklist path;
+       the gate renderer was never updated. Keep BOTH shapes supported: a list
+       is still accepted so a future payload change cannot silently blank the
+       screen a second time. */
+    var COMPONENT_LABELS = {
+      inventory: 'Runtime files', active_runtime: 'Runtime location',
+      ffmpeg_exe: 'Media tools (FFmpeg)', ffprobe_exe: 'Media tools (ffprobe)',
+      ffmpeg: 'Media tools (FFmpeg)', ffprobe: 'Media tools (ffprobe)',
+      whisper_runtime: 'Speech engine (Whisper)', whisper_smoke: 'Speech engine (Whisper)',
+      whisper_cli: 'Speech engine (Whisper)', model: 'Speech model',
+      bundled_model: 'Speech model', data_directory: 'Storage folder'
+    };
     function componentRows() {
       if (!bootstrapSnapshot) return [];
       var list = bootstrapSnapshot.failed_components || bootstrapSnapshot.components || bootstrapSnapshot.affected_components || [];
-      return Array.isArray(list) ? list : [];
+      if (Array.isArray(list)) return list;
+      if (!list || typeof list !== 'object') return [];
+      return Object.keys(list).reduce(function (rows, name) {
+        var item = list[name];
+        // Only unhealthy entries belong on a "needs repair" screen. An entry
+        // with no explicit `healthy` key is treated as affected, because the
+        // failed_components/affected_components shapes carry no such flag.
+        if (item && typeof item === 'object' && item.healthy === true) return rows;
+        rows.push({ component: name, reason: item && item.reason });
+        return rows;
+      }, []);
     }
     function friendlyComponent(row) {
-      if (typeof row === 'string') return row;
-      return row && (row.friendly_name || row.label || row.component || row.name) || 'Runtime component';
+      if (typeof row === 'string') return COMPONENT_LABELS[row] || row;
+      if (!row) return 'Runtime component';
+      var name = row.friendly_name || row.label || COMPONENT_LABELS[row.component] || COMPONENT_LABELS[row.name] || row.component || row.name || 'Runtime component';
+      // The reason is what actually tells the user WHICH file is missing; a
+      // bare label ("Runtime files") is not actionable on its own.
+      return row.reason ? name + ' — ' + row.reason : name;
     }
     function setUnderlyingInert(open) {
       var root = $('app'); if (!root) return;

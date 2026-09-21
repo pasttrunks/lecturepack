@@ -417,6 +417,92 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### DEF-045 — the runtime gate could never name a single broken component   ✅ FIXED (verified against the real payload)
+- **Area:** `app/ui/app.js` (`componentRows` / `friendlyComponent`, the `gate` view).
+- **Reported by:** owner, 2026-09-20, with a screenshot of a 2.1.3 source run.
+- **Symptom:** "Runtime needs repair" followed by "LecturePack needs repair, but the
+  affected components could not be listed." — on every failure, always.
+- **Root cause:** `get_runtime_health_snapshot` sends `components` as a **map** keyed by
+  component name (`{"inventory": {healthy:false, reason:"…"}}`). `componentRows` ended in
+  `Array.isArray(list) ? list : []`, so every real payload was discarded and the renderer
+  fell through to its "could not be listed" empty state. The empty state was therefore the
+  ONLY reachable outcome of the screen whose entire job is naming what broke.
+- **Why DEF-044 did not catch it:** DEF-044 fixed this exact map-vs-list shape mismatch in
+  the **checklist** path (`build_first_run_checklist`) and left the **gate** renderer
+  untouched. Both read the same payload; only one was corrected. Confirmed by direct
+  execution: the checklist builds five correct rows from the same result that renders the
+  gate blank.
+- **Fix:** accept the map shape, drop `healthy === true` entries, and append the component's
+  `reason` to its label so the user learns WHICH file is missing. The Array branch is kept
+  deliberately, so a future payload change cannot silently blank this screen a second time.
+- **Tests:** `test_gate_lists_components_from_the_map_shape_the_bridge_actually_sends`
+  executes the shipped functions (node) against the verbatim snapshot from a failing run.
+  Confirmed failing with the fix reverted.
+- **Lesson:** DEF-044's own lesson — "an error-reporting screen must be tested against its
+  own error paths" — was applied to one of the two renderers that read the payload. When a
+  shape mismatch is found, fix **every** consumer of that shape, not the one that reported it.
+- **Files:** `app/ui/app.js`, `tests/test_setup_gate_repair.py`.
+
+### DEF-046 — "Copy details" put an empty JSON array on the clipboard and said "Details copied."   ✅ FIXED (verified)
+- **Area:** `app/desktop/bridge.py::_runtime_repair_report`.
+- **Reported by:** owner, 2026-09-20, same session as DEF-045.
+- **Symptom:** "copy diagnostics doesn't copy anything."
+- **Root cause:** `_last_repair_diagnostics` is initialised to the literal string `"[]"` and
+  is only ever replaced by `RuntimeRepairService.diagnostic_report()`, which needs a repair
+  to have **run**. The gate screen is reachable *before* any repair is attempted, so from
+  there the clipboard always received `[]` — and the UI still reported success, because the
+  bridge returned `runtime_repair_diagnostics_copied` regardless of content.
+- **Fix:** the report now always carries the facts a user needs to report a failed gate —
+  app version, admission state, and every component with its reason — alongside the repair
+  events rather than instead of them. The snapshot lookup is wrapped so diagnostics can
+  never fail to produce text.
+- **Verified:** on a real SETUP_REQUIRED run the report names `bin/ffmpeg.exe`; previously `[]`.
+- **Lesson:** a "copied" confirmation that does not inspect what it copied is a lie with a
+  checkmark on it.
+- **Files:** `app/desktop/bridge.py`.
+
+### DEF-047 — a 404 for an unpublished runtime was reported as "you are offline"   ✅ FIXED (verified live against GitHub)
+- **Area:** `lecturepack/services/runtime_repair.py` (`_get_metadata`, `_download_archive`).
+- **Reported by:** owner, 2026-09-20 ("repair all doesnt do anything").
+- **Symptom:** "Repair all" appeared to do nothing, then — if anything — claimed an internet
+  connection was required, on a machine with working internet.
+- **Root cause:** `HTTPError` subclasses `OSError`, so a **404** fell into the connectivity
+  branch: three pointless retries with backoff (hence "does nothing"), then
+  `RepairFailure("offline", "an internet connection is required for repair")`. The real
+  cause is that no runtime was ever published for this version —
+  `…/releases/download/v2.1.3/LecturePack-2.1.3-RuntimeManifest-v1.json` returns 404
+  (confirmed live). The message sent the user to debug a working network.
+- **Fix:** classify HTTP status before the connectivity branch. 404/410 →
+  "no published repair runtime exists for this version of LecturePack"; 401/403 → refused;
+  only 408/425/429/5xx are retried, since those are the only ones that can change on their own.
+- **Verified:** live 404 now fails in 0.24s with the accurate message and two events
+  (`started`, `failed`) instead of 0.5s and three misleading `retrying` events.
+- **Still true, and NOT a bug:** repair genuinely cannot succeed from a source checkout or
+  for any unpublished version. That is now *stated* rather than disguised as a network fault.
+- **Tests:** `test_an_unpublished_runtime_is_not_reported_as_an_offline_network` and
+  `test_a_transient_server_status_is_still_retried` (the retry path must survive its own fix).
+  Both confirmed failing with the fix reverted.
+- **Lesson:** an exception hierarchy is not a diagnosis. `except OSError` swallowed "the file
+  does not exist" and "the network is down" into one wrong message.
+- **Files:** `lecturepack/services/runtime_repair.py`, `tests/test_runtime_repair.py`.
+
+### OBS-02 — the BUG-30 android player_client override is BACK in 2.1.3   🔴 OPEN (pre-existing, NOT introduced this session)
+- **Area:** `lecturepack/services/media_fetch.py:277`.
+- **Found:** 2026-09-20, by the full suite, while verifying the DEF-045..047 fixes.
+- **Symptom:** two tests fail at `v2.1.3` HEAD —
+  `test_youtube_probe_does_not_force_a_player_client` and
+  `test_base_opts_never_forces_the_android_player_client`. Both assert no player client is
+  forced; the code sets `"player_client": ["android", "mweb", "web"]`.
+- **Why it matters:** BUG-30 removed exactly this override because forcing `android`
+  bypasses yt-dlp's EJS JS-challenge path — the failure mode that silently returned 11
+  formats instead of 14 and shipped degraded in 2.0.0. BUG-30 is marked FIXED (verified).
+- **Confirmed pre-existing:** both tests fail with this session's changes stashed. Nothing
+  in DEF-045..047 touches media fetch.
+- **Not fixed here** because it is outside the reported defect and BUG-30's lesson is that
+  this path must be re-verified with a **live** extraction probe, not a unit test.
+- **Next step:** decide whether the override is deliberate (then the tests and BUG-30 must be
+  updated to say so) or a regression (then revert it and re-run BUG-30's live probe).
+
 ### DEF-044 — the runtime-setup gate crashed on exactly the failure it exists to explain   🟡 FIXED (shipped in 2.0.9; the packaged build's own runtime is healthy, so the fixed path is still unexercised there)
 - **Area:** `lecturepack/services/first_run_checklist.py::build_first_run_checklist`,
   reached from `app/desktop/bridge.py::get_bootstrap`.

@@ -572,3 +572,62 @@ def test_worker_streams_started_and_progress_before_blocked_transport_completes(
         time.sleep(.01)
     terminals = [payload for payload in seen if payload["kind"] in {"failed", "cancelled", "admitted"}]
     assert [payload["kind"] for payload in terminals] == ["admitted"]
+
+
+class _StatusTransport:
+    """Transport that fails every fetch with a fixed HTTP status."""
+
+    def __init__(self, status: int) -> None:
+        self.status, self.calls = status, 0
+
+    def get(self, url: str) -> bytes:
+        from urllib.error import HTTPError
+        self.calls += 1
+        raise HTTPError(url, self.status, "boom", {}, None)
+
+
+def _http_status_service(transport, tmp_path):
+    from lecturepack.infrastructure.runtime_generation import RuntimeGenerationStore
+    from lecturepack.services.runtime_repair import RuntimeRepairService
+    return RuntimeRepairService(
+        "9.9.9", transport, admission_evidence={"inventory": "missing"},
+        generation_store=RuntimeGenerationStore(tmp_path),
+        bootstrap_assessor=lambda root: None,
+    )
+
+
+def test_an_unpublished_runtime_is_not_reported_as_an_offline_network(tmp_path) -> None:
+    """DEF-046: a 404 means no runtime was ever published, not "you are offline".
+
+    HTTPError subclasses OSError, so a 404 fell into the connectivity branch
+    and surfaced "an internet connection is required for repair" after three
+    pointless retries -- sending the user to debug a working network.
+    """
+    from lecturepack.services.runtime_repair import RepairFailure
+
+    transport = _StatusTransport(404)
+    service = _http_status_service(transport, tmp_path)
+    try:
+        service.begin_repair_offer("op")
+    except RepairFailure as error:
+        assert "internet connection" not in str(error)
+        assert "no published repair runtime" in str(error)
+    else:  # pragma: no cover
+        raise AssertionError("a 404 must fail the repair offer")
+    assert transport.calls == 1, "a 404 cannot change on retry; it must not be retried"
+    assert [event.kind for event in service.events] == ["started", "failed"]
+
+
+def test_a_transient_server_status_is_still_retried(tmp_path) -> None:
+    """The 404 fix must not disable retry for statuses that DO self-resolve."""
+    from lecturepack.services.runtime_repair import RepairFailure
+
+    transport = _StatusTransport(503)
+    service = _http_status_service(transport, tmp_path)
+    try:
+        service.begin_repair_offer("op")
+    except RepairFailure as error:
+        assert "HTTP 503" in str(error)
+    else:  # pragma: no cover
+        raise AssertionError("an exhausted 503 retry must still fail")
+    assert transport.calls > 1, "a 503 must be retried"
