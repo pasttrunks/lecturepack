@@ -486,6 +486,21 @@ re-debug the same thing from scratch.
   does not exist" and "the network is down" into one wrong message.
 - **Files:** `lecturepack/services/runtime_repair.py`, `tests/test_runtime_repair.py`.
 
+### Verification boundary for DEF-045..047 (read before claiming these are proven in the shipped app)
+- **What WAS verified:** each fix was exercised against the real failing payload — the gate
+  functions executed (node) on the verbatim snapshot from a failing run, the diagnostics
+  report generated from a live `SETUP_REQUIRED` assessment, and the 404 classification run
+  against the real GitHub URL. All three tests confirmed failing with their fix reverted.
+  Full suite: 2017 passed (the 2 failures are OBS-02, pre-existing).
+- **What was NOT verified:** the fixes were NOT seen in the **packaged** app's own UI. The
+  2.1.3 packaged runtime assesses HEALTHY (confirmed against `app/dist/LecturePack`), so the
+  gate never renders there and the corrected path stays unexercised in the shipped build —
+  the exact caveat DEF-044 carries, for the same reason.
+- **How to close it:** copy the built onedir, remove one required payload file (e.g.
+  `bin/ggml-base.dll`), launch that copy, and confirm the gate NAMES the missing file, that
+  "Copy details" yields a report containing it, and that "Repair all" reports no published
+  runtime rather than an offline network.
+
 ### OBS-02 — the BUG-30 android player_client override is BACK in 2.1.3   🔴 OPEN (pre-existing, NOT introduced this session)
 - **Area:** `lecturepack/services/media_fetch.py:277`.
 - **Found:** 2026-09-20, by the full suite, while verifying the DEF-045..047 fixes.
