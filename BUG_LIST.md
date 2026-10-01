@@ -501,7 +501,7 @@ re-debug the same thing from scratch.
   "Copy details" yields a report containing it, and that "Repair all" reports no published
   runtime rather than an offline network.
 
-### OBS-02 — the BUG-30 android player_client override is BACK in 2.1.3   🔴 OPEN (pre-existing, NOT introduced this session)
+### OBS-02 — the BUG-30 android player_client override is BACK in 2.1.3   ✅ FIXED (reverted 2026-10-01, live-probed)
 - **Area:** `lecturepack/services/media_fetch.py:277`.
 - **Found:** 2026-09-20, by the full suite, while verifying the DEF-045..047 fixes.
 - **Symptom:** two tests fail at `v2.1.3` HEAD —
@@ -517,6 +517,16 @@ re-debug the same thing from scratch.
   this path must be re-verified with a **live** extraction probe, not a unit test.
 - **Next step:** decide whether the override is deliberate (then the tests and BUG-30 must be
   updated to say so) or a regression (then revert it and re-run BUG-30's live probe).
+- **Resolution (2026-10-01):** a regression. `git log -S'"mweb"'` shows it arrived in 025f5b0
+  (the BUG-68 caption fix), listed in that handoff only as "Extractor args client fallback" with
+  no rationale and no evidence. Both guarding tests already existed before that commit, so the
+  handoff's "0 failed" claim could not have been true. Reverted the override.
+- **Live probe** (yt-dlp 2026.07.04, bundled deno found, `jNQXAC9IVRw`, `extract_info` without download):
+  forced `["android","mweb","web"]` gave **1 format** (yt-dlp warned that android formats were skipped
+  because of SABR and mweb needed a PO token); the default clients gave **11 formats** (7 video, 5 audio).
+  This is a different video from BUG-30's, so 11 can't be compared with BUG-30's 14.
+- **Verified:** full suite 2034 passed, 8 skipped, 0 failed. **Not verified:** a full download through
+  the packaged build.
 
 ### DEF-044 — the runtime-setup gate crashed on exactly the failure it exists to explain   🟡 FIXED (shipped in 2.0.9; the packaged build's own runtime is healthy, so the fixed path is still unexercised there)
 - **Area:** `lecturepack/services/first_run_checklist.py::build_first_run_checklist`,

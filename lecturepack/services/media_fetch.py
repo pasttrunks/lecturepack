@@ -272,11 +272,6 @@ class MediaFetcher:
             # Never reach out for extra components at runtime on a customer
             # machine: everything EJS needs is bundled in the installer.
             "remote_components": [],
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android", "mweb", "web"],
-                },
-            },
         }
         # Point yt-dlp at LecturePack's own FFmpeg so merges/remuxes work on a
         # machine with no system FFmpeg.
