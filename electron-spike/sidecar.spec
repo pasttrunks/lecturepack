@@ -136,10 +136,13 @@ hiddenimports = [
 # build-time dependency. It is built with maturin and installed into the
 # project venv; PyInstaller collects it as a binary so the packaged sidecar
 # can import it without customer Rust.
+_study_core_candidate = REPO_ROOT / ".venv" / "Lib" / "site-packages" / "lecturepack_study_core" / "lecturepack_study_core.cp312-win_amd64.pyd"
+if not _study_core_candidate.is_file():
+    _study_core_candidate = Path(sys.prefix) / "Lib" / "site-packages" / "lecturepack_study_core" / "lecturepack_study_core.cp312-win_amd64.pyd"
+
 _study_core_pyd = Path(os.environ.get(
     "LECTUREPACK_STUDY_CORE_PYD",
-    str(REPO_ROOT / ".venv" / "Lib" / "site-packages" / "lecturepack_study_core" /
-        "lecturepack_study_core.cp312-win_amd64.pyd"),
+    str(_study_core_candidate),
 )).expanduser().resolve()
 if _study_core_pyd.is_file():
     binaries = [(str(_study_core_pyd), "lecturepack_study_core")]

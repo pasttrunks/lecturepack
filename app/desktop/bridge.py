@@ -61,6 +61,26 @@ def _pending_checklist() -> list[dict]:
     ]
 
 
+class _RepairEventRelay(QObject):
+    """BUG-70: receive worker events WITHOUT mutating Backend's metaobject.
+
+    Connecting a signal to an undecorated bound method of a QObject makes
+    PySide register a dynamic slot on that object's metaobject. Backend is
+    already published on the QWebChannel, so the late slot shifted its method
+    indices and every signal the page had subscribed to stopped arriving --
+    "Repair all" hung on "Checking runtime…" forever. A static @Slot on a
+    private, unpublished relay keeps Backend's metaobject frozen.
+    """
+
+    def __init__(self, backend):
+        super().__init__(backend)
+        self._backend = backend
+
+    @Slot(dict)
+    def forward(self, payload):
+        self._backend._on_repair_event(payload)
+
+
 class Backend(QObject):
     _ADMISSION_GUARDED_OPERATIONS = frozenset({
         "set_setting", "browse_model", "test_endpoint", "validate_vulkan", "validate_cuda",
@@ -424,7 +444,10 @@ class Backend(QObject):
         if self._repair_worker is not None:
             return json.dumps({"type": "repair_in_progress"})
         self._repair_worker = worker
-        worker.repair_event.connect(self._on_repair_event)
+        relay = self.__dict__.get("_repair_event_relay")
+        if relay is None:
+            relay = self._repair_event_relay = _RepairEventRelay(self)
+        worker.repair_event.connect(relay.forward)
         worker.start()
         return json.dumps({"operation_id": self._repair_offer_id})
 
@@ -471,10 +494,39 @@ class Backend(QObject):
         return self.get_bootstrap()
 
     def _runtime_repair_report(self) -> str:
-        """Return the service-owned, redacted repair report and nothing else."""
+        """Return the redacted repair report, always with runtime-health context.
+
+        Before any repair has run, ``_last_repair_diagnostics`` is the literal
+        string "[]" -- so "Copy details" put an empty JSON array on the
+        clipboard and still reported "Details copied." From the gate screen,
+        which is reachable BEFORE any repair is attempted, that was the only
+        reachable outcome: the button appeared to copy nothing.
+
+        The facts a user actually needs to report a failed gate are the app
+        version and which components failed and why. Those come from the
+        health snapshot, which is available whether or not a repair ran, so
+        emit them alongside the repair events rather than instead of them.
+        """
         if self._runtime_repair is not None:
             self._last_repair_diagnostics = self._runtime_repair.diagnostic_report()
-        return self._last_repair_diagnostics
+        try:
+            events = json.loads(self._last_repair_diagnostics)
+        except (TypeError, ValueError):
+            events = self._last_repair_diagnostics
+        try:
+            snapshot = self._runtime_diagnostics.runtime_health_snapshot()
+        except Exception as error:  # diagnostics must never fail to produce text
+            snapshot = {"error": f"runtime health snapshot unavailable: {error}"}
+        return json.dumps(
+            {
+                "app_version": version.__version__,
+                "runtime_health": snapshot,
+                "repair_events": events,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
 
     @Slot(result=str)
     def copy_runtime_repair_diagnostics(self) -> str:

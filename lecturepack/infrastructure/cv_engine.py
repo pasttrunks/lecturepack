@@ -33,6 +33,17 @@ from lecturepack.infrastructure.video_reader import (
 PROBE_STEP_SEC = 0.25
 
 
+# Slide detection is two phases, and only the first one used to be measured.
+# The sampling scan reported 0-100%, then the worker went on to deduplicate
+# and to decode full-resolution frames -- work that streams status_message
+# lines the whole time. So the log kept moving while the meter sat pinned,
+# which reads as "stuck" (and is the same complaint as a Transcribe bar frozen
+# at 0). The scan now owns 0-SCAN_PCT and the tail owns the rest, so every
+# line the log prints has a meter that is still travelling.
+SCAN_PCT = 85       # end of the sampling scan
+DEDUP_PCT = 92      # end of deduplication / start of the capture pass
+
+
 def write_image_file(path, image):
     """Write an OpenCV image through Python's Unicode-safe file handling."""
     extension = os.path.splitext(os.fspath(path))[1] or ".png"
@@ -232,7 +243,7 @@ class SlideDetectorWorker(QThread):
                     self.finished.emit(False, "Cancelled", [])
                     return
 
-                percent = int(((t - self.start_time) / max(0.1, end_limit - self.start_time)) * 100)
+                percent = int(((t - self.start_time) / max(0.1, end_limit - self.start_time)) * SCAN_PCT)
                 self.progress.emit(percent)
 
                 raw = cursor.get(t)
@@ -540,7 +551,7 @@ class SlideDetectorWorker(QThread):
         finally:
             stream.close()
 
-        self.progress.emit(100)
+        self.progress.emit(SCAN_PCT)
 
         # Local deduplication on the retained analysis frames (unmasked, like
         # the legacy PNG-based comparison) -- collapse adjacent near-identical
@@ -570,6 +581,8 @@ class SlideDetectorWorker(QThread):
             dedup_candidates.append(cand)
             kept_frames.append(frame)
 
+        self.progress.emit(DEDUP_PCT)
+
         # Pass 2: full-resolution capture ONLY at the surviving candidates.
         if dedup_candidates:
             self.status_message.emit(
@@ -577,11 +590,15 @@ class SlideDetectorWorker(QThread):
             wanted = [c["timestamp_seconds"] for c in dedup_candidates]
             natives = capture_native_frames(self.video_path, wanted)
             cx, cy, cw, ch = stream.crop_px
+            written = 0
             for cand in dedup_candidates:
                 if self._is_cancelled:
                     self.status_message.emit("Slide detection cancelled by user.")
                     self.finished.emit(False, "Cancelled", [])
                     return
+                written += 1
+                self.progress.emit(DEDUP_PCT + int(
+                    (written / max(1, len(dedup_candidates))) * (100 - DEDUP_PCT)))
                 native = natives.get(cand["timestamp_seconds"])
                 if native is None:
                     continue
@@ -589,6 +606,7 @@ class SlideDetectorWorker(QThread):
                 img_path = os.path.join(candidates_dir, cand["image_filename"])
                 write_image_file(img_path, final_cropped)
 
+        self.progress.emit(100)
         self.status_message.emit(
             f"Slide detection completed. Detected {len(dedup_candidates)} slides.")
         self.finished.emit(True, "", dedup_candidates)
@@ -636,7 +654,7 @@ class SlideDetectorWorker(QThread):
                     self.finished.emit(False, "Cancelled", [])
                     return
 
-                percent = int(((t - self.start_time) / max(0.1, end_limit - self.start_time)) * 100)
+                percent = int(((t - self.start_time) / max(0.1, end_limit - self.start_time)) * SCAN_PCT)
                 self.progress.emit(percent)
 
                 frame_idx = int(t * fps)
@@ -958,7 +976,7 @@ class SlideDetectorWorker(QThread):
                 t += step_seconds
 
             cap.release()
-            self.progress.emit(100)
+            self.progress.emit(SCAN_PCT)
 
             compare_w = 480
             compare_h = 360
@@ -969,6 +987,8 @@ class SlideDetectorWorker(QThread):
             self.status_message.emit("Running deduplication...")
             candidates_dir = self.job_paths["candidates"]
             for i, cand in enumerate(candidates):
+                self.progress.emit(SCAN_PCT + int(
+                    ((i + 1) / max(1, len(candidates))) * (100 - SCAN_PCT)))
                 if not dedup_candidates:
                     dedup_candidates.append(cand)
                     continue
@@ -1001,6 +1021,7 @@ class SlideDetectorWorker(QThread):
 
                 dedup_candidates.append(cand)
 
+            self.progress.emit(100)
             self.status_message.emit(f"Slide detection completed. Detected {len(dedup_candidates)} slides.")
             self.finished.emit(True, "", dedup_candidates)
 

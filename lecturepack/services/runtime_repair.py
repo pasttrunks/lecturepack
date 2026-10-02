@@ -16,7 +16,7 @@ import tempfile
 from threading import RLock
 import zipfile
 from typing import Callable, Iterable, Mapping
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 from lecturepack.infrastructure.release_trust import ReleaseTrustError, ReleaseTrustVerifier, official_release_urls
 from lecturepack.infrastructure.runtime_generation import (
@@ -168,6 +168,23 @@ class RuntimeRepairService:
         if operation_id in self._cancelled:
             raise GenerationCancelled("repair cancelled at a safe boundary")
 
+    # An HTTPError is an OSError subclass, so a 404 for an asset that was never
+    # published used to fall into the connectivity branch below and be reported
+    # as "an internet connection is required for repair" -- after three pointless
+    # retries. That message sends the user to debug a working network while the
+    # real cause is that this version has no published runtime at all. Retry only
+    # statuses that can actually change on their own.
+    _RETRYABLE_HTTP_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+    @staticmethod
+    def _http_failure(error: HTTPError) -> "RepairFailure":
+        status = getattr(error, "code", None)
+        if status in (404, 410):
+            return RepairFailure("failed", "no published repair runtime exists for this version of LecturePack")
+        if status in (401, 403):
+            return RepairFailure("failed", f"the official repair runtime refused the request (HTTP {status})")
+        return RepairFailure("failed", f"the official repair runtime could not be reached (HTTP {status})")
+
     def _get_metadata(self, operation_id: str, url: str) -> bytes:
         """Fetch one fixed metadata object with bounded retry classification."""
         for attempt in range(1, self._MAX_ATTEMPTS + 1):
@@ -181,6 +198,13 @@ class RuntimeRepairService:
                 raise
             except GenerationCancelled:
                 raise
+            except HTTPError as error:
+                if error.code not in self._RETRYABLE_HTTP_STATUS:
+                    raise self._http_failure(error) from error
+                if attempt == self._MAX_ATTEMPTS:
+                    raise self._http_failure(error) from error
+                self._emit(operation_id, "retrying", f"the official source is busy; retrying ({attempt + 1} of {self._MAX_ATTEMPTS})")
+                self._backoff(attempt)
             except (OSError, URLError, ConnectionError) as error:
                 if attempt == self._MAX_ATTEMPTS:
                     raise RepairFailure("offline", "an internet connection is required for repair") from error
@@ -228,6 +252,12 @@ class RuntimeRepairService:
             except PermissionError as error:
                 destination.unlink(missing_ok=True)
                 raise RepairFailure("failed", "repair archive could not be written to staging") from error
+            except HTTPError as error:
+                destination.unlink(missing_ok=True)
+                if error.code not in self._RETRYABLE_HTTP_STATUS or attempt == self._MAX_ATTEMPTS:
+                    raise self._http_failure(error) from error
+                self._emit(operation_id, "retrying", f"the official source is busy; retrying ({attempt + 1} of {self._MAX_ATTEMPTS})")
+                self._backoff(attempt)
             except (OSError, URLError, ConnectionError) as error:
                 destination.unlink(missing_ok=True)
                 if attempt == self._MAX_ATTEMPTS:
