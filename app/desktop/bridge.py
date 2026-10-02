@@ -61,6 +61,26 @@ def _pending_checklist() -> list[dict]:
     ]
 
 
+class _RepairEventRelay(QObject):
+    """BUG-70: receive worker events WITHOUT mutating Backend's metaobject.
+
+    Connecting a signal to an undecorated bound method of a QObject makes
+    PySide register a dynamic slot on that object's metaobject. Backend is
+    already published on the QWebChannel, so the late slot shifted its method
+    indices and every signal the page had subscribed to stopped arriving --
+    "Repair all" hung on "Checking runtime…" forever. A static @Slot on a
+    private, unpublished relay keeps Backend's metaobject frozen.
+    """
+
+    def __init__(self, backend):
+        super().__init__(backend)
+        self._backend = backend
+
+    @Slot(dict)
+    def forward(self, payload):
+        self._backend._on_repair_event(payload)
+
+
 class Backend(QObject):
     _ADMISSION_GUARDED_OPERATIONS = frozenset({
         "set_setting", "browse_model", "test_endpoint", "validate_vulkan", "validate_cuda",
@@ -424,7 +444,10 @@ class Backend(QObject):
         if self._repair_worker is not None:
             return json.dumps({"type": "repair_in_progress"})
         self._repair_worker = worker
-        worker.repair_event.connect(self._on_repair_event)
+        relay = self.__dict__.get("_repair_event_relay")
+        if relay is None:
+            relay = self._repair_event_relay = _RepairEventRelay(self)
+        worker.repair_event.connect(relay.forward)
         worker.start()
         return json.dumps({"operation_id": self._repair_offer_id})
 

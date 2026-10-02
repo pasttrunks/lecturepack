@@ -631,3 +631,44 @@ def test_a_transient_server_status_is_still_retried(tmp_path) -> None:
     else:  # pragma: no cover
         raise AssertionError("an exhausted 503 retry must still fail")
     assert transport.calls > 1, "a 503 must be retried"
+
+
+def test_starting_a_repair_never_mutates_the_published_backend_metaobject(qapp, tmp_path, monkeypatch):
+    """BUG-70: Backend is published on the QWebChannel before any repair runs.
+
+    Connecting the worker to an undecorated Backend method made PySide add a
+    dynamic slot to Backend's metaobject. That shifted method indices after
+    the page had subscribed, so no repair event ever reached the UI and
+    "Repair all" hung on "Checking runtime…". The method table must be
+    identical before and after a repair worker is wired.
+    """
+    import sys
+    app_dir = str(Path(__file__).parents[1] / "app")
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+    from desktop import bridge
+
+    class Result:
+        state, components, fallback_notice = "SETUP_REQUIRED", {}, None
+    class Bootstrap:
+        def __init__(self, config, **kwargs): pass
+        def assess(self, **kwargs): return Result()
+    class Config:
+        def resolve_data_dir(self): return str(tmp_path / "profile")
+    monkeypatch.setattr(bridge, "ConfigManager", Config)
+    monkeypatch.setattr(bridge, "RuntimeBootstrapService", Bootstrap)
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsService", lambda *args: object())
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsController", lambda *args: object())
+    backend = bridge.Backend(None)
+
+    def methods(obj):
+        meta = obj.metaObject()
+        return [bytes(meta.method(i).methodSignature()).decode() for i in range(meta.methodCount())]
+
+    before = methods(backend)
+
+    class Worker(bridge.QObject):
+        repair_event = bridge.Signal(dict)
+        def start(self): pass
+    backend._start_repair_worker(Worker())
+    assert methods(backend) == before

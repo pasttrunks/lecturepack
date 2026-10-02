@@ -6012,7 +6012,7 @@
       if (kind === 'admitted') { syncDemoAdmission(view); ready(); return; }
       if (kind === 'cancelled') { render(); return; }
       if (kind === 'offline' || (kind === 'failed' && d.classification === 'offline')) { announce('runtime-live-assertive', 'An internet connection is needed to repair LecturePack.'); render(); return; }
-      if (kind === 'failed') { announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', (typeof d.detail === 'string' && d.detail.trim() ? d.detail.trim().charAt(0).toUpperCase() + d.detail.trim().slice(1) + '. ' : "We couldn't verify the repair download. ") + 'Your previous runtime is still in place.'); render(); }
+      if (kind === 'failed') { announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', typeof d.detail === 'string' && d.detail.trim() ? d.detail.trim().charAt(0).toUpperCase() + d.detail.trim().slice(1) + '.' : "We couldn't verify the repair download. Your previous runtime is still in place."); render(); }
     }
     function wire() {
       $('btn-runtime-repair').addEventListener('click', beginOffer);
