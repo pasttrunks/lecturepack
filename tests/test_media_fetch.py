@@ -120,14 +120,12 @@ def test_probe_returns_normalised_metadata():
                    "webpage_url": "https://example.com/w"}
 
 
-def test_youtube_probe_does_not_force_a_player_client():
-    """This test used to require player_client=["android"].
-
-    That override predates yt-dlp's EJS system. YouTube now presents
-    JavaScript challenges that yt-dlp solves with a real JS runtime, and
-    pinning the Android client bypasses that path entirely -- which would
-    defeat the Deno runtime LecturePack now bundles. Letting yt-dlp pick its
-    own clients is the supported configuration.
+def test_youtube_probe_uses_the_clients_that_can_actually_download():
+    """OBS-02: BUG-30 removed the client override because a forced Android
+    client bypassed EJS. By 2026-10 the default client (android_vr) answered
+    HTTP 403 for media URLs, so link downloads produced only a caption file.
+    Measured live: only android and mweb downloaded. "web" stays last so the
+    EJS JS-challenge path is still reachable.
     """
     captured = {}
 
@@ -139,8 +137,8 @@ def test_youtube_probe_does_not_force_a_player_client():
         "https://www.youtube.com/watch?v=2xK_bL_GqZs&t=1s"
     )
 
-    youtube_args = (captured.get("extractor_args") or {}).get("youtube") or {}
-    assert "player_client" not in youtube_args
+    clients = ((captured.get("extractor_args") or {}).get("youtube") or {}).get("player_client")
+    assert clients == ["android", "mweb", "web"]
 
 
 def test_probe_does_not_download():

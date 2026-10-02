@@ -272,6 +272,18 @@ class MediaFetcher:
             # Never reach out for extra components at runtime on a customer
             # machine: everything EJS needs is bundled in the installer.
             "remote_components": [],
+            # OBS-02 (2026-10-01, measured live with yt-dlp 2026.07.04 + the
+            # bundled deno): yt-dlp's DEFAULT clients pick android_vr, whose
+            # media URLs answer HTTP 403, so the download writes only the
+            # caption sidecar. web / web_safari / ios found no formats and tv
+            # errored; android and mweb downloaded the real mp4. Keep android
+            # and mweb first and "web" last so the EJS path stays reachable.
+            # Re-run that probe before ever removing this again.
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "mweb", "web"],
+                },
+            },
         }
         # Point yt-dlp at LecturePack's own FFmpeg so merges/remuxes work on a
         # machine with no system FFmpeg.
