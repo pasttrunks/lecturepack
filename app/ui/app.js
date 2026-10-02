@@ -5764,6 +5764,20 @@
       // the demo offer (D-17), so skipping it here would silently drop the
       // demo offer for the users with the roughest install.
       if (snap.healthy && !snap.acknowledged) {
+        // BUG-71: a repair admits the runtime without any bootstrap result, so
+        // the five-row checklist this branch needs was never delivered and the
+        // overlay sat on "0 of 5 checked" forever. Pull the authoritative,
+        // now-HEALTHY bootstrap (which carries the checklist) exactly once.
+        if (!snap.checklistReady && !closeReady._refreshing && lpBridge.connected()) {
+          closeReady._refreshing = true;
+          lpBridge.call('get_bootstrap').then(function (json) {
+            var b = null; try { b = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) {}
+            if (b) { bootstrapSnapshot = b.setup_required || b; eventModel.bootstrap(b); }
+            closeReady._refreshing = false;
+            var after = eventModel.toChecklist();
+            if (after.state === 'checklist') { announce('runtime-live-assertive', "You're ready to go."); render(true); }
+          }, function () { closeReady._refreshing = false; });
+        }
         var view = eventModel.toChecklist();
         announce('runtime-live-assertive', view.state === 'checklist'
           ? "You're ready to go."

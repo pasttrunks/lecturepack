@@ -560,7 +560,7 @@ re-debug the same thing from scratch.
   Copy details (BUG-69) also passes in that build. Test
   `test_starting_a_repair_never_mutates_the_published_backend_metaobject` fails with the fix reverted.
   Full suite: 2036 passed.
-- **Not verified:** a successful repair end to end, because no runtime is published for 2.1.3.
+- **Not verified in the packaged build:** a successful repair. It was driven to success in a source run against a locally served, test-key-signed release; see BUG-71.
 - **Lesson:** never `connect()` to an undecorated method of an object that is already published on a
   QWebChannel.
 - **Audit (2026-10-01):** measured which patterns actually add a slot to the receiver: only
@@ -569,6 +569,30 @@ re-debug the same thing from scratch.
   unpublished object (MainWindow, Updater, SingleInstanceGuard). The repair worker was the only site that
   targeted Backend. Guard: `test_nothing_connects_a_signal_to_a_backend_method` (AST scan) fails on the
   original BUG-70 line.
+
+### BUG-71 — a successful repair on a first-run profile left the gate on "0 of 5 checked" forever   ✅ FIXED (verified in a simulated repair)
+- **Area:** `app/ui/app.js` (`RuntimeSetupGate` `closeReady`).
+- **Found:** 2026-10-01, the first time a repair had ever been driven to success in the real UI (see the simulation below).
+- **Symptom:** after "admitted", the backend reported `HEALTHY` and the new runtime generation was on disk,
+  but the overlay switched to "Setting things up — 0 of 5 checked", every row Pending, and never left it.
+- **Root cause:** on a profile that hasn't acknowledged setup yet, `closeReady` switches to the first-run
+  checklist (D-17). That checklist arrives only with a bootstrap result, and a repair produces none, so
+  `toChecklist()` fell into `waitForChecklist()` with nothing left to deliver it.
+  This is exactly the "roughest install" case that branch was written for.
+- **Fix:** in that branch, fetch `get_bootstrap` once (it already returns the HEALTHY five-row checklist),
+  load it into the model, and render the checklist.
+- **Verified (source run plus simulated release, see the "Repair simulation" note below):** after the repair the checklist shows
+  all five rows as Ready ("You're ready to go"). Done closes the overlay to Home.
+- **Not verified:** the packaged build has no URL or key override, so this exact flow can't run there.
+  No node test was added: `closeReady` is too entangled with the gate's DOM controller to extract
+  cleanly. The proof is the real-UI run.
+- **Repair simulation (how a successful repair was exercised at all):** `scripts/build_signed_runtime_release.py`
+  with a **throwaway** Ed25519 key built a real signed 2.1.3 release (4 archives, 198.8 MB) from
+  `app/dist/LecturePack`. A source-run launcher (scratch only, not committed) served it from
+  `127.0.0.1:8765`, swapped only the transport host and the verifier's public key, and forced the
+  initial runtime root to a copy with `bin/ggml-base.dll` removed. Everything else was real:
+  signature verification, offer, confirm, streaming, extraction, activation and admission. Production code
+  has no override for either the URL or the key, by design, and none was added.
 
 ### OBS-02 — the BUG-30 android player_client override is BACK in 2.1.3   ✅ FIXED (reverted 2026-10-01, live-probed)
 - **Area:** `lecturepack/services/media_fetch.py:277`.
