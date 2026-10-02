@@ -562,7 +562,13 @@ re-debug the same thing from scratch.
   Full suite: 2036 passed.
 - **Not verified:** a successful repair end to end, because no runtime is published for 2.1.3.
 - **Lesson:** never `connect()` to an undecorated method of an object that is already published on a
-  QWebChannel. Audit the other `connect(self._…)` calls on Backend for the same pattern.
+  QWebChannel.
+- **Audit (2026-10-01):** measured which patterns actually add a slot to the receiver: only
+  `signal.connect(<undecorated method of that QObject>)` does. `QTimer.singleShot(ms, backend, fn)`, lambdas,
+  and connections to other objects' methods do not. Every `connect(self._…)` in `app/desktop` targets an
+  unpublished object (MainWindow, Updater, SingleInstanceGuard). The repair worker was the only site that
+  targeted Backend. Guard: `test_nothing_connects_a_signal_to_a_backend_method` (AST scan) fails on the
+  original BUG-70 line.
 
 ### OBS-02 — the BUG-30 android player_client override is BACK in 2.1.3   ✅ FIXED (reverted 2026-10-01, live-probed)
 - **Area:** `lecturepack/services/media_fetch.py:277`.

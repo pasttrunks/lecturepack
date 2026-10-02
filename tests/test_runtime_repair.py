@@ -672,3 +672,28 @@ def test_starting_a_repair_never_mutates_the_published_backend_metaobject(qapp, 
         def start(self): pass
     backend._start_repair_worker(Worker())
     assert methods(backend) == before
+
+
+def test_nothing_connects_a_signal_to_a_backend_method():
+    """BUG-70 audit: a signal connected to an undecorated Backend method adds a
+    dynamic slot to the QWebChannel-published metaobject and silently cuts the
+    page off from every signal. Receivers must be private relays, other
+    (unpublished) QObjects, or plain callables -- never Backend itself.
+    """
+    import ast
+    desktop = Path(__file__).parents[1] / "app" / "desktop"
+    offenders = []
+    for path in desktop.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        backend_classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "Backend"]
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "connect" and node.args):
+                continue
+            target = node.args[0]
+            if not isinstance(target, ast.Attribute):
+                continue
+            owner = ast.unparse(target.value)
+            inside_backend = any(c.lineno <= node.lineno <= c.end_lineno for c in backend_classes)
+            if (owner == "self" and inside_backend) or owner.split(".")[-1] in {"backend", "_backend"}:
+                offenders.append(f"{path.name}:{node.lineno}: {ast.unparse(node)}")
+    assert offenders == [], offenders
