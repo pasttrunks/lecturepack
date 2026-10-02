@@ -594,7 +594,31 @@ re-debug the same thing from scratch.
   signature verification, offer, confirm, streaming, extraction, activation and admission. Production code
   has no override for either the URL or the key, by design, and none was added.
 
-### OBS-02 — the BUG-30 android player_client override is BACK in 2.1.3   ✅ FIXED (reverted 2026-10-01, live-probed)
+### BUG-72 — "Paste a link" could never work in the Qt shell   ✅ FIXED (verified in a rebuilt packaged app)
+- **Area:** `app/desktop/bridge.py` (`probe_media_url`, `import_media_url`), `app/desktop/engine_adapter.py`.
+- **Found:** 2026-10-01, running the full YouTube flow in the packaged app.
+- **Symptom:** every link gave "That link could not be read." The backend's reply was
+  `{"ok": false, "error": "That doesn't look like a web link."}`.
+- **Root cause:** since fe66552 (2026-08-09) `app/ui` sends the Electron batch contract,
+  `probe_media_url({urls:[...]})` and `import_media_url({items:[{url,title}]})`. The Qt slots were still
+  `Slot(str)` and `Slot(str, str)`. QWebChannel stringified the object, and the two-argument import slot
+  could not be called with one argument at all. Probing with a plain string works, which hid it from the
+  adapter tests.
+- **Fix:** both slots take `QVariant` and accept the string form, `{urls}` and `{items}`. Multiple links are
+  probed on one worker (`{ok, items}`) and downloaded strictly one after another.
+- **Verified:** in the packaged app the probe showed "Me at the zoo, 0:19"; Download 1 then wrote a real mp4 and the
+  import dialog opened (this also needed the OBS-02 restore). New tests:
+  `test_bridge_accepts_the_batch_shapes_the_ui_actually_sends` (fails with the fix reverted) and
+  `test_several_links_download_one_after_another`.
+- **Not verified:** multiple links in the real UI. Only the unit test covers that.
+
+### OBS-03 — on a first job, Home shows "No lectures yet" until processing finishes   🔴 OPEN (observed, not fixed)
+- **Seen:** 2026-10-01, packaged app with a fresh profile, while importing the 1.375 GB file. The sidebar showed
+  "Transcribe 64%" but Home said "No lectures yet". The normal `start_processing` path never calls
+  `_push_jobs()`; only the queued path does. The job card appears on completion. A "Continue: Processing" banner
+  also lingered after the job finished. Not investigated further.
+
+### OBS-02 — the BUG-30 android player_client override is BACK in 2.1.3   ✅ RESOLVED: the override is REQUIRED (restored 2026-10-01 after a live download probe)
 - **Area:** `lecturepack/services/media_fetch.py:277`.
 - **Found:** 2026-09-20, by the full suite, while verifying the DEF-045..047 fixes.
 - **Symptom:** two tests fail at `v2.1.3` HEAD —
@@ -620,6 +644,18 @@ re-debug the same thing from scratch.
   This is a different video from BUG-30's, so 11 can't be compared with BUG-30's 14.
 - **Verified:** full suite 2034 passed, 8 skipped, 0 failed. **Not verified:** a full download through
   the packaged build.
+- **REVERSED the same day. The revert above was wrong.** The format count was the wrong metric. A
+  live **download** (not `extract_info`) of `jNQXAC9IVRw` with the bundled deno, per client:
+  default (android_vr) → **HTTP 403** on media, so only the `.vtt` sidecar was written ("The download finished
+  but no media file was written"); `web`, `web_safari`, `ios` → no video formats; `tv` → "page needs to be
+  reloaded"; **`android` and `mweb` → a real 614 KB mp4**. So 025f5b0's override is what keeps link
+  downloads working. It was undocumented, not wrong.
+- **Restored** `["android","mweb","web"]` with the measurement in a code comment. The two tests now pin the
+  opposite of BUG-30's rule: a downloading client comes first and `web` comes last, so EJS is still reachable.
+- **Verified in the rebuilt packaged app:** pasting the link, probing, downloading, importing and processing
+  all worked through Review Ready. The Whisper transcript matches the clip and the card shows the poster.
+- **Lesson:** "more formats" is not "it downloads". Probe the operation the user performs. This is
+  BUG-30's lesson again, and it applied to my own fix.
 
 ### DEF-044 — the runtime-setup gate crashed on exactly the failure it exists to explain   🟡 FIXED (shipped in 2.0.9; the packaged build's own runtime is healthy, so the fixed path is still unexercised there)
 - **Area:** `lecturepack/services/first_run_checklist.py::build_first_run_checklist`,

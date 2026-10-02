@@ -751,15 +751,55 @@ class Backend(QObject):
         """Report whether link import is available in this build."""
         self._adapter.media_link_support()
 
-    @Slot(str)
-    def probe_media_url(self, url: str):
-        """Look up a link's title/duration without downloading it."""
-        self._adapter.probe_media_url(url)
+    # BUG-72: app/ui has sent the batch contract -- {urls:[...]} and
+    # {items:[{url,title}]} -- since fe66552, but these slots were typed
+    # (str) / (str, str). QWebChannel stringified the object, so every probe
+    # failed with "That doesn't look like a web link", and the two-argument
+    # import slot could not be invoked with one argument at all. Accept both
+    # shapes: the plain string form is still used by Python callers and tests.
+    @staticmethod
+    def _media_urls(arg) -> list[str]:
+        if isinstance(arg, str):
+            return [arg] if arg.strip() else []
+        if isinstance(arg, dict):
+            urls = arg.get("urls")
+            if isinstance(urls, list):
+                return [u for u in urls if isinstance(u, str) and u.strip()]
+            if isinstance(arg.get("url"), str):
+                return [arg["url"]]
+        return []
 
-    @Slot(str, str)
-    def import_media_url(self, url: str, title: str):
-        """Download a link, then hand the file to the normal import path."""
-        self._adapter.import_media_url(url, title)
+    @staticmethod
+    def _media_items(arg, title: str = "") -> list[tuple[str, str]]:
+        if isinstance(arg, str):
+            return [(arg, title or "")] if arg.strip() else []
+        if isinstance(arg, dict):
+            items = arg.get("items")
+            if isinstance(items, list):
+                return [(i["url"], str(i.get("title") or "")) for i in items
+                        if isinstance(i, dict) and isinstance(i.get("url"), str) and i["url"].strip()]
+            if isinstance(arg.get("url"), str):
+                return [(arg["url"], str(arg.get("title") or ""))]
+        return []
+
+    @Slot("QVariant")
+    def probe_media_url(self, arg):
+        """Look up one or more links' title/duration without downloading."""
+        urls = self._media_urls(arg)
+        if len(urls) <= 1:
+            self._adapter.probe_media_url(urls[0] if urls else "")
+        else:
+            self._adapter.probe_media_urls(urls)
+
+    @Slot("QVariant")
+    def import_media_url(self, arg, title: str = ""):
+        """Download link(s) one after another, each through the normal import path."""
+        items = self._media_items(arg, title)
+        if len(items) <= 1:
+            url, name = items[0] if items else ("", "")
+            self._adapter.import_media_url(url, name)
+        else:
+            self._adapter.import_media_urls(items)
 
     @Slot()
     def cancel_media_url(self):

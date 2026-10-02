@@ -146,6 +146,16 @@ class EngineAdapter(QObject):
         self.backend.media_done.emit(json.dumps(
             {"ok": False, "error": "Link import isn't available here."}))
 
+    def probe_media_urls(self, urls) -> None:
+        """Probe several links; emit one media_probe {ok, items:[...]}."""
+        self.backend.media_probe.emit(json.dumps(
+            {"ok": False, "error": "Link import isn't available here."}))
+
+    def import_media_urls(self, items) -> None:
+        """Download several (url, title) links one after another."""
+        self.backend.media_done.emit(json.dumps(
+            {"ok": False, "error": "Link import isn't available here."}))
+
     def cancel_media_url(self) -> None:
         """Cancel an in-flight link download."""
 
@@ -1656,7 +1666,54 @@ class LecturePackAdapter(EngineAdapter):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def probe_media_urls(self, urls):
+        """Probe several links on one worker and emit {ok, items} (BUG-72)."""
+        try:
+            from lecturepack.services.media_fetch import MediaFetcher, MediaFetchError
+        except Exception:
+            self.backend.media_probe.emit(json.dumps(
+                {"ok": False, "error": "Link import isn't available in this build."}))
+            return
+
+        def worker():
+            items = []
+            for url in urls:
+                try:
+                    info = MediaFetcher().probe(url)
+                    info["ok"] = True
+                except MediaFetchError as exc:
+                    info = {"ok": False, "url": url, "error": str(exc)}
+                except Exception as exc:
+                    info = {"ok": False, "url": url, "error": str(exc)[:300]}
+                items.append(info)
+            payload = {"ok": any(i.get("ok") for i in items), "items": items}
+            if not payload["ok"]:
+                payload["error"] = next((i.get("error") for i in items if i.get("error")), "")
+            self._emit_soon(self.backend.media_probe, payload)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def import_media_urls(self, items):
+        """Download several links strictly one at a time (BUG-72).
+
+        Only one link download may run (``_media_busy``), so the rest wait in
+        ``_media_queue`` and the next starts when the current one finishes.
+        """
+        items = list(items)
+        if not items:
+            return
+        self._media_queue = list(getattr(self, "_media_queue", [])) + items[1:]
+        self.import_media_url(*items[0])
+
+    def _start_next_media(self):
+        queue = getattr(self, "_media_queue", None) or []
+        if queue and not getattr(self, "_media_busy", False):
+            url, title = queue.pop(0)
+            self._media_queue = queue
+            self.import_media_url(url, title)
+
     def cancel_media_url(self):
+        self._media_queue = []
         ev = getattr(self, "_media_cancel", None)
         if ev is not None:
             ev.set()
@@ -1716,6 +1773,8 @@ class LecturePackAdapter(EngineAdapter):
             if payload.get("ok"):
                 QTimer.singleShot(
                     0, self.backend, lambda: self.import_video(payload["path"]))
+            if not payload.get("cancelled"):
+                QTimer.singleShot(0, self.backend, self._start_next_media)
 
         threading.Thread(target=worker, daemon=True).start()
 
