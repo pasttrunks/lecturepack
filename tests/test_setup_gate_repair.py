@@ -188,3 +188,34 @@ def test_gate_lists_components_from_the_map_shape_the_bridge_actually_sends() ->
     program = "var bootstrapSnapshot = null;\n" + program
     result = subprocess.run(["node", "-e", program], capture_output=True, text=True)
     assert result.returncode == 0, f"check {result.returncode} failed: {result.stderr}"
+
+
+def test_copy_details_uses_the_desktop_clipboard_before_the_web_one() -> None:
+    """BUG-69: in the packaged Qt shell navigator.clipboard never succeeds on
+    the file:// page, so "Copy details" always said "Could not copy details."
+    and the bridge's report (version + failed components) was unreachable.
+    The copy must go through the bridge first and fall back only if it fails.
+    """
+    source = read_ui("app.js")
+    block = "function webCopyDiagnostics" + source.split("function webCopyDiagnostics", 1)[1].split("function saveDiagnostics", 1)[0]
+    program = r'''
+      const fail = (n) => process.exit(n);
+      let bridgeCalls = 0, webCalls = 0;
+      global.document = { createElement(){ return {style:{}, select(){}, remove(){}}; }, body:{appendChild(){}}, execCommand(){ return false; } };
+      Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText(){ webCalls++; return Promise.reject(new Error('denied')); } } } });
+      const diagnosticText = () => 'report';
+      let connected = true, bridgeResult = '{"type": "runtime_repair_diagnostics_copied"}';
+      const lpBridge = { connected: () => connected, copyRuntimeRepairDiagnostics(){ bridgeCalls++; return Promise.resolve(bridgeResult); } };
+    ''' + block + r'''
+      (async () => {
+        const ok = JSON.parse(await copyDiagnostics());
+        if (!/copied/.test(ok.type) || bridgeCalls !== 1 || webCalls !== 0) fail(1);
+        // Bridge unavailable and the web clipboard denied: report failure, never a fake success.
+        connected = false; let failed = false;
+        try { await copyDiagnostics(); } catch (e) { failed = true; }
+        if (!failed || webCalls !== 1) fail(2);
+        process.exit(0);
+      })();
+    '''
+    result = subprocess.run(["node", "-e", program], capture_output=True, text=True)
+    assert result.returncode == 0, f"check {result.returncode} failed: {result.stderr}"

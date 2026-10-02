@@ -6012,7 +6012,7 @@
       if (kind === 'admitted') { syncDemoAdmission(view); ready(); return; }
       if (kind === 'cancelled') { render(); return; }
       if (kind === 'offline' || (kind === 'failed' && d.classification === 'offline')) { announce('runtime-live-assertive', 'An internet connection is needed to repair LecturePack.'); render(); return; }
-      if (kind === 'failed') { announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', "We couldn't verify the repair download. Your previous runtime is still in place."); render(); }
+      if (kind === 'failed') { announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', (typeof d.detail === 'string' && d.detail.trim() ? d.detail.trim().charAt(0).toUpperCase() + d.detail.trim().slice(1) + '. ' : "We couldn't verify the repair download. ") + 'Your previous runtime is still in place.'); render(); }
     }
     function wire() {
       $('btn-runtime-repair').addEventListener('click', beginOffer);
@@ -6027,9 +6027,32 @@
       $('btn-runtime-diagnostics-back').addEventListener('click', back);
       function diagnosticFeedback(promise, ok, bad) { promise.then(function (json) { var r; try { r = JSON.parse(json); } catch (e) {} announce('runtime-live-polite', r && /copied|saved/.test(r.type || '') ? ok : bad); }, function () { announce('runtime-live-polite', bad); }); }
       function diagnosticText() { return ($('runtime-diagnostics-report') && $('runtime-diagnostics-report').textContent) || 'No runtime diagnostics are available.'; }
+      // BUG-69: the desktop shell owns the clipboard. QtWebEngine grants
+      // file:// pages no async clipboard permission, so navigator.clipboard
+      // never succeeded in the packaged app ("Could not copy details."), and
+      // the bridge's report (version + every failed component) was unreachable.
+      // Prefer the bridge; fall back to the web clipboard, then execCommand.
+      function webCopyDiagnostics() {
+        var text = diagnosticText();
+        function legacy() {
+          var ta = document.createElement('textarea'), ok = false;
+          ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+          document.body.appendChild(ta); ta.select();
+          try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+          ta.remove();
+          return ok ? JSON.stringify({ type: 'copied' }) : Promise.reject(new Error('clipboard unavailable'));
+        }
+        if (!navigator.clipboard || !navigator.clipboard.writeText) return Promise.resolve().then(legacy);
+        return navigator.clipboard.writeText(text).then(function () { return JSON.stringify({ type: 'copied' }); }, legacy);
+      }
       function copyDiagnostics() {
-        if (!navigator.clipboard || !navigator.clipboard.writeText) return Promise.reject(new Error('clipboard unavailable'));
-        return navigator.clipboard.writeText(diagnosticText()).then(function () { return JSON.stringify({ type: 'copied' }); });
+        if (lpBridge.connected() && lpBridge.copyRuntimeRepairDiagnostics) {
+          return lpBridge.copyRuntimeRepairDiagnostics().then(function (json) {
+            var r; try { r = JSON.parse(json); } catch (e) {}
+            return r && /copied/.test(r.type || '') ? json : webCopyDiagnostics();
+          }, webCopyDiagnostics);
+        }
+        return webCopyDiagnostics();
       }
       function saveDiagnostics(filename) {
         var blob = new Blob([diagnosticText()], { type: 'text/plain;charset=utf-8' });

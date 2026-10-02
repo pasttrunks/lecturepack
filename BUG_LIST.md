@@ -500,6 +500,44 @@ re-debug the same thing from scratch.
   `bin/ggml-base.dll`), launch that copy, and confirm the gate NAMES the missing file, that
   "Copy details" yields a report containing it, and that "Repair all" reports no published
   runtime rather than an offline network.
+- **Closed 2026-10-01 (packaged copy, `bin/ggml-base.dll` removed):** DEF-045 ✅ the gate shows
+  "Runtime files — missing or empty required runtime payload: bin/ggml-base.dll". DEF-046 ❌ until
+  BUG-69 fixed the button; it now passes. DEF-047 ⚠ correct in the backend's recorded events, but the UI
+  never shows it, because of BUG-70. It says neither "offline" nor "no published runtime".
+
+### BUG-69 — packaged "Copy details" always failed; the DEF-046 report was unreachable   ✅ FIXED (verified in a packaged copy)
+- **Area:** `app/ui/app.js` (`copyDiagnostics` in the runtime gate).
+- **Found:** 2026-10-01, closing the DEF-045..047 verification boundary in a copy of
+  `app/dist/LecturePack` with `bin/ggml-base.dll` removed.
+- **Symptom:** Open diagnostics, then Copy details, gave "Could not copy details." and the clipboard was unchanged.
+- **Root cause:** the UI copied with `navigator.clipboard.writeText` only. QtWebEngine gives the
+  `file://` page no async-clipboard permission, so it never succeeded in the Qt shell. The bridge
+  slot `copy_runtime_repair_diagnostics`, which DEF-046 fixed, was wired in `bridge.js` but
+  **nothing called it**. DEF-046 was verified at the bridge, one layer below the button.
+- **Fix:** copy through the bridge first. If that fails, fall back to the web clipboard, then
+  `execCommand`. A failure is still reported as a failure.
+- **Verified (packaged copy, trusted CDP click):** "Details copied." The Windows clipboard held
+  `app_version 2.1.3`, `SETUP_REQUIRED`, and the reason
+  `missing or empty required runtime payload: bin/ggml-base.dll`.
+  Test `test_copy_details_uses_the_desktop_clipboard_before_the_web_one` fails with the fix reverted.
+- **Lesson:** verify a fix at the control the user touches, not the slot under it.
+
+### BUG-70 — packaged Qt shell: repair events never reach the page; Repair all hangs on "Checking runtime…"   🔴 OPEN
+- **Area:** `app/desktop/bridge.py` `repair_event` signal → QWebChannel → `app/ui/bridge.js`.
+- **Found:** 2026-10-01, same packaged copy as BUG-69.
+- **Symptom:** after Repair all, the button stays disabled and the status stays on "Checking runtime…"
+  indefinitely. Retry does not clear it either.
+- **Evidence:** the backend does the right thing. Its diagnostics record `started` and then `failed`
+  with "no published repair runtime exists for this version of LecturePack" (DEF-047 holds at the
+  service), and the bridge clears its offer state, so `_on_repair_event` ran. But a `lpBridge.on('repair_event')`
+  hook registered before the click received **nothing**. No console errors appeared. `lpBridge.emit`
+  reaches the same hook, so the JS side is wired. The frozen `desktop.bridge` bytecode matches source.
+  A source repro with a real `Backend` and a 404 transport emits both events (offscreen Qt, no WebEngine).
+  The fault is therefore between `Backend.repair_event.emit` and the page. Not diagnosed further.
+- **Also fixed alongside (unverified in the UI, because of this bug):** the `failed` branch hardcoded
+  "We couldn't verify the repair download" and ignored the event's `detail`. It now shows the detail.
+- **Next step:** reproduce in a source Qt run with logging in `_on_repair_event`, and check whether
+  *any* Backend signal reaches the page while the gate is up.
 
 ### OBS-02 — the BUG-30 android player_client override is BACK in 2.1.3   ✅ FIXED (reverted 2026-10-01, live-probed)
 - **Area:** `lecturepack/services/media_fetch.py:277`.
