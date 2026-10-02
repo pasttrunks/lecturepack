@@ -126,6 +126,7 @@ class _Stub:
     media_link_support = ea.LecturePackAdapter.media_link_support
     probe_media_url = ea.LecturePackAdapter.probe_media_url
     import_media_url = ea.LecturePackAdapter.import_media_url
+    _start_next_media = ea.LecturePackAdapter._start_next_media
     cancel_media_url = ea.LecturePackAdapter.cancel_media_url
     _downloads_dir = ea.LecturePackAdapter._downloads_dir
     _emit_soon = ea.LecturePackAdapter._emit_soon
