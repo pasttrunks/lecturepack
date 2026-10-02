@@ -684,10 +684,19 @@
       img.style.opacity = 1;
       if (placeholder) placeholder.hidden = true;
     };
+    // BUG-26: the chip asks for the poster the instant a file is imported,
+    // before the import thread has written it, so the first request always
+    // 404s. "Let the next list refresh retry" never happened: the guard above
+    // returns early for the same job, and a re-request without a cache-buster
+    // reuses the failed load. Retry with the cards' own backoff + buster.
+    var tries = 0;
     img.onerror = function () {
-      // no poster yet: keep the icon, and let the next list refresh retry
-      img.hidden = true;
-      if (placeholder) placeholder.hidden = false;
+      if (img.getAttribute('data-for') !== jobId) return;   // a newer job took over
+      tries += 1;
+      if (tries > POSTER_RETRIES) { img.hidden = true; if (placeholder) placeholder.hidden = false; return; }
+      setTimeout(function () {
+        if (img.getAttribute('data-for') === jobId) img.src = posterSrc(jobId, tries);
+      }, 700 * tries);
     };
     img.src = posterSrc(jobId, 0);
   }

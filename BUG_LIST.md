@@ -378,7 +378,7 @@ re-debug the same thing from scratch.
 - **Lesson:** when a CSS fix "doesn't apply", look for an inline `!important` block before
   re-writing the rule. And check whether JS rewrites `className`.
 
-### BUG-26 — imported video's thumbnail never appears on the job card   🔴 OPEN (known, shipped in 0.9.0-beta.5)
+### BUG-26 — imported video's thumbnail never appears on the job card   🟡 PARTLY FIXED (sidebar chip fixed and seen working, 2026-10-01; large-file card case not reproduced)
 - **Area:** `app/ui/app.js` (`posterSrc` / `LP.posterRetry` / `posterHtml`) ↔
   `app/desktop/assets.py` (`resolve_poster`, `make_poster_now`).
 - **Reported by:** owner, 2026-07-27, twice — on import of `CL100 - Day 3` (1.4 GB, h264)
@@ -413,6 +413,22 @@ re-debug the same thing from scratch.
 - **Next step:** confirm which file the page actually loaded (rule out the cache) with a
   hard cache-bust or a fresh profile, then trace `resolve_poster` for the existing-file 404.
   Do NOT add a third timing/retry fix before the 404-on-existing-file is explained.
+- **2026-10-01 — reproduced and partly fixed (third attempt, NOT a timing/retry-budget change):**
+  - **Repro:** a rebuilt packaged app with a disposable `LECTUREPACK_DATA_DIR`, importing the 2.7 MB demo
+    lecture through the real Browse dialog. `poster.webp` was on disk at 21:09:32. The **sidebar chip**
+    (`#side-job-poster`) still showed the placeholder icon, with `naturalWidth 0` and no retry. Requesting the
+    same URL again with a fresh query string loaded it at 480px. That is a "404 for a file that exists" seen
+    from the page side: the chip asked **once**, at import, before the import thread had written the
+    file. Its `onerror` relied on "the next list refresh" to retry, but `renderSidePoster` returns early for
+    the same job id and never re-requested with a cache-buster.
+  - **Fix:** the chip now retries with the cards' backoff and `?r=n` buster (`POSTER_RETRIES`).
+  - **Verified in the real app:** a fresh profile and the same import gave `src …/poster?r=1`, `naturalWidth 480`
+    and a visible frame in the sidebar (screenshot). Test `tests/test_side_poster_retry.py` fails with the fix reverted.
+  - **NOT verified / still open:** the Home **job card** loaded correctly in this repro, because the poster
+    was ready by the time the card rendered. The owner's original case (a 1.4 GB file, where the card's own
+    `?r=n` retries were seen to 404) was not reproduced, because no file that large was available. Hypotheses
+    (a) and (b) above are still unseparated for the card. The "New job" dialog's thumbnail is a static icon
+    by design, not a poster.
 - **Files:** `app/ui/app.js`, `app/desktop/assets.py`.
 
 ## FIXED THIS SESSION
