@@ -378,7 +378,7 @@ re-debug the same thing from scratch.
 - **Lesson:** when a CSS fix "doesn't apply", look for an inline `!important` block before
   re-writing the rule. And check whether JS rewrites `className`.
 
-### BUG-26 — imported video's thumbnail never appears on the job card   🟡 PARTLY FIXED (sidebar chip fixed and seen working, 2026-10-01; large-file card case not reproduced)
+### BUG-26 — imported video's thumbnail never appears on the job card   ✅ FIXED (sidebar chip fixed; large-file card verified, 2026-10-01)
 - **Area:** `app/ui/app.js` (`posterSrc` / `LP.posterRetry` / `posterHtml`) ↔
   `app/desktop/assets.py` (`resolve_poster`, `make_poster_now`).
 - **Reported by:** owner, 2026-07-27, twice — on import of `CL100 - Day 3` (1.4 GB, h264)
@@ -429,6 +429,12 @@ re-debug the same thing from scratch.
     `?r=n` retries were seen to 404) was not reproduced, because no file that large was available. Hypotheses
     (a) and (b) above are still unseparated for the card. The "New job" dialog's thumbnail is a static icon
     by design, not a poster.
+- **Large-file card, verified 2026-10-01 (rebuilt packaged app containing the fix):** I built a synthetic 1.375 GB
+  h264 video with ffmpeg (testsrc2 1080p30 at 9.5 Mb/s, 19:10, with an aac sine track) and imported it through
+  Browse with a fresh profile. `poster.webp` was written within 2 s of import. The sidebar chip loaded it at `?r=1`.
+  The Home card rendered the frame (`naturalWidth 480`, first try, screenshot). No card 404 reproduced at this size.
+  The owner's original 07-27 report predates the BUG-25/26 kick-on-import changes and this chip fix, so
+  hypothesis (a), a stale cached `app.js`, can't be ruled out for that run. It is not reproducible on current code.
 - **Files:** `app/ui/app.js`, `app/desktop/assets.py`.
 
 ## FIXED THIS SESSION
