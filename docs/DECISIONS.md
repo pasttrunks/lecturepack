@@ -2,6 +2,29 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-55: Home reflects authoritative processing lifecycle
+
+**Date:** 2026-10-03
+**Status:** Implemented; isolated packaged Home acceptance passed
+
+**Context:** A first normal Qt job emitted progress without publishing the library,
+so Home remained empty until completion. Its saved Process resume destination also
+outlived the run and continued advertising Processing after completion.
+
+**Decision:** Publish the existing disk-backed jobs feed immediately after the
+controller starts the pipeline and stamps its running stage. Derive the Continue
+card from both saved navigation and the current library status: hide a Process
+resume destination for a done job, retaining meaningful Review/Study destinations
+and paused processing. No source media, persistence schema or bridge is changed.
+
+**Alternatives considered:** Polling the library adds recurring work; constructing
+a synthetic running card adds a second status authority; rewriting persisted
+resume state discards navigation unnecessarily. All were rejected.
+
+**Rationale:** The existing controller and jobs feed already own lifecycle truth.
+Publishing and consuming that truth fixes both symptoms without new state.
+
+
 ## AD-53: Guided-demo output and its recovery UI are exact packaged contracts
 
 **Date:** 2026-08-12

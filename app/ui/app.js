@@ -12254,6 +12254,12 @@
       return;
     }
     var state = resumeStore.load(jobId) || {};
+    // The saved Process screen outlives the run. Completed lectures already
+    // have their library card; do not advertise stale processing to resume.
+    if (state.screen === 'process' && job.status === 'done') {
+      card.hidden = true;
+      return;
+    }
     var target = continueScreenOf(state);
     if (!target) {
       card.hidden = true;

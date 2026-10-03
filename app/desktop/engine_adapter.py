@@ -1969,6 +1969,9 @@ class LecturePackAdapter(EngineAdapter):
             pass  # best-effort; overall_status still tracks progress
         self.win.on_job_started()
         self.controller.run_pipeline()
+        # Publish after the controller stamps the first running stage, so Home
+        # can show the first lecture immediately with its authoritative status.
+        self._push_jobs()
 
     def cancel_job(self):
         if getattr(self, "_demo_session", None) is not None:

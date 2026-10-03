@@ -644,6 +644,61 @@ def test_close_ready_diverts_to_checklist_for_healthy_unacknowledged_snapshot() 
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.parametrize("as_json", [False, True])
+def test_repair_close_fetches_missing_checklist_and_renders_it(as_json) -> None:
+    """BUG-71: execute the shipped DOM callback, including its async bridge fetch."""
+    source = gate_controller_source()
+    close_ready = "function closeReady() {" + source.split(
+        "function closeReady() {", 1
+    )[1].split("// Per-row anti-flicker pacing state", 1)[0]
+    result = run_node(close_ready + r'''
+      const assert = require('node:assert/strict');
+      const eventModel = RuntimeSetupGateModel();
+      let bootstrapSnapshot = null, resolveBootstrap, calls = 0, closes = 0;
+      const rendered = [], announcements = [];
+      const lpBridge = {
+        connected: () => true,
+        call: (slot) => {
+          assert.equal(slot, 'get_bootstrap'); calls++;
+          return new Promise(resolve => { resolveBootstrap = resolve; });
+        }
+      };
+      function render() { rendered.push(eventModel.snapshot()); }
+      function announce(id, message) { announcements.push(message); }
+      function closeOverlay() { closes++; }
+
+      (async () => {
+        eventModel.bootstrap({runtime_health_state:'SETUP_REQUIRED', setup_acknowledged:false});
+        eventModel.begin('repair-op', 'repairing');
+        eventModel.event({operation_id:'repair-op', kind:'admitted'});
+        closeReady();
+        assert.equal(calls, 1);
+        assert.equal(eventModel.snapshot().state, 'checking');
+        closeReady(); // A second click while waiting cannot duplicate the request.
+        assert.equal(calls, 1);
+        const payload = {
+          runtime_health_state:'HEALTHY', setup_acknowledged:false,
+          checklist:FIRST_RUN_ROWS.map(row => ({id:row.id, verdict:'ready', detail:''}))
+        };
+        resolveBootstrap(AS_JSON ? JSON.stringify(payload) : payload);
+        await Promise.resolve();
+        assert.equal(eventModel.snapshot().state, 'checklist');
+        assert.equal(eventModel.snapshot().checklistReady, true);
+        assert.equal(rendered.at(-1).checklist.length, 5);
+        assert.equal(announcements.at(-1), "You're ready to go.");
+        assert.equal(closes, 0); // First-run setup still requires Done.
+        assert.equal(bootstrapSnapshot.runtime_health_state, 'HEALTHY');
+
+        eventModel.acknowledge(payload);
+        eventModel.restoreHealthy();
+        closeReady();
+        assert.equal(closes, 1);
+        assert.equal(calls, 1);
+      })().catch(error => { console.error(error); process.exitCode = 1; });
+    '''.replace("AS_JSON", json.dumps(as_json)))
+    assert result.returncode == 0, result.stderr
+
+
 def test_bootstrap_consumer_guards_start_normal_bridge_activity_behind_once_flag_and_not_pending() -> None:
     app = read_ui("app.js")
     wb = wire_bridge_source()

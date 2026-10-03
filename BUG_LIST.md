@@ -439,7 +439,7 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
-### DEF-045 — the runtime gate could never name a single broken component   ✅ FIXED (verified against the real payload)
+### DEF-061 — the runtime gate could never name a single broken component   ✅ FIXED (verified against the real payload)
 - **Area:** `app/ui/app.js` (`componentRows` / `friendlyComponent`, the `gate` view).
 - **Reported by:** owner, 2026-09-20, with a screenshot of a 2.1.3 source run.
 - **Symptom:** "Runtime needs repair" followed by "LecturePack needs repair, but the
@@ -465,9 +465,9 @@ re-debug the same thing from scratch.
   shape mismatch is found, fix **every** consumer of that shape, not the one that reported it.
 - **Files:** `app/ui/app.js`, `tests/test_setup_gate_repair.py`.
 
-### DEF-046 — "Copy details" put an empty JSON array on the clipboard and said "Details copied."   ✅ FIXED (verified)
+### DEF-062 — "Copy details" put an empty JSON array on the clipboard and said "Details copied."   ✅ FIXED (verified)
 - **Area:** `app/desktop/bridge.py::_runtime_repair_report`.
-- **Reported by:** owner, 2026-09-20, same session as DEF-045.
+- **Reported by:** owner, 2026-09-20, same session as DEF-061.
 - **Symptom:** "copy diagnostics doesn't copy anything."
 - **Root cause:** `_last_repair_diagnostics` is initialised to the literal string `"[]"` and
   is only ever replaced by `RuntimeRepairService.diagnostic_report()`, which needs a repair
@@ -483,7 +483,7 @@ re-debug the same thing from scratch.
   checkmark on it.
 - **Files:** `app/desktop/bridge.py`.
 
-### DEF-047 — a 404 for an unpublished runtime was reported as "you are offline"   ✅ FIXED (verified live against GitHub)
+### DEF-063 — a 404 for an unpublished runtime was reported as "you are offline"   ✅ FIXED (verified live against GitHub)
 - **Area:** `lecturepack/services/runtime_repair.py` (`_get_metadata`, `_download_archive`).
 - **Reported by:** owner, 2026-09-20 ("repair all doesnt do anything").
 - **Symptom:** "Repair all" appeared to do nothing, then — if anything — claimed an internet
@@ -508,12 +508,12 @@ re-debug the same thing from scratch.
   does not exist" and "the network is down" into one wrong message.
 - **Files:** `lecturepack/services/runtime_repair.py`, `tests/test_runtime_repair.py`.
 
-### Verification boundary for DEF-045..047 (read before claiming these are proven in the shipped app)
+### Verification boundary for DEF-061..063 (read before claiming these are proven in the shipped app)
 - **What WAS verified:** each fix was exercised against the real failing payload — the gate
   functions executed (node) on the verbatim snapshot from a failing run, the diagnostics
   report generated from a live `SETUP_REQUIRED` assessment, and the 404 classification run
   against the real GitHub URL. All three tests confirmed failing with their fix reverted.
-  Full suite: 2017 passed (the 2 failures are OBS-02, pre-existing).
+  Full suite: 2017 passed (the 2 failures are OBS-06, pre-existing).
 - **What was NOT verified:** the fixes were NOT seen in the **packaged** app's own UI. The
   2.1.3 packaged runtime assesses HEALTHY (confirmed against `app/dist/LecturePack`), so the
   gate never renders there and the corrected path stays unexercised in the shipped build —
@@ -522,19 +522,19 @@ re-debug the same thing from scratch.
   `bin/ggml-base.dll`), launch that copy, and confirm the gate NAMES the missing file, that
   "Copy details" yields a report containing it, and that "Repair all" reports no published
   runtime rather than an offline network.
-- **Closed 2026-10-01 (packaged copy, `bin/ggml-base.dll` removed):** DEF-045 ✅ the gate shows
-  "Runtime files — missing or empty required runtime payload: bin/ggml-base.dll". DEF-046 ❌ until
-  BUG-69 fixed the button; it now passes. DEF-047 ✅ after the BUG-70 fix (rebuilt packaged app): "No published repair runtime exists for this version of LecturePack."
+- **Closed 2026-10-01 (packaged copy, `bin/ggml-base.dll` removed):** DEF-061 ✅ the gate shows
+  "Runtime files — missing or empty required runtime payload: bin/ggml-base.dll". DEF-062 ❌ until
+  BUG-69 fixed the button; it now passes. DEF-063 ✅ after the BUG-70 fix (rebuilt packaged app): "No published repair runtime exists for this version of LecturePack."
 
-### BUG-69 — packaged "Copy details" always failed; the DEF-046 report was unreachable   ✅ FIXED (verified in a packaged copy)
+### BUG-69 — packaged "Copy details" always failed; the DEF-062 report was unreachable   ✅ FIXED (verified in a packaged copy)
 - **Area:** `app/ui/app.js` (`copyDiagnostics` in the runtime gate).
-- **Found:** 2026-10-01, closing the DEF-045..047 verification boundary in a copy of
+- **Found:** 2026-10-01, closing the DEF-061..063 verification boundary in a copy of
   `app/dist/LecturePack` with `bin/ggml-base.dll` removed.
 - **Symptom:** Open diagnostics, then Copy details, gave "Could not copy details." and the clipboard was unchanged.
 - **Root cause:** the UI copied with `navigator.clipboard.writeText` only. QtWebEngine gives the
   `file://` page no async-clipboard permission, so it never succeeded in the Qt shell. The bridge
-  slot `copy_runtime_repair_diagnostics`, which DEF-046 fixed, was wired in `bridge.js` but
-  **nothing called it**. DEF-046 was verified at the bridge, one layer below the button.
+  slot `copy_runtime_repair_diagnostics`, which DEF-062 fixed, was wired in `bridge.js` but
+  **nothing called it**. DEF-062 was verified at the bridge, one layer below the button.
 - **Fix:** copy through the bridge first. If that fails, fall back to the web clipboard, then
   `execCommand`. A failure is still reported as a failure.
 - **Verified (packaged copy, trusted CDP click):** "Details copied." The Windows clipboard held
@@ -562,7 +562,7 @@ re-debug the same thing from scratch.
   backend's reason. The duplicated "previous runtime is still in place" sentence was dropped.
 - **Verified:** in a fresh `build.py --no-installer` packaged copy with `bin/ggml-base.dll` removed,
   a real click on Repair all delivered both events. The UI shows "Repair could not be completed" and
-  "No published repair runtime exists for this version of LecturePack." (DEF-047 is now visible to the user.)
+  "No published repair runtime exists for this version of LecturePack." (DEF-063 is now visible to the user.)
   Copy details (BUG-69) also passes in that build. Test
   `test_starting_a_repair_never_mutates_the_published_backend_metaobject` fails with the fix reverted.
   Full suite: 2036 passed.
@@ -590,8 +590,10 @@ re-debug the same thing from scratch.
 - **Verified (source run plus simulated release, see the "Repair simulation" note below):** after the repair the checklist shows
   all five rows as Ready ("You're ready to go"). Done closes the overlay to Home.
 - **Not verified:** the packaged build has no URL or key override, so this exact flow can't run there.
-  No node test was added: `closeReady` is too entangled with the gate's DOM controller to extract
-  cleanly. The proof is the real-UI run.
+  Packaged successful repair remains unverified.
+- **Automated coverage added 2026-10-03:** execute the shipped `closeReady` callback with the
+  real gate reducer and a deferred bridge response. Both object and JSON payloads fetch exactly
+  once, render all five Ready rows, and preserve first-run acknowledgment before closing.
 - **Repair simulation (how a successful repair was exercised at all):** `scripts/build_signed_runtime_release.py`
   with a **throwaway** Ed25519 key built a real signed 2.1.3 release (4 archives, 198.8 MB) from
   `app/dist/LecturePack`. A source-run launcher (scratch only, not committed) served it from
@@ -613,20 +615,33 @@ re-debug the same thing from scratch.
 - **Fix:** both slots take `QVariant` and accept the string form, `{urls}` and `{items}`. Multiple links are
   probed on one worker (`{ok, items}`) and downloaded strictly one after another.
 - **Verified:** in the packaged app the probe showed "Me at the zoo, 0:19"; Download 1 then wrote a real mp4 and the
-  import dialog opened (this also needed the OBS-02 restore). New tests:
+  import dialog opened (this also needed the OBS-06 restore). New tests:
   `test_bridge_accepts_the_batch_shapes_the_ui_actually_sends` (fails with the fix reverted) and
   `test_several_links_download_one_after_another`.
 - **Not verified:** multiple links in the real UI. Only the unit test covers that.
 
-### OBS-03 — on a first job, Home shows "No lectures yet" until processing finishes   🔴 OPEN (observed, not fixed)
+### OBS-05 — on a first job, Home shows "No lectures yet" until processing finishes   ✅ FIXED (verified in isolated packaged candidate)
 - **Seen:** 2026-10-01, packaged app with a fresh profile, while importing the 1.375 GB file. The sidebar showed
   "Transcribe 64%" but Home said "No lectures yet". The normal `start_processing` path never calls
   `_push_jobs()`; only the queued path does. The job card appears on completion. A "Continue: Processing" banner
-  also lingered after the job finished. Not investigated further.
+  also lingered after the job finished.
+- **Source fix, 2026-10-03:** publish the disk-backed job list immediately after the normal
+  controller start stamps its running stage. Hide Continue when its saved Process destination
+  belongs to a `done` job; retain paused processing and Review/Study resume destinations.
+- **Regression evidence:** a real persisted Job is published as running before completion;
+  Node executes the shipped Home renderer across running, done, paused, Review and missing-job states.
+- **Packaged verification, 2026-10-03:** fresh profile, Browse import of the bundled ten-second
+  Polar Bears video as a normal job, real pipeline through two slides and completion. Home had
+  one card and hid its empty state during processing; Continue changed from visible Processing
+  to hidden on completion. Original video SHA-256 unchanged; clean exit 0; no remaining
+  LecturePack/FFmpeg/Whisper processes. Evidence: scratch `handoff-polish/packaged-home.json`.
+  The build initially collected a conflicting Poppler ICU DLL from the tool-runtime PATH;
+  quarantining that generated DLL restored Windows ICU resolution. A clean-PATH final release
+  build is still required.
 
-### OBS-02 — the BUG-30 android player_client override is BACK in 2.1.3   ✅ RESOLVED: the override is REQUIRED (restored 2026-10-01 after a live download probe)
+### OBS-06 — the BUG-30 android player_client override is BACK in 2.1.3   ✅ RESOLVED: the override is REQUIRED (restored 2026-10-01 after a live download probe)
 - **Area:** `lecturepack/services/media_fetch.py:277`.
-- **Found:** 2026-09-20, by the full suite, while verifying the DEF-045..047 fixes.
+- **Found:** 2026-09-20, by the full suite, while verifying the DEF-061..063 fixes.
 - **Symptom:** two tests fail at `v2.1.3` HEAD —
   `test_youtube_probe_does_not_force_a_player_client` and
   `test_base_opts_never_forces_the_android_player_client`. Both assert no player client is
@@ -635,7 +650,7 @@ re-debug the same thing from scratch.
   bypasses yt-dlp's EJS JS-challenge path — the failure mode that silently returned 11
   formats instead of 14 and shipped degraded in 2.0.0. BUG-30 is marked FIXED (verified).
 - **Confirmed pre-existing:** both tests fail with this session's changes stashed. Nothing
-  in DEF-045..047 touches media fetch.
+  in DEF-061..063 touches media fetch.
 - **Not fixed here** because it is outside the reported defect and BUG-30's lesson is that
   this path must be re-verified with a **live** extraction probe, not a unit test.
 - **Next step:** decide whether the override is deliberate (then the tests and BUG-30 must be
@@ -2999,3 +3014,11 @@ inventory that was authored rather than derived from the binaries.
 9. **Inline styles beat class rules.** The design markup carries layout as inline styles,
    so any responsive override of it needs `!important` (BUG-03). A media query that "does
    nothing" is usually this.
+
+## Ledger ID correction (2026-10-03)
+
+The newer 2026-09-20 runtime entries formerly named DEF-045/046/047 are now
+DEF-061/062/063. The newer first-job Home OBS-03 is OBS-05; the yt-dlp OBS-02
+is OBS-06. Older 2.1.0 defects and icon/drag observations keep their original IDs.
+Historical handoffs, tests and code comments may still use the former aliases;
+resolve them by their descriptive title and date.
