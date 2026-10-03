@@ -2,6 +2,30 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-56: Release artifacts use the same build root as the Electron packager
+
+**Date:** 2026-10-03
+**Status:** Implemented; real installer/updater acceptance passed
+
+**Context:** With LECTUREPACK_BUILD_ROOT set, package-win.mjs produced the new
+candidate in scratch, but build_electron_release.py validated and packaged an
+existing repository dist directory. Version metadata alone did not catch that
+the installer contained an older executable and renderer.
+
+**Decision:** Resolve the candidate from LECTUREPACK_BUILD_ROOT when configured,
+matching the Node packager, and retain the historical default when unset. Test
+with simultaneous old/default and new/scratch candidates and inspect the actual
+portable executable bytes. Verify the real executable version and portable UI
+identity as well as checksums during local release acceptance.
+
+**Alternatives considered:** Removing the stale default directory would hide
+the bug and violate preservation rules; moving builds back into the repository
+would defeat the approved scratch layout; changing only the installer version
+would leave the wrong payload. All were rejected.
+
+**Rationale:** One candidate directory must feed health checks, portable ZIP,
+installer and manifest. No dependencies, runtime stack or install identity change.
+
 ## AD-55: Home reflects authoritative processing lifecycle
 
 **Date:** 2026-10-03

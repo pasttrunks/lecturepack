@@ -439,6 +439,34 @@ re-debug the same thing from scratch.
 
 ## FIXED THIS SESSION
 
+### DEF-064 — scratch release builds packaged an older default candidate   ✅ FIXED (real 2.1.4 install verified)
+- **Discovered:** 2026-10-03, approved 2.1.4 installer/updater phase.
+- **Symptom:** package-win.mjs built into LECTUREPACK_BUILD_ROOT, while the release
+  builder consumed electron-spike/dist. The first installer was labeled 2.1.4
+  but came from that stale payload; it was discarded and rebuilt before acceptance.
+- **Root cause:** candidate_dir() ignored the Node packager's build-root override.
+- **Fix:** use the configured resolved root, retaining the default if unset.
+- **Evidence:** regression ZIP contains new bytes with both candidate directories
+  present; 22 packaging/authority tests passed. Real installed executable reports
+  2.1.4; portable UI matches current source; real updater verifies exact bytes.
+- **Files:** scripts/build_electron_release.py, tests/test_electron_release_packaging.py.
+
+### OBS-07 — local installer acceptance can overwrite existing shell integration   🟠 PARTIAL
+- **Observed:** 2026-10-03. /NOICONS did not prevent the installer from rewriting
+  existing Start Menu and SendTo shortcuts during a disposable /DIR install.
+- **Cleanup:** test uninstaller exited 0; disposable executable and actual
+  LecturePack HKCU uninstall keys were absent afterward; no processes remained.
+  Shortcut creation dates proved the launchers predated this test. They were
+  restored to the existing AppData/Local/Programs/LecturePack 2.0.2 binary and
+  uninstaller; those existing binaries were not updated by the test.
+- **Limitation:** the scratch guard checked a literal AppId spelling that did
+  not match Inno's actual uninstall-key spelling. Prior registry values were
+  not captured, so preservation of the original uninstall registration cannot
+  be claimed. Evidence: release-2.1.4-candidate/host-cleanup.json in scratch results.
+- **Next:** run subsequent installer gates in an isolated Windows VM, or snapshot
+  actual enumerated registry keys and shell shortcuts before any install and
+  restore them in finally. Do not rely on /NOICONS or a guessed key spelling.
+
 ### DEF-061 — the runtime gate could never name a single broken component   ✅ FIXED (verified against the real payload)
 - **Area:** `app/ui/app.js` (`componentRows` / `friendlyComponent`, the `gate` view).
 - **Reported by:** owner, 2026-09-20, with a screenshot of a 2.1.3 source run.

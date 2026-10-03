@@ -9,6 +9,22 @@ All notable changes to LecturePack are documented here, newest first.
 > the first public beta, then shipped stable as 2.0.0. Nothing below has been
 > removed; only this explanation was added.
 
+## [2.1.4] — Unreleased candidate
+
+- Runtime recovery names broken components, copies useful diagnostics in the Qt
+  shell, reports unavailable repair releases accurately, and preserves bridge
+  signals throughout repair. First-run repair reaches its Ready checklist.
+- The Qt shell accepts the batch link-import contract and downloads links in order.
+- Lecture posters retry after import while their images are being generated.
+- Home shows the first normal Qt lecture while processing and clears a completed
+  lecture's stale Processing Continue card.
+- Regression coverage now includes the asynchronous first-run repair checklist.
+- Release packaging respects the scratch build root, preventing an old candidate
+  from being packaged under a new release version.
+
+Local installed acceptance and the real 2.1.3 → 2.1.4 updater migration passed.
+This unsigned candidate has not been published; clean-machine validation remains.
+
 ## [2.1.3] — 2026-08-26
 
 **YouTube link download media selection fixed.**

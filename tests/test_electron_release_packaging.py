@@ -42,6 +42,27 @@ def make_candidate(root: Path, executable: bytes = b"portable executable fixture
     return root
 
 
+def test_release_uses_scratch_candidate_instead_of_stale_default(tmp_path, monkeypatch):
+    builder = load_builder()
+    monkeypatch.setattr(builder, "SPIKE_ROOT", tmp_path / "repository")
+    stale = make_candidate(builder.SPIKE_ROOT / "dist" / "LecturePack-win32-x64", b"old release")
+    scratch = tmp_path / "scratch build Ω"
+    fresh = make_candidate(scratch / "dist" / "LecturePack-win32-x64", b"new release")
+    monkeypatch.setenv("LECTUREPACK_BUILD_ROOT", str(scratch))
+
+    portable = builder.make_portable_zip(builder.candidate_dir(), tmp_path / "release.zip")
+    with zipfile.ZipFile(portable) as archive:
+        assert archive.read("LecturePack-win32-x64/LecturePack.exe") == b"new release"
+    assert builder.candidate_dir() == fresh
+    assert (stale / "LecturePack.exe").read_bytes() == b"old release"
+
+    monkeypatch.setenv("LECTUREPACK_BUILD_ROOT", os.path.relpath(scratch, builder.SPIKE_ROOT))
+    assert builder.candidate_dir() == fresh
+
+    monkeypatch.delenv("LECTUREPACK_BUILD_ROOT")
+    assert builder.candidate_dir() == stale
+
+
 def test_electron_release_zip_and_hashes(tmp_path):
     builder = load_builder()
     candidate = make_candidate(tmp_path / "LecturePack-win32-x64")

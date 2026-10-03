@@ -1,3 +1,90 @@
+# Handoff: approved 2.1.4 installer/updater validation, 2026-10-03
+
+Branch: `fix/ytdlp-caption-media-path`; worktree: existing `ytdlp-caption-fix`.
+Polish checkpoint: `1abe82d`. User explicitly approved this next phase.
+Canonical checkout and its unrelated edits remain untouched.
+
+## Authorized phase and scope
+
+Local 2.1.4 candidate build, installed acceptance, checksums, and a real
+2.1.3 → 2.1.4 updater migration. Permitted changes: version metadata, changelog,
+narrow packaging/test fixes, decision/bug records and this handoff. No new
+features, dependencies, live AI provider calls, deployment, push, merge or tag.
+Evidence: actual pytest output and real packaged runtime/installer results.
+
+## Completed and verified
+
+- Version surfaces are 2.1.4: Qt desktop, Windows resources, Inno fallback,
+  Electron package and root lock metadata. Historical engine version retained.
+- Official Electron + Python sidecar built with canonical CPU runtime, bundled
+  Rust Study Core, yt-dlp/EJS/Deno and a clean PATH excluding Codex Poppler DLLs.
+- Found/fixed DEF-064: release builder ignored LECTUREPACK_BUILD_ROOT and packaged
+  an older repository candidate. Initial build log retained as build.txt; fresh
+  corrected artifacts are from rebuild.txt. Regression verifies new ZIP bytes
+  even when the stale default directory exists. See AD-56.
+- Full pytest output: `2044 passed, 8 skipped, 1 warning in 268.74s (0:04:28)`.
+  Log: `C:\LecturePackScratch\results\release-2.1.4-candidate\pytest.txt`.
+  This run preceded the new packaging regression; the subsequently changed
+  packaging/authority area passed `22 passed in 0.51s`, packaging-tests.txt.
+  Skips include opt-in live provider and Qt-specific payload fixtures; the
+  actual Electron installer was verified separately below.
+- Installed real 2.1.3 in scratch, processed its bundled video as an ordinary
+  persistent lecture with explicit Basic Study, produced slides/transcript and
+  13 exports. Input hash stayed unchanged.
+- Production updater module selected 2.1.4 from a controlled localhost feed,
+  verified its real manifest, downloaded 465226669 actual installer bytes,
+  matched SHA-256, and left no temporary download files.
+- Installed those verified bytes over A: executable reports 2.1.4; all 30 saved
+  lecture files remained byte-identical across installation; all 12 packaged
+  health checks passed. Completed job restored as done on two real host launches.
+- Fresh data profile on installed B passed all 12 local packaged acceptance
+  requirements, including real processing, 13 exports, restore and clean exit.
+  No renderer/bridge errors or orphan processes were observed.
+- Portable executable/sidecar bytes match the built candidate; renderer app.js
+  and bridge.js match current source. Only canonical demo video is shipped,
+  no jobs/data directories or incompatible Poppler ICU DLL were found.
+
+## Local artifacts (unsigned, fast compression)
+
+`C:\LecturePackScratch\builds\release-2.1.4-candidate\artifacts`
+
+- Setup SHA-256: `0f65eaeed6260be5bce8dd5a40976f1be709be685a4a7f04650026d130769062`
+- Portable SHA-256: `ce22bece11c74afe3b3d212c2c3a0f92faf58c7a4c80d214dbd2036931a1d712`
+- SHA256SUMS and release manifest describe those exact local artifacts.
+- Scratch evidence: installer-upgrade.json, installed-fresh/acceptance-result.json,
+  portable-identity.json, host-cleanup.json, installation/uninstall logs under
+  `C:\LecturePackScratch\results\release-2.1.4-candidate`.
+- Reproduction wrapper: real_installer_upgrade.py under the corresponding scratch
+  logs folder. It uses shipped JSONL commands and real binaries, selects Basic
+  before start_job, and uninstalls in finally. No synthetic lecture output.
+
+## Test-host cleanup limitation (OBS-07)
+
+The test uninstaller exited 0, removed the scratch app and actual enumerated
+LecturePack uninstall keys, and left no processes. /NOICONS nevertheless rewrote
+existing Start Menu/SendTo launchers. They were restored to the existing 2.0.2
+installation and its uninstaller; that old installed binary was not updated.
+The wrapper's preliminary registry guard used a literal key spelling different
+from Inno's actual key. Prior registry values were not captured; original
+uninstall-registration preservation is unverified. Do not claim pristine host
+restoration. Future installer acceptance needs an isolated VM or a complete
+snapshot of actual keys and shortcuts before mutation.
+
+## Approval gate and unfinished work
+
+The approved local installer/updater phase passed its functional gates. Stop
+before another phase under AGENTS.md. Not published, signed, pushed, merged or
+tagged. These artifacts are local fast-compression candidates, not final signed
+release bytes. Signing/rebuilding requires regenerating hashes and repeating
+artifact gates. Clean-machine/affected-laptop/scaled-installer tests, real multiple
+link paste, BUG-59 CI payload restoration, OBS-04 shutdown flakiness, and the new
+OBS-07 harness isolation remain outstanding. The successful local Basic Study
+acceptance does not establish live provider health.
+
+Prior polish and historical phase reports follow unchanged.
+
+---
+
 # Handoff: 2.1.4 candidate polish, 2026-10-03
 
 Branch: `fix/ytdlp-caption-media-path` in the existing `ytdlp-caption-fix` worktree.
