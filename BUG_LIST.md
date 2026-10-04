@@ -451,7 +451,7 @@ re-debug the same thing from scratch.
   2.1.4; portable UI matches current source; real updater verifies exact bytes.
 - **Files:** scripts/build_electron_release.py, tests/test_electron_release_packaging.py.
 
-### OBS-07 — local installer acceptance can overwrite existing shell integration   🟠 PARTIAL
+### OBS-07 — local installer acceptance can overwrite existing shell integration   ✅ FIXED for subsequent runs (historical registry state unverified)
 - **Observed:** 2026-10-03. /NOICONS did not prevent the installer from rewriting
   existing Start Menu and SendTo shortcuts during a disposable /DIR install.
 - **Cleanup:** test uninstaller exited 0; disposable executable and actual
@@ -466,6 +466,24 @@ re-debug the same thing from scratch.
 - **Next:** run subsequent installer gates in an isolated Windows VM, or snapshot
   actual enumerated registry keys and shell shortcuts before any install and
   restore them in finally. Do not rely on /NOICONS or a guessed key spelling.
+- **2026-10-03 follow-up:** Both installer acceptance runners now share
+  installer_test_isolation.ps1. It snapshots actual HKCU keys in both views,
+  typed values/subkeys and shortcut bytes, serializes runners with a recovery
+  lease, uninstalls the exact test app, restores and verifies original state.
+  Foreign registry changes are preserved; shortcuts still restore on conflicts.
+  Existing acceptance folders are refused rather than deleted. Success evidence
+  is written after restoration, and original/cleanup errors remain visible.
+- **Real evidence:** guarded 2.1.3 → 2.1.4 upgrade passed; a deliberately timed-out
+  real install reported failure with verified host restoration; final local
+  installed acceptance processed the demo, produced 13 exports, restored its
+  job and shut down with no orphans, then verified registry/shortcut recovery.
+  Logs: C:\LecturePackScratch\results\installer-isolation. These are dev-host
+  checks, not evidence of a clean Windows machine or retroactive preservation
+  of the earlier unrecorded registry values.
+- **Additional recovery coverage:** native Windows regression exercises numeric,
+  binary, expandable-string, multi-string and child-key restoration, exact
+  shortcut bytes, concurrent-run rejection and conflict/retry recovery. Unit
+  faults cover failed snapshot, failed acceptance and failed uninstall.
 
 ### DEF-061 — the runtime gate could never name a single broken component   ✅ FIXED (verified against the real payload)
 - **Area:** `app/ui/app.js` (`componentRows` / `friendlyComponent`, the `gate` view).

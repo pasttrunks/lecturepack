@@ -1,3 +1,84 @@
+# Handoff: installer acceptance isolation, 2026-10-03
+
+Branch: `codex/installer-test-isolation`, based on `1d076e6` in the existing
+`ytdlp-caption-fix` worktree. Canonical repository and unrelated edits untouched.
+
+## User authorization and current scope
+
+The owner instructed: "auto approve for me from now on." Future phase gates are
+approved by that instruction; do not repeatedly ask for phase approval. Continue
+one coherent phase at a time and verify it before advancing. The latest owner
+request is an update after this pass covering polish, bug fixes and upgrades.
+
+This pass addresses OBS-07: protect test-host integration around real installer
+acceptance, including errors. Permitted files are the two acceptance runners,
+new shared native PowerShell/Python isolation helpers, focused tests, RELEASING.md,
+BUG_LIST.md, DECISIONS.md and this handoff. No product features, dependencies,
+version bump, original media edits, or publication were part of this pass.
+
+## Implemented
+
+- Snapshot actual per-user LecturePack uninstall records in both registry views;
+  preserve typed values, nested keys and exact shortcut bytes.
+- Serialize installer gates through an exclusive recovery lease. Preserve
+  conflicting foreign registry changes and keep the snapshot for recovery;
+  shortcut restoration still runs if registry restoration raises.
+- Uninstall the exact scratch app and restore prior integration in finally on
+  both runners. Keep original and cleanup errors visible. Write successful
+  acceptance evidence only after verified restoration.
+- Refuse existing acceptance data instead of deleting prior directories.
+- Use literal paths and environment data for quoted version paths. Resolve
+  Windows PowerShell directly instead of relying on PATH.
+- Keep the PowerShell validator native and include the helper beside it in kits.
+  UTF-8 BOM preserves its intended Unicode profile path in Windows PowerShell.
+- Local runtime/export gate explicitly selects Basic Study; live Study AI is
+  separate. The updater harness now describes its configuration/synthetic
+  sentinel honestly; it does not claim a real study-progress migration.
+
+## Verified real behavior
+
+- Guarded actual 2.1.3 → 2.1.4 install/update: both packaged health checks passed,
+  actual updater selected and hash-verified the real installer, no orphans,
+  and original registry/shortcut snapshots restored. real-upgrade.json.
+- Deliberate one-second job timeout after a real 2.1.4 install: expected exit 1,
+  original failure reported, scratch app uninstalled and host restoration
+  verified. real-failure/clean-machine-result.json.
+- Final normal installed acceptance: real processed lecture, 13 export files,
+  restored completed job, exit 0, no orphan processes, Unicode/space profile,
+  and verified registry/shortcut recovery. real-success/clean-machine-result.json.
+- These are local development-host checks, not a clean Windows-machine claim.
+  Earlier OBS-07 uninstall-registration preservation remains historically
+  unverified because that original snapshot was never captured.
+
+## Tests and retained diagnostics
+
+Results: `C:\LecturePackScratch\results\installer-isolation`.
+Data/state snapshots: corresponding scratch data folder and real test results.
+- Focused: `22 passed in 1.99s`; expanded native/fault guard: `5 passed in 2.21s`.
+- First focused failure was missing PowerShell on restricted PATH; direct Windows
+  binary resolution fixed it. focused.txt is retained beside focused-2.txt.
+- First full run: `3 failed, 2047 passed, 8 skipped, 1 warning in 268.45s`.
+  Its restricted PATH omitted Git; two content-hygiene subprocesses and their
+  nested checklist regression failed with WinError 2. No test was changed or
+  weakened. Corrected PATH full run is in full-2.txt; final result recorded below.
+- Final full suite: `2050 passed, 8 skipped, 1 warning in 251.46s (0:04:11)`.
+  Log: full-2.txt. Native conflict/recovery and typed registry tests passed in
+  this full run. No test was hidden, deleted or weakened.
+
+## Next work
+
+Current verification is complete; commit the passing checkpoint and provide
+the requested categorized update. Continue toward the original handoff goals
+under automatic phase approval: investigate OBS-04 with repeated measured
+packaged shutdown runs, verify real multiple-link paste, verify packaged repair,
+and resolve BUG-59 runtime restoration for CI. Clean-machine/affected-laptop/
+scaled-installer checks and Authenticode remain unverified. Local 2.1.4 artifacts
+remain unchanged, unsigned and unpublished. See AD-57 and the updated OBS-07.
+
+Prior candidate and polish reports follow unchanged.
+
+---
+
 # Handoff: approved 2.1.4 installer/updater validation, 2026-10-03
 
 Branch: `fix/ytdlp-caption-media-path`; worktree: existing `ytdlp-caption-fix`.

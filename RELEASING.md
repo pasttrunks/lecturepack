@@ -64,6 +64,14 @@ surfaces agree.
 10. **Run the release gates** (runtime packaged acceptance, clean-machine
     script, negative tests). See `scripts/electron_packaged_acceptance.py` and
     `scripts/clean_machine_validation.ps1`.
+    Include `scripts/installer_test_isolation.ps1` beside the clean-machine
+    validator in every kit. Both installer runners snapshot the actual per-user
+    uninstall keys and shortcut bytes before installation and restore them after
+    uninstall, including on failure. Use a fresh test directory. A leftover
+    `LecturePack-installer-acceptance.lock` in LocalAppData means restoration
+    needs recovery from its recorded snapshot; do not delete the lease or
+    overwrite the snapshot to get another run started. `/NOICONS` alone does
+    not isolate an Inno test install from an existing installation.
 11. **Create an immutable git tag**: `git tag v<version>` (e.g. `v2.0.0`).
     Never reuse or move an existing tag.
 12. **Push normally** (no force).

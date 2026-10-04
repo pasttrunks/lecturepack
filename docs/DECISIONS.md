@@ -2,6 +2,38 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-57: Installer acceptance owns and restores per-user integration
+
+**Date:** 2026-10-03
+**Status:** Implemented; native restoration and real installer failure/success verified
+
+**Context:** A scratch /DIR and /NOICONS did not isolate Inno from existing
+Start Menu/SendTo launchers or the shared uninstall registration. A literal
+AppId check also missed Inno's actual escaped uninstall-key name (OBS-07).
+
+**Decision:** Both acceptance runners use a shared native PowerShell guard.
+Before installing it enumerates actual LecturePack HKCU uninstall records in
+both registry views and snapshots typed values, subkeys and shortcut bytes.
+An exclusive lease prevents overlapping runners; failed recovery preserves its
+snapshot and lease. Cleanup uninstalls the exact scratch app, restores original
+integration, verifies it, then reports success. Registry changes not owned by
+the scratch installation are preserved and reported as conflicts; shortcut
+restoration still runs. Python retains acceptance and cleanup exceptions;
+PowerShell writes completion evidence after cleanup. Existing acceptance data
+is never deleted to restart a run.
+
+**Alternatives considered:** /NOICONS alone was disproven by the real installer;
+guessing an uninstall-key string was disproven by the actual registry; relying
+on uninstall alone deletes pre-existing integration rather than restoring it.
+An isolated Windows VM remains preferable for genuinely clean-machine evidence,
+but does not remove the need to unwind test-host state reliably.
+
+**Rationale:** A local acceptance run must verify the shipping installer without
+leaving the user's launchers or installed-program metadata pointing at a removed
+test app. The guard uses only Windows PowerShell/.NET and adds no clean-machine
+development-runtime requirement. Historical OBS-07 registry preservation remains
+unverified; the new snapshots establish preservation for subsequent runs.
+
 ## AD-56: Release artifacts use the same build root as the Electron packager
 
 **Date:** 2026-10-03
