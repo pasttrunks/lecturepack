@@ -109,3 +109,29 @@ unchanged download hashes. It records screenshots, text, JSONL and result.json.
 Success requires clean close on both launches and no orphan processes. It
 leaves evidence/data intact and refuses existing roots. It does not process
 the lectures, run Study AI, or substitute for those separate release gates.
+
+## CI native runtime source
+
+The desktop workflow restores build inputs with scripts/restore_ci_runtime.py
+and scripts/ci-runtime-lock.json before invoking the official Electron builder.
+The source is the public 2.1.3 portable ZIP, verified by its pinned archive hash
+and each of the 20 allowlisted CPU/model/Deno/MSVC member hashes. Cache hits are
+verified too; corruption, missing members or existing runtime destinations fail
+closed. CI uses fresh runner-temp runtime/MSVC roots and retains the restore
+audit plus lock file. The prior app UI, Python package and user files are not
+copied into the build. Restore pins are changed only after real binary checks
+and member/hash review, never by updating a floating latest URL.
+
+For local reproduction with a fresh output root:
+
+```powershell
+python scripts/restore_ci_runtime.py `
+  --cache-dir C:\LecturePackScratch\data\ci-runtime-source `
+  --output-dir C:\LecturePackScratch\data\ci-runtime-restored
+$env:LECTUREPACK_RUNTIME_ROOT = 'C:\LecturePackScratch\data\ci-runtime-restored'
+$env:LECTUREPACK_MSVC_RUNTIME_DIR = 'C:\LecturePackScratch\data\ci-runtime-restored\msvc'
+```
+
+Then run the normal Electron release builder. This is build-time restoration;
+the application gains no runtime URL/key override. A local green build is not
+a substitute for a successful GitHub-hosted release run on the final tag.

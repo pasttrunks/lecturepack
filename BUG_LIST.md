@@ -1169,7 +1169,20 @@ re-debug the same thing from scratch.
   **This is a mitigation, not a root-cause fix.** If it recurs, the log will now carry the
   stack the original report could not produce. Leave this entry open until then.
 
-### BUG-59 — the "authoritative" release workflow has never once succeeded   🔴 OPEN (found 2.1.0)
+### BUG-59 — release CI omitted native runtime restoration   🟠 IMPLEMENTED; HOSTED RUN UNVERIFIED (found 2.1.0)
+- **2026-10-03 correction:** Added a build-only restorer and committed lock for
+  the public v2.1.3 portable source (archive size/hash and 20 native member
+  size/hash pins). Every CPU/model/Deno byte matches the current local runtime;
+  app-local MSVCP140 is restored too. CI caches the source by lock identity,
+  verifies cache hits, restores before packaging into runner-temp and passes
+  runtime/MSVC roots to the existing official builder. Audit and lock are retained.
+- **Tests/evidence:** 40 focused restoration/release-contract tests passed.
+  A real public ZIP download matched the pinned digest and restored all members.
+  Current full-suite and official build results are in HANDOFF_PHASE_9.
+- **Residual:** A successful GitHub-hosted execution has not yet been observed.
+  This entry remains pending that end-to-end gate; no hosted CI success or
+  released artifact is claimed from local validation.
+- **Historical report follows; its no-restoration diagnosis is addressed above.**
 - **Area:** `.github/workflows/release-electron.yml`.
 - **Found:** 2026-08-23, dispatching it for the 2.1.0 release.
 - **Symptom:** the run dies at "Build the Electron release candidate" with

@@ -1,3 +1,84 @@
+# Handoff: production Electron CI runtime restoration, 2026-10-03
+
+Branch: `codex/ci-runtime-restoration`, based on `3136287`, existing worktree
+`ytdlp-caption-fix`. Automatic approval remains authorized; production Electron
+is the current focus. Previous turn completed the real three-link UI gate.
+
+## Authorized phase and scope
+
+Address BUG-59's missing gitignored native inputs in release CI. Permitted:
+release-electron.yml, build-only restore script/lock, focused tests and related
+release/ledger/decision/handoff documentation. Required evidence: pinned public
+archive download, complete restore, negative tests, official Electron build
+using restored runtime/MSVC roots and relevant pytest. Non-goals: publication,
+version/dependency changes, product download overrides, Qt changes or replacing
+mandatory packaged health checks. GitHub-hosted end-to-end success is separate.
+
+## Implemented
+
+- scripts/ci-runtime-lock.json pins public v2.1.3 Portable.zip, size 513776556,
+  SHA-256 06c4b2f6030db420a698d23148f7df0799e5f615603813549572b8ee0be9c339,
+  and 20 allowlisted native CPU/model/Deno/MSVCP140 members with size/SHA-256.
+- Real public GitHub download verified against that archive pin. Individual
+  CPU/model/Deno files all match the pre-existing local release runtime; Deno
+  equals the independently enforced 2.9.5 sidecar pin. No stack change.
+- scripts/restore_ci_runtime.py uses standard-library HTTPS/ZIP/file handling,
+  streams data/hashes, rejects corrupt cache/archive/member hash/size, ambiguous
+  members, unsafe paths/types and existing runtime outputs. Copies only locked
+  runtime members; prior UI/Python/user files cannot enter this extraction.
+  Keeps partials and failed restoration evidence instead of deleting/retrying.
+- Desktop workflow caches the source by lock hash, verifies even cache hits,
+  restores before the official builder and configures runner-temp runtime and
+  app-local MSVC roots. Restore audit and lock join retained release evidence.
+- 40 focused tests passed in 0.51s (restoration + release authority/assets).
+  Regression fixtures prove only pinned members are copied, tampering fails,
+  unsafe/missing inputs are rejected and prior evidence is retained.
+
+## Current verification and evidence
+
+C:\LecturePackScratch\results\ci-runtime: archive.txt, restore.json,
+focused.txt and full.txt. Source public ZIP/cache/restored output under
+C:\LecturePackScratch\data\ci-runtime. Official build uses only that
+restored CPU/model/MSVC input and writes sidecar/Electron/installer/portable to
+C:\LecturePackScratch\builds\ci-runtime-candidate. Build log:
+C:\LecturePackScratch\logs\ci-runtime\build.txt.
+
+Official clean Electron build completed: sidecar, Electron package, mandatory
+packaged health checks, Inno installer and portable ZIP. Inno completed in
+77.563s with fast local-test compression. Actual rebuilt sidecar processed the
+bundled real lecture through transcript/slides/export (13 files), and two
+Electron launches restored the completed job and exited cleanly with zero
+orphans/errors. Evidence: packaged/result.json and per-launch JSONL; explicit
+Basic input was selected so this is not live Study AI evidence.
+
+Full actual pytest: `2070 passed, 8 skipped, 1 warning in 255.88s (0:04:15)`
+(full.txt). No tests were removed or weakened. New local unsigned artifacts:
+- Portable SHA-256: 1bdad82bc3607e1e80e234fb54e3d14b3f6430caefdfd4b4c395a10c1746dfff
+- Setup SHA-256: 90d150d54b2aca67d73a3eb8cedf4f721602cbd5a9ea3d10a6206728e49d34a1
+Both match SHA256SUMS; updater manifest agrees with the installer bytes.
+Previous release-test artifacts remain preserved in their original scratch
+root. These rebuilt bits are still local, unsigned and unpublished.
+
+Final committed restorer cold-cache path passed against the real public
+GitHub download: cold-restore.json. All 20 member hashes exactly match the
+cache-hit restore/build inputs. This verifies both network fetch and cache
+verification paths; no mock was used for these integration checks.
+No original media or canonical/other-worktree edits were changed.
+
+## Remaining
+
+BUG-59 is implemented but a successful GitHub-hosted release execution remains
+unverified. No public tag/release/hosted success is claimed from a local build.
+The source ZIP is deliberately large; a smaller dedicated runtime asset would
+require future reviewed publication and new pins. Continue final package gates,
+PR #8 reconciliation/push and remaining handoff work. Historical OBS-04 linger,
+clean-machine/affected-laptop/scaled-installer checks and Authenticode remain
+outstanding. Current builds remain local, unsigned and unpublished.
+
+Prior handoffs follow unchanged.
+
+---
+
 # Handoff: production Electron batch-link acceptance, 2026-10-03
 
 Branch: `codex/electron-batch-link-gate`, based on `3205907`, existing

@@ -2,6 +2,39 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-60: CI restores the frozen, verified production CPU runtime
+
+**Date:** 2026-10-03
+**Status:** Implemented; local restoration/build evidence in HANDOFF_PHASE_9;
+GitHub-hosted execution remains separately unverified until dispatched
+
+**Context:** release-electron.yml packaged gitignored bin/models inputs without
+restoring them, so its advertised release path failed on a bare checkout.
+
+**Decision:** Restore an explicit 20-file native allowlist from the public
+v2.1.3 portable archive. Commit the GitHub-published archive size/SHA-256 and
+individual member size/SHA-256 pins. All CPU/model/Deno bytes match the current
+local release inputs; Deno matches the independently enforced sidecar pin.
+Restore app-local MSVCP140 too. Configure the existing builder via its runtime
+and MSVC directory seams, with a fresh runner-temp destination. Cache only the
+source ZIP under the lock-file hash and verify it even on a cache hit. Retain
+restore audit and lock with release evidence. No latest URLs, extraction of UI,
+Python payload or prior user data, executable download script, new credentials,
+production override or dependency change. Preserve failed partials and reject
+existing destinations/corrupt caches rather than silently replacing evidence.
+
+**Alternatives considered:** Upstream assembly could produce a different CPU
+DLL set than the tested release; a private bucket or self-hosted runner adds
+secrets/operations without solving reproducibility; deleting CI abandons the
+requested release path. A future smaller dedicated runtime asset is viable
+but requires publication and new reviewed pins. The 513776556-byte portable
+source trades bandwidth for an immediately available, tested complete payload.
+
+**Rationale:** The official builder must use the same native bytes as the
+validated app and fail before packaging if those bytes change. The existing
+packaged health checks remain mandatory. Local restore/build evidence does not
+prove a GitHub-hosted release job or clean-machine behavior.
+
 ## AD-59: Batch link acceptance covers real Electron UI and persisted restoration
 
 **Date:** 2026-10-03
