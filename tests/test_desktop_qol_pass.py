@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import subprocess
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,6 +31,50 @@ def _sidecar_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_continue_card_drops_finished_processing_but_keeps_workspace_resume():
+    """Run the real Home renderer against authoritative running/terminal rows."""
+    start = APP.index("var CONTINUE_SCREENS =")
+    end = APP.index("// ---- Feature 5:", start)
+    program = APP[start:end] + r'''
+      const assert = require('node:assert/strict');
+      const nodes = {};
+      function $(id) { return nodes[id] ||= {hidden:true, textContent:''}; }
+      const LP = {state:{jobId:'lecture'}};
+      let job = {id:'lecture', name:'Lecture', status:'running'};
+      let resume = {screen:'process'};
+      const resumeStore = {load:() => resume};
+      const appSessionStore = {load:() => ({jobId:'lecture'})};
+      function _jobById(id) { return id === 'lecture' ? job : null; }
+      const studyV2 = {progress:{}};
+      let selected;
+      function selectJob(id, options) { selected = {id, screen:options.screen}; }
+      function setStudyTab() {}
+      function setScreen() {}
+      function saveAppSession() {}
+
+      renderContinueCard();
+      assert.equal($('continue-card').hidden, false);
+      assert.equal($('continue-detail').textContent, 'Processing');
+      job.status = 'done';
+      renderContinueCard();
+      assert.equal($('continue-card').hidden, true);
+      resume = {screen:'review'};
+      renderContinueCard();
+      assert.equal($('continue-card').hidden, false);
+      $('btn-continue').onclick();
+      assert.deepEqual(selected, {id:'lecture', screen:'review'});
+      resume = {screen:'process'};
+      job.status = 'paused';
+      renderContinueCard();
+      assert.equal($('continue-card').hidden, false);
+      job = null;
+      renderContinueCard();
+      assert.equal($('continue-card').hidden, true);
+    '''
+    result = subprocess.run(["node", "-e", program], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 def test_clean_title_and_rename_preserve_source_identity(tmp_path: Path):

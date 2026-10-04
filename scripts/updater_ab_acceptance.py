@@ -21,8 +21,8 @@ Sequence
  6. Install B over A, from the bytes the updater verified.
  7. Verify B reports version B, the layout is intact, and the packaged
     self-test still passes.
- 8. Verify the disposable data directory survived and the seeded job is still
-    readable by B.
+ 8. Verify the disposable configuration and synthetic storage sentinel survived.
+    This gate does not claim to migrate a processed lecture or real study progress.
  9. Verify no LecturePack/Electron/sidecar/FFmpeg/whisper/Deno process is left
     behind.
 
@@ -42,16 +42,17 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import time
+import traceback
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from electron_packaged_acceptance import detect_orphans, snapshot_processes  # noqa: E402
+from installer_test_isolation import InstallerTestIsolation, POWERSHELL  # noqa: E402
 
 REQUIRED_LAYOUT = (
     "LecturePack.exe",
@@ -69,10 +70,11 @@ def sha256_of(path: Path) -> str:
 
 
 def product_version(exe: Path) -> str:
+    environment = dict(os.environ, LECTUREPACK_TEST_EXE=str(exe))
     completed = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-Command",
-         f"(Get-Item '{exe}').VersionInfo.ProductVersion"],
-        capture_output=True, text=True, timeout=120, shell=False,
+        [POWERSHELL, "-NoProfile", "-Command",
+         "(Get-Item -LiteralPath $env:LECTUREPACK_TEST_EXE).VersionInfo.ProductVersion"],
+        capture_output=True, text=True, timeout=120, shell=False, env=environment, check=True,
     )
     return (completed.stdout or "").strip()
 
@@ -80,7 +82,7 @@ def product_version(exe: Path) -> str:
 def install(setup: Path, target: Path) -> None:
     """Silent per-user install into a disposable directory."""
     subprocess.run(
-        [str(setup), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", f"/DIR={target}"],
+        [str(setup), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER", "/NOICONS", f"/DIR={target}"],
         check=True, timeout=1800, shell=False,
     )
 
@@ -130,8 +132,26 @@ def run(args: argparse.Namespace) -> dict:
     data_dir = workspace / "data"
     download_dir = workspace / "downloads"
     for path in (install_dir, data_dir, download_dir):
-        shutil.rmtree(path, ignore_errors=True)
-        path.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            raise RuntimeError(f"Refusing to overwrite prior acceptance data: {path}")
+    workspace.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir()
+    download_dir.mkdir()
+    try:
+        with InstallerTestIsolation(install_dir, workspace / "host-state.json"):
+            result = _run_installed_update(args, install_dir, data_dir, download_dir)
+        result["steps"]["host_restoration"] = {"registry_restored": True, "shortcuts_restored": True}
+    except Exception as error:
+        result = {"acceptance": "LecturePack A -> B packaged update", "status": "FAIL",
+                  "failures": ["".join(traceback.format_exception(error))], "steps": {}}
+    if args.evidence:
+        evidence = Path(args.evidence)
+        evidence.parent.mkdir(parents=True, exist_ok=True)
+        evidence.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    return result
+
+
+def _run_installed_update(args, install_dir: Path, data_dir: Path, download_dir: Path) -> dict:
 
     old_setup = Path(args.old_setup).resolve()
     new_setup = Path(args.new_setup).resolve()
@@ -153,7 +173,8 @@ def run(args: argparse.Namespace) -> dict:
     if health_a.get("passed") is not True:
         failures.append("A failed its packaged self-test")
 
-    # 3. Seed real data through A's own sidecar.
+    # 3. A's real self-test writes configuration. The marker is a synthetic
+    # storage sentinel, not evidence of a real lecture or study-progress migration.
     seeded = data_dir / "selftest-a"
     seeded_entries = sorted(p.name for p in seeded.iterdir()) if seeded.is_dir() else []
     marker = data_dir / "user-data-marker.json"
@@ -212,10 +233,6 @@ def run(args: argparse.Namespace) -> dict:
         failures.append(f"processes left running after the update: {orphans}")
 
     result["status"] = "PASS" if not failures else "FAIL"
-    if args.evidence:
-        evidence = Path(args.evidence)
-        evidence.parent.mkdir(parents=True, exist_ok=True)
-        evidence.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return result
 
 

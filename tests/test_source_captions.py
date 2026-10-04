@@ -237,3 +237,46 @@ def test_a_caption_sidecar_can_never_be_mistaken_for_the_video():
     assert ".vtt" in MEDIA_FETCH.split("SIDECAR_SUFFIXES = (", 1)[1].split(")", 1)[0]
     newest = MEDIA_FETCH.split("def _newest_media(", 1)[1].split("\ndef ", 1)[0]
     assert "SIDECAR_SUFFIXES" in newest
+
+
+def test_download_hook_and_info_never_return_caption_sidecar(tmp_path):
+    """When yt-dlp finishes downloading both media and captions, the media path
+    must be returned, never the .vtt or .srt sidecar."""
+    from lecturepack.services import media_fetch
+
+    media_file = tmp_path / "lecture.mp4"
+    media_file.write_bytes(b"dummy video content")
+    vtt_file = tmp_path / "lecture.en-orig.vtt"
+    vtt_file.write_text("WEBVTT\n", encoding="utf-8")
+
+    class FakeYdl:
+        def __init__(self, opts):
+            self.opts = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+        def extract_info(self, url, download=True):
+            hooks = self.opts.get("progress_hooks", [])
+            for h in hooks:
+                h({"status": "finished", "filename": str(media_file)})
+                # Subtitles download finishes AFTER the media file
+                h({"status": "finished", "filename": str(vtt_file)})
+            return {
+                "id": "abc123",
+                "title": "lecture",
+                "requested_downloads": [
+                    {"filepath": str(vtt_file)},
+                    {"filepath": str(media_file)},
+                ],
+                "_filename": str(vtt_file),
+            }
+
+    fetcher = media_fetch.MediaFetcher(ydl_factory=FakeYdl)
+    result = fetcher.download("https://example.com/video", str(tmp_path))
+    assert result == str(media_file)
+    assert not result.endswith(media_fetch.SIDECAR_SUFFIXES)
+

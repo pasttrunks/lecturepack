@@ -378,7 +378,7 @@ re-debug the same thing from scratch.
 - **Lesson:** when a CSS fix "doesn't apply", look for an inline `!important` block before
   re-writing the rule. And check whether JS rewrites `className`.
 
-### BUG-26 — imported video's thumbnail never appears on the job card   🔴 OPEN (known, shipped in 0.9.0-beta.5)
+### BUG-26 — imported video's thumbnail never appears on the job card   ✅ FIXED (sidebar chip fixed; large-file card verified, 2026-10-01)
 - **Area:** `app/ui/app.js` (`posterSrc` / `LP.posterRetry` / `posterHtml`) ↔
   `app/desktop/assets.py` (`resolve_poster`, `make_poster_now`).
 - **Reported by:** owner, 2026-07-27, twice — on import of `CL100 - Day 3` (1.4 GB, h264)
@@ -413,9 +413,321 @@ re-debug the same thing from scratch.
 - **Next step:** confirm which file the page actually loaded (rule out the cache) with a
   hard cache-bust or a fresh profile, then trace `resolve_poster` for the existing-file 404.
   Do NOT add a third timing/retry fix before the 404-on-existing-file is explained.
+- **2026-10-01 — reproduced and partly fixed (third attempt, NOT a timing/retry-budget change):**
+  - **Repro:** a rebuilt packaged app with a disposable `LECTUREPACK_DATA_DIR`, importing the 2.7 MB demo
+    lecture through the real Browse dialog. `poster.webp` was on disk at 21:09:32. The **sidebar chip**
+    (`#side-job-poster`) still showed the placeholder icon, with `naturalWidth 0` and no retry. Requesting the
+    same URL again with a fresh query string loaded it at 480px. That is a "404 for a file that exists" seen
+    from the page side: the chip asked **once**, at import, before the import thread had written the
+    file. Its `onerror` relied on "the next list refresh" to retry, but `renderSidePoster` returns early for
+    the same job id and never re-requested with a cache-buster.
+  - **Fix:** the chip now retries with the cards' backoff and `?r=n` buster (`POSTER_RETRIES`).
+  - **Verified in the real app:** a fresh profile and the same import gave `src …/poster?r=1`, `naturalWidth 480`
+    and a visible frame in the sidebar (screenshot). Test `tests/test_side_poster_retry.py` fails with the fix reverted.
+  - **NOT verified / still open:** the Home **job card** loaded correctly in this repro, because the poster
+    was ready by the time the card rendered. The owner's original case (a 1.4 GB file, where the card's own
+    `?r=n` retries were seen to 404) was not reproduced, because no file that large was available. Hypotheses
+    (a) and (b) above are still unseparated for the card. The "New job" dialog's thumbnail is a static icon
+    by design, not a poster.
+- **Large-file card, verified 2026-10-01 (rebuilt packaged app containing the fix):** I built a synthetic 1.375 GB
+  h264 video with ffmpeg (testsrc2 1080p30 at 9.5 Mb/s, 19:10, with an aac sine track) and imported it through
+  Browse with a fresh profile. `poster.webp` was written within 2 s of import. The sidebar chip loaded it at `?r=1`.
+  The Home card rendered the frame (`naturalWidth 480`, first try, screenshot). No card 404 reproduced at this size.
+  The owner's original 07-27 report predates the BUG-25/26 kick-on-import changes and this chip fix, so
+  hypothesis (a), a stale cached `app.js`, can't be ruled out for that run. It is not reproducible on current code.
 - **Files:** `app/ui/app.js`, `app/desktop/assets.py`.
 
 ## FIXED THIS SESSION
+
+### DEF-064 — scratch release builds packaged an older default candidate   ✅ FIXED (real 2.1.4 install verified)
+- **Discovered:** 2026-10-03, approved 2.1.4 installer/updater phase.
+- **Symptom:** package-win.mjs built into LECTUREPACK_BUILD_ROOT, while the release
+  builder consumed electron-spike/dist. The first installer was labeled 2.1.4
+  but came from that stale payload; it was discarded and rebuilt before acceptance.
+- **Root cause:** candidate_dir() ignored the Node packager's build-root override.
+- **Fix:** use the configured resolved root, retaining the default if unset.
+- **Evidence:** regression ZIP contains new bytes with both candidate directories
+  present; 22 packaging/authority tests passed. Real installed executable reports
+  2.1.4; portable UI matches current source; real updater verifies exact bytes.
+- **Files:** scripts/build_electron_release.py, tests/test_electron_release_packaging.py.
+
+### OBS-07 — local installer acceptance can overwrite existing shell integration   ✅ FIXED for subsequent runs (historical registry state unverified)
+- **Observed:** 2026-10-03. /NOICONS did not prevent the installer from rewriting
+  existing Start Menu and SendTo shortcuts during a disposable /DIR install.
+- **Cleanup:** test uninstaller exited 0; disposable executable and actual
+  LecturePack HKCU uninstall keys were absent afterward; no processes remained.
+  Shortcut creation dates proved the launchers predated this test. They were
+  restored to the existing AppData/Local/Programs/LecturePack 2.0.2 binary and
+  uninstaller; those existing binaries were not updated by the test.
+- **Limitation:** the scratch guard checked a literal AppId spelling that did
+  not match Inno's actual uninstall-key spelling. Prior registry values were
+  not captured, so preservation of the original uninstall registration cannot
+  be claimed. Evidence: release-2.1.4-candidate/host-cleanup.json in scratch results.
+- **Next:** run subsequent installer gates in an isolated Windows VM, or snapshot
+  actual enumerated registry keys and shell shortcuts before any install and
+  restore them in finally. Do not rely on /NOICONS or a guessed key spelling.
+- **2026-10-03 follow-up:** Both installer acceptance runners now share
+  installer_test_isolation.ps1. It snapshots actual HKCU keys in both views,
+  typed values/subkeys and shortcut bytes, serializes runners with a recovery
+  lease, uninstalls the exact test app, restores and verifies original state.
+  Foreign registry changes are preserved; shortcuts still restore on conflicts.
+  Existing acceptance folders are refused rather than deleted. Success evidence
+  is written after restoration, and original/cleanup errors remain visible.
+- **Real evidence:** guarded 2.1.3 → 2.1.4 upgrade passed; a deliberately timed-out
+  real install reported failure with verified host restoration; final local
+  installed acceptance processed the demo, produced 13 exports, restored its
+  job and shut down with no orphans, then verified registry/shortcut recovery.
+  Logs: C:\LecturePackScratch\results\installer-isolation. These are dev-host
+  checks, not evidence of a clean Windows machine or retroactive preservation
+  of the earlier unrecorded registry values.
+- **Additional recovery coverage:** native Windows regression exercises numeric,
+  binary, expandable-string, multi-string and child-key restoration, exact
+  shortcut bytes, concurrent-run rejection and conflict/retry recovery. Unit
+  faults cover failed snapshot, failed acceptance and failed uninstall.
+
+### DEF-061 — the runtime gate could never name a single broken component   ✅ FIXED (verified against the real payload)
+- **Area:** `app/ui/app.js` (`componentRows` / `friendlyComponent`, the `gate` view).
+- **Reported by:** owner, 2026-09-20, with a screenshot of a 2.1.3 source run.
+- **Symptom:** "Runtime needs repair" followed by "LecturePack needs repair, but the
+  affected components could not be listed." — on every failure, always.
+- **Root cause:** `get_runtime_health_snapshot` sends `components` as a **map** keyed by
+  component name (`{"inventory": {healthy:false, reason:"…"}}`). `componentRows` ended in
+  `Array.isArray(list) ? list : []`, so every real payload was discarded and the renderer
+  fell through to its "could not be listed" empty state. The empty state was therefore the
+  ONLY reachable outcome of the screen whose entire job is naming what broke.
+- **Why DEF-044 did not catch it:** DEF-044 fixed this exact map-vs-list shape mismatch in
+  the **checklist** path (`build_first_run_checklist`) and left the **gate** renderer
+  untouched. Both read the same payload; only one was corrected. Confirmed by direct
+  execution: the checklist builds five correct rows from the same result that renders the
+  gate blank.
+- **Fix:** accept the map shape, drop `healthy === true` entries, and append the component's
+  `reason` to its label so the user learns WHICH file is missing. The Array branch is kept
+  deliberately, so a future payload change cannot silently blank this screen a second time.
+- **Tests:** `test_gate_lists_components_from_the_map_shape_the_bridge_actually_sends`
+  executes the shipped functions (node) against the verbatim snapshot from a failing run.
+  Confirmed failing with the fix reverted.
+- **Lesson:** DEF-044's own lesson — "an error-reporting screen must be tested against its
+  own error paths" — was applied to one of the two renderers that read the payload. When a
+  shape mismatch is found, fix **every** consumer of that shape, not the one that reported it.
+- **Files:** `app/ui/app.js`, `tests/test_setup_gate_repair.py`.
+
+### DEF-062 — "Copy details" put an empty JSON array on the clipboard and said "Details copied."   ✅ FIXED (verified)
+- **Area:** `app/desktop/bridge.py::_runtime_repair_report`.
+- **Reported by:** owner, 2026-09-20, same session as DEF-061.
+- **Symptom:** "copy diagnostics doesn't copy anything."
+- **Root cause:** `_last_repair_diagnostics` is initialised to the literal string `"[]"` and
+  is only ever replaced by `RuntimeRepairService.diagnostic_report()`, which needs a repair
+  to have **run**. The gate screen is reachable *before* any repair is attempted, so from
+  there the clipboard always received `[]` — and the UI still reported success, because the
+  bridge returned `runtime_repair_diagnostics_copied` regardless of content.
+- **Fix:** the report now always carries the facts a user needs to report a failed gate —
+  app version, admission state, and every component with its reason — alongside the repair
+  events rather than instead of them. The snapshot lookup is wrapped so diagnostics can
+  never fail to produce text.
+- **Verified:** on a real SETUP_REQUIRED run the report names `bin/ffmpeg.exe`; previously `[]`.
+- **Lesson:** a "copied" confirmation that does not inspect what it copied is a lie with a
+  checkmark on it.
+- **Files:** `app/desktop/bridge.py`.
+
+### DEF-063 — a 404 for an unpublished runtime was reported as "you are offline"   ✅ FIXED (verified live against GitHub)
+- **Area:** `lecturepack/services/runtime_repair.py` (`_get_metadata`, `_download_archive`).
+- **Reported by:** owner, 2026-09-20 ("repair all doesnt do anything").
+- **Symptom:** "Repair all" appeared to do nothing, then — if anything — claimed an internet
+  connection was required, on a machine with working internet.
+- **Root cause:** `HTTPError` subclasses `OSError`, so a **404** fell into the connectivity
+  branch: three pointless retries with backoff (hence "does nothing"), then
+  `RepairFailure("offline", "an internet connection is required for repair")`. The real
+  cause is that no runtime was ever published for this version —
+  `…/releases/download/v2.1.3/LecturePack-2.1.3-RuntimeManifest-v1.json` returns 404
+  (confirmed live). The message sent the user to debug a working network.
+- **Fix:** classify HTTP status before the connectivity branch. 404/410 →
+  "no published repair runtime exists for this version of LecturePack"; 401/403 → refused;
+  only 408/425/429/5xx are retried, since those are the only ones that can change on their own.
+- **Verified:** live 404 now fails in 0.24s with the accurate message and two events
+  (`started`, `failed`) instead of 0.5s and three misleading `retrying` events.
+- **Still true, and NOT a bug:** repair genuinely cannot succeed from a source checkout or
+  for any unpublished version. That is now *stated* rather than disguised as a network fault.
+- **Tests:** `test_an_unpublished_runtime_is_not_reported_as_an_offline_network` and
+  `test_a_transient_server_status_is_still_retried` (the retry path must survive its own fix).
+  Both confirmed failing with the fix reverted.
+- **Lesson:** an exception hierarchy is not a diagnosis. `except OSError` swallowed "the file
+  does not exist" and "the network is down" into one wrong message.
+- **Files:** `lecturepack/services/runtime_repair.py`, `tests/test_runtime_repair.py`.
+
+### Verification boundary for DEF-061..063 (read before claiming these are proven in the shipped app)
+- **What WAS verified:** each fix was exercised against the real failing payload — the gate
+  functions executed (node) on the verbatim snapshot from a failing run, the diagnostics
+  report generated from a live `SETUP_REQUIRED` assessment, and the 404 classification run
+  against the real GitHub URL. All three tests confirmed failing with their fix reverted.
+  Full suite: 2017 passed (the 2 failures are OBS-06, pre-existing).
+- **What was NOT verified:** the fixes were NOT seen in the **packaged** app's own UI. The
+  2.1.3 packaged runtime assesses HEALTHY (confirmed against `app/dist/LecturePack`), so the
+  gate never renders there and the corrected path stays unexercised in the shipped build —
+  the exact caveat DEF-044 carries, for the same reason.
+- **How to close it:** copy the built onedir, remove one required payload file (e.g.
+  `bin/ggml-base.dll`), launch that copy, and confirm the gate NAMES the missing file, that
+  "Copy details" yields a report containing it, and that "Repair all" reports no published
+  runtime rather than an offline network.
+- **Closed 2026-10-01 (packaged copy, `bin/ggml-base.dll` removed):** DEF-061 ✅ the gate shows
+  "Runtime files — missing or empty required runtime payload: bin/ggml-base.dll". DEF-062 ❌ until
+  BUG-69 fixed the button; it now passes. DEF-063 ✅ after the BUG-70 fix (rebuilt packaged app): "No published repair runtime exists for this version of LecturePack."
+
+### BUG-69 — packaged "Copy details" always failed; the DEF-062 report was unreachable   ✅ FIXED (verified in a packaged copy)
+- **Area:** `app/ui/app.js` (`copyDiagnostics` in the runtime gate).
+- **Found:** 2026-10-01, closing the DEF-061..063 verification boundary in a copy of
+  `app/dist/LecturePack` with `bin/ggml-base.dll` removed.
+- **Symptom:** Open diagnostics, then Copy details, gave "Could not copy details." and the clipboard was unchanged.
+- **Root cause:** the UI copied with `navigator.clipboard.writeText` only. QtWebEngine gives the
+  `file://` page no async-clipboard permission, so it never succeeded in the Qt shell. The bridge
+  slot `copy_runtime_repair_diagnostics`, which DEF-062 fixed, was wired in `bridge.js` but
+  **nothing called it**. DEF-062 was verified at the bridge, one layer below the button.
+- **Fix:** copy through the bridge first. If that fails, fall back to the web clipboard, then
+  `execCommand`. A failure is still reported as a failure.
+- **Verified (packaged copy, trusted CDP click):** "Details copied." The Windows clipboard held
+  `app_version 2.1.3`, `SETUP_REQUIRED`, and the reason
+  `missing or empty required runtime payload: bin/ggml-base.dll`.
+  Test `test_copy_details_uses_the_desktop_clipboard_before_the_web_one` fails with the fix reverted.
+- **Lesson:** verify a fix at the control the user touches, not the slot under it.
+
+### BUG-70 — packaged Qt shell: repair events never reach the page; Repair all hangs on "Checking runtime…"   ✅ FIXED (verified in a rebuilt packaged app)
+- **Area:** `app/desktop/bridge.py` (`_start_repair_worker`, new `_RepairEventRelay`).
+- **Found:** 2026-10-01, in the same packaged copy as BUG-69 (with `bin/ggml-base.dll` removed).
+- **Symptom:** after Repair all, the button stays disabled and the status stays on "Checking runtime…"
+  indefinitely. The backend had recorded `started` and then `failed`, but the page received neither.
+- **Root cause:** `worker.repair_event.connect(self._on_repair_event)` connected a signal to an
+  **undecorated bound method of a QObject**. PySide responds by registering a *dynamic slot*
+  on Backend's metaobject. Backend was already published on the QWebChannel, so this late slot
+  changed its method table after the page had subscribed by index. The emit happened
+  (proved with a Python-side listener), but the page never received it.
+- **How it was separated:** wrapping `_on_repair_event` with a module-level function made the
+  bug disappear, which is why an early source repro looked healthy. Without the wrapper the source run
+  reproduces it. Forcing a `QueuedConnection` did **not** fix it, which ruled out threading.
+  A test shows the metaobject's method list changes when a worker is wired.
+- **Fix:** route worker events through a private, unpublished `_RepairEventRelay` QObject that has a
+  static `@Slot(dict)`, so Backend's metaobject never changes. The failure screen now shows the
+  backend's reason. The duplicated "previous runtime is still in place" sentence was dropped.
+- **Verified:** in a fresh `build.py --no-installer` packaged copy with `bin/ggml-base.dll` removed,
+  a real click on Repair all delivered both events. The UI shows "Repair could not be completed" and
+  "No published repair runtime exists for this version of LecturePack." (DEF-063 is now visible to the user.)
+  Copy details (BUG-69) also passes in that build. Test
+  `test_starting_a_repair_never_mutates_the_published_backend_metaobject` fails with the fix reverted.
+  Full suite: 2036 passed.
+- **Not verified in the packaged build:** a successful repair. It was driven to success in a source run against a locally served, test-key-signed release; see BUG-71.
+- **Lesson:** never `connect()` to an undecorated method of an object that is already published on a
+  QWebChannel.
+- **Audit (2026-10-01):** measured which patterns actually add a slot to the receiver: only
+  `signal.connect(<undecorated method of that QObject>)` does. `QTimer.singleShot(ms, backend, fn)`, lambdas,
+  and connections to other objects' methods do not. Every `connect(self._…)` in `app/desktop` targets an
+  unpublished object (MainWindow, Updater, SingleInstanceGuard). The repair worker was the only site that
+  targeted Backend. Guard: `test_nothing_connects_a_signal_to_a_backend_method` (AST scan) fails on the
+  original BUG-70 line.
+
+### BUG-71 — a successful repair on a first-run profile left the gate on "0 of 5 checked" forever   ✅ FIXED (verified in a simulated repair)
+- **Area:** `app/ui/app.js` (`RuntimeSetupGate` `closeReady`).
+- **Found:** 2026-10-01, the first time a repair had ever been driven to success in the real UI (see the simulation below).
+- **Symptom:** after "admitted", the backend reported `HEALTHY` and the new runtime generation was on disk,
+  but the overlay switched to "Setting things up — 0 of 5 checked", every row Pending, and never left it.
+- **Root cause:** on a profile that hasn't acknowledged setup yet, `closeReady` switches to the first-run
+  checklist (D-17). That checklist arrives only with a bootstrap result, and a repair produces none, so
+  `toChecklist()` fell into `waitForChecklist()` with nothing left to deliver it.
+  This is exactly the "roughest install" case that branch was written for.
+- **Fix:** in that branch, fetch `get_bootstrap` once (it already returns the HEALTHY five-row checklist),
+  load it into the model, and render the checklist.
+- **Verified (source run plus simulated release, see the "Repair simulation" note below):** after the repair the checklist shows
+  all five rows as Ready ("You're ready to go"). Done closes the overlay to Home.
+- **Not verified:** the packaged build has no URL or key override, so this exact flow can't run there.
+  Packaged successful repair remains unverified.
+- **Automated coverage added 2026-10-03:** execute the shipped `closeReady` callback with the
+  real gate reducer and a deferred bridge response. Both object and JSON payloads fetch exactly
+  once, render all five Ready rows, and preserve first-run acknowledgment before closing.
+- **Repair simulation (how a successful repair was exercised at all):** `scripts/build_signed_runtime_release.py`
+  with a **throwaway** Ed25519 key built a real signed 2.1.3 release (4 archives, 198.8 MB) from
+  `app/dist/LecturePack`. A source-run launcher (scratch only, not committed) served it from
+  `127.0.0.1:8765`, swapped only the transport host and the verifier's public key, and forced the
+  initial runtime root to a copy with `bin/ggml-base.dll` removed. Everything else was real:
+  signature verification, offer, confirm, streaming, extraction, activation and admission. Production code
+  has no override for either the URL or the key, by design, and none was added.
+
+### BUG-72 — "Paste a link" could never work in the Qt shell   ✅ FIXED (verified in a rebuilt packaged app)
+- **Area:** `app/desktop/bridge.py` (`probe_media_url`, `import_media_url`), `app/desktop/engine_adapter.py`.
+- **Found:** 2026-10-01, running the full YouTube flow in the packaged app.
+- **Symptom:** every link gave "That link could not be read." The backend's reply was
+  `{"ok": false, "error": "That doesn't look like a web link."}`.
+- **Root cause:** since fe66552 (2026-08-09) `app/ui` sends the Electron batch contract,
+  `probe_media_url({urls:[...]})` and `import_media_url({items:[{url,title}]})`. The Qt slots were still
+  `Slot(str)` and `Slot(str, str)`. QWebChannel stringified the object, and the two-argument import slot
+  could not be called with one argument at all. Probing with a plain string works, which hid it from the
+  adapter tests.
+- **Fix:** both slots take `QVariant` and accept the string form, `{urls}` and `{items}`. Multiple links are
+  probed on one worker (`{ok, items}`) and downloaded strictly one after another.
+- **Verified:** in the packaged app the probe showed "Me at the zoo, 0:19"; Download 1 then wrote a real mp4 and the
+  import dialog opened (this also needed the OBS-06 restore). New tests:
+  `test_bridge_accepts_the_batch_shapes_the_ui_actually_sends` (fails with the fix reverted) and
+  `test_several_links_download_one_after_another`.
+- **Electron batch verified 2026-10-03:** real packaged 2.1.4 UI accepted three
+  public videos plus a repeated first URL, downloaded exactly three recordings,
+  persisted three separately inspected jobs and restored all three after restart.
+  Both launches exited cleanly with no orphans. See the opt-in
+  `scripts/electron_batch_link_acceptance.py` gate and HANDOFF_PHASE_9 evidence.
+  This completes the Electron multi-link check; Qt multi-link UI remains unverified.
+
+### OBS-05 — on a first job, Home shows "No lectures yet" until processing finishes   ✅ FIXED (verified in isolated packaged candidate)
+- **Seen:** 2026-10-01, packaged app with a fresh profile, while importing the 1.375 GB file. The sidebar showed
+  "Transcribe 64%" but Home said "No lectures yet". The normal `start_processing` path never calls
+  `_push_jobs()`; only the queued path does. The job card appears on completion. A "Continue: Processing" banner
+  also lingered after the job finished.
+- **Source fix, 2026-10-03:** publish the disk-backed job list immediately after the normal
+  controller start stamps its running stage. Hide Continue when its saved Process destination
+  belongs to a `done` job; retain paused processing and Review/Study resume destinations.
+- **Regression evidence:** a real persisted Job is published as running before completion;
+  Node executes the shipped Home renderer across running, done, paused, Review and missing-job states.
+- **Packaged verification, 2026-10-03:** fresh profile, Browse import of the bundled ten-second
+  Polar Bears video as a normal job, real pipeline through two slides and completion. Home had
+  one card and hid its empty state during processing; Continue changed from visible Processing
+  to hidden on completion. Original video SHA-256 unchanged; clean exit 0; no remaining
+  LecturePack/FFmpeg/Whisper processes. Evidence: scratch `handoff-polish/packaged-home.json`.
+  The build initially collected a conflicting Poppler ICU DLL from the tool-runtime PATH;
+  quarantining that generated DLL restored Windows ICU resolution. A clean-PATH final release
+  build is still required.
+
+### OBS-06 — the BUG-30 android player_client override is BACK in 2.1.3   ✅ RESOLVED: the override is REQUIRED (restored 2026-10-01 after a live download probe)
+- **Area:** `lecturepack/services/media_fetch.py:277`.
+- **Found:** 2026-09-20, by the full suite, while verifying the DEF-061..063 fixes.
+- **Symptom:** two tests fail at `v2.1.3` HEAD —
+  `test_youtube_probe_does_not_force_a_player_client` and
+  `test_base_opts_never_forces_the_android_player_client`. Both assert no player client is
+  forced; the code sets `"player_client": ["android", "mweb", "web"]`.
+- **Why it matters:** BUG-30 removed exactly this override because forcing `android`
+  bypasses yt-dlp's EJS JS-challenge path — the failure mode that silently returned 11
+  formats instead of 14 and shipped degraded in 2.0.0. BUG-30 is marked FIXED (verified).
+- **Confirmed pre-existing:** both tests fail with this session's changes stashed. Nothing
+  in DEF-061..063 touches media fetch.
+- **Not fixed here** because it is outside the reported defect and BUG-30's lesson is that
+  this path must be re-verified with a **live** extraction probe, not a unit test.
+- **Next step:** decide whether the override is deliberate (then the tests and BUG-30 must be
+  updated to say so) or a regression (then revert it and re-run BUG-30's live probe).
+- **Resolution (2026-10-01):** a regression. `git log -S'"mweb"'` shows it arrived in 025f5b0
+  (the BUG-68 caption fix), listed in that handoff only as "Extractor args client fallback" with
+  no rationale and no evidence. Both guarding tests already existed before that commit, so the
+  handoff's "0 failed" claim could not have been true. Reverted the override.
+- **Live probe** (yt-dlp 2026.07.04, bundled deno found, `jNQXAC9IVRw`, `extract_info` without download):
+  forced `["android","mweb","web"]` gave **1 format** (yt-dlp warned that android formats were skipped
+  because of SABR and mweb needed a PO token); the default clients gave **11 formats** (7 video, 5 audio).
+  This is a different video from BUG-30's, so 11 can't be compared with BUG-30's 14.
+- **Verified:** full suite 2034 passed, 8 skipped, 0 failed. **Not verified:** a full download through
+  the packaged build.
+- **REVERSED the same day. The revert above was wrong.** The format count was the wrong metric. A
+  live **download** (not `extract_info`) of `jNQXAC9IVRw` with the bundled deno, per client:
+  default (android_vr) → **HTTP 403** on media, so only the `.vtt` sidecar was written ("The download finished
+  but no media file was written"); `web`, `web_safari`, `ios` → no video formats; `tv` → "page needs to be
+  reloaded"; **`android` and `mweb` → a real 614 KB mp4**. So 025f5b0's override is what keeps link
+  downloads working. It was undocumented, not wrong.
+- **Restored** `["android","mweb","web"]` with the measurement in a code comment. The two tests now pin the
+  opposite of BUG-30's rule: a downloading client comes first and `web` comes last, so EJS is still reachable.
+- **Verified in the rebuilt packaged app:** pasting the link, probing, downloading, importing and processing
+  all worked through Review Ready. The Whisper transcript matches the clip and the card shows the poster.
+- **Lesson:** "more formats" is not "it downloads". Probe the operation the user performs. This is
+  BUG-30's lesson again, and it applied to my own fix.
 
 ### DEF-044 — the runtime-setup gate crashed on exactly the failure it exists to explain   🟡 FIXED (shipped in 2.0.9; the packaged build's own runtime is healthy, so the fixed path is still unexercised there)
 - **Area:** `lecturepack/services/first_run_checklist.py::build_first_run_checklist`,
@@ -857,7 +1169,27 @@ re-debug the same thing from scratch.
   **This is a mitigation, not a root-cause fix.** If it recurs, the log will now carry the
   stack the original report could not produce. Leave this entry open until then.
 
-### BUG-59 — the "authoritative" release workflow has never once succeeded   🔴 OPEN (found 2.1.0)
+### BUG-59 — release CI omitted native runtime restoration   🟠 HOSTED CANDIDATE VERIFIED; FINAL-TAG RELEASE PENDING (found 2.1.0)
+- **2026-10-04 hosted evidence:** PR candidate build on d839c71 passed in
+  GitHub Windows run 37175987746: all 20 runtime inputs restored, 12 required
+  packaged health checks passed, installer/portable built, window shown in 1.00s.
+  Both build paths now install the locked Rust CPython extension before
+  PyInstaller; cargo test alone did not install it. Audit, logs and matching
+  manifest/SHA256SUMS retained. This validates the official builder on a bare
+  hosted checkout, not the exact-tag publisher/signing path or clean shutdown.
+- **2026-10-03 correction:** Added a build-only restorer and committed lock for
+  the public v2.1.3 portable source (archive size/hash and 20 native member
+  size/hash pins). Every CPU/model/Deno byte matches the current local runtime;
+  app-local MSVCP140 is restored too. CI caches the source by lock identity,
+  verifies cache hits, restores before packaging into runner-temp and passes
+  runtime/MSVC roots to the existing official builder. Audit and lock are retained.
+- **Tests/evidence:** 40 focused restoration/release-contract tests passed.
+  A real public ZIP download matched the pinned digest and restored all members.
+  Current full-suite and official build results are in HANDOFF_PHASE_9.
+- **Residual:** Exact-tag release execution/publication remains unverified.
+  Hosted PR candidate success is separate from signing, final-tag assertions,
+  publisher execution and real lecture/updater acceptance. No release claimed.
+- **Historical report follows; its no-restoration diagnosis is addressed above.**
 - **Area:** `.github/workflows/release-electron.yml`.
 - **Found:** 2026-08-23, dispatching it for the 2.1.0 release.
 - **Symptom:** the run dies at "Build the Electron release candidate" with
@@ -886,6 +1218,159 @@ re-debug the same thing from scratch.
   2.0.9 was. The local build was verified further than any prior release — packaged
   self-test 12/12, packaged acceptance 16/16, launch smoke, and the packaged UI confirmed
   byte-identical to source.
+
+### BUG-63 — the Process nav was a dead click for anyone already on Process   🟢 FIXED (2.1.2)
+- **Area:** `app/ui/app.js::setScreen`. **Re-opens BUG-62**, which is marked FIXED (2.1.1)
+  and whose fix is still present and still correct — it just never ran on this path.
+- **Reported:** 2026-08-24, from a fresh 2.1.1 install on a second laptop.
+- **Symptom:** click a queued lecture (which navigates to Process showing that lecture),
+  then press Process in the sidebar to get back to the lecture actually running. Nothing
+  happens. The screen stays on "Waiting to process · Position 2" and there is no way back
+  to the running lecture except hunting through the library.
+- **Root cause:** `setScreen` opened with `if (LP.state.screen === name) return;`. BUG-62's
+  follow was placed inside the body that runs *after* that guard, so it only fires when the
+  screen CHANGES. Arriving at Process by clicking a queue row leaves you on Process, so
+  every subsequent press of the Process nav was swallowed whole.
+- **The lesson, and it is the same one OBS-01 taught in reverse:** BUG-62 was verified by
+  three tests, all of which assert on `followActiveProcessingJob` and on the carries-a-job
+  flag. Not one of them asked whether the function is *reachable* from the button the user
+  actually presses. A fix verified only at the function it changed is verified against the
+  wrong thing.
+- **Fix:** the early return now runs the same follow, behind the same
+  `_screenChangeCarriesJob` guard, before returning. Entrance motion still does not replay
+  — which is the only reason the early return exists.
+- **Tests:** `test_bug63_*` (three). Confirmed FAILING against 2.1.1's source first.
+
+### BUG-64 — every Study answer flashed the whole screen   🟢 FIXED (2.1.2)
+- **Area:** `app/ui/app.js` — the `study_v2_record_quiz` / `study_v2_record_flashcard`
+  call sites, and the new `studyV2RefreshProgress`.
+- **Reported:** 2026-08-24. Seen on the cached guided-demo lecture, where no AI call is
+  involved at all — which is what makes it unmistakably a render problem, not latency.
+- **Symptom:** click a quiz option and the whole Study screen blanks and repaints; the
+  "Correct" verdict appears only *after* the flash, so the answer reads as unstable.
+- **Root cause:** both record calls chained `.then(function () { studyV2Load(); })`.
+  `studyV2Load` re-fetches all Study CONTENT and then re-renders the scope header, the
+  generation state, the overview and the active mode pane from scratch. The click handler
+  had already written the verdict into `#study-quiz-feedback` synchronously; the reload
+  wiped it and painted it again a moment later. Recording an answer changes PROGRESS, and
+  content was being reloaded to collect it.
+- **Attempts:** 1) debouncing the reload → **rejected**: it makes the flash later, not
+  absent, and a slower wrong repaint is harder to reason about. 2) A progress-only refresh
+  that never touches the pane the student is interacting with → **worked**.
+- **Fix:** `studyV2RefreshProgress()` fetches the same status payload, updates
+  `studyV2.progress`/`summary`, and repaints the overview **only when the overview is the
+  visible pane**. It keeps `studyV2Load`'s in-flight owner guard, so a late response for
+  the previous lecture still cannot repaint this one. The three Quick Study record sites
+  were already fire-and-forget and are unchanged.
+- **Tests:** `test_bug64_*` (three), including a count of all five record sites so a new
+  one cannot quietly reintroduce the reload.
+
+### BUG-65 — Ask showed the PREVIOUS lecture's conversation   🟢 FIXED (2.1.2)
+- **Area:** `app/ui/app.js::setActiveJob`, new `askFeedSnapshot` / `restoreAskFeed`.
+  **Re-opens BUG-08.**
+- **Reported:** 2026-08-24, with the note "we made this fixed before, but I don't know how
+  it got lost in the code". It was never lost. It was fixed on a different surface.
+- **Symptom:** ask a question about lecture A, open lecture B, and B's Ask pane still shows
+  A's conversation. A brand-new lecture should be blank and a previously-used one should
+  show its own history.
+- **Root cause:** BUG-08 built the per-lecture workspace — `LP.byJob`, `snapshotWorkspace`,
+  `applyWorkspace`, owner-stamped payloads — and `setActiveJob` clears `LP.state.chat` on
+  every switch. But `LP.state.chat` belongs to the **old** chat surface (`#chat-feed`) that
+  Study V2 replaced. The live Ask pane is `#study-ask-feed`, whose entire history lives in
+  the DOM and in nothing else: `studyAskSend` appends markup, `appendStudyAskText` mutates
+  the last bubble. Nothing snapshotted it and nothing cleared it, so it simply stayed on
+  screen across the switch. **The fix was still there, applied to a surface that had
+  stopped being used** — which is exactly what "it got lost in the code" feels like from
+  the outside.
+- **Fix:** the feed is snapshotted into the outgoing lecture's `LP.byJob` blob and restored
+  from the incoming one. Stored as markup rather than as a message model **because every
+  control inside the feed — suggestion chips, source chips, copy buttons — is bound by
+  delegation** (on `#study-ask-feed` or on `document`), so restored markup is fully live.
+  A test asserts that property; if a per-element listener is ever added inside the feed,
+  this has to become a real message model. A "Thinking…" bubble left mid-stream is rewritten
+  as interrupted before it is stored, so a restored feed never shows a permanent
+  "Thinking…", and `askStreaming` is cleared on the switch. With NO lecture the feed stays
+  bare — suggestion chips inviting "Explain this lecture simply" with nothing loaded would
+  be BUG-58 again.
+- **Tests:** `test_bug65_*` (five).
+
+### BUG-66 — the progress meters did not correspond to the live log   🟢 FIXED (2.1.2)
+- **Area:** `lecturepack/controllers/job_controller.py`,
+  `lecturepack/infrastructure/cv_engine.py`.
+- **Reported:** 2026-08-24 — "it's detecting slides in the live log, but the slide meter is
+  not moving; it's transcribing, and the transcribe meter is not moving."
+- **Symptom:** the log streams while the meter beside it sits still, so the app looks hung
+  during the two longest stages of a run.
+- **Root cause — two separate holes, same shape.** The log and the meters are fed by
+  different signals (`stage_log` vs `stage_progress`) and **only Detect Slides and Export
+  were ever wired to a `progress` signal at all**:
+  1. **Transcribe emitted no `stage_progress` whatsoever.** The bar sat at 0 for the entire
+     stage — on a long lecture, for most of the run.
+  2. **Detect Slides reached 100% roughly two-thirds of the way through its work.** The
+     sampling scan owned the whole 0–100 range; deduplication and the full-resolution
+     capture pass ran afterwards, emitting `status_message` the whole time against a bar
+     already pinned at 100.
+- **Fix:**
+  1. `_emit_transcribe_progress` derives a percentage from live segment end timestamps
+     against the known source duration. It is monotonic (the chunked online backend
+     interleaves segments), clamped to 99 (`_on_stage_finished` writes the 100), and
+     **claims nothing when the duration is unknown or a segment carries no timestamp** —
+     the bar holds its last real value rather than showing a guess. A meter that invents a
+     number is the "reported success for work it had not done" family from 2.1.0.
+  2. `cv_engine` reserves headroom: `SCAN_PCT = 85` for the sampling scan, `DEDUP_PCT = 92`
+     for deduplication, and the capture pass reports per written frame up to 100. Applied
+     to both decode paths (FFmpeg and the legacy cv2 fallback).
+- **Not fixed here:** Inspect, Extract Audio and Align still report no percentage. They are
+  short enough that no one has reported them, and inventing progress for them would be the
+  same defect this entry is about.
+- **Tests:** `test_bug66_*` (six), driving the controller directly. Confirmed FAILING
+  against 2.1.1 first.
+
+### BUG-68 — yt-dlp link download returned caption sidecar (.vtt) as the media file   🟢 FIXED (2.1.3)
+- **Area:** `lecturepack/services/media_fetch.py::MediaFetcher.download`, `_path_from_info`, progress hook.
+- **Reported:** 2026-08-25 — video download with published captions succeeded and showed transcript in the Transcript screen, but pipeline processing failed on Inspect/Extract Audio/Detect Slides with "Audio extraction failed: This video has no audio track" and 0x0 video dimensions.
+- **Symptom:** YouTube videos with captions populated the transcript, but the job failed during pipeline processing. The video had 0x0 dimensions, no thumbnail poster, audio extraction failed, and slide detection produced 0 slides.
+- **Root cause:** yt-dlp's download progress hook fires for every downloaded component, including subtitle tracks (`.vtt`, `.srt`). Because subtitle downloads finish *after* the video track, `hook(d)` with `status == "finished"` set `state["path"] = d.get("filename")`, overwriting the video file path with the `.en-orig.vtt` caption path. `_path_from_info(info)` similarly lacked filtering against `SIDECAR_SUFFIXES`. As a result, `MediaFetcher.download()` returned the `.vtt` file as the job's video source. Downstream FFprobe, FFmpeg audio extraction, and OpenCV slide detection were executed against a `.vtt` subtitle file rather than the downloaded media file.
+- **Fix:** Filter out files matching `SIDECAR_SUFFIXES` in the download progress hook, in `_path_from_info`, and in `download()`'s fallback path so only legitimate media files are ever returned as the download result.
+- **Tests:** `test_download_hook_and_info_never_return_caption_sidecar` in `tests/test_source_captions.py`.
+
+### BUG-67 — the installer's task checkbox was clipped on a scaled display   🟠 MITIGATED, NOT CONFIRMED (2.1.2)
+- **Area:** `app/packaging/lecturepack.iss` — but the defect is in Inno Setup's own Setup
+  binary, not in this project's code.
+- **Reported:** 2026-08-24 — the "Create a desktop shortcut" checkbox and its label on the
+  installer's "Select Additional Tasks" page rendered running into the line above it, with
+  only part of the text visible.
+- **What was actually verified, and what was not.** The page was compiled from an .iss
+  carrying the identical `[Setup]`/`[Tasks]` block, launched, and captured **at 96 DPI on a
+  1920×1080 display: it renders correctly.** So this is a scaling failure, and it has NOT
+  been reproduced. The compiled `Setup.exe` manifest was read directly and declares
+  `<dpiAware>true</dpiAware>` **and nothing else** — system DPI awareness only, no
+  `PerMonitorV2`. The wizard is therefore laid out for the DPI in force when the process
+  started and bitmap-scaled by Windows afterwards, at which point fonts no longer fit the
+  control rectangles measured for them. That is consistent with the report. **No `.iss`
+  directive can change that manifest.**
+- **Mitigation:** `WizardSizePercent=120` gives every caption headroom over its measured
+  width — Inno's own documented remedy for text that does not fit. `WizardResizable=yes`
+  was tried alongside it and **removed**: this Inno version compiles it to "obsolete and
+  ignored" (the wizard is resizable regardless). It was caught only because the probe build
+  was read for warnings rather than just for "Successful compile". A directive that
+  produces nothing but a build warning is worse than none, because the ledger would have
+  recorded a mitigation that was never in force.
+- **Also addressed while here:** the wizard now carries LecturePack's own artwork
+  (`make_wizard_images.py` → `wizard-large-*.bmp` / `wizard-small-*.bmp`, the mark from
+  `make_icon.py` on the dark shell colour) at **all six of Inno's DPI sizes**. That is not
+  only cosmetic: the same system-DPI-awareness limit that clips captions also resamples any
+  artwork Inno was not given at the right size. Only the banner and header icon can be
+  themed — the wizard body uses system colours, and a fully dark wizard needs a custom VCL
+  style (.vsf) that this toolchain cannot author. Verified by launching the compiled probe
+  and capturing the welcome page.
+- **This entry stays OPEN.** A mitigation reasoned from a manifest is not a confirmed fix,
+  and closing a user-visible report on inspection is precisely what OBS-01 got wrong. It
+  needs the reporter's laptop, at its real scaling, running the 2.1.2 installer.
+- **Tooling gap, related to OBS-03:** driving the wizard here required `SendKeys` against
+  the live desktop, and one keystroke batch landed in an unrelated foreground window. Do
+  not automate the real desktop again for this; build the probe and have a human look.
+- **Tests:** `test_bug67_the_wizard_is_not_sized_to_the_millimetre` pins the two directives.
 
 ### BUG-60 — a queued lecture could not be dragged ANYWHERE   🟢 FIXED (2.1.1)
 - **Area:** `app/ui/app.js::_jobIsDraggable`. **Supersedes OBS-01**, which was filed on
@@ -943,6 +1428,62 @@ re-debug the same thing from scratch.
   entitled to its real state, "Waiting to process · Position 2" included. `_screenChangeCarriesJob`
   distinguishes the two, and is cleared in a `finally`.
 - **Tests:** `test_bug62_*` (three).
+
+### OBS-04 — packaged shutdown gate selected hidden Electron windows   🟠 PARTIALLY RESOLVED (found 2.1.2)
+- **2026-10-03 confirmed defect and fix:** Native HWND inventory against the real
+  packaged Electron 2.1.4 app reproduced one failure in ten launches. The gate
+  posted WM_CLOSE to the first same-PID window: a hidden Chrome_WidgetWin_0
+  helper, while the visible LecturePack main window remained open. The gate
+  killed the app after 20 seconds; no session_closed was written. The other
+  nine launches exited cleanly in 0.656–0.969 seconds after the close request.
+- **Correction:** Select the visible Chrome_WidgetWin_1 window titled LecturePack
+  for the process, honor PostMessage failure, and record missing-main-window or
+  forced-kill errors explicitly. Keep the 20-second bound and production quit
+  implementation unchanged. Five behavioral regressions cover window selection
+  and forced termination. The corrected isolated gate passed 10/10 real
+  Electron launches/restores with clean exits (0.687–0.921s), session_closed
+  events and zero orphans. Evidence is in HANDOFF_PHASE_9.
+- **Residual:** The historical session_closed-then-linger variant below has not
+  been reproduced or explained. Do not claim this test-driver fix diagnoses it.
+- **Historical evidence follows; its update-check hypothesis remains unproven.**
+- **Found:** 2026-08-24, running the release gate against the 2.1.2 packaged build before
+  publishing. **This blocked the 2.1.2 publish.**
+- **Symptom:** `scripts/electron_packaged_acceptance.py` reports
+  `unexpected_errors: ['packaged app exit code 1']` and `overall FAIL`, while **every other
+  check passes** — app_launched, sidecar_ready, job_started/completed, slides, transcript,
+  export (13 files), first_exit_clean, restore_passed, no orphans, no renderer failures, no
+  bridge errors. Only the second (restore) session's process exit code is wrong.
+- **Rate: 2 failures in 4 consecutive runs**, same build, same machine, nothing else
+  changed. It is a coin flip, not a state-dependent failure.
+- **Where the exit code comes from:** the harness posts `WM_CLOSE`, waits 20s, then
+  `proc.kill()` — and a Windows kill *is* exit code 1. So "exit code 1" means "the app did
+  not finish quitting within 20 seconds", not "the app returned an error".
+- **Evidence, and it points at the quit outliving the bound:**
+  - Failing run 1: the session log's last line is `update_none` — the process was killed
+    with an update check having just completed and no `session_closed` ever written.
+  - Failing run 2: `session_closed` **was** written cleanly, and the process was still
+    killed. So the session tears down fine and the *process* lingers afterwards.
+  - Passing runs: identical logs, ending in `sidecar_exit` → `production_document_removed`
+    → `session_closed`.
+  - `requestQuit()` chains `stopSession` then `app.quit()`. Nothing sets a non-zero exit
+    anywhere in `production-main.js`. The most likely holder is an in-flight update check —
+    `update_check_started` fires seconds before shutdown in these runs — keeping the event
+    loop alive past the bound. **Not proven.**
+- **This is NOT a 2.1.2 regression.** 2.1.2 changed the renderer and the engine; the
+  shutdown path in `production-main.js` is untouched by this release.
+- **But it does cast doubt backwards.** The 2.1.1 handoff records "packaged acceptance
+  16/16". At a 50% failure rate, **one green run is what a coin flip looks like.** A gate
+  that is only ever run once cannot distinguish "passes" from "passed this time". Treat any
+  single-run acceptance result in this project's history as unconfirmed.
+- **Next:** decide whether the app is slow to quit (a real product nit — quitting should
+  not wait on a network call) or whether the harness's 20s bound is simply too tight for a
+  cold machine. Instrument `requestQuit()`/`app.quit()` with timestamps and run the gate
+  ten times. **Do not "fix" this by raising the timeout until it is known which of the two
+  it is** — raising the bound on a genuinely slow quit hides it from the only gate that
+  looks.
+- **Process lesson:** run this gate more than once before believing it. It was run four
+  times here only because the first run failed; had the first run passed, 2.1.2 would have
+  been published over a gate that fails half the time.
 
 ### OBS-02 — the taskbar icon shows the Electron logo   🟠 NOT A CODE DEFECT (investigated 2.1.1)
 - **Reported as:** "the LecturePack icon on the taskbar is still the Electron logo, we
@@ -2560,3 +3101,31 @@ inventory that was authored rather than derived from the binaries.
 9. **Inline styles beat class rules.** The design markup carries layout as inline styles,
    so any responsive override of it needs `!important` (BUG-03). A media query that "does
    nothing" is usually this.
+
+## Ledger ID correction (2026-10-03)
+
+The newer 2026-09-20 runtime entries formerly named DEF-045/046/047 are now
+DEF-061/062/063. The newer first-job Home OBS-03 is OBS-05; the yt-dlp OBS-02
+is OBS-06. Older 2.1.0 defects and icon/drag observations keep their original IDs.
+Historical handoffs, tests and code comments may still use the former aliases;
+resolve them by their descriptive title and date.
+
+---
+
+### DEF-065 — missing Electron runtime gives no recovery instruction ✅ FIXED (real installed Electron verified)
+
+- **Found:** 2026-10-04, real installed local 2.1.4 candidate with scratch FFmpeg
+  disabled. Startup screen names the failed runtime and Copy diagnostics works,
+  but Retry/Copy diagnostics/Open logs give no way to restore the missing file.
+- **Cause:** startup failure rendering only projects the failure reason; the
+  Electron reinstall explanation exists on the deferred repair response, which
+  this fatal-startup path does not enter.
+- **Change:** show reinstall/keep-data advice only for Electron and explicit
+  missing media/speech/model files. Clear/hide it for other failures and Qt.
+- **Evidence:** real guarded reinstall restored FFmpeg, completed job restored
+  twice, 29 checked files including 13 exports unchanged, four natural closes,
+  host integration restored, no orphans. Focused tests 33 passed, 1 skipped.
+  Fresh official build and installed hint/reinstall/restart gate passed (probe 5);
+  hint visible on failure and hidden when healthy. Full pytest: 2075 passed,
+  8 skipped, 1 warning in 256.45s. Probe 4 close-timing failure remains recorded
+  separately; this fix does not claim every shutdown case resolved. See handoff.

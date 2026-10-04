@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet('Acceptance', 'Negative')]
     [string]$Mode = 'Acceptance',
@@ -292,7 +292,7 @@ function Remove-AcceptanceTestInstall([string]$InstallDir) {
     if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) { return $null }
     $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList @(
         '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
-    ) -Wait -PassThru
+    ) -Wait -PassThru -WindowStyle Hidden
     if ($uninstallProcess.ExitCode -ne 0) {
         throw "Test uninstaller exited $($uninstallProcess.ExitCode)"
     }
@@ -313,7 +313,7 @@ function Invoke-Acceptance {
     $installProcess = Start-Process -FilePath $installer.FullName -ArgumentList @(
         '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', '/NOICONS',
         ('/DIR="' + $installDir + '"'), ('/LOG="' + $installerLog + '"')
-    ) -Wait -PassThru
+    ) -Wait -PassThru -WindowStyle Hidden
     $installMs = [int](((Get-Date) - $installStarted).TotalMilliseconds)
     if ($installProcess.ExitCode -ne 0) { throw "Installer exited $($installProcess.ExitCode)" }
     $candidate = Find-CandidateRoot $installDir
@@ -334,6 +334,8 @@ function Invoke-Acceptance {
     # This gate needs a normal persisted job so it can validate transcript and exports.
     $imported = Invoke-SidecarRequest 'import_video' @{ path = $installedMedia }
     $jobId = [string]$imported.job_id
+    # This is local runtime/export acceptance; live Study AI has a separate gate.
+    [void](Invoke-SidecarRequest 'study_v2_use_basic' @{ job_id = $jobId })
     [void](Invoke-SidecarRequest 'start_job' @{ job_id = $jobId; mode = 'study'; auto_export = $true })
     [void](Wait-SidecarEvent 'job_completed' $JobTimeoutSeconds)
     $slides = Invoke-SidecarRequest 'get_slides' @{ job_id = $jobId }
@@ -376,8 +378,7 @@ function Invoke-Acceptance {
         orphan_process_result = $orphans
         passed = [bool]($selfTest.result.passed -and $health.startup_ok -and $hostEvidence.startup_complete -and $hostEvidence.restore_passed -and $sidecarExit -eq 0 -and (Test-Path -LiteralPath $studyData) -and $exportFiles.Count -eq 13 -and $orphans.Count -eq 0)
     }
-    Write-ValidationResult $result 'clean-machine-result'
-    if (-not $result.passed) { exit 1 }
+    return $result
 }
 
 function Invoke-Negative {
@@ -445,11 +446,39 @@ if ($Mode -eq 'Negative') {
     Invoke-Negative
 } else {
     $acceptanceInstallDir = Join-Path $ResultsDir 'Installed LecturePack'
+    $isolationGuard = Join-Path $PSScriptRoot 'installer_test_isolation.ps1'
+    $isolationState = Join-Path $ResultsDir 'host-state.json'
+    & $isolationGuard -Action Snapshot -InstallDir $acceptanceInstallDir -StatePath $isolationState
+    $acceptanceResult = $null
+    $acceptanceErrors = New-Object System.Collections.Generic.List[string]
     try {
-        Invoke-Acceptance
+        $acceptanceResult = Invoke-Acceptance
+    } catch {
+        $acceptanceErrors.Add($_.ToString())
     } finally {
         # A failed validation must not leave an installed app, registry entry, or shell shortcut behind.
         Stop-AcceptanceSidecar
-        [void](Remove-AcceptanceTestInstall $acceptanceInstallDir)
+        try {
+            [void](Remove-AcceptanceTestInstall $acceptanceInstallDir)
+        } catch {
+            $acceptanceErrors.Add($_.ToString())
+        } finally {
+            # Restoration runs even if uninstall fails; its errors remain fatal.
+            try {
+                & $isolationGuard -Action Restore -InstallDir $acceptanceInstallDir -StatePath $isolationState
+            } catch {
+                $acceptanceErrors.Add($_.ToString())
+            }
+        }
     }
+    if ($null -eq $acceptanceResult) { $acceptanceResult = [ordered]@{ passed = $false } }
+    $acceptanceResult['host_restoration'] = [ordered]@{
+        verified = (Test-Path -LiteralPath ($isolationState + '.restored.json'))
+        snapshot = $isolationState
+    }
+    $acceptanceResult['errors'] = @($acceptanceErrors.ToArray())
+    $acceptanceResult['passed'] = [bool]($acceptanceResult.passed -and $acceptanceErrors.Count -eq 0 -and $acceptanceResult.host_restoration.verified)
+    # Completion evidence is written only after host restoration has been verified.
+    Write-ValidationResult $acceptanceResult 'clean-machine-result'
+    if (-not $acceptanceResult.passed) { exit 1 }
 }

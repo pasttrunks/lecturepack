@@ -44,12 +44,13 @@ def test_base_opts_hands_yt_dlp_the_bundled_ffmpeg(monkeypatch, tmp_path):
     assert opts["ffmpeg_location"] == str(bin_dir)
 
 
-def test_base_opts_never_forces_the_android_player_client():
-    """The old android-only override predates EJS and bypasses the JS
-    challenge path YouTube now requires, defeating the bundled runtime."""
+def test_base_opts_keep_a_downloading_client_first_and_web_last():
+    """OBS-02: the defaults 403'd on media in 2026-10; android/mweb download.
+    "web" must remain in the list so the bundled EJS runtime is still used
+    when YouTube serves a client that needs JS challenges solved."""
     opts = media_fetch.MediaFetcher._base_opts()
-    youtube_args = (opts.get("extractor_args") or {}).get("youtube") or {}
-    assert "player_client" not in youtube_args
+    clients = ((opts.get("extractor_args") or {}).get("youtube") or {}).get("player_client")
+    assert clients and clients[0] in {"android", "mweb"} and clients[-1] == "web"
 
 
 def test_base_opts_never_fetches_remote_components_on_a_customer_machine():

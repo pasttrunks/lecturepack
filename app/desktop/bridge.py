@@ -61,6 +61,26 @@ def _pending_checklist() -> list[dict]:
     ]
 
 
+class _RepairEventRelay(QObject):
+    """BUG-70: receive worker events WITHOUT mutating Backend's metaobject.
+
+    Connecting a signal to an undecorated bound method of a QObject makes
+    PySide register a dynamic slot on that object's metaobject. Backend is
+    already published on the QWebChannel, so the late slot shifted its method
+    indices and every signal the page had subscribed to stopped arriving --
+    "Repair all" hung on "Checking runtime…" forever. A static @Slot on a
+    private, unpublished relay keeps Backend's metaobject frozen.
+    """
+
+    def __init__(self, backend):
+        super().__init__(backend)
+        self._backend = backend
+
+    @Slot(dict)
+    def forward(self, payload):
+        self._backend._on_repair_event(payload)
+
+
 class Backend(QObject):
     _ADMISSION_GUARDED_OPERATIONS = frozenset({
         "set_setting", "browse_model", "test_endpoint", "validate_vulkan", "validate_cuda",
@@ -424,7 +444,10 @@ class Backend(QObject):
         if self._repair_worker is not None:
             return json.dumps({"type": "repair_in_progress"})
         self._repair_worker = worker
-        worker.repair_event.connect(self._on_repair_event)
+        relay = self.__dict__.get("_repair_event_relay")
+        if relay is None:
+            relay = self._repair_event_relay = _RepairEventRelay(self)
+        worker.repair_event.connect(relay.forward)
         worker.start()
         return json.dumps({"operation_id": self._repair_offer_id})
 
@@ -471,10 +494,39 @@ class Backend(QObject):
         return self.get_bootstrap()
 
     def _runtime_repair_report(self) -> str:
-        """Return the service-owned, redacted repair report and nothing else."""
+        """Return the redacted repair report, always with runtime-health context.
+
+        Before any repair has run, ``_last_repair_diagnostics`` is the literal
+        string "[]" -- so "Copy details" put an empty JSON array on the
+        clipboard and still reported "Details copied." From the gate screen,
+        which is reachable BEFORE any repair is attempted, that was the only
+        reachable outcome: the button appeared to copy nothing.
+
+        The facts a user actually needs to report a failed gate are the app
+        version and which components failed and why. Those come from the
+        health snapshot, which is available whether or not a repair ran, so
+        emit them alongside the repair events rather than instead of them.
+        """
         if self._runtime_repair is not None:
             self._last_repair_diagnostics = self._runtime_repair.diagnostic_report()
-        return self._last_repair_diagnostics
+        try:
+            events = json.loads(self._last_repair_diagnostics)
+        except (TypeError, ValueError):
+            events = self._last_repair_diagnostics
+        try:
+            snapshot = self._runtime_diagnostics.runtime_health_snapshot()
+        except Exception as error:  # diagnostics must never fail to produce text
+            snapshot = {"error": f"runtime health snapshot unavailable: {error}"}
+        return json.dumps(
+            {
+                "app_version": version.__version__,
+                "runtime_health": snapshot,
+                "repair_events": events,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
 
     @Slot(result=str)
     def copy_runtime_repair_diagnostics(self) -> str:
@@ -699,15 +751,55 @@ class Backend(QObject):
         """Report whether link import is available in this build."""
         self._adapter.media_link_support()
 
-    @Slot(str)
-    def probe_media_url(self, url: str):
-        """Look up a link's title/duration without downloading it."""
-        self._adapter.probe_media_url(url)
+    # BUG-72: app/ui has sent the batch contract -- {urls:[...]} and
+    # {items:[{url,title}]} -- since fe66552, but these slots were typed
+    # (str) / (str, str). QWebChannel stringified the object, so every probe
+    # failed with "That doesn't look like a web link", and the two-argument
+    # import slot could not be invoked with one argument at all. Accept both
+    # shapes: the plain string form is still used by Python callers and tests.
+    @staticmethod
+    def _media_urls(arg) -> list[str]:
+        if isinstance(arg, str):
+            return [arg] if arg.strip() else []
+        if isinstance(arg, dict):
+            urls = arg.get("urls")
+            if isinstance(urls, list):
+                return [u for u in urls if isinstance(u, str) and u.strip()]
+            if isinstance(arg.get("url"), str):
+                return [arg["url"]]
+        return []
 
-    @Slot(str, str)
-    def import_media_url(self, url: str, title: str):
-        """Download a link, then hand the file to the normal import path."""
-        self._adapter.import_media_url(url, title)
+    @staticmethod
+    def _media_items(arg, title: str = "") -> list[tuple[str, str]]:
+        if isinstance(arg, str):
+            return [(arg, title or "")] if arg.strip() else []
+        if isinstance(arg, dict):
+            items = arg.get("items")
+            if isinstance(items, list):
+                return [(i["url"], str(i.get("title") or "")) for i in items
+                        if isinstance(i, dict) and isinstance(i.get("url"), str) and i["url"].strip()]
+            if isinstance(arg.get("url"), str):
+                return [(arg["url"], str(arg.get("title") or ""))]
+        return []
+
+    @Slot("QVariant")
+    def probe_media_url(self, arg):
+        """Look up one or more links' title/duration without downloading."""
+        urls = self._media_urls(arg)
+        if len(urls) <= 1:
+            self._adapter.probe_media_url(urls[0] if urls else "")
+        else:
+            self._adapter.probe_media_urls(urls)
+
+    @Slot("QVariant")
+    def import_media_url(self, arg, title: str = ""):
+        """Download link(s) one after another, each through the normal import path."""
+        items = self._media_items(arg, title)
+        if len(items) <= 1:
+            url, name = items[0] if items else ("", "")
+            self._adapter.import_media_url(url, name)
+        else:
+            self._adapter.import_media_urls(items)
 
     @Slot()
     def cancel_media_url(self):

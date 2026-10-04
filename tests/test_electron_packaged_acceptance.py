@@ -245,3 +245,81 @@ def test_ai_study_privacy_detector_distinguishes_https_from_windows_paths():
 
     assert ai_study.contains_local_path(web_payload, demo) is False
     assert ai_study.contains_local_path(path_payload, demo) is True
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows native window enumeration")
+@pytest.mark.parametrize("main_present,post_succeeds", [(True, True), (False, True), (True, False)])
+def test_native_close_ignores_helper_and_foreign_windows(monkeypatch, main_present, post_succeeds):
+    import ctypes
+    from types import SimpleNamespace
+
+    # Preserve the failing real enumeration order: hidden Electron helper first.
+    windows = {
+        101: (42, False, "Chrome_WidgetWin_0", ""),
+        102: (99, True, "Chrome_WidgetWin_1", "LecturePack"),
+        103: (42, True, "IME", "Default IME"),
+        104: (42, True, "Chrome_WidgetWin_1", "Other window"),
+    }
+    if main_present:
+        windows[105] = (42, True, "Chrome_WidgetWin_1", "LecturePack")
+    posted = []
+
+    def enum_windows(callback, param):
+        for hwnd in windows:
+            if not callback(hwnd, param):
+                break
+
+    def owner(hwnd, pointer):
+        pointer._obj.value = windows[hwnd][0]
+
+    def text(hwnd, buffer, size, index):
+        buffer.value = windows[hwnd][index]
+        return len(buffer.value)
+
+    def post(hwnd, message, wparam, lparam):
+        posted.append((hwnd, message, wparam, lparam))
+        return post_succeeds
+
+    monkeypatch.setattr(ctypes.windll, "user32", SimpleNamespace(
+        EnumWindows=enum_windows,
+        GetWindowThreadProcessId=owner,
+        IsWindowVisible=lambda hwnd: windows[hwnd][1],
+        GetWindowTextW=lambda hwnd, buffer, size: text(hwnd, buffer, size, 3),
+        GetClassNameW=lambda hwnd, buffer, size: text(hwnd, buffer, size, 2),
+        PostMessageW=post,
+    ))
+    assert m._close_app_window(42) is (main_present and post_succeeds)
+    assert posted == ([(105, 0x0010, 0, 0)] if main_present else [])
+
+
+@pytest.mark.parametrize("close_found,timeout", [(False, False), (True, True)])
+def test_forced_termination_is_explicit_even_if_exit_code_is_zero(monkeypatch, tmp_path, close_found, timeout):
+    class Process:
+        pid = 42
+        returncode = None
+        waits = 0
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = 0
+
+        def kill(self):
+            self.returncode = 0
+
+        def wait(self, timeout):
+            self.waits += 1
+            if self.waits == 1 and self.returncode is None:
+                raise m.subprocess.TimeoutExpired("LecturePack.exe", timeout)
+            self.returncode = 0
+            return 0
+
+    monkeypatch.setattr(m.subprocess, "Popen", lambda *args, **kwargs: Process())
+    monkeypatch.setattr(m, "poll_until", lambda *args, **kwargs: None)
+    monkeypatch.setattr(m, "snapshot_processes", lambda: [])
+    monkeypatch.setattr(m, "_close_app_window", lambda pid: close_found)
+    host, orphans, _ = m._run_host_once(tmp_path / "LecturePack.exe", tmp_path / "results", tmp_path / "data", 1, "test")
+    assert host["first_exit_clean"] is False
+    assert host["unexpected_errors"] == (["packaged app did not exit within 20s after main-window close"] if timeout else ["could not close the visible LecturePack main window"])
+    assert orphans == []

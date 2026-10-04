@@ -304,6 +304,9 @@ def test_normal_start_snapshots_detector_setting_while_demo_forces_demo(
     adapter.config = _Config(tmp_path)
     adapter.config.settings["slide_detection_preset"] = "detailed"
     adapter.win = MagicMock()
+    # Storage's Qt timer requires a real QObject; this settings unit test uses
+    # a fake backend and does not exercise asynchronous disk measurement.
+    monkeypatch.setattr(adapter, "push_storage", lambda: None)
     video = tmp_path / "lecture.mp4"
     video.write_bytes(b"fixture")
     job = Job(str(tmp_path), video_path=str(video))

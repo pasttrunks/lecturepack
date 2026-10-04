@@ -121,6 +121,9 @@ class _Stub:
     probe_media_url = ea.LecturePackAdapter.probe_media_url
     import_media_url = ea.LecturePackAdapter.import_media_url
     cancel_media_url = ea.LecturePackAdapter.cancel_media_url
+    probe_media_urls = ea.LecturePackAdapter.probe_media_urls
+    import_media_urls = ea.LecturePackAdapter.import_media_urls
+    _start_next_media = ea.LecturePackAdapter._start_next_media
     _downloads_dir = ea.LecturePackAdapter._downloads_dir
     _emit_soon = ea.LecturePackAdapter._emit_soon
 
@@ -379,3 +382,37 @@ def test_newest_media_ignores_a_previous_download(tmp_path):
     fresh = tmp_path / "today.mp4"
     fresh.write_bytes(b"new")
     assert _newest_media(str(tmp_path), not_before=started) == str(fresh)
+
+
+
+def test_bridge_accepts_the_batch_shapes_the_ui_actually_sends():
+    """BUG-72: app.js sends {urls:[...]} / {items:[{url,title}]} -- never a bare string."""
+    import sys
+    from pathlib import Path
+    app_dir = str(Path(__file__).parents[1] / "app")
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+    from desktop.bridge import Backend
+    assert Backend._media_urls({"urls": ["https://y/1"]}) == ["https://y/1"]
+    assert Backend._media_urls({"urls": ["https://y/1", "", 3, "https://y/2"]}) == ["https://y/1", "https://y/2"]
+    assert Backend._media_urls("https://y/1") == ["https://y/1"]
+    assert Backend._media_urls({"nope": 1}) == []
+    assert Backend._media_items({"items": [{"url": "https://y/1", "title": "A"}, {"url": "https://y/2"}]}) == [
+        ("https://y/1", "A"), ("https://y/2", "")]
+    assert Backend._media_items("https://y/1", "T") == [("https://y/1", "T")]
+    source = (Path(__file__).parents[1] / "app" / "ui" / "app.js").read_text(encoding="utf-8")
+    assert "lpBridge.call('probe_media_url', { urls: urls })" in source   # the shape these helpers must accept
+    assert "lpBridge.call('import_media_url', { items:" in source
+
+
+def test_several_links_download_one_after_another(qapp, tmp_path, monkeypatch):
+    calls = []
+    stub = _Stub(_FakeBackend(), tmp_path)
+    stub._media_busy = False
+    monkeypatch.setattr(_Stub, "import_media_url", lambda self, url, title="": calls.append((url, title)), raising=False)
+    stub.import_media_urls([("https://y/1", "A"), ("https://y/2", "B"), ("https://y/3", "")])
+    assert calls == [("https://y/1", "A")]
+    stub._start_next_media()
+    stub._start_next_media()
+    stub._start_next_media()
+    assert calls == [("https://y/1", "A"), ("https://y/2", "B"), ("https://y/3", "")]

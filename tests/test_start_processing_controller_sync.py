@@ -205,3 +205,35 @@ def test_the_sync_sits_below_every_early_return():
         i for i, line in enumerate(src[sync_at:run_at], start=sync_at)
         if line.strip() == "return"
     ], "a return between the sync and run_pipeline would leave the controller redirected"
+
+
+def test_first_job_is_published_as_running_before_pipeline_completion(tmp_path):
+    """OBS-03: Home must leave its empty state while the first job runs."""
+    from lecturepack.models.job import Job
+    from lecturepack import constants
+
+    media = tmp_path / "Lecture with spaces.mp4"
+    media.write_bytes(b"disposable test media")
+    job = Job(str(tmp_path / "data"), video_path=str(media))
+    controller = _FakeController()
+    adapter = _adapter(controller, job)
+    adapter.config.data_dir = str(tmp_path / "data")
+    adapter.push_storage = lambda: None
+    # Use the real disk-backed library publisher, not an invented jobs payload.
+    from desktop.engine_adapter import LecturePackAdapter
+    adapter._push_jobs = lambda: LecturePackAdapter._push_jobs(adapter)
+
+    def start_stage():
+        controller.run_calls += 1
+        job.set_stage_status(constants.STAGE_INSPECT, "running")
+
+    controller.run_pipeline = start_stage
+    adapter.start_processing(RUNS)
+
+    rows = [payload for name, payload in adapter.emitted if name == "jobs_changed"]
+    assert len(rows) == 1
+    assert rows[0][0]["id"] == job.job_id
+    assert rows[0][0]["status"] == "running"
+    assert rows[0][0]["stage"] == constants.STAGE_INSPECT
+    assert not any(name == "job_completed" for name, _ in adapter.emitted)
+    assert media.read_bytes() == b"disposable test media"

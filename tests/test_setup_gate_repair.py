@@ -12,6 +12,40 @@ def read_ui(name: str) -> str:
     return (UI / name).read_text(encoding="utf-8")
 
 
+def test_missing_electron_runtime_offers_reinstall_without_misdiagnosing_other_failures():
+    source = read_ui("app.js")
+    function = "function renderStartupFailure()" + source.split(
+        "function renderStartupFailure()", 1
+    )[1].split("function validOffer", 1)[0]
+    program = r'''
+      let failure = {}, values = {};
+      const recovery = {hidden: true};
+      const $ = () => recovery;
+      const text = (id, value) => { values[id] = value; };
+      const eventModel = {snapshot: () => ({startupFailure: failure})};
+      const window = {lecturePackElectron: {}};
+    ''' + function + r'''
+      failure = {failed_check: {id: 'ffmpeg', detail: 'Media runtime unavailable', technical: 'ffmpeg.exe: file is missing'}};
+      renderStartupFailure();
+      if (recovery.hidden || !values['startup-failure-recovery'].includes('reinstall the current package')) process.exit(1);
+      if (!values['startup-failure-recovery'].includes('Keep your lecture data folder')) process.exit(2);
+      if (!values['startup-failure-technical'].includes('ffmpeg.exe: file is missing')) process.exit(3);
+      failure = {failed_check: {id: 'data_directory', detail: 'Storage folder not found'}};
+      renderStartupFailure();
+      if (!recovery.hidden || values['startup-failure-recovery']) process.exit(4);
+      failure = {failed_check: {id: 'ffmpeg', technical: 'access denied'}};
+      renderStartupFailure();
+      if (!recovery.hidden || values['startup-failure-recovery']) process.exit(5);
+      delete window.lecturePackElectron;
+      failure = {failed_check: {id: 'ffmpeg', technical: 'file is missing'}};
+      renderStartupFailure();
+      if (!recovery.hidden || values['startup-failure-recovery']) process.exit(6);
+    '''
+    completed = subprocess.run(["node", "-e", program], capture_output=True, text=True)
+    assert completed.returncode == 0, completed.stderr
+    assert 'id="startup-failure-recovery" hidden' in read_ui("index.html")
+
+
 def test_runtime_setup_overlay_has_the_required_modal_surface() -> None:
     markup = read_ui("index.html")
 
@@ -149,3 +183,73 @@ def test_dom_controller_renders_the_same_model_that_node_executes() -> None:
     assert "eventModel.snapshot()" in controller
     for transition in ("bootstrap(", "begin(", "confirm()", "diagnostics()", "back()", "retry()", "retryResult(", "requestCancel()", "event("):
         assert transition in controller
+
+
+def test_gate_lists_components_from_the_map_shape_the_bridge_actually_sends() -> None:
+    """DEF-045: the gate's component list must survive the real payload shape.
+
+    ``get_runtime_health_snapshot`` sends ``components`` as a MAP keyed by
+    component name. ``componentRows`` accepted only an Array, so it returned []
+    for every genuine failure and the gate rendered its "could not be listed"
+    empty state -- on the one screen whose whole job is naming what broke.
+    This executes the shipped functions against the exact payload observed on
+    a real SETUP_REQUIRED run.
+    """
+    source = read_ui("app.js")
+    labels = "var COMPONENT_LABELS" + source.split("var COMPONENT_LABELS", 1)[1].split("function componentRows", 1)[0]
+    rows_fn = "function componentRows" + source.split("function componentRows", 1)[1].split("function setUnderlyingInert", 1)[0]
+    program = labels + rows_fn + r'''
+      const fail = (n) => process.exit(n);
+      // The verbatim snapshot from a source run missing bin/ffmpeg.exe.
+      bootstrapSnapshot = {components:{inventory:{healthy:false,reason:'missing or empty required runtime payload: bin/ffmpeg.exe'}}};
+      const rows = componentRows();
+      if (rows.length !== 1) fail(1);
+      const label = friendlyComponent(rows[0]);
+      if (label.indexOf('Runtime files') !== 0) fail(2);
+      if (label.indexOf('bin/ffmpeg.exe') === -1) fail(3);   // the reason must reach the user
+
+      // A healthy entry is not an "affected component".
+      bootstrapSnapshot = {components:{a:{healthy:true},b:{healthy:false,reason:'x'}}};
+      if (componentRows().length !== 1) fail(4);
+
+      // The list shape must keep working, so this cannot silently blank twice.
+      bootstrapSnapshot = {components:['ffmpeg_exe']};
+      if (friendlyComponent(componentRows()[0]) !== 'Media tools (FFmpeg)') fail(5);
+
+      bootstrapSnapshot = null; if (componentRows().length !== 0) fail(6);
+      process.exit(0);
+    '''
+    program = "var bootstrapSnapshot = null;\n" + program
+    result = subprocess.run(["node", "-e", program], capture_output=True, text=True)
+    assert result.returncode == 0, f"check {result.returncode} failed: {result.stderr}"
+
+
+def test_copy_details_uses_the_desktop_clipboard_before_the_web_one() -> None:
+    """BUG-69: in the packaged Qt shell navigator.clipboard never succeeds on
+    the file:// page, so "Copy details" always said "Could not copy details."
+    and the bridge's report (version + failed components) was unreachable.
+    The copy must go through the bridge first and fall back only if it fails.
+    """
+    source = read_ui("app.js")
+    block = "function webCopyDiagnostics" + source.split("function webCopyDiagnostics", 1)[1].split("function saveDiagnostics", 1)[0]
+    program = r'''
+      const fail = (n) => process.exit(n);
+      let bridgeCalls = 0, webCalls = 0;
+      global.document = { createElement(){ return {style:{}, select(){}, remove(){}}; }, body:{appendChild(){}}, execCommand(){ return false; } };
+      Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText(){ webCalls++; return Promise.reject(new Error('denied')); } } } });
+      const diagnosticText = () => 'report';
+      let connected = true, bridgeResult = '{"type": "runtime_repair_diagnostics_copied"}';
+      const lpBridge = { connected: () => connected, copyRuntimeRepairDiagnostics(){ bridgeCalls++; return Promise.resolve(bridgeResult); } };
+    ''' + block + r'''
+      (async () => {
+        const ok = JSON.parse(await copyDiagnostics());
+        if (!/copied/.test(ok.type) || bridgeCalls !== 1 || webCalls !== 0) fail(1);
+        // Bridge unavailable and the web clipboard denied: report failure, never a fake success.
+        connected = false; let failed = false;
+        try { await copyDiagnostics(); } catch (e) { failed = true; }
+        if (!failed || webCalls !== 1) fail(2);
+        process.exit(0);
+      })();
+    '''
+    result = subprocess.run(["node", "-e", program], capture_output=True, text=True)
+    assert result.returncode == 0, f"check {result.returncode} failed: {result.stderr}"

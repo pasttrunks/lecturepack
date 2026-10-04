@@ -820,10 +820,16 @@ def _close_app_window(pid: int) -> bool:
     def _cb(hwnd: int, _lparam: int) -> int:
         owner = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
-        if owner.value == pid:
-            user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
-            sent[0] = True
-            return False
+        if owner.value == pid and user32.IsWindowVisible(hwnd):
+            # Electron also owns hidden helper/IME windows. Closing the first
+            # PID match can leave the real app running until the gate kills it.
+            title = ctypes.create_unicode_buffer(256)
+            window_class = ctypes.create_unicode_buffer(256)
+            user32.GetWindowTextW(hwnd, title, len(title))
+            user32.GetClassNameW(hwnd, window_class, len(window_class))
+            if title.value == "LecturePack" and window_class.value == "Chrome_WidgetWin_1":
+                sent[0] = bool(user32.PostMessageW(hwnd, 0x0010, 0, 0))  # WM_CLOSE
+                return False
         return True
 
     user32.EnumWindows(_cb, 0)
@@ -870,6 +876,7 @@ def _run_host_once(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    close_errors: list[str] = []
     try:
         poll_until(
             lambda: proc.poll() is not None
@@ -895,10 +902,12 @@ def _run_host_once(
             # missing restore as a failed acceptance check.
             pass
         if proc.poll() is None and not _close_app_window(proc.pid):
+            close_errors.append("could not close the visible LecturePack main window")
             proc.terminate()
         try:
             proc.wait(timeout=20)
         except subprocess.TimeoutExpired:
+            close_errors.append("packaged app did not exit within 20s after main-window close")
             proc.kill()
             proc.wait(timeout=10)
     finally:
@@ -910,6 +919,9 @@ def _run_host_once(
     orphans = detect_orphans(before, after)
     records = _read_new_jsonl(results_dir, baseline_files)
     host = classify_host_evidence(records, proc.returncode)
+    host["unexpected_errors"].extend(close_errors)
+    if close_errors:
+        host["first_exit_clean"] = False
     return host, orphans, records
 
 

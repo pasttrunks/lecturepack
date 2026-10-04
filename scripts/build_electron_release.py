@@ -65,7 +65,12 @@ def node_tool(name: str) -> str:
 
 
 def candidate_dir() -> Path:
-    return SPIKE_ROOT / "dist" / "LecturePack-win32-x64"
+    # Match package-win.mjs: scratch builds must never package a stale candidate
+    # from the repository's default dist directory.
+    configured = os.environ.get("LECTUREPACK_BUILD_ROOT", "")
+    # Node runs with SPIKE_ROOT as cwd, including for relative overrides.
+    build_root = (SPIKE_ROOT / configured).resolve() if configured else SPIKE_ROOT
+    return build_root / "dist" / "LecturePack-win32-x64"
 
 
 def validate_candidate(root: Path) -> None:

@@ -64,6 +64,14 @@ surfaces agree.
 10. **Run the release gates** (runtime packaged acceptance, clean-machine
     script, negative tests). See `scripts/electron_packaged_acceptance.py` and
     `scripts/clean_machine_validation.ps1`.
+    Include `scripts/installer_test_isolation.ps1` beside the clean-machine
+    validator in every kit. Both installer runners snapshot the actual per-user
+    uninstall keys and shortcut bytes before installation and restore them after
+    uninstall, including on failure. Use a fresh test directory. A leftover
+    `LecturePack-installer-acceptance.lock` in LocalAppData means restoration
+    needs recovery from its recorded snapshot; do not delete the lease or
+    overwrite the snapshot to get another run started. `/NOICONS` alone does
+    not isolate an Inno test install from an existing installation.
 11. **Create an immutable git tag**: `git tag v<version>` (e.g. `v2.0.0`).
     Never reuse or move an existing tag.
 12. **Push normally** (no force).
@@ -79,3 +87,60 @@ This project does not currently have valid Authenticode credentials committed
 anywhere. Do **not** create a self-signed cert or invent signing keys. Record
 `AUTHENTICODE SIGNING: AVAILABLE / NOT AVAILABLE` explicitly before each
 release and surface it to the user rather than implying a signed binary.
+
+## Real Electron multi-link gate
+
+Run alone on Windows against the final packaged executable. Supply two or more
+short public video URLs you may download, and new scratch data/results roots:
+
+```powershell
+python scripts/electron_batch_link_acceptance.py `
+  --exe C:\LecturePackScratch\builds\candidate\LecturePack.exe `
+  --data-dir C:\LecturePackScratch\data\batch-links `
+  --results-dir C:\LecturePackScratch\results\batch-links `
+  --url 'https://www.youtube.com/watch?v=jNQXAC9IVRw' `
+  --url 'https://samplelib.com/mp4/sample-5s-360p.mp4'
+```
+
+The opt-in gate drives the actual Paste a link/Check link/Download UI, repeats
+the first URL to check deduplication, verifies real inspected recordings and
+persisted jobs, then reopens the app and requires the same renderer job IDs and
+unchanged download hashes. It records screenshots, text, JSONL and result.json.
+Success requires clean close on both launches and no orphan processes. It
+leaves evidence/data intact and refuses existing roots. It does not process
+the lectures, run Study AI, or substitute for those separate release gates.
+
+## CI native runtime source
+
+PR CI also runs an `electron-candidate` Windows job using this same official
+builder. It builds and installs the locked Rust Python extension before sidecar
+packaging, restores the pinned runtime, builds installer/portable assets, runs
+mandatory packaged health checks and checks visible window startup. Only audit
+logs, locks and hash/manifest evidence are retained for seven days. It has
+read-only repository permissions and cannot publish desktop releases. This
+candidate gate does not replace final-tag verification, real lecture/export
+acceptance, clean shutdown, installer/updater or live Study AI gates.
+
+The desktop workflow restores build inputs with scripts/restore_ci_runtime.py
+and scripts/ci-runtime-lock.json before invoking the official Electron builder.
+The source is the public 2.1.3 portable ZIP, verified by its pinned archive hash
+and each of the 20 allowlisted CPU/model/Deno/MSVC member hashes. Cache hits are
+verified too; corruption, missing members or existing runtime destinations fail
+closed. CI uses fresh runner-temp runtime/MSVC roots and retains the restore
+audit plus lock file. The prior app UI, Python package and user files are not
+copied into the build. Restore pins are changed only after real binary checks
+and member/hash review, never by updating a floating latest URL.
+
+For local reproduction with a fresh output root:
+
+```powershell
+python scripts/restore_ci_runtime.py `
+  --cache-dir C:\LecturePackScratch\data\ci-runtime-source `
+  --output-dir C:\LecturePackScratch\data\ci-runtime-restored
+$env:LECTUREPACK_RUNTIME_ROOT = 'C:\LecturePackScratch\data\ci-runtime-restored'
+$env:LECTUREPACK_MSVC_RUNTIME_DIR = 'C:\LecturePackScratch\data\ci-runtime-restored\msvc'
+```
+
+Then run the normal Electron release builder. This is build-time restoration;
+the application gains no runtime URL/key override. A local green build is not
+a substitute for a successful GitHub-hosted release run on the final tag.

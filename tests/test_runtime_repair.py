@@ -572,3 +572,128 @@ def test_worker_streams_started_and_progress_before_blocked_transport_completes(
         time.sleep(.01)
     terminals = [payload for payload in seen if payload["kind"] in {"failed", "cancelled", "admitted"}]
     assert [payload["kind"] for payload in terminals] == ["admitted"]
+
+
+class _StatusTransport:
+    """Transport that fails every fetch with a fixed HTTP status."""
+
+    def __init__(self, status: int) -> None:
+        self.status, self.calls = status, 0
+
+    def get(self, url: str) -> bytes:
+        from urllib.error import HTTPError
+        self.calls += 1
+        raise HTTPError(url, self.status, "boom", {}, None)
+
+
+def _http_status_service(transport, tmp_path):
+    from lecturepack.infrastructure.runtime_generation import RuntimeGenerationStore
+    from lecturepack.services.runtime_repair import RuntimeRepairService
+    return RuntimeRepairService(
+        "9.9.9", transport, admission_evidence={"inventory": "missing"},
+        generation_store=RuntimeGenerationStore(tmp_path),
+        bootstrap_assessor=lambda root: None,
+    )
+
+
+def test_an_unpublished_runtime_is_not_reported_as_an_offline_network(tmp_path) -> None:
+    """DEF-046: a 404 means no runtime was ever published, not "you are offline".
+
+    HTTPError subclasses OSError, so a 404 fell into the connectivity branch
+    and surfaced "an internet connection is required for repair" after three
+    pointless retries -- sending the user to debug a working network.
+    """
+    from lecturepack.services.runtime_repair import RepairFailure
+
+    transport = _StatusTransport(404)
+    service = _http_status_service(transport, tmp_path)
+    try:
+        service.begin_repair_offer("op")
+    except RepairFailure as error:
+        assert "internet connection" not in str(error)
+        assert "no published repair runtime" in str(error)
+    else:  # pragma: no cover
+        raise AssertionError("a 404 must fail the repair offer")
+    assert transport.calls == 1, "a 404 cannot change on retry; it must not be retried"
+    assert [event.kind for event in service.events] == ["started", "failed"]
+
+
+def test_a_transient_server_status_is_still_retried(tmp_path) -> None:
+    """The 404 fix must not disable retry for statuses that DO self-resolve."""
+    from lecturepack.services.runtime_repair import RepairFailure
+
+    transport = _StatusTransport(503)
+    service = _http_status_service(transport, tmp_path)
+    try:
+        service.begin_repair_offer("op")
+    except RepairFailure as error:
+        assert "HTTP 503" in str(error)
+    else:  # pragma: no cover
+        raise AssertionError("an exhausted 503 retry must still fail")
+    assert transport.calls > 1, "a 503 must be retried"
+
+
+def test_starting_a_repair_never_mutates_the_published_backend_metaobject(qapp, tmp_path, monkeypatch):
+    """BUG-70: Backend is published on the QWebChannel before any repair runs.
+
+    Connecting the worker to an undecorated Backend method made PySide add a
+    dynamic slot to Backend's metaobject. That shifted method indices after
+    the page had subscribed, so no repair event ever reached the UI and
+    "Repair all" hung on "Checking runtime…". The method table must be
+    identical before and after a repair worker is wired.
+    """
+    import sys
+    app_dir = str(Path(__file__).parents[1] / "app")
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+    from desktop import bridge
+
+    class Result:
+        state, components, fallback_notice = "SETUP_REQUIRED", {}, None
+    class Bootstrap:
+        def __init__(self, config, **kwargs): pass
+        def assess(self, **kwargs): return Result()
+    class Config:
+        def resolve_data_dir(self): return str(tmp_path / "profile")
+    monkeypatch.setattr(bridge, "ConfigManager", Config)
+    monkeypatch.setattr(bridge, "RuntimeBootstrapService", Bootstrap)
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsService", lambda *args: object())
+    monkeypatch.setattr(bridge, "RuntimeDiagnosticsController", lambda *args: object())
+    backend = bridge.Backend(None)
+
+    def methods(obj):
+        meta = obj.metaObject()
+        return [bytes(meta.method(i).methodSignature()).decode() for i in range(meta.methodCount())]
+
+    before = methods(backend)
+
+    class Worker(bridge.QObject):
+        repair_event = bridge.Signal(dict)
+        def start(self): pass
+    backend._start_repair_worker(Worker())
+    assert methods(backend) == before
+
+
+def test_nothing_connects_a_signal_to_a_backend_method():
+    """BUG-70 audit: a signal connected to an undecorated Backend method adds a
+    dynamic slot to the QWebChannel-published metaobject and silently cuts the
+    page off from every signal. Receivers must be private relays, other
+    (unpublished) QObjects, or plain callables -- never Backend itself.
+    """
+    import ast
+    desktop = Path(__file__).parents[1] / "app" / "desktop"
+    offenders = []
+    for path in desktop.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        backend_classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "Backend"]
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "connect" and node.args):
+                continue
+            target = node.args[0]
+            if not isinstance(target, ast.Attribute):
+                continue
+            owner = ast.unparse(target.value)
+            inside_backend = any(c.lineno <= node.lineno <= c.end_lineno for c in backend_classes)
+            if (owner == "self" and inside_backend) or owner.split(".")[-1] in {"backend", "_backend"}:
+                offenders.append(f"{path.name}:{node.lineno}: {ast.unparse(node)}")
+    assert offenders == [], offenders

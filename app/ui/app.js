@@ -466,6 +466,46 @@
     WORKSPACE_KEYS.forEach(function (k) { LP.data[k] = snap[k]; });
   }
 
+  /* BUG-65: Ask history is per-lecture, and it lives ONLY in the DOM.
+     Every other workspace surface is a blob in LP.byJob that setActiveJob
+     snapshots and restores (BUG-08). #study-ask-feed was never part of that,
+     so the feed simply stayed on screen across a lecture switch and lecture B
+     opened showing lecture A's conversation. LP.state.chat -- the OLD chat
+     surface, which Study V2 replaced -- was being cleared instead, which is
+     why this reads as "we fixed this before": the fix was applied to the
+     surface that stopped being used.
+
+     The feed is stored as markup rather than as a message model because every
+     control inside it (suggestion chips, source chips, copy buttons) is bound
+     by DELEGATION -- on #study-ask-feed itself or on document -- so restored
+     markup is fully live. If a per-button listener is ever added inside the
+     feed, this has to become a real message model. */
+  function askFeedSnapshot() {
+    var feed = $('study-ask-feed');
+    if (!feed) return '';
+    // A "Thinking…" bubble left mid-stream must not be frozen into the
+    // snapshot: coming back to this lecture an hour later, the answer is
+    // never arriving, and a permanent "Thinking…" is a lie.
+    Array.prototype.forEach.call(feed.querySelectorAll('.study-ask-thinking'), function (el) {
+      el.classList.remove('study-ask-thinking');
+      el.textContent = 'Answer interrupted — you switched lecture before it finished.';
+    });
+    return feed.innerHTML;
+  }
+
+  function restoreAskFeed(html, hasLecture) {
+    var feed = $('study-ask-feed');
+    if (!feed) return;
+    feed.innerHTML = html || '';
+    feed.scrollTop = feed.scrollHeight;
+    // Empty feed => renderStudyAsk paints the suggestion chips again, which is
+    // exactly what a lecture with no Ask history should show. With NO lecture
+    // it must stay bare: chips inviting "Explain this lecture simply" when no
+    // lecture is loaded is the same design-time-chrome-with-no-owner defect as
+    // BUG-58.
+    if (hasLecture && !feed.children.length && typeof renderStudyAsk === 'function') renderStudyAsk();
+  }
+
   // Per-job live status memory. status_changed / pipeline_changed payloads for
   // jobs other than the one being viewed are accumulated here (and in the
   // per-job workspace blob below) so switching back shows the latest state
@@ -503,13 +543,26 @@
       renderJobChrome();
       return;
     }
-    if (LP.state.jobId) LP.byJob[LP.state.jobId] = snapshotWorkspace();
+    if (LP.state.jobId) {
+      var outgoing = snapshotWorkspace();
+      outgoing.askFeedHtml = askFeedSnapshot();
+      LP.byJob[LP.state.jobId] = outgoing;
+    }
     LP.state.jobId = id;
     LP.state.jobTitle = '';
     LP.state.jobTitle = title && !looksLikeJobId(title) ? title : friendlyJobName(id);
-    applyWorkspace(id && LP.byJob[id] ? LP.byJob[id] : emptyWorkspace());
+    var incoming = id && LP.byJob[id] ? LP.byJob[id] : emptyWorkspace();
+    applyWorkspace(incoming);
     // Per-lecture view state must not leak across lectures either.
     LP.state.chat = [];
+    restoreAskFeed(incoming.askFeedHtml || '', !!id);
+    // A stream in flight belonged to the OUTGOING lecture. Its tokens are
+    // already dropped by the owner guard on ai_token/ai_done; clearing the
+    // flag stops the next lecture's first answer from being appended into a
+    // bubble that no longer exists.
+    studyV2.askStreaming = false;
+    studyV2.askAnswer = null;
+    studyV2.askJobId = '';
     LP.state.quiz.phase = 'setup';
     LP.state.quiz.index = 0;
     LP.state.quiz.answers = {};
@@ -631,10 +684,19 @@
       img.style.opacity = 1;
       if (placeholder) placeholder.hidden = true;
     };
+    // BUG-26: the chip asks for the poster the instant a file is imported,
+    // before the import thread has written it, so the first request always
+    // 404s. "Let the next list refresh retry" never happened: the guard above
+    // returns early for the same job, and a re-request without a cache-buster
+    // reuses the failed load. Retry with the cards' own backoff + buster.
+    var tries = 0;
     img.onerror = function () {
-      // no poster yet: keep the icon, and let the next list refresh retry
-      img.hidden = true;
-      if (placeholder) placeholder.hidden = false;
+      if (img.getAttribute('data-for') !== jobId) return;   // a newer job took over
+      tries += 1;
+      if (tries > POSTER_RETRIES) { img.hidden = true; if (placeholder) placeholder.hidden = false; return; }
+      setTimeout(function () {
+        if (img.getAttribute('data-for') === jobId) img.src = posterSrc(jobId, tries);
+      }, 700 * tries);
     };
     img.src = posterSrc(jobId, 0);
   }
@@ -4936,7 +4998,18 @@
   var _screenChangeCarriesJob = false;
 
   function setScreen(name) {
-    if (LP.state.screen === name) return;
+    if (LP.state.screen === name) {
+      /* BUG-63: re-selecting the screen you are already on is not a no-op for
+         Process. Clicking a queue row navigates to Process CARRYING that
+         lecture (correctly -- the student named it), and the Process nav
+         button is then the only way back to the lecture that is actually
+         running. The early return swallowed that click, so Process stayed
+         pinned to "Waiting to process - Position 2" with no way out but
+         hunting through the library. Same guard as the entry path below: a
+         carried navigation still never overrides the student's choice. */
+      if (name === 'process' && !_screenChangeCarriesJob) followActiveProcessingJob();
+      return;
+    }
     if (name !== 'review') closeAllSlides(false);
     // Home's Continue card must reflect the screen the student just left in
     // this same session, not only state captured during a job switch or app
@@ -5377,14 +5450,45 @@
     }
     function text(id, value) { var el = $(id); if (el) el.textContent = value == null ? '' : String(value); }
     function announce(id, value) { text(id, value); }
+    /* The bridge sends `components` as a MAP keyed by component name
+       ({"inventory": {healthy:false, reason:"..."}}), NOT a list. The original
+       `Array.isArray(list) ? list : []` therefore discarded every real payload
+       and the gate fell through to its "could not be listed" empty state on
+       EVERY failure -- the one situation this screen exists for. This is the
+       same map-vs-list shape mismatch DEF-044 fixed in the checklist path;
+       the gate renderer was never updated. Keep BOTH shapes supported: a list
+       is still accepted so a future payload change cannot silently blank the
+       screen a second time. */
+    var COMPONENT_LABELS = {
+      inventory: 'Runtime files', active_runtime: 'Runtime location',
+      ffmpeg_exe: 'Media tools (FFmpeg)', ffprobe_exe: 'Media tools (ffprobe)',
+      ffmpeg: 'Media tools (FFmpeg)', ffprobe: 'Media tools (ffprobe)',
+      whisper_runtime: 'Speech engine (Whisper)', whisper_smoke: 'Speech engine (Whisper)',
+      whisper_cli: 'Speech engine (Whisper)', model: 'Speech model',
+      bundled_model: 'Speech model', data_directory: 'Storage folder'
+    };
     function componentRows() {
       if (!bootstrapSnapshot) return [];
       var list = bootstrapSnapshot.failed_components || bootstrapSnapshot.components || bootstrapSnapshot.affected_components || [];
-      return Array.isArray(list) ? list : [];
+      if (Array.isArray(list)) return list;
+      if (!list || typeof list !== 'object') return [];
+      return Object.keys(list).reduce(function (rows, name) {
+        var item = list[name];
+        // Only unhealthy entries belong on a "needs repair" screen. An entry
+        // with no explicit `healthy` key is treated as affected, because the
+        // failed_components/affected_components shapes carry no such flag.
+        if (item && typeof item === 'object' && item.healthy === true) return rows;
+        rows.push({ component: name, reason: item && item.reason });
+        return rows;
+      }, []);
     }
     function friendlyComponent(row) {
-      if (typeof row === 'string') return row;
-      return row && (row.friendly_name || row.label || row.component || row.name) || 'Runtime component';
+      if (typeof row === 'string') return COMPONENT_LABELS[row] || row;
+      if (!row) return 'Runtime component';
+      var name = row.friendly_name || row.label || COMPONENT_LABELS[row.component] || COMPONENT_LABELS[row.name] || row.component || row.name || 'Runtime component';
+      // The reason is what actually tells the user WHICH file is missing; a
+      // bare label ("Runtime files") is not actionable on its own.
+      return row.reason ? name + ' — ' + row.reason : name;
     }
     function setUnderlyingInert(open) {
       var root = $('app'); if (!root) return;
@@ -5553,6 +5657,14 @@
       var check = failure.failed_check || {};
       text('startup-failure-title', check.title || 'Processing service failed to start.');
       text('startup-failure-detail', check.detail || failure.detail || failure.message || 'LecturePack could not start its processing service.');
+      var missingBundledRuntime = !!window.lecturePackElectron &&
+        /^(ffmpeg|ffprobe|whisper_runtime|whisper_smoke|bundled_model)$/.test(check.id || '') &&
+        /missing|not found/i.test((check.technical || '') + ' ' + (check.detail || ''));
+      var recovery = $('startup-failure-recovery');
+      if (recovery) recovery.hidden = !missingBundledRuntime;
+      text('startup-failure-recovery', missingBundledRuntime
+        ? 'Close LecturePack and reinstall the current package, then reopen it. Keep your lecture data folder.'
+        : '');
       var diagnostics = failure.diagnostics || failure;
       text('startup-failure-technical', typeof diagnostics === 'string' ? diagnostics : JSON.stringify(diagnostics, null, 2));
     }
@@ -5660,6 +5772,20 @@
       // the demo offer (D-17), so skipping it here would silently drop the
       // demo offer for the users with the roughest install.
       if (snap.healthy && !snap.acknowledged) {
+        // BUG-71: a repair admits the runtime without any bootstrap result, so
+        // the five-row checklist this branch needs was never delivered and the
+        // overlay sat on "0 of 5 checked" forever. Pull the authoritative,
+        // now-HEALTHY bootstrap (which carries the checklist) exactly once.
+        if (!snap.checklistReady && !closeReady._refreshing && lpBridge.connected()) {
+          closeReady._refreshing = true;
+          lpBridge.call('get_bootstrap').then(function (json) {
+            var b = null; try { b = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) {}
+            if (b) { bootstrapSnapshot = b.setup_required || b; eventModel.bootstrap(b); }
+            closeReady._refreshing = false;
+            var after = eventModel.toChecklist();
+            if (after.state === 'checklist') { announce('runtime-live-assertive', "You're ready to go."); render(true); }
+          }, function () { closeReady._refreshing = false; });
+        }
         var view = eventModel.toChecklist();
         announce('runtime-live-assertive', view.state === 'checklist'
           ? "You're ready to go."
@@ -5917,7 +6043,7 @@
       if (kind === 'admitted') { syncDemoAdmission(view); ready(); return; }
       if (kind === 'cancelled') { render(); return; }
       if (kind === 'offline' || (kind === 'failed' && d.classification === 'offline')) { announce('runtime-live-assertive', 'An internet connection is needed to repair LecturePack.'); render(); return; }
-      if (kind === 'failed') { announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', "We couldn't verify the repair download. Your previous runtime is still in place."); render(); }
+      if (kind === 'failed') { announce('runtime-live-assertive', 'Repair could not be completed.'); text('runtime-failure-reason', typeof d.detail === 'string' && d.detail.trim() ? d.detail.trim().charAt(0).toUpperCase() + d.detail.trim().slice(1) + '.' : "We couldn't verify the repair download. Your previous runtime is still in place."); render(); }
     }
     function wire() {
       $('btn-runtime-repair').addEventListener('click', beginOffer);
@@ -5932,9 +6058,32 @@
       $('btn-runtime-diagnostics-back').addEventListener('click', back);
       function diagnosticFeedback(promise, ok, bad) { promise.then(function (json) { var r; try { r = JSON.parse(json); } catch (e) {} announce('runtime-live-polite', r && /copied|saved/.test(r.type || '') ? ok : bad); }, function () { announce('runtime-live-polite', bad); }); }
       function diagnosticText() { return ($('runtime-diagnostics-report') && $('runtime-diagnostics-report').textContent) || 'No runtime diagnostics are available.'; }
+      // BUG-69: the desktop shell owns the clipboard. QtWebEngine grants
+      // file:// pages no async clipboard permission, so navigator.clipboard
+      // never succeeded in the packaged app ("Could not copy details."), and
+      // the bridge's report (version + every failed component) was unreachable.
+      // Prefer the bridge; fall back to the web clipboard, then execCommand.
+      function webCopyDiagnostics() {
+        var text = diagnosticText();
+        function legacy() {
+          var ta = document.createElement('textarea'), ok = false;
+          ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+          document.body.appendChild(ta); ta.select();
+          try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+          ta.remove();
+          return ok ? JSON.stringify({ type: 'copied' }) : Promise.reject(new Error('clipboard unavailable'));
+        }
+        if (!navigator.clipboard || !navigator.clipboard.writeText) return Promise.resolve().then(legacy);
+        return navigator.clipboard.writeText(text).then(function () { return JSON.stringify({ type: 'copied' }); }, legacy);
+      }
       function copyDiagnostics() {
-        if (!navigator.clipboard || !navigator.clipboard.writeText) return Promise.reject(new Error('clipboard unavailable'));
-        return navigator.clipboard.writeText(diagnosticText()).then(function () { return JSON.stringify({ type: 'copied' }); });
+        if (lpBridge.connected() && lpBridge.copyRuntimeRepairDiagnostics) {
+          return lpBridge.copyRuntimeRepairDiagnostics().then(function (json) {
+            var r; try { r = JSON.parse(json); } catch (e) {}
+            return r && /copied/.test(r.type || '') ? json : webCopyDiagnostics();
+          }, webCopyDiagnostics);
+        }
+        return webCopyDiagnostics();
       }
       function saveDiagnostics(filename) {
         var blob = new Blob([diagnosticText()], { type: 'text/plain;charset=utf-8' });
@@ -6628,6 +6777,35 @@
     });
   }
 
+  /* BUG-64: recording an answer must not repaint the whole Study screen.
+     study_v2_record_quiz / study_v2_record_flashcard used to chain into
+     studyV2Load(), which rebuilds the scope header, the generation state, the
+     overview AND re-renders the active mode pane from scratch -- so every
+     click on an option wiped the "Correct" feedback that had just been written
+     into #study-quiz-feedback and repainted it a moment later. That is the
+     full-screen flash the student sees, and it happens on the cached demo too
+     because the reload is unconditional.
+
+     Recording an answer changes PROGRESS, never CONTENT. Refresh progress and
+     leave the pane the student is mid-interaction with alone; the overview is
+     repainted only when it is the pane actually on screen. */
+  function studyV2RefreshProgress() {
+    if (!lpBridge.connected()) return;
+    if (studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all') return;
+    var requestedJobId = LP.state.jobId || '';
+    if (!requestedJobId) return;
+    lpBridge.call('study_v2_status', { job_id: requestedJobId }).then(function (res) {
+      if (!res || !res.content) return;
+      // Same in-flight ownership guard studyV2Load uses: a response for the
+      // lecture that was viewed when the request started must never repaint a
+      // different lecture selected while it was travelling.
+      if (LP.state.jobId !== requestedJobId || (res.job_id && res.job_id !== requestedJobId)) return;
+      studyV2.progress = res.progress || studyV2.progress;
+      studyV2.summary = res.summary || studyV2.summary;
+      if (studyV2.mode === 'overview') renderStudyV2Overview();
+    }).catch(function () {});
+  }
+
   function studyV2Load() {
     if (studyV2.scope && studyV2.scope.type === 'group' && studyV2.scope.selectedJobId === 'all' && studyV2.scope.groupName) {
       renderStudyScopeHeader();
@@ -7201,7 +7379,7 @@
         card_id: card.id,
         concept_ids: card.concept_ids || [],
         correct: correct
-      }).then(function () { studyV2Load(); }).catch(function () {});
+      }).then(function () { studyV2RefreshProgress(); }).catch(function () {});
     }
     studyV2.flashIndex++;
     studyV2.flashRevealed = false;
@@ -7576,7 +7754,7 @@
             question_id: q.id,
             concept_ids: q.concept_ids || [],
             correct: correct
-          }).then(function () { studyV2Load(); }).catch(function () {});
+          }).then(function () { studyV2RefreshProgress(); }).catch(function () {});
         }
         studyV2PersistView();
         flashStamp($('study-quiz-root'), correct ? 'keep' : 'reject');
@@ -12084,6 +12262,12 @@
       return;
     }
     var state = resumeStore.load(jobId) || {};
+    // The saved Process screen outlives the run. Completed lectures already
+    // have their library card; do not advertise stale processing to resume.
+    if (state.screen === 'process' && job.status === 'done') {
+      card.hidden = true;
+      return;
+    }
     var target = continueScreenOf(state);
     if (!target) {
       card.hidden = true;

@@ -2,6 +2,223 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-62: Explain reinstall recovery for missing Electron runtime files
+
+**Date:** 2026-10-04
+**Status:** Implemented; fresh official installed Electron hint/reinstall gate
+passed (electron-runtime-recovery-5), 2026-10-04
+
+**Context:** Real installed 2.1.4 with FFmpeg disabled enters startup_failed,
+not the legacy repair gate. It correctly names the failure and copies actual
+diagnostics, but only offers Retry/Copy diagnostics/Open logs, with no recovery
+instruction. Retrying cannot recreate a missing bundled executable.
+
+**Decision:** Show a reinstall hint on the shared startup failure screen only
+for Electron, a named bundled media/speech/model check, and an explicit missing
+file reason. Tell the user to close LecturePack, reinstall the current package,
+reopen it, and keep the lecture data folder. Hide and clear the hint for other
+failures and the Qt shell. Keep the existing failure/diagnostic information.
+
+**Alternatives considered:** Advising reinstall for every failure misdiagnoses
+storage/permission issues. Adding an in-place downloader changes the existing
+Electron recovery architecture and trust boundary. Reusing the Qt repair flow
+does not exercise production Electron behavior.
+
+**Evidence:** Guarded real same-version reinstall restored FFmpeg. Four launches
+(baseline/failure/reinstalled/restarted) exited naturally. The completed real
+lecture restored twice; 29 checked job files including 13 exports remained
+byte-identical. Registry/shortcuts restored and no orphans remained. This is
+development-host/same-version recovery, not a clean machine or live AI gate.
+
+## AD-61: Validate the official Electron candidate on pull requests
+
+**Date:** 2026-10-04
+**Status:** Implemented; hosted candidate gate passed on d839c71,
+run 37175987746 (2026-10-04)
+
+**Decision:** Add a read-only Windows PR job that runs the official Electron
+builder with pinned native inputs, locked Python/Node dependencies, Rust tests,
+mandatory packaged health checks, installer/portable generation and a visible
+window launch. Retain logs, runtime audit, locks and hash/manifest evidence;
+do not publish candidate executables or create release tags. The exact-tag
+release workflow remains the sole desktop publisher.
+
+Both jobs now build and install the CPython 3.12 Rust extension with the already
+selected maturin dependency before PyInstaller. Previously cargo test compiled
+the crate but did not install the Python extension required by sidecar.spec.
+Track the existing tested Cargo.lock and require --locked for both operations.
+No new dependency or product stack change is involved.
+
+**Alternatives considered:** Testing only unit/configuration contracts misses
+fresh-checkout packaging failures. Creating a stable tag merely to exercise
+the builder changes public release state prematurely. Maintaining another
+builder permits production and validation to diverge.
+
+**Rationale:** Real hosted package execution should expose missing build inputs
+before release. Window smoke proves startup only; it does not prove clean
+shutdown, lecture processing, updater survival or live Study AI quality.
+
+## AD-60: CI restores the frozen, verified production CPU runtime
+
+**Date:** 2026-10-03
+**Status:** Implemented; local and hosted PR candidate restoration/build passed
+(run 37175987746). Exact-tag release execution remains separately unverified.
+
+**Context:** release-electron.yml packaged gitignored bin/models inputs without
+restoring them, so its advertised release path failed on a bare checkout.
+
+**Decision:** Restore an explicit 20-file native allowlist from the public
+v2.1.3 portable archive. Commit the GitHub-published archive size/SHA-256 and
+individual member size/SHA-256 pins. All CPU/model/Deno bytes match the current
+local release inputs; Deno matches the independently enforced sidecar pin.
+Restore app-local MSVCP140 too. Configure the existing builder via its runtime
+and MSVC directory seams, with a fresh runner-temp destination. Cache only the
+source ZIP under the lock-file hash and verify it even on a cache hit. Retain
+restore audit and lock with release evidence. No latest URLs, extraction of UI,
+Python payload or prior user data, executable download script, new credentials,
+production override or dependency change. Preserve failed partials and reject
+existing destinations/corrupt caches rather than silently replacing evidence.
+
+**Alternatives considered:** Upstream assembly could produce a different CPU
+DLL set than the tested release; a private bucket or self-hosted runner adds
+secrets/operations without solving reproducibility; deleting CI abandons the
+requested release path. A future smaller dedicated runtime asset is viable
+but requires publication and new reviewed pins. The 513776556-byte portable
+source trades bandwidth for an immediately available, tested complete payload.
+
+**Rationale:** The official builder must use the same native bytes as the
+validated app and fail before packaging if those bytes change. The existing
+packaged health checks remain mandatory. Local restore/build evidence does not
+prove a GitHub-hosted release job or clean-machine behavior.
+
+## AD-59: Batch link acceptance covers real Electron UI and persisted restoration
+
+**Date:** 2026-10-03
+**Status:** Implemented; real packaged three-video gate passed
+
+**Decision:** Save an opt-in Electron UI gate driven through the existing raw
+CDP client. Require explicit public URLs and new disposable profile/results;
+paste mixed whitespace plus a duplicate, confirm the exact batch Download
+button, and inspect actual recordings, persisted manifests/media metadata,
+renderer job IDs, SHA-256 and restart restoration. Natural shutdown and no
+orphans remain required. Run this gate alone to avoid unrelated FFmpeg test
+processes contaminating process snapshots. Keep all evidence and test data.
+
+**Rationale and alternatives:** Unit bridge-shape tests cannot prove public
+video downloads or queued lectures survive a real Electron restart. Qt-only
+verification cannot prove the production shell works. The gate fetches actual
+files with the shipped yt-dlp and retains the established client override;
+format counts and mocked network responses are insufficient release evidence.
+There is no new dependency or production override. Failed exploratory drivers
+are retained and do not count as successful integration evidence.
+
+## AD-58: Packaged Electron shutdown gates close the visible main window
+
+**Date:** 2026-10-03
+**Status:** Implemented; repeated packaged verification recorded in the handoff
+
+**Context:** A 2.1.4 baseline reproduced OBS-04 once in ten launches. Native
+window inventory showed that the gate selected a hidden Chrome_WidgetWin_0
+helper before the visible Chrome_WidgetWin_1 LecturePack window. WM_CLOSE to
+that helper never initiated product shutdown; the 20-second gate then killed
+the application. The other nine launches shut down cleanly in under one second.
+
+**Decision:** Match owning PID, visibility, native main-window class and exact
+LecturePack title before posting WM_CLOSE. Report a missing target or forced
+termination explicitly and never count forced termination as clean shutdown.
+Retain the existing 20-second bound. Regression tests enumerate hidden helpers,
+foreign processes, IME and unrelated windows before the actual main window,
+and cover a rejected WM_CLOSE plus forced termination with exit code zero.
+
+**Alternatives considered:** Increasing the timeout would mask a wrong target;
+changing production quit or updater behavior is unsupported by this reproduced
+failure. Selecting the first PID match was directly disproven by real HWND
+inventory. A historical session_closed-then-linger variant remains separately
+unexplained; this fix does not claim to diagnose every historical shutdown issue.
+
+**Rationale:** Acceptance must exercise a real user closing the Electron window,
+and distinguish failure of the test driver from a product that fails to exit.
+No application payload, dependencies or release artifact changes are needed.
+
+## AD-57: Installer acceptance owns and restores per-user integration
+
+**Date:** 2026-10-03
+**Status:** Implemented; native restoration and real installer failure/success verified
+
+**Context:** A scratch /DIR and /NOICONS did not isolate Inno from existing
+Start Menu/SendTo launchers or the shared uninstall registration. A literal
+AppId check also missed Inno's actual escaped uninstall-key name (OBS-07).
+
+**Decision:** Both acceptance runners use a shared native PowerShell guard.
+Before installing it enumerates actual LecturePack HKCU uninstall records in
+both registry views and snapshots typed values, subkeys and shortcut bytes.
+An exclusive lease prevents overlapping runners; failed recovery preserves its
+snapshot and lease. Cleanup uninstalls the exact scratch app, restores original
+integration, verifies it, then reports success. Registry changes not owned by
+the scratch installation are preserved and reported as conflicts; shortcut
+restoration still runs. Python retains acceptance and cleanup exceptions;
+PowerShell writes completion evidence after cleanup. Existing acceptance data
+is never deleted to restart a run.
+
+**Alternatives considered:** /NOICONS alone was disproven by the real installer;
+guessing an uninstall-key string was disproven by the actual registry; relying
+on uninstall alone deletes pre-existing integration rather than restoring it.
+An isolated Windows VM remains preferable for genuinely clean-machine evidence,
+but does not remove the need to unwind test-host state reliably.
+
+**Rationale:** A local acceptance run must verify the shipping installer without
+leaving the user's launchers or installed-program metadata pointing at a removed
+test app. The guard uses only Windows PowerShell/.NET and adds no clean-machine
+development-runtime requirement. Historical OBS-07 registry preservation remains
+unverified; the new snapshots establish preservation for subsequent runs.
+
+## AD-56: Release artifacts use the same build root as the Electron packager
+
+**Date:** 2026-10-03
+**Status:** Implemented; real installer/updater acceptance passed
+
+**Context:** With LECTUREPACK_BUILD_ROOT set, package-win.mjs produced the new
+candidate in scratch, but build_electron_release.py validated and packaged an
+existing repository dist directory. Version metadata alone did not catch that
+the installer contained an older executable and renderer.
+
+**Decision:** Resolve the candidate from LECTUREPACK_BUILD_ROOT when configured,
+matching the Node packager, and retain the historical default when unset. Test
+with simultaneous old/default and new/scratch candidates and inspect the actual
+portable executable bytes. Verify the real executable version and portable UI
+identity as well as checksums during local release acceptance.
+
+**Alternatives considered:** Removing the stale default directory would hide
+the bug and violate preservation rules; moving builds back into the repository
+would defeat the approved scratch layout; changing only the installer version
+would leave the wrong payload. All were rejected.
+
+**Rationale:** One candidate directory must feed health checks, portable ZIP,
+installer and manifest. No dependencies, runtime stack or install identity change.
+
+## AD-55: Home reflects authoritative processing lifecycle
+
+**Date:** 2026-10-03
+**Status:** Implemented; isolated packaged Home acceptance passed
+
+**Context:** A first normal Qt job emitted progress without publishing the library,
+so Home remained empty until completion. Its saved Process resume destination also
+outlived the run and continued advertising Processing after completion.
+
+**Decision:** Publish the existing disk-backed jobs feed immediately after the
+controller starts the pipeline and stamps its running stage. Derive the Continue
+card from both saved navigation and the current library status: hide a Process
+resume destination for a done job, retaining meaningful Review/Study destinations
+and paused processing. No source media, persistence schema or bridge is changed.
+
+**Alternatives considered:** Polling the library adds recurring work; constructing
+a synthetic running card adds a second status authority; rewriting persisted
+resume state discards navigation unnecessarily. All were rejected.
+
+**Rationale:** The existing controller and jobs feed already own lifecycle truth.
+Publishing and consuming that truth fixes both symptoms without new state.
+
+
 ## AD-53: Guided-demo output and its recovery UI are exact packaged contracts
 
 **Date:** 2026-08-12
