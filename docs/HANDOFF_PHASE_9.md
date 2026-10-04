@@ -1,3 +1,57 @@
+# Handoff: PR #8 reconciliation, 2026-10-03
+
+Branch: `codex/pr8-reconciliation`, based on `9a19ed1`, existing worktree.
+This phase follows the pasted handoff's explicit request to push the outstanding
+commits and update PR #8. Owner approved and authorized automatic subsequent
+approval. No merge/tag/publication is part of this phase.
+
+## Scope and completed remote actions
+
+Permitted work: read current remote state, fast-forward the existing PR branch,
+rewrite title/body around the verified 2.1.4 candidate, attach the PR, watch its
+checks, and update this handoff. No product implementation/dependency changes.
+Required evidence: remote ancestry/head verification, accurate PR body, current
+head CI outcome and retained evidence. The preceding phase's local full pytest
+output remains `2070 passed, 8 skipped, 1 warning in 255.88s (0:04:15)`.
+
+- PR https://github.com/pasttrunks/lecturepack/pull/8 was open at e669beb.
+  Its old body incorrectly claimed the load-bearing yt-dlp client override was
+  removed and only cited old verification. Actual remote head was confirmed
+  through gh and ls-remote, and is an ancestor of our verified 9a19ed1.
+- Normal push (no force) advanced fix/ytdlp-caption-media-path to 9a19ed1.
+  It includes the previously unpushed handoff fixes and all passing subsequent
+  Home/checklist/installer/shutdown/batch-link/CI-runtime checkpoints.
+- Updated title: Prepare 2.1.4 Electron candidate: import, startup, packaging
+  and CI fixes. Body explains real resulting behavior and local verification,
+  required client selection, production Electron vs retained Qt compatibility,
+  and explicit remaining gates. Exact submitted body retained in scratch.
+- PR is attached to this chat, open, non-draft, with autoMergeRequest=null.
+  No merge, public tag or release was created.
+- First new unit CI started for 9a19ed1: run 37174758037, workflow CI,
+  test (3.12). This is the ordinary Windows PR suite, not the exact-tag desktop
+  release workflow. No hosted release-build success is claimed.
+
+## Evidence and next validation
+
+C:\LecturePackScratch\results\pr8-reconciliation contains the submitted
+pr-body.md and current-head/check result receipts saved after verification.
+This handoff-only checkpoint will be pushed normally too. Query gh pr view 8
+and the actual current-head CI run for the latest outcome rather than using
+an older green check. Current hosted check failures must be inspected and fixed;
+check status was not yet terminal when this handoff entry was written.
+
+Remaining original handoff work includes successful GitHub-hosted release
+execution, production-appropriate packaged repair validation, the historical
+OBS-04 session_closed-then-linger variant, affected/clean-machine and scaled
+installer checks. Authenticode is unavailable. Local 2.1.4 artifacts remain
+unsigned and unpublished. Historical installer-registration preservation and
+live Study AI/provider content-quality are not proven by local Basic gates.
+Canonical repository and other worktree edits remain untouched.
+
+Prior handoffs follow unchanged.
+
+---
+
 # Handoff: production Electron CI runtime restoration, 2026-10-03
 
 Branch: `codex/ci-runtime-restoration`, based on `3136287`, existing worktree
