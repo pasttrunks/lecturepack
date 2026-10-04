@@ -1,3 +1,69 @@
+# Handoff: packaged Electron shutdown gate, 2026-10-03
+
+Branch: `codex/packaged-shutdown-gate`, based on `4f780f0` in the existing
+`ytdlp-caption-fix` worktree. Owner clarified that current work is the production
+Electron app, not the Qt fallback. Automatic phase approval remains authorized.
+
+## Authorized phase and scope
+
+Diagnose OBS-04 with repeated real packaged launches and correct the demonstrated
+shutdown defect. Permitted files: scripts/electron_packaged_acceptance.py, its
+focused tests, BUG_LIST.md, DECISIONS.md and this handoff. Required evidence:
+behavioral regressions, full pytest output and repeated real Electron close/
+restore runs. Non-goals: speculative quit/updater changes, timeout increases,
+Qt work, dependencies, version changes or publication.
+
+## Confirmed cause and correction
+
+The baseline used the actual 2.1.4 Electron candidate executable and Python
+sidecar, with a real completed Basic Study lecture restored in every launch.
+One of ten runs failed: native window inventory proved the gate posted WM_CLOSE
+to a hidden Chrome_WidgetWin_0 helper before the visible LecturePack window.
+The product never received its main-window close and the gate killed it at the
+20-second bound. Nine correctly targeted baseline runs closed in 0.656–0.969s.
+
+The driver now selects the visible Chrome_WidgetWin_1 LecturePack window for
+its PID and checks PostMessage success. Missing targets and forced termination
+are explicit failures, including when a forced process reports exit zero.
+No packaged app code or artifacts changed; the 20-second bound is retained.
+Five behavioral regressions exercise hidden/foreign/IME/unrelated windows,
+failed post, absent main window and forced termination. Focused output:
+`16 passed in 0.47s`.
+
+## Verification evidence
+
+Scratch logs/results: C:\LecturePackScratch\results\shutdown-gate.
+Baseline output: baseline.txt; native inventory and classifications: baseline/
+results.json. The first corrected ten launches all closed naturally in
+0.734–1.031s, but six orphan observations overlapped independent pytest FFmpeg
+subprocesses. Those process observations are contaminated and do not prove
+product orphans or a clean gate. Original event logs are retained in the baseline
+results directory; separate baseline/fixed JSON was reconstructed from saved
+stdout because the exploratory fixed runner reused that results directory.
+The final repeated gate runs alone after pytest; its evidence is fixed-isolated.
+Full pytest output: `2055 passed, 8 skipped, 1 warning in 251.19s (0:04:11)`.
+Log: full.txt. Eight existing skips include the explicit live-AI opt-in and
+checkout-only packaged-payload tests; no tests were removed or weakened.
+Final isolated gate: **10/10 clean exits, 10/10 completed-job restores,
+10/10 session_closed events, zero orphan processes**, 0.687–0.921 seconds
+after WM_CLOSE. Evidence: fixed-isolated/results.json and per-launch JSONL logs.
+Same unchanged production Electron 2.1.4 candidate used before and after.
+Committed passing checkpoint on the branch above; canonical checkout untouched.
+
+## Remaining work
+
+OBS-04's historical session_closed-then-linger variant has not been reproduced
+or explained; ledger remains partially resolved. Continue Electron-focused
+polish, real multiple-link UI paste and BUG-59 CI runtime restoration. Installed
+2.1.4/updater acceptance and test-host isolation already passed in prior phases.
+Clean-machine, affected-laptop, scaled installer and Authenticode evidence remain
+outstanding. Artifacts remain unsigned and unpublished. Preserve canonical and
+other worktree edits. No original lecture media was modified.
+
+Prior handoffs follow unchanged.
+
+---
+
 # Handoff: installer acceptance isolation, 2026-10-03
 
 Branch: `codex/installer-test-isolation`, based on `1d076e6` in the existing

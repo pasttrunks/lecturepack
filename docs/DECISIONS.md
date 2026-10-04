@@ -2,6 +2,34 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-58: Packaged Electron shutdown gates close the visible main window
+
+**Date:** 2026-10-03
+**Status:** Implemented; repeated packaged verification recorded in the handoff
+
+**Context:** A 2.1.4 baseline reproduced OBS-04 once in ten launches. Native
+window inventory showed that the gate selected a hidden Chrome_WidgetWin_0
+helper before the visible Chrome_WidgetWin_1 LecturePack window. WM_CLOSE to
+that helper never initiated product shutdown; the 20-second gate then killed
+the application. The other nine launches shut down cleanly in under one second.
+
+**Decision:** Match owning PID, visibility, native main-window class and exact
+LecturePack title before posting WM_CLOSE. Report a missing target or forced
+termination explicitly and never count forced termination as clean shutdown.
+Retain the existing 20-second bound. Regression tests enumerate hidden helpers,
+foreign processes, IME and unrelated windows before the actual main window,
+and cover a rejected WM_CLOSE plus forced termination with exit code zero.
+
+**Alternatives considered:** Increasing the timeout would mask a wrong target;
+changing production quit or updater behavior is unsupported by this reproduced
+failure. Selecting the first PID match was directly disproven by real HWND
+inventory. A historical session_closed-then-linger variant remains separately
+unexplained; this fix does not claim to diagnose every historical shutdown issue.
+
+**Rationale:** Acceptance must exercise a real user closing the Electron window,
+and distinguish failure of the test driver from a product that fails to exit.
+No application payload, dependencies or release artifact changes are needed.
+
 ## AD-57: Installer acceptance owns and restores per-user integration
 
 **Date:** 2026-10-03

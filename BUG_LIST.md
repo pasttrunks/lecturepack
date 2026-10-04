@@ -1404,7 +1404,23 @@ re-debug the same thing from scratch.
   distinguishes the two, and is cleared in a `finally`.
 - **Tests:** `test_bug62_*` (three).
 
-### OBS-04 — the packaged acceptance gate fails ~50% of runs on shutdown   🔴 OPEN (found 2.1.2)
+### OBS-04 — packaged shutdown gate selected hidden Electron windows   🟠 PARTIALLY RESOLVED (found 2.1.2)
+- **2026-10-03 confirmed defect and fix:** Native HWND inventory against the real
+  packaged Electron 2.1.4 app reproduced one failure in ten launches. The gate
+  posted WM_CLOSE to the first same-PID window: a hidden Chrome_WidgetWin_0
+  helper, while the visible LecturePack main window remained open. The gate
+  killed the app after 20 seconds; no session_closed was written. The other
+  nine launches exited cleanly in 0.656–0.969 seconds after the close request.
+- **Correction:** Select the visible Chrome_WidgetWin_1 window titled LecturePack
+  for the process, honor PostMessage failure, and record missing-main-window or
+  forced-kill errors explicitly. Keep the 20-second bound and production quit
+  implementation unchanged. Five behavioral regressions cover window selection
+  and forced termination. The corrected isolated gate passed 10/10 real
+  Electron launches/restores with clean exits (0.687–0.921s), session_closed
+  events and zero orphans. Evidence is in HANDOFF_PHASE_9.
+- **Residual:** The historical session_closed-then-linger variant below has not
+  been reproduced or explained. Do not claim this test-driver fix diagnoses it.
+- **Historical evidence follows; its update-check hypothesis remains unproven.**
 - **Found:** 2026-08-24, running the release gate against the 2.1.2 packaged build before
   publishing. **This blocked the 2.1.2 publish.**
 - **Symptom:** `scripts/electron_packaged_acceptance.py` reports
