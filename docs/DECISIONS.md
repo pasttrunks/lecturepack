@@ -5,7 +5,8 @@ Record of major technical decisions. Newest entries at the top.
 ## AD-61: Validate the official Electron candidate on pull requests
 
 **Date:** 2026-10-04
-**Status:** Implemented; hosted execution pending
+**Status:** Implemented; hosted candidate gate passed on d839c71,
+run 37175987746 (2026-10-04)
 
 **Decision:** Add a read-only Windows PR job that runs the official Electron
 builder with pinned native inputs, locked Python/Node dependencies, Rust tests,
@@ -32,8 +33,8 @@ shutdown, lecture processing, updater survival or live Study AI quality.
 ## AD-60: CI restores the frozen, verified production CPU runtime
 
 **Date:** 2026-10-03
-**Status:** Implemented; local restoration/build evidence in HANDOFF_PHASE_9;
-GitHub-hosted execution remains separately unverified until dispatched
+**Status:** Implemented; local and hosted PR candidate restoration/build passed
+(run 37175987746). Exact-tag release execution remains separately unverified.
 
 **Context:** release-electron.yml packaged gitignored bin/models inputs without
 restoring them, so its advertised release path failed on a bare checkout.

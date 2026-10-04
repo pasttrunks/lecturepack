@@ -24,8 +24,22 @@ made all 11 Rust tests pass. Fresh release wheel built and installed into an
 isolated scratch target; imported module reports Rust 0.1.0 available.
 Full pytest: 2074 passed, 8 skipped, 1 warning in 328.40s (0:05:28).
 Logs preserved under C:\LecturePackScratch\results\hosted-electron-gate.
-Hosted candidate outcome remains pending; consult the receipt logs and current
-PR checks for terminal results. No hosted success is claimed from local tests.
+Hosted candidate gate passed on d839c71, run 37175987746:
+https://github.com/pasttrunks/lecturepack/actions/runs/37175987746
+Windows candidate job completed in 6m24s. Verified downloaded audit evidence:
+20 pinned runtime files restored; 12 required packaged checks passed, including
+actual Whisper smoke and Rust core; installer/portable built; visible window
+appeared in 1.00s. Manifest agrees with SHA256SUMS. Hosted hashes:
+- Portable: 83f0e5438671dbbd6f759bcbfd435f4715103073cc7cc3bcf5dff631616c1209
+- Setup: fb9e4d5e4fd07cfe8b7dcbdcfcdf2322a80683217b2b6c398a8cd1aeb5e30126
+Evidence artifacts intentionally contain no installer/portable bytes, so these
+hashes were cross-checked against each other, not a separately downloaded exe.
+Hosted unit pytest: 2055 passed, 27 skipped, 2 warnings in 263.32s (0:04:23).
+Logs, downloaded evidence and verification.json retained in the scratch results
+root. Window smoke forcibly terminates its launched process; it does not prove
+clean close or lecture processing. Exact-tag release execution remains pending.
+PR body updated with this phase and evidence. Follow-up documentation checkpoint
+does not change the verified builder code; inspect its current PR checks too.
 
 Previous final-head unit CI for ea806ec passed (run 37174839847):
 2051 passed, 27 skipped, 2 warnings in 258.78s. This was unit CI, not hosted
