@@ -87,3 +87,25 @@ This project does not currently have valid Authenticode credentials committed
 anywhere. Do **not** create a self-signed cert or invent signing keys. Record
 `AUTHENTICODE SIGNING: AVAILABLE / NOT AVAILABLE` explicitly before each
 release and surface it to the user rather than implying a signed binary.
+
+## Real Electron multi-link gate
+
+Run alone on Windows against the final packaged executable. Supply two or more
+short public video URLs you may download, and new scratch data/results roots:
+
+```powershell
+python scripts/electron_batch_link_acceptance.py `
+  --exe C:\LecturePackScratch\builds\candidate\LecturePack.exe `
+  --data-dir C:\LecturePackScratch\data\batch-links `
+  --results-dir C:\LecturePackScratch\results\batch-links `
+  --url 'https://www.youtube.com/watch?v=jNQXAC9IVRw' `
+  --url 'https://samplelib.com/mp4/sample-5s-360p.mp4'
+```
+
+The opt-in gate drives the actual Paste a link/Check link/Download UI, repeats
+the first URL to check deduplication, verifies real inspected recordings and
+persisted jobs, then reopens the app and requires the same renderer job IDs and
+unchanged download hashes. It records screenshots, text, JSONL and result.json.
+Success requires clean close on both launches and no orphan processes. It
+leaves evidence/data intact and refuses existing roots. It does not process
+the lectures, run Study AI, or substitute for those separate release gates.

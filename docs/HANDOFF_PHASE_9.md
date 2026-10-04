@@ -1,3 +1,70 @@
+# Handoff: production Electron batch-link acceptance, 2026-10-03
+
+Branch: `codex/electron-batch-link-gate`, based on `3205907`, existing
+`ytdlp-caption-fix` worktree. Auto approval continues; Electron is the current
+production focus. Previous turn made progress with a committed shutdown gate
+fix and 10/10 real close/restore checks.
+
+## Authorized phase
+
+Complete the handoff's real multi-link UI verification and save repeatable
+coverage. Permitted files: new Electron acceptance script/focused tests,
+BUG_LIST.md, RELEASING.md, DECISIONS.md and this handoff. Required evidence:
+real public-video downloads through packaged Electron, separate persisted jobs,
+restart restoration, relevant pytest and clean shutdown. Non-goals: Qt changes,
+new dependencies, changed yt-dlp clients, speculative product edits, video
+processing/AI claims, version changes or publication.
+
+## Delivered and verified
+
+- Added scripts/electron_batch_link_acceptance.py with explicit opt-in URLs,
+  fresh profiles/results, real Paste/Check/Download flow, duplicate/whitespace
+  coverage, actual inspected file/manifest checks and SHA-256, renderer IDs on
+  first launch/restart, screenshots and clean-close/orphan requirements.
+- Shipped 2.1.4 executable/sidecar fetched YouTube Me at the zoo (18.947483s,
+  629172 bytes), Samplelib 5s-360p (5.758005s, 1137884 bytes) and 10s-360p
+  (10.216009s, 2185013 bytes). Exactly three downloads despite four pasted
+  entries. Three real jobs appeared ready to process and restored unchanged
+  after restart, with real card posters. Both launches exited naturally,
+  zero orphans. Gate result.json passed=true, errors=[] and stable file hashes.
+- No production defect appeared in this case, so product code/artifacts stayed
+  unchanged. The load-bearing yt-dlp client override stayed unchanged.
+- Six evidence regressions require correct order/count, nonempty recordings,
+  media inspection and one persisted job per recording. Focused actual output:
+  `47 passed in 3.73s` (new gate + packaged gate + media adapter tests).
+
+Evidence root: C:\LecturePackScratch\results\electron-batch-link.
+Final live evidence: gate/result.json, confirmation.txt, launch-0/1.txt/png,
+production JSONL and gate.txt. Source data: corresponding scratch data root
+`electron-batch-link-gate`. Original media was not changed or deleted.
+
+Exploratory driver failures are preserved separately: initial inspect.py
+shadowed Python inspect, then a guessed CDP helper name failed, and console
+encoding rejected Unicode. The first live driver used a DOM-object wait (fixed
+to a boolean); its next attempt selected the Downloads header via a broad label
+prefix and assumed normalized persisted status instead of legacy complete.
+Those attempts did not prove a completed gate. The final script uses exact
+button labels and actual persisted vocabulary and passed independently.
+This verifies importing/restoration, not transcript/Study-generation quality.
+
+## Remaining
+
+Full pytest output: `2061 passed, 8 skipped, 1 warning in 268.21s (0:04:28)`
+(full.txt). The final streaming-hash/read-encoding cleanup was verified with
+`6 passed in 1.77s` and direct revalidation of the real gate files against the
+recorded hashes. No tests were removed or weakened. Commit the passing
+checkpoint; the worktree should then be clean. Next handoff
+items: BUG-59 CI payload restoration, historical OBS-04 linger variant and
+packaged repair where applicable to Electron. Clean-machine, affected-laptop,
+scaled-installer and Authenticode checks remain outstanding. Previous installed
+updater/host-isolation gates passed; 2.1.4 stays unsigned and unpublished.
+Canonical/other worktrees unchanged. Historical Qt batch UI is still unverified
+and was not part of this production Electron phase.
+
+Prior handoffs follow unchanged.
+
+---
+
 # Handoff: packaged Electron shutdown gate, 2026-10-03
 
 Branch: `codex/packaged-shutdown-gate`, based on `4f780f0` in the existing

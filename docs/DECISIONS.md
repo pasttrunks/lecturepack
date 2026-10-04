@@ -2,6 +2,27 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-59: Batch link acceptance covers real Electron UI and persisted restoration
+
+**Date:** 2026-10-03
+**Status:** Implemented; real packaged three-video gate passed
+
+**Decision:** Save an opt-in Electron UI gate driven through the existing raw
+CDP client. Require explicit public URLs and new disposable profile/results;
+paste mixed whitespace plus a duplicate, confirm the exact batch Download
+button, and inspect actual recordings, persisted manifests/media metadata,
+renderer job IDs, SHA-256 and restart restoration. Natural shutdown and no
+orphans remain required. Run this gate alone to avoid unrelated FFmpeg test
+processes contaminating process snapshots. Keep all evidence and test data.
+
+**Rationale and alternatives:** Unit bridge-shape tests cannot prove public
+video downloads or queued lectures survive a real Electron restart. Qt-only
+verification cannot prove the production shell works. The gate fetches actual
+files with the shipped yt-dlp and retains the established client override;
+format counts and mocked network responses are insufficient release evidence.
+There is no new dependency or production override. Failed exploratory drivers
+are retained and do not count as successful integration evidence.
+
 ## AD-58: Packaged Electron shutdown gates close the visible main window
 
 **Date:** 2026-10-03

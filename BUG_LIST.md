@@ -664,7 +664,12 @@ re-debug the same thing from scratch.
   import dialog opened (this also needed the OBS-06 restore). New tests:
   `test_bridge_accepts_the_batch_shapes_the_ui_actually_sends` (fails with the fix reverted) and
   `test_several_links_download_one_after_another`.
-- **Not verified:** multiple links in the real UI. Only the unit test covers that.
+- **Electron batch verified 2026-10-03:** real packaged 2.1.4 UI accepted three
+  public videos plus a repeated first URL, downloaded exactly three recordings,
+  persisted three separately inspected jobs and restored all three after restart.
+  Both launches exited cleanly with no orphans. See the opt-in
+  `scripts/electron_batch_link_acceptance.py` gate and HANDOFF_PHASE_9 evidence.
+  This completes the Electron multi-link check; Qt multi-link UI remains unverified.
 
 ### OBS-05 — on a first job, Home shows "No lectures yet" until processing finishes   ✅ FIXED (verified in isolated packaged candidate)
 - **Seen:** 2026-10-01, packaged app with a fresh profile, while importing the 1.375 GB file. The sidebar showed
