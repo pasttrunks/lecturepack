@@ -103,7 +103,19 @@ jobs:
       # ------------------------------------------------------------------ #
       - name: Test the Rust Study Core
         working-directory: rust/study-core
-        run: cargo test --release
+        run: cargo test --release --locked
+
+      - name: Build and install the Rust Python extension
+        shell: pwsh
+        run: |
+          $wheelDir = Join-Path $env:RUNNER_TEMP 'study-core-wheels'
+          python -m maturin build --release --locked --manifest-path rust/study-core/Cargo.toml --interpreter python --out $wheelDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $wheels = @(Get-ChildItem -LiteralPath $wheelDir -Filter '*.whl')
+          if ($wheels.Count -ne 1) { throw 'Expected exactly one Study Core wheel' }
+          python -m pip install --no-deps $wheels[0].FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -c "import lecturepack_study_core; print(lecturepack_study_core.__file__)"
 
       # Native payloads are intentionally gitignored. Restore the exact tested
       # CPU payload, pinned by archive AND member hashes; never use latest URLs.
@@ -235,6 +247,7 @@ jobs:
             electron-release-build.json
             runtime-restore-audit.json
             scripts/ci-runtime-lock.json
+            rust/study-core/Cargo.lock
             dist-release/${{ env.APP_VERSION }}/LecturePack-${{ env.APP_VERSION }}-SHA256SUMS.txt
             dist-release/${{ env.APP_VERSION }}/LecturePack-${{ env.APP_VERSION }}-release-manifest.json
           retention-days: 90

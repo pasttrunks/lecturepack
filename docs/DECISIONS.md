@@ -2,6 +2,33 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-61: Validate the official Electron candidate on pull requests
+
+**Date:** 2026-10-04
+**Status:** Implemented; hosted execution pending
+
+**Decision:** Add a read-only Windows PR job that runs the official Electron
+builder with pinned native inputs, locked Python/Node dependencies, Rust tests,
+mandatory packaged health checks, installer/portable generation and a visible
+window launch. Retain logs, runtime audit, locks and hash/manifest evidence;
+do not publish candidate executables or create release tags. The exact-tag
+release workflow remains the sole desktop publisher.
+
+Both jobs now build and install the CPython 3.12 Rust extension with the already
+selected maturin dependency before PyInstaller. Previously cargo test compiled
+the crate but did not install the Python extension required by sidecar.spec.
+Track the existing tested Cargo.lock and require --locked for both operations.
+No new dependency or product stack change is involved.
+
+**Alternatives considered:** Testing only unit/configuration contracts misses
+fresh-checkout packaging failures. Creating a stable tag merely to exercise
+the builder changes public release state prematurely. Maintaining another
+builder permits production and validation to diverge.
+
+**Rationale:** Real hosted package execution should expose missing build inputs
+before release. Window smoke proves startup only; it does not prove clean
+shutdown, lecture processing, updater survival or live Study AI quality.
+
 ## AD-60: CI restores the frozen, verified production CPU runtime
 
 **Date:** 2026-10-03

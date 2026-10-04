@@ -39,3 +39,90 @@ jobs:
     - name: Test with pytest
       run: |
         pytest -v
+
+  electron-candidate:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - uses: dtolnay/rust-toolchain@stable
+
+    - name: Install locked release dependencies
+      run: python -m pip install -r requirements-release.txt
+    - name: Install Inno Setup
+      run: choco install innosetup --no-progress -y
+    - name: Install and validate locked Node dependencies
+      working-directory: electron-spike
+      run: |
+        npm ci
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        npm run validate
+
+    - name: Test the Rust Study Core
+      working-directory: rust/study-core
+      run: cargo test --release --locked
+    - name: Build and install the Rust Python extension
+      shell: pwsh
+      run: |
+        $wheelDir = Join-Path $env:RUNNER_TEMP 'study-core-wheels'
+        python -m maturin build --release --locked --manifest-path rust/study-core/Cargo.toml --interpreter python --out $wheelDir
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $wheels = @(Get-ChildItem -LiteralPath $wheelDir -Filter '*.whl')
+        if ($wheels.Count -ne 1) { throw 'Expected exactly one Study Core wheel' }
+        python -m pip install --no-deps $wheels[0].FullName
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        python -c "import lecturepack_study_core; print(lecturepack_study_core.__file__)"
+
+    - name: Cache pinned runtime source archive
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/lecturepack-runtime-source/runtime-source.zip
+        key: native-runtime-${{ runner.os }}-${{ hashFiles('scripts/ci-runtime-lock.json') }}
+    - name: Restore and verify native runtime build inputs
+      shell: pwsh
+      run: |
+        $runtimeRoot = Join-Path $env:RUNNER_TEMP 'lecturepack-runtime'
+        python scripts/restore_ci_runtime.py --cache-dir (Join-Path $env:RUNNER_TEMP 'lecturepack-runtime-source') --output-dir $runtimeRoot > runtime-restore-audit.json
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        "LECTUREPACK_RUNTIME_ROOT=$runtimeRoot" >> $env:GITHUB_ENV
+        "LECTUREPACK_MSVC_RUNTIME_DIR=$(Join-Path $runtimeRoot 'msvc')" >> $env:GITHUB_ENV
+        "LECTUREPACK_BUILD_ROOT=$(Join-Path $env:RUNNER_TEMP 'lecturepack-candidate')" >> $env:GITHUB_ENV
+
+    - name: Build the official Electron candidate and run packaged health checks
+      shell: pwsh
+      run: |
+        $pyinstaller = (Get-Command pyinstaller).Source
+        python scripts/build_electron_release.py --pyinstaller $pyinstaller --output-dir (Join-Path $env:RUNNER_TEMP 'candidate-artifacts') --fast-compression > electron-candidate-build.log
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    - name: Packaged window launch smoke
+      shell: pwsh
+      run: |
+        $exe = Join-Path $env:LECTUREPACK_BUILD_ROOT 'dist/LecturePack-win32-x64/LecturePack.exe'
+        python scripts/packaged_launch_smoke.py --exe $exe > electron-candidate-launch.log
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    # Keep audit evidence only; the exact-tag release workflow remains the
+    # sole publisher of desktop release assets. No credentials are passed here.
+    - name: Retain candidate build evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: electron-candidate-evidence-${{ github.event.pull_request.head.sha }}
+        path: |
+          runtime-restore-audit.json
+          electron-candidate-build.log
+          electron-candidate-launch.log
+          scripts/ci-runtime-lock.json
+          rust/study-core/Cargo.lock
+          ${{ runner.temp }}/candidate-artifacts/*SHA256SUMS.txt
+          ${{ runner.temp }}/candidate-artifacts/*release-manifest.json
+        retention-days: 7

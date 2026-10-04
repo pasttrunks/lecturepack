@@ -1,3 +1,43 @@
+# Handoff: hosted Electron candidate build gate, 2026-10-04
+
+Branch: `codex/hosted-electron-build-gate`, based on ea806ec. Existing worktree
+and owner automatic approval remain in force. Production Electron is the focus.
+
+Authorized phase: verify real hosted candidate packaging without release
+publication. Permitted files: ci.yml, release-electron.yml, Rust Cargo.lock and
+its ignore rule, focused CI tests, RELEASING and decision/handoff documentation.
+Required evidence: focused contracts, full pytest, real Rust test/wheel build,
+then the actual PR Windows candidate job. Non-goals: new dependencies, product
+features, Qt changes, original media writes, merge/tag/publication.
+
+Implemented read-only PR candidate build using the official builder and pinned
+runtime, mandatory packaged health, installer/portable creation and visible
+window launch. Evidence artifacts contain logs/locks/hashes, no exe/ZIP assets.
+Both candidate and release jobs now build/install the Rust Python extension;
+cargo test alone never installed the .pyd required by sidecar.spec. Committed
+the pre-existing tested dependency lock and use --locked in both operations.
+
+Local focused result: 44 passed in 0.65s. Fresh Rust build compiled, but the
+first test launch returned STATUS_DLL_NOT_FOUND because the deliberately
+restricted local PATH omitted Python312. Adding the actual interpreter root
+made all 11 Rust tests pass. Fresh release wheel built and installed into an
+isolated scratch target; imported module reports Rust 0.1.0 available.
+Full pytest: 2074 passed, 8 skipped, 1 warning in 328.40s (0:05:28).
+Logs preserved under C:\LecturePackScratch\results\hosted-electron-gate.
+Hosted candidate outcome remains pending; consult the receipt logs and current
+PR checks for terminal results. No hosted success is claimed from local tests.
+
+Previous final-head unit CI for ea806ec passed (run 37174839847):
+2051 passed, 27 skipped, 2 warnings in 258.78s. This was unit CI, not hosted
+Electron packaging. Remaining gates include final-tag release execution,
+Electron runtime failure/reinstall recovery, historical shutdown linger,
+affected/clean-machine and scaled installer checks, and live Study AI quality.
+Authenticode remains unavailable. Nothing was merged, tagged or published.
+
+Prior handoffs follow unchanged.
+
+---
+
 # Handoff: PR #8 reconciliation, 2026-10-03
 
 Branch: `codex/pr8-reconciliation`, based on `9a19ed1`, existing worktree.

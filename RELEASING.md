@@ -112,6 +112,15 @@ the lectures, run Study AI, or substitute for those separate release gates.
 
 ## CI native runtime source
 
+PR CI also runs an `electron-candidate` Windows job using this same official
+builder. It builds and installs the locked Rust Python extension before sidecar
+packaging, restores the pinned runtime, builds installer/portable assets, runs
+mandatory packaged health checks and checks visible window startup. Only audit
+logs, locks and hash/manifest evidence are retained for seven days. It has
+read-only repository permissions and cannot publish desktop releases. This
+candidate gate does not replace final-tag verification, real lecture/export
+acceptance, clean shutdown, installer/updater or live Study AI gates.
+
 The desktop workflow restores build inputs with scripts/restore_ci_runtime.py
 and scripts/ci-runtime-lock.json before invoking the official Electron builder.
 The source is the public 2.1.3 portable ZIP, verified by its pinned archive hash
