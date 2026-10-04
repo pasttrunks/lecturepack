@@ -2,6 +2,34 @@
 
 Record of major technical decisions. Newest entries at the top.
 
+## AD-62: Explain reinstall recovery for missing Electron runtime files
+
+**Date:** 2026-10-04
+**Status:** Implemented; fresh official installed Electron hint/reinstall gate
+passed (electron-runtime-recovery-5), 2026-10-04
+
+**Context:** Real installed 2.1.4 with FFmpeg disabled enters startup_failed,
+not the legacy repair gate. It correctly names the failure and copies actual
+diagnostics, but only offers Retry/Copy diagnostics/Open logs, with no recovery
+instruction. Retrying cannot recreate a missing bundled executable.
+
+**Decision:** Show a reinstall hint on the shared startup failure screen only
+for Electron, a named bundled media/speech/model check, and an explicit missing
+file reason. Tell the user to close LecturePack, reinstall the current package,
+reopen it, and keep the lecture data folder. Hide and clear the hint for other
+failures and the Qt shell. Keep the existing failure/diagnostic information.
+
+**Alternatives considered:** Advising reinstall for every failure misdiagnoses
+storage/permission issues. Adding an in-place downloader changes the existing
+Electron recovery architecture and trust boundary. Reusing the Qt repair flow
+does not exercise production Electron behavior.
+
+**Evidence:** Guarded real same-version reinstall restored FFmpeg. Four launches
+(baseline/failure/reinstalled/restarted) exited naturally. The completed real
+lecture restored twice; 29 checked job files including 13 exports remained
+byte-identical. Registry/shortcuts restored and no orphans remained. This is
+development-host/same-version recovery, not a clean machine or live AI gate.
+
 ## AD-61: Validate the official Electron candidate on pull requests
 
 **Date:** 2026-10-04

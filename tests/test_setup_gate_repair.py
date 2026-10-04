@@ -12,6 +12,40 @@ def read_ui(name: str) -> str:
     return (UI / name).read_text(encoding="utf-8")
 
 
+def test_missing_electron_runtime_offers_reinstall_without_misdiagnosing_other_failures():
+    source = read_ui("app.js")
+    function = "function renderStartupFailure()" + source.split(
+        "function renderStartupFailure()", 1
+    )[1].split("function validOffer", 1)[0]
+    program = r'''
+      let failure = {}, values = {};
+      const recovery = {hidden: true};
+      const $ = () => recovery;
+      const text = (id, value) => { values[id] = value; };
+      const eventModel = {snapshot: () => ({startupFailure: failure})};
+      const window = {lecturePackElectron: {}};
+    ''' + function + r'''
+      failure = {failed_check: {id: 'ffmpeg', detail: 'Media runtime unavailable', technical: 'ffmpeg.exe: file is missing'}};
+      renderStartupFailure();
+      if (recovery.hidden || !values['startup-failure-recovery'].includes('reinstall the current package')) process.exit(1);
+      if (!values['startup-failure-recovery'].includes('Keep your lecture data folder')) process.exit(2);
+      if (!values['startup-failure-technical'].includes('ffmpeg.exe: file is missing')) process.exit(3);
+      failure = {failed_check: {id: 'data_directory', detail: 'Storage folder not found'}};
+      renderStartupFailure();
+      if (!recovery.hidden || values['startup-failure-recovery']) process.exit(4);
+      failure = {failed_check: {id: 'ffmpeg', technical: 'access denied'}};
+      renderStartupFailure();
+      if (!recovery.hidden || values['startup-failure-recovery']) process.exit(5);
+      delete window.lecturePackElectron;
+      failure = {failed_check: {id: 'ffmpeg', technical: 'file is missing'}};
+      renderStartupFailure();
+      if (!recovery.hidden || values['startup-failure-recovery']) process.exit(6);
+    '''
+    completed = subprocess.run(["node", "-e", program], capture_output=True, text=True)
+    assert completed.returncode == 0, completed.stderr
+    assert 'id="startup-failure-recovery" hidden' in read_ui("index.html")
+
+
 def test_runtime_setup_overlay_has_the_required_modal_surface() -> None:
     markup = read_ui("index.html")
 

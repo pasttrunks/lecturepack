@@ -3109,3 +3109,23 @@ DEF-061/062/063. The newer first-job Home OBS-03 is OBS-05; the yt-dlp OBS-02
 is OBS-06. Older 2.1.0 defects and icon/drag observations keep their original IDs.
 Historical handoffs, tests and code comments may still use the former aliases;
 resolve them by their descriptive title and date.
+
+---
+
+### DEF-065 — missing Electron runtime gives no recovery instruction ✅ FIXED (real installed Electron verified)
+
+- **Found:** 2026-10-04, real installed local 2.1.4 candidate with scratch FFmpeg
+  disabled. Startup screen names the failed runtime and Copy diagnostics works,
+  but Retry/Copy diagnostics/Open logs give no way to restore the missing file.
+- **Cause:** startup failure rendering only projects the failure reason; the
+  Electron reinstall explanation exists on the deferred repair response, which
+  this fatal-startup path does not enter.
+- **Change:** show reinstall/keep-data advice only for Electron and explicit
+  missing media/speech/model files. Clear/hide it for other failures and Qt.
+- **Evidence:** real guarded reinstall restored FFmpeg, completed job restored
+  twice, 29 checked files including 13 exports unchanged, four natural closes,
+  host integration restored, no orphans. Focused tests 33 passed, 1 skipped.
+  Fresh official build and installed hint/reinstall/restart gate passed (probe 5);
+  hint visible on failure and hidden when healthy. Full pytest: 2075 passed,
+  8 skipped, 1 warning in 256.45s. Probe 4 close-timing failure remains recorded
+  separately; this fix does not claim every shutdown case resolved. See handoff.

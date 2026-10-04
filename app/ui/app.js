@@ -5657,6 +5657,14 @@
       var check = failure.failed_check || {};
       text('startup-failure-title', check.title || 'Processing service failed to start.');
       text('startup-failure-detail', check.detail || failure.detail || failure.message || 'LecturePack could not start its processing service.');
+      var missingBundledRuntime = !!window.lecturePackElectron &&
+        /^(ffmpeg|ffprobe|whisper_runtime|whisper_smoke|bundled_model)$/.test(check.id || '') &&
+        /missing|not found/i.test((check.technical || '') + ' ' + (check.detail || ''));
+      var recovery = $('startup-failure-recovery');
+      if (recovery) recovery.hidden = !missingBundledRuntime;
+      text('startup-failure-recovery', missingBundledRuntime
+        ? 'Close LecturePack and reinstall the current package, then reopen it. Keep your lecture data folder.'
+        : '');
       var diagnostics = failure.diagnostics || failure;
       text('startup-failure-technical', typeof diagnostics === 'string' ? diagnostics : JSON.stringify(diagnostics, null, 2));
     }

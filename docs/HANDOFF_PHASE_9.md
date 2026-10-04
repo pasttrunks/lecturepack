@@ -1,3 +1,61 @@
+# Handoff: Electron missing-runtime recovery, 2026-10-04
+
+Branch codex/electron-runtime-recovery based on 2b0aa83, same worktree; automatic
+approval continues. Phase scope: real installed Electron failure/clipboard/
+reinstall/restart/data preservation, then fix any observed recovery wording.
+Permitted files: app/ui/app.js and index.html, focused runtime-gate tests,
+related decision/ledger/handoff documentation; disposable scratch probes.
+Required evidence: guarded real install/reinstall, copied actual diagnostics,
+saved-file hashes, natural close/no orphans, focused/full pytest, fresh official
+build and real new hint. Non-goals: new dependencies, Qt repair architecture,
+in-place downloader, original media changes, release publication.
+
+Real guarded probe passed against the prior official local 2.1.4 package:
+C:\LecturePackScratch\results\electron-runtime-recovery-3\result.json.
+Copied a previously processed real Basic lecture profile to disposable data.
+Baseline restored the completed job. Disabled installed scratch FFmpeg by rename
+under resources/LecturePackSidecar/_internal/bin. Actual startup failure named
+FFmpeg and Copy diagnostics wrote the actual missing-file reason. Same-version
+reinstall restored the executable and passed packaged self-test; completed job
+restored on two launches. All 29 checked job files (including 13 export files)
+remained byte-identical. All four launches closed naturally, no orphans; guard
+restored host integration after uninstall. Earlier probes/logs retained: first
+used a wrong runtime path, second expected the legacy repair screen and timed
+out; neither is a product failure and cleanup succeeded.
+
+Observed product defect: the startup screen gives no recovery instruction for a
+missing bundled executable. Added targeted Electron reinstall advice only for
+explicit missing media/speech/model checks, clearing/hiding it for other failures
+and Qt. Executable regression exercises actual render function for missing-file,
+permission/storage and Qt cases. Focused pytest: 33 passed, 1 skipped in 3.19s.
+Full pytest: 2075 passed, 8 skipped, 1 warning in 256.45s (0:04:16).
+Fresh official sidecar/Electron/installer/portable build passed mandatory health.
+Actual installer/portable hashes verified against SHA256SUMS and manifest:
+- Portable: 3806c50e36f4c40a2e9323ec82f9f10565e8525ef59957fb796a0b7140756e48
+- Setup: 343b244ae087532968e1493859d3f3c68d0d34dd0fd340d257fb1b5fffe3df74
+New installed UI probe passed at electron-runtime-recovery-5/result.json:
+hint visible for real missing FFmpeg, copied diagnostics name the file, hint
+hidden when healthy, reinstall restores runtime and completed job twice, 29
+checked files including 13 exports unchanged, four natural zero-code exits,
+no orphans, registry/shortcuts restored. Screenshot inspected visually.
+Probe 4 stopped on its first close attempt while UI was still finishing setup;
+no session_closed event was recorded. Keep that result: it is not evidence of
+the historical session_closed-then-linger variant. Probe 5 waits for completed
+setup and records the visible main window before closing. Startup-close timing
+remains separate follow-up work; do not claim all shutdown cases resolved.
+Result logs under C:\LecturePackScratch\results\electron-runtime-recovery;
+new build root C:\LecturePackScratch\builds\electron-recovery-candidate.
+Prior official package product source is unchanged by intervening CI/docs work.
+
+Previous docs checkpoint 2b0aa83 passed hosted unit and Electron candidate jobs
+in run 37176435684. Main build proof d839c71 remains in the prior entry below.
+Exact-tag release, historical shutdown linger, scaled/clean-machine checks and
+live Study AI quality remain separate. No merge/tag/release occurred.
+
+Prior handoffs follow unchanged.
+
+---
+
 # Handoff: hosted Electron candidate build gate, 2026-10-04
 
 Branch: `codex/hosted-electron-build-gate`, based on ea806ec. Existing worktree
